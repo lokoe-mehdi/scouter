@@ -12,6 +12,7 @@
 ![Docker](https://img.shields.io/badge/Docker-required-blue)
 
 ---
+<img width="1913" height="952" alt="image" src="https://github.com/user-attachments/assets/004ecad5-1479-468e-a34f-c6dc3bbae312" />
 
 ## Quick Install
 
