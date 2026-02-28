@@ -1,0 +1,482 @@
+/**
+ * DataTable - Styles CSS partagés pour url-table et link-table
+ * 
+ * @package Scouter
+ * @since 2.1.0
+ */
+
+/* ==============================================
+   ANIMATIONS
+   ============================================== */
+
+@keyframes slideInDown {
+    from {
+        transform: translateY(-10px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideInUp {
+    from {
+        transform: translateY(5px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+/* ==============================================
+   TABLE CARD CONTAINER
+   ============================================== */
+
+.table-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    overflow: hidden;
+}
+
+.table-header {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.table-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.table-scroll-area {
+    overflow: hidden;
+}
+
+.table-footer-bar {
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--border-color);
+    background: #fafbfc;
+}
+
+/* ==============================================
+   DATA TABLE
+   ============================================== */
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.data-table thead th {
+    background: #f8f9fa;
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-secondary);
+    border-bottom: 2px solid var(--border-color);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s ease;
+}
+
+.data-table thead th:hover {
+    background: #f0f1f2;
+}
+
+.data-table tbody tr {
+    border-bottom: 1px solid #eee;
+    transition: background 0.15s ease;
+}
+
+.data-table tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.data-table tbody td {
+    padding: 0.6rem 1rem;
+    vertical-align: middle;
+}
+
+/* Colonnes spécifiques */
+.data-table .col-url {
+    max-width: 400px;
+    min-width: 250px;
+}
+
+.data-table .col-depth,
+.data-table .col-code,
+.data-table .col-inlinks,
+.data-table .col-outlinks {
+    text-align: center;
+    white-space: nowrap;
+}
+
+.data-table .col-category {
+    white-space: nowrap;
+}
+
+/* ==============================================
+   BOUTONS D'ACTION TABLE
+   ============================================== */
+
+.btn-table-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.75rem;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-table-action:hover {
+    background: #f8f9fa;
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.btn-table-action .material-symbols-outlined {
+    font-size: 18px;
+}
+
+.btn-copy:hover {
+    border-color: #3498db;
+    color: #3498db;
+}
+
+.btn-export:hover {
+    border-color: #27ae60;
+    color: #27ae60;
+}
+
+.btn-columns-select:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+/* ==============================================
+   DROPDOWN COLONNES
+   ============================================== */
+
+.column-dropdown {
+    display: none;
+    position: absolute;
+    left: 0;
+    top: 100%;
+    margin-top: 0.5rem;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    min-width: 250px;
+    max-height: 450px;
+    z-index: 1000;
+    flex-direction: column;
+}
+
+.column-dropdown.show {
+    display: flex;
+    animation: slideInDown 0.2s ease-out;
+}
+
+.column-dropdown-header {
+    padding: 1rem 1rem 0.5rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+    background: white;
+    border-radius: 8px 8px 0 0;
+}
+
+.column-dropdown-header .title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.column-dropdown-header .actions {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.column-dropdown-header .actions a {
+    color: var(--primary-color);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.column-dropdown-header .actions a:hover {
+    text-decoration: underline;
+}
+
+.column-dropdown-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.5rem 1rem;
+    max-height: 280px;
+}
+
+.column-dropdown-list label {
+    display: block;
+    padding: 0.5rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.column-dropdown-list label:hover {
+    background: var(--background);
+}
+
+.column-dropdown-list input[type="checkbox"] {
+    margin-right: 0.5rem;
+    accent-color: var(--primary-color);
+}
+
+.column-dropdown-footer {
+    padding: 1rem;
+    border-top: 1px solid var(--border-color);
+    background: white;
+    border-radius: 0 0 8px 8px;
+    display: flex;
+    gap: 0.5rem;
+}
+
+.column-dropdown-footer .btn {
+    flex: 1;
+    padding: 0.6rem;
+    border: none;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.column-dropdown-footer .btn-apply {
+    background: var(--primary-color);
+    color: white;
+}
+
+.column-dropdown-footer .btn-cancel {
+    background: #95a5a6;
+    color: white;
+}
+
+/* ==============================================
+   DROPDOWN PER PAGE
+   ============================================== */
+
+.per-page-dropdown {
+    display: none;
+    position: absolute;
+    left: 0;
+    bottom: 100%;
+    margin-bottom: 0.25rem;
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+    min-width: 60px;
+}
+
+.per-page-dropdown.show {
+    display: block;
+    animation: slideInUp 0.15s ease-out;
+}
+
+.per-page-dropdown div {
+    padding: 0.4rem 0.6rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.per-page-dropdown div:hover {
+    background: #f8f9fa;
+}
+
+.per-page-dropdown div.active {
+    background: #f8f9fa;
+    font-weight: 600;
+}
+
+/* ==============================================
+   PAGINATION
+   ============================================== */
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.pagination-controls button {
+    padding: 0.4rem;
+    border: 1px solid #dee2e6;
+    background: white;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.pagination-controls button:hover:not(:disabled) {
+    background: #f8f9fa;
+    border-color: #adb5bd;
+}
+
+.pagination-controls button:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.pagination-controls button .material-symbols-outlined {
+    font-size: 20px;
+}
+
+/* ==============================================
+   BADGES
+   ============================================== */
+
+.badge {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.badge-info {
+    background: rgba(52, 152, 219, 0.15);
+    color: #3498db;
+}
+
+.badge-success {
+    background: rgba(46, 204, 113, 0.15);
+    color: #27ae60;
+}
+
+.badge-warning {
+    background: rgba(241, 196, 15, 0.15);
+    color: #f39c12;
+}
+
+.badge-danger {
+    background: rgba(231, 76, 60, 0.15);
+    color: #e74c3c;
+}
+
+/* ==============================================
+   SCROLLBAR SYNCHRONISÉE (HAUT)
+   ============================================== */
+
+.top-scrollbar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    margin-bottom: 0.5rem;
+}
+
+.top-scrollbar-content {
+    height: 1px;
+}
+
+/* ==============================================
+   URL CLIQUABLE
+   ============================================== */
+
+.url-clickable {
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.url-clickable:hover {
+    color: var(--primary-color);
+    text-decoration: underline;
+}
+
+/* ==============================================
+   ÉTAT VIDE
+   ============================================== */
+
+.table-empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+}
+
+.table-empty-state .icon {
+    font-size: 64px;
+    color: #95a5a6;
+    opacity: 0.5;
+}
+
+.table-empty-state .title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-top: 1rem;
+}
+
+.table-empty-state .description {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    max-width: 400px;
+    margin: 0.5rem auto 0;
+    line-height: 1.5;
+}
+
+/* ==============================================
+   LINK TABLE SPÉCIFIQUE
+   ============================================== */
+
+.link-table .source-header {
+    background: #e3f2fd !important;
+}
+
+.link-table .target-header {
+    background: #fff3e0 !important;
+}
+
+.link-table .link-header {
+    background: #f3e5f5 !important;
+}
+
+.chip-target {
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    text-transform: uppercase;
+}
+
+.chip-target.source {
+    background: #e3f2fd;
+    color: #1976d2;
+}
+
+.chip-target.target {
+    background: #fff3e0;
+    color: #e65100;
+}
+
+.chip-target.link {
+    background: #f3e5f5;
+    color: #7b1fa2;
+}

@@ -1,0 +1,33 @@
+{
+    "require": {
+        "chuyskywalker/rolling-curl": "^3.1",
+        "xparse/element-finder": "^3.0",
+        "mustangostang/spyc": "^0.6.2",
+        "fivefilters/readability.php": "^3.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/",
+            "App\\Core\\": "app/Core/",
+            "App\\Database\\": "app/Database/",
+            "App\\Auth\\": "app/Auth/",
+            "App\\Job\\": "app/Job/",
+            "App\\Analysis\\": "app/Analysis/",
+            "App\\Util\\": "app/Util/",
+            "App\\Cli\\": "app/Cli/",
+            "Charts\\": "web/charts/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {"Tests\\": "tests/"}
+    },
+    "require-dev": {
+        "symfony/var-dumper": "^3.4",
+        "pestphp/pest": "^4.3"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    }
+}

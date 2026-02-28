@@ -1,0 +1,11 @@
+vendor/
+logs/
+crawls/
+composer.lock
+.env
+.claude
+
+# Doctum
+docs/api/
+.doctum/
+doctum.phar

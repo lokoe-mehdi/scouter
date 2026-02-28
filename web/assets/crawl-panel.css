@@ -1,0 +1,870 @@
+/**
+ * Crawl Panel - Styles du panneau latéral de monitoring
+ * Design "Midnight Blue" - Dark Mode immersif
+ */
+
+/* Import police avec support Unicode complet */
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700&display=swap');
+
+/* ========================================
+   VARIABLES MIDNIGHT THEME
+======================================== */
+.crawl-panel,
+.crawl-panel * {
+    --midnight-bg: #0f172a;
+    --midnight-surface: #1e293b;
+    --midnight-surface-light: #334155;
+    --midnight-border: #334155;
+    --midnight-text: #f1f5f9;
+    --midnight-text-muted: #94a3b8;
+    --midnight-text-dim: #64748b;
+    --midnight-accent: #4ECDC4;
+    --midnight-success: #10b981;
+    --midnight-danger: #ef4444;
+    --midnight-warning: #f59e0b;
+}
+
+/* ========================================
+   OVERLAY (Backdrop blur)
+======================================== */
+.crawl-panel-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    z-index: 1100;
+}
+
+.crawl-panel-overlay.is-visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* ========================================
+   PANNEAU PRINCIPAL
+======================================== */
+.crawl-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 480px;
+    max-width: 95vw;
+    height: 100vh;
+    background: var(--midnight-bg);
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1200;
+    display: flex;
+    flex-direction: column;
+    box-shadow: -10px 0 50px rgba(0, 0, 0, 0.5);
+    border-left: 1px solid var(--midnight-border);
+}
+
+.crawl-panel.is-open {
+    transform: translateX(0);
+}
+
+/* ========================================
+   HEADER
+======================================== */
+.crawl-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    background: var(--midnight-bg);
+    border-bottom: 1px solid var(--midnight-border);
+    color: var(--midnight-text);
+    flex-shrink: 0;
+}
+
+.crawl-panel-header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.crawl-panel-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--midnight-warning);
+    animation: pulse 2s infinite;
+    flex-shrink: 0;
+}
+
+.crawl-panel-status-dot.running {
+    background: var(--midnight-accent);
+    animation: pulse 1s infinite;
+}
+
+.crawl-panel-status-dot.completed {
+    background: var(--midnight-success);
+    animation: none;
+}
+
+.crawl-panel-status-dot.failed {
+    background: var(--midnight-danger);
+    animation: none;
+}
+
+.crawl-panel-status-dot.stopped {
+    background: var(--midnight-warning);
+    animation: none;
+}
+
+.crawl-panel-status-dot.finished {
+    background: var(--midnight-success);
+    animation: none;
+}
+
+.crawl-panel-status-dot.error {
+    background: var(--midnight-danger);
+    animation: none;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.2); }
+}
+
+.crawl-panel-title {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.crawl-panel-title > span:first-child {
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--midnight-text);
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.crawl-panel-badge {
+    font-size: 0.65rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(78, 205, 196, 0.15);
+    color: var(--midnight-accent);
+    font-weight: 600;
+    width: fit-content;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.crawl-panel-badge.running {
+    background: rgba(78, 205, 196, 0.15);
+    color: var(--midnight-accent);
+}
+
+.crawl-panel-badge.completed {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--midnight-success);
+}
+
+.crawl-panel-badge.failed {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--midnight-danger);
+}
+
+.crawl-panel-badge.stopped {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--midnight-warning);
+}
+
+.crawl-panel-badge.finished {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--midnight-success);
+}
+
+.crawl-panel-badge.error {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--midnight-danger);
+}
+
+.crawl-panel-badge.queued {
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+}
+
+.crawl-panel-badge.stopping {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--midnight-warning);
+}
+
+.crawl-panel-badge.pending {
+    background: rgba(156, 163, 175, 0.15);
+    color: #9ca3af;
+}
+
+.crawl-panel-header-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.crawl-panel-btn-icon {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    color: var(--midnight-text-muted);
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.crawl-panel-btn-icon:hover {
+    background: var(--midnight-surface);
+    color: var(--midnight-text);
+}
+
+.crawl-panel-btn-icon .material-symbols-outlined {
+    font-size: 20px;
+}
+
+/* Sélecteur de crawl */
+.crawl-panel-btn-selector {
+    position: relative;
+}
+
+.crawl-panel-selector-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 16px;
+    height: 16px;
+    background: var(--midnight-accent);
+    color: var(--midnight-bg);
+    font-size: 0.65rem;
+    font-weight: 700;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+}
+
+/* Liste des crawls en cours */
+.crawl-panel-crawl-list {
+    background: var(--midnight-surface);
+    border-bottom: 1px solid var(--midnight-border);
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.crawl-panel-crawl-list-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--midnight-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--midnight-border);
+}
+
+.crawl-panel-crawl-list-header .material-symbols-outlined {
+    font-size: 16px;
+}
+
+.crawl-panel-crawl-list-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    border-bottom: 1px solid var(--midnight-border);
+}
+
+.crawl-panel-crawl-list-item:last-child {
+    border-bottom: none;
+}
+
+.crawl-panel-crawl-list-item:hover {
+    background: var(--midnight-surface-light);
+}
+
+.crawl-panel-crawl-list-item.active {
+    background: rgba(78, 205, 196, 0.1);
+    border-left: 3px solid var(--midnight-accent);
+}
+
+.crawl-panel-crawl-list-item-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--midnight-accent);
+    flex-shrink: 0;
+    animation: pulse 1s infinite;
+}
+
+.crawl-panel-crawl-list-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.crawl-panel-crawl-list-item-name {
+    font-weight: 500;
+    font-size: 0.9rem;
+    color: var(--midnight-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.crawl-panel-crawl-list-item-stats {
+    font-size: 0.75rem;
+    color: var(--midnight-text);
+    opacity: 0.7;
+}
+
+.crawl-panel-crawl-list-item-progress {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--midnight-accent);
+    flex-shrink: 0;
+}
+
+/* ========================================
+   KPIs
+======================================== */
+.crawl-panel-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.6rem;
+    padding: 1rem 1.25rem;
+    background: var(--midnight-bg);
+    border-bottom: 1px solid var(--midnight-border);
+    flex-shrink: 0;
+}
+
+.crawl-panel-kpi {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0.75rem 0.5rem;
+    background: var(--midnight-surface);
+    border-radius: 8px;
+    border: 1px solid var(--midnight-border);
+    text-align: center;
+}
+
+.crawl-panel-kpi > .material-symbols-outlined {
+    font-size: 18px;
+    color: var(--midnight-accent);
+    opacity: 0.6;
+}
+
+.crawl-panel-kpi-data {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.crawl-panel-kpi-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--midnight-text);
+    line-height: 1.2;
+}
+
+.crawl-panel-kpi-label {
+    font-size: 0.6rem;
+    color: var(--midnight-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* ========================================
+   PROGRESS BAR
+======================================== */
+.crawl-panel-progress-bar {
+    height: 3px;
+    background: var(--midnight-surface);
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.crawl-panel-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--midnight-accent), #38bdf8);
+    transition: width 0.3s ease;
+    position: relative;
+}
+
+.crawl-panel-progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.3),
+        transparent
+    );
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+/* ========================================
+   TERMINAL / LOGS
+======================================== */
+.crawl-panel-terminal {
+    flex: 1;
+    background: var(--midnight-bg);
+    color: var(--midnight-text-muted);
+font-family: Consolas, Menlo, Monaco, "Courier New", monospace; /* Le stack VS Code */
+    white-space: pre;      /* Indispensable */
+    line-height: 1;        /* Colle les lignes verticalement */
+    letter-spacing: 0;     /* Colle les caractères horizontalement */
+    font-size: 14px;       /* Une taille fixe aide parfois le rendu */    font-size: 0.72rem;
+    padding: 1rem;
+    padding-bottom: 50px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    position: relative;
+}
+
+.crawl-panel-terminal::-webkit-scrollbar {
+    width: 6px;
+}
+
+.crawl-panel-terminal::-webkit-scrollbar-track {
+    background: var(--midnight-bg);
+}
+
+.crawl-panel-terminal::-webkit-scrollbar-thumb {
+    background: var(--midnight-surface);
+    border-radius: 3px;
+}
+
+.crawl-panel-terminal::-webkit-scrollbar-thumb:hover {
+    background: var(--midnight-surface-light);
+}
+
+/* Firefox */
+.crawl-panel-terminal {
+    scrollbar-width: thin;
+    scrollbar-color: var(--midnight-surface) var(--midnight-bg);
+}
+
+.crawl-panel-log-line {
+    padding: 0.25rem 0;
+    word-break: break-word;
+}
+
+/* Types de logs */
+.crawl-panel-log-header {
+    color: var(--midnight-accent);
+    font-weight: 600;
+}
+
+.crawl-panel-log-credit {
+    color: var(--midnight-text-dim);
+    font-style: italic;
+}
+
+.crawl-panel-log-progress {
+    color: #4ade80;
+}
+
+.crawl-panel-log-success {
+    color: var(--midnight-success);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.crawl-panel-log-success .material-symbols-outlined {
+    font-size: 16px;
+}
+
+.crawl-panel-log-error {
+    color: #f87171;
+}
+
+.crawl-panel-log-system {
+    color: var(--midnight-text-dim);
+}
+
+/* Depth progress styling */
+.crawl-panel-log-depth {
+    color: #c4b5fd;
+    font-weight: 600;
+}
+
+.crawl-panel-log-speed {
+    color: #38bdf8;
+}
+
+.crawl-panel-log-count {
+    color: #7dd3fc;
+}
+
+/* Mini progress bar dans les logs */
+.crawl-panel-log-bar {
+    display: inline-block;
+    width: 80px;
+    height: 5px;
+    background: var(--midnight-surface);
+    border-radius: 3px;
+    overflow: hidden;
+    vertical-align: middle;
+    margin-left: 0.5rem;
+}
+
+.crawl-panel-log-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--midnight-accent), #38bdf8);
+    transition: width 0.3s ease;
+}
+
+/* ========================================
+   SCROLL TO BOTTOM BUTTON
+======================================== */
+.crawl-panel-scroll-btn {
+    position: absolute;
+    bottom: 80px;
+    right: 20px;
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: var(--midnight-accent);
+    color: var(--midnight-bg);
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 16px rgba(78, 205, 196, 0.3);
+    transition: all 0.2s ease;
+    z-index: 10;
+}
+
+.crawl-panel-scroll-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 20px rgba(78, 205, 196, 0.4);
+}
+
+.crawl-panel-scroll-btn .material-symbols-outlined {
+    font-size: 18px;
+}
+
+/* ========================================
+   FOOTER
+======================================== */
+.crawl-panel-footer {
+    display: flex;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    background: var(--midnight-bg);
+    border-top: 1px solid var(--midnight-border);
+    flex-shrink: 0;
+}
+
+.crawl-panel-btn-stop {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--midnight-danger);
+    color: var(--midnight-danger);
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.crawl-panel-btn-stop:hover {
+    background: var(--midnight-danger);
+    color: white;
+}
+
+.crawl-panel-btn-stop:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.crawl-panel-btn-stop .material-symbols-outlined {
+    font-size: 20px;
+}
+
+/* Bouton Resume pour crawl arrêté/échoué */
+.crawl-panel-btn-resume {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid var(--midnight-success);
+    color: var(--midnight-success);
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.crawl-panel-btn-resume:hover {
+    background: var(--midnight-success);
+    color: white;
+}
+
+.crawl-panel-btn-resume:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.crawl-panel-btn-resume .material-symbols-outlined {
+    font-size: 20px;
+}
+
+/* Bouton Dashboard pour crawl terminé */
+.crawl-panel-btn-dashboard {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: var(--midnight-accent);
+    border: none;
+    color: var(--midnight-bg);
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+}
+
+.crawl-panel-btn-dashboard:hover {
+    background: #3dbdb5;
+    color: var(--midnight-bg);
+}
+
+.crawl-panel-btn-dashboard .material-symbols-outlined {
+    font-size: 20px;
+}
+
+/* ========================================
+   NOTIFICATION MINIMISÉE (style original)
+======================================== */
+.crawl-panel-minimized {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: none;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1.25rem;
+    background: linear-gradient(135deg, #1a252f 0%, #2C3E50 100%);
+    color: white;
+    border-radius: 50px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    z-index: 1050;
+}
+
+.crawl-panel-minimized:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+}
+
+.crawl-panel-minimized.is-visible {
+    display: flex;
+}
+
+.crawl-panel-minimized-content {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+}
+
+.crawl-panel-minimized-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin-left: 0.5rem;
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.crawl-panel-minimized-close:hover {
+    background: rgba(239, 68, 68, 0.8);
+    color: white;
+}
+
+.crawl-panel-minimized-close .material-symbols-outlined {
+    font-size: 16px;
+}
+
+.crawl-panel-minimized-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    animation: pulse 1s infinite;
+}
+
+.crawl-panel-minimized-dot.completed {
+    background: var(--success);
+    animation: none;
+}
+
+.crawl-panel-minimized-count {
+    min-width: 22px;
+    height: 22px;
+    background: var(--primary-color);
+    color: white;
+    font-size: 0.8rem;
+    font-weight: 700;
+    border-radius: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+    margin-left: -4px;
+}
+
+.crawl-panel-minimized-text {
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+/* Badge terminé non vu */
+.crawl-panel-minimized.is-finished {
+    background: linear-gradient(135deg, #1a472a 0%, #0d2818 100%);
+    border: 1px solid var(--success);
+}
+
+.crawl-panel-minimized.is-finished .crawl-panel-minimized-dot {
+    background: var(--success);
+    animation: none;
+}
+
+.crawl-panel-minimized.is-finished .crawl-panel-minimized-count {
+    background: var(--success);
+}
+
+.crawl-panel-minimized.is-finished .crawl-panel-minimized-progress {
+    background: rgba(16, 185, 129, 0.2);
+    color: var(--success);
+}
+
+/* Badge avec des crawls terminés non vus en plus */
+.crawl-panel-minimized.has-finished .crawl-panel-minimized-count {
+    background: linear-gradient(135deg, var(--primary-color) 50%, var(--success) 50%);
+}
+
+.crawl-panel-minimized-progress {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    background: rgba(78, 205, 196, 0.2);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+}
+
+/* ========================================
+   RESPONSIVE
+======================================== */
+@media (max-width: 768px) {
+    .crawl-panel {
+        width: 100%;
+        max-width: 100%;
+    }
+    
+    .crawl-panel-kpis {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .crawl-panel-minimized {
+        bottom: 16px;
+        right: 16px;
+        padding: 0.6rem 1rem;
+    }
+}
+
+/* ========================================
+   ANIMATIONS D'ENTRÉE/SORTIE
+======================================== */
+.crawl-panel.is-closing {
+    transform: translateX(100%);
+}
+
+/* Animation de chargement pour le terminal */
+.crawl-panel-loading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--midnight-text-muted);
+}
+
+.crawl-panel-loading::before {
+    content: '';
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--midnight-surface-light);
+    border-top-color: var(--midnight-accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ========================================
+   EFFET DÉGRADÉ BAS DU TERMINAL
+======================================== */
+.crawl-panel-terminal::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    background: linear-gradient(transparent, var(--midnight-bg));
+    pointer-events: none;
+}

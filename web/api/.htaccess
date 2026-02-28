@@ -1,0 +1,19 @@
+# =============================================================================
+# Scouter API - Rewrite Rules
+# =============================================================================
+# Toutes les requêtes sont redirigées vers index.php qui gère le routing.
+
+RewriteEngine On
+
+# Ne pas réécrire les fichiers et dossiers existants
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Rediriger tout vers index.php
+RewriteRule ^(.*)$ index.php [QSA,L]
+
+# Désactiver le listing de répertoires
+Options -Indexes
+
+# Charset UTF-8
+AddDefaultCharset UTF-8

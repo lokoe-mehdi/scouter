@@ -1,0 +1,7 @@
+vendor/
+.git
+.gitignore
+*.log
+*.pid
+*.bat
+node_modules/

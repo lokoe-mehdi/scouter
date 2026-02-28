@@ -1,0 +1,29 @@
+homepage:
+  color: "#F2E4EC"
+  dom: {dom}
+  include: 
+    - ^\/$
+
+content:
+  color: "#d97878"
+  dom: {dom}
+  include: 
+    - .*
+  exclude:
+    - \?
+
+analytics:
+  color: "#79CFD9"
+  dom: {dom}
+  include: 
+    - \?utm_source
+    - \?utm_medium
+    - \?utm_campaign
+    - \?utm_term
+    - \?utm_content
+
+other:
+  color: "#F2DEA0"
+  dom: {dom}
+  include: 
+    - .*

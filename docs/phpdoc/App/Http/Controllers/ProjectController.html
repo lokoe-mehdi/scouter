@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="robots" content="index, follow, all" />
+    <title>App\Http\Controllers\ProjectController | Scouter - Documentation PHP</title>
+
+            <link rel="stylesheet" type="text/css" href="../../../css/bootstrap.min.css">
+        <link rel="stylesheet" type="text/css" href="../../../css/bootstrap-theme.min.css">
+        <link rel="stylesheet" type="text/css" href="../../../css/doctum.css">
+        <link rel="stylesheet" type="text/css" href="../../../css/dark-theme.css">
+        <link rel="stylesheet" type="text/css" href="../../../fonts/doctum-font.css">
+        <script src="../../../js/jquery-3.5.1.slim.min.js"></script>
+        <script async defer src="../../../doctum.js"></script>
+        <script async defer src="../../../js/bootstrap.min.js"></script>
+        <script async defer src="../../../js/autocomplete.min.js"></script>
+        <meta name="MobileOptimized" content="width">
+        <meta name="HandheldFriendly" content="true">
+        <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+
+    </head>
+
+    <body id="class" data-name="class:App_Http_Controllers_ProjectController" data-root-path="../../../" data-search-index-url="../../../doctum-search.json">
+            <div id="content">
+        <div id="left-column">
+                <div id="control-panel">
+                <div class="search-bar hidden" id="search-progress-bar-container">
+            <div class="progress">
+                <div class="progress-bar" role="progressbar" id="search-progress-bar"
+                    aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
+            </div>
+        </div>
+        <form id="search-form" action="../../../search.html">
+            <span class="icon icon-search"></span>
+            <input name="search"
+                   id="doctum-search-auto-complete"
+                   class="typeahead form-control"
+                   type="search"
+                   placeholder="Search"
+                   spellcheck="false"
+                   autocorrect="off"
+                   autocomplete="off"
+                   autocapitalize="off">
+            <div class="auto-complete-results" id="auto-complete-results"></div>
+        </form>
+    </div>
+
+                <div id="api-tree"></div>
+
+        </div>
+        <div id="right-column">
+                <nav id="site-nav" class="navbar navbar-default" role="navigation">
+        <div class="container-fluid">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#navbar-elements">
+                    <span class="sr-only">Toggle navigation</span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="../../../index.html">Scouter - Documentation PHP</a>
+            </div>
+            <div class="collapse navbar-collapse" id="navbar-elements">
+                <ul class="nav navbar-nav">
+                    <li><a href="../../../classes.html">Classes</a></li>
+                    <li><a href="../../../namespaces.html">Namespaces</a></li>
+                    <li><a href="../../../interfaces.html">Interfaces</a></li>
+                    <li><a href="../../../traits.html">Traits</a></li>
+                    <li><a href="../../../doc-index.html">Index</a></li>
+                    <li><a href="../../../search.html">Search</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+                        <div class="namespace-breadcrumbs">
+            <ol class="breadcrumb">
+                <li><span class="label label-default">class</span></li>
+                        <li><a href="../../../App.html">App</a></li><li class="backslash">\</li><li><a href="../../../App/Http.html">Http</a></li><li class="backslash">\</li><li><a href="../../../App/Http/Controllers.html">Controllers</a></li><li class="backslash">\</li><li>ProjectController</li>
+            </ol>
+        </div>
+                <div id="page-content">
+    <div class="page-header">
+        <h1>ProjectController    
+            </h1>
+    </div>
+
+    
+    <p>        class
+    <strong>ProjectController</strong>        extends <a href="../../../App/Http/Controller.html"><abbr title="App\Http\Controller">Controller</abbr></a>
+</p>
+
+        
+    
+        
+
+            <div class="description">
+            <p><p>Controller pour la gestion des projets</p></p>            <p><p>Gère les opérations CRUD sur les projets et leur partage.</p></p>        </div>
+            
+        
+    
+            <h2>Properties</h2>
+
+            <table class="table table-condensed">
+                    <tr>
+                <td class="type" id="property_auth">
+                                        protected                                        <a href="../../../App/Auth/Auth.html"><abbr title="App\Auth\Auth">Auth</abbr></a>
+                                                                                
+                                    </td>
+                <td>$auth</td>
+                <td class="last"><p>Instance d'authentification</p></td>
+                <td><small>from&nbsp;<a href="../../../App/Http/Controller.html#property_auth">
+<abbr title="App\Http\Controller">Controller</abbr></a></small></td>
+            </tr>
+                    <tr>
+                <td class="type" id="property_userId">
+                                        protected                                        int|null
+                                                                                
+                                    </td>
+                <td>$userId</td>
+                <td class="last"><p>ID de l'utilisateur connecté</p></td>
+                <td><small>from&nbsp;<a href="../../../App/Http/Controller.html#property_userId">
+<abbr title="App\Http\Controller">Controller</abbr></a></small></td>
+            </tr>
+            </table>
+
+    
+            <h2>Methods</h2>
+
+            <div class="container-fluid underlined">
+                    <div class="row">
+                <div class="col-md-2 type">
+                    
+                </div>
+                <div class="col-md-8">
+                    <a href="#method___construct">__construct</a>(<a href="../../../App/Auth/Auth.html"><abbr title="App\Auth\Auth">Auth</abbr></a> $auth)
+        
+                                            <p>Constructeur</p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_json">json</a>(array $data, int $status = 200)
+        
+                                            <p><p>Envoie une réponse JSON</p></p>                </div>
+                <div class="col-md-2"><small>from&nbsp;<a href="../../../App/Http/Controller.html#method_json">
+<abbr title="App\Http\Controller">Controller</abbr></a></small></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_success">success</a>(array $data = [], string $message = null)
+        
+                                            <p><p>Envoie une réponse de succès</p></p>                </div>
+                <div class="col-md-2"><small>from&nbsp;<a href="../../../App/Http/Controller.html#method_success">
+<abbr title="App\Http\Controller">Controller</abbr></a></small></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_error">error</a>(string $message, int $status = 400)
+        
+                                            <p><p>Envoie une réponse d'erreur</p></p>                </div>
+                <div class="col-md-2"><small>from&nbsp;<a href="../../../App/Http/Controller.html#method_error">
+<abbr title="App\Http\Controller">Controller</abbr></a></small></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    array
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_validate">validate</a>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request, array $rules)
+        
+                                            <p><p>Valide les données de la requête selon des règles</p></p>                </div>
+                <div class="col-md-2"><small>from&nbsp;<a href="../../../App/Http/Controller.html#method_validate">
+<abbr title="App\Http\Controller">Controller</abbr></a></small></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_index">index</a>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        
+                                            <p><p>Liste les projets accessibles par l'utilisateur</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_show">show</a>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        
+                                            <p><p>Affiche les détails d'un projet</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_create">create</a>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        
+                                            <p><p>Crée un nouveau projet et crawl</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_update">update</a>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        
+                                            <p><p>Met à jour un projet (renommage)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_delete">delete</a>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        
+                                            <p><p>Supprime un projet</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_deleteFromBody">deleteFromBody</a>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        
+                                            <p><p>Supprime un projet (ID dans le body pour compatibilité frontend)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_shares">shares</a>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        
+                                            <p><p>Liste les partages d'un projet</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_share">share</a>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        
+                                            <p><p>Partage un projet avec un utilisateur</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_unshare">unshare</a>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        
+                                            <p><p>Retire le partage d'un projet avec un utilisateur</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_shareFromBody">shareFromBody</a>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        
+                                            <p><p>Partage un projet (project_id et user_id dans le body - ancien format API)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_unshareFromBody">unshareFromBody</a>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        
+                                            <p><p>Retire le partage d'un projet (project_id et user_id dans le body - ancien format API)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_stats">stats</a>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        
+                                            <p><p>Retourne les statistiques d'un projet</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_duplicate">duplicate</a>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        
+                                            <p><p>Duplique un crawl et démarre un nouveau crawl avec la même configuration</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+            </div>
+
+
+        <h2>Details</h2>
+
+            <div id="method-details">
+                    <div class="method-item">
+                    <h3 id="method___construct">
+        <div class="location">at line 37</div>
+        <code>                    
+    <strong>__construct</strong>(<a href="../../../App/Auth/Auth.html"><abbr title="App\Auth\Auth">Auth</abbr></a> $auth)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p>Constructeur</p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Auth/Auth.html"><abbr title="App\Auth\Auth">Auth</abbr></a></td>
+                <td>$auth</td>
+                <td><p>Instance d'authentification</p></td>
+            </tr>
+            </table>
+
+            
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_json">
+        <div class="location">in <a href="../../../App/Http/Controller.html#method_json">
+<abbr title="App\Http\Controller">Controller</abbr></a> at line 53</div>
+        <code>            protected        void
+    <strong>json</strong>(array $data, int $status = 200)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Envoie une réponse JSON</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>array</td>
+                <td>$data</td>
+                <td><p>Données à encoder</p></td>
+            </tr>
+                    <tr>
+                <td>int</td>
+                <td>$status</td>
+                <td><p>Code de statut HTTP</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_success">
+        <div class="location">in <a href="../../../App/Http/Controller.html#method_success">
+<abbr title="App\Http\Controller">Controller</abbr></a> at line 66</div>
+        <code>            protected        void
+    <strong>success</strong>(array $data = [], string $message = null)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Envoie une réponse de succès</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>array</td>
+                <td>$data</td>
+                <td><p>Données additionnelles</p></td>
+            </tr>
+                    <tr>
+                <td>string</td>
+                <td>$message</td>
+                <td><p>Message de succès</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_error">
+        <div class="location">in <a href="../../../App/Http/Controller.html#method_error">
+<abbr title="App\Http\Controller">Controller</abbr></a> at line 79</div>
+        <code>            protected        void
+    <strong>error</strong>(string $message, int $status = 400)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Envoie une réponse d'erreur</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>string</td>
+                <td>$message</td>
+                <td><p>Message d'erreur</p></td>
+            </tr>
+                    <tr>
+                <td>int</td>
+                <td>$status</td>
+                <td><p>Code de statut HTTP</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_validate">
+        <div class="location">in <a href="../../../App/Http/Controller.html#method_validate">
+<abbr title="App\Http\Controller">Controller</abbr></a> at line 94</div>
+        <code>            protected        array
+    <strong>validate</strong>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request, array $rules)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Valide les données de la requête selon des règles</p></p>                <p><p>Règles supportées: required, email, numeric, min:N</p></p>        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a></td>
+                <td>$request</td>
+                <td><p>Requête HTTP</p></td>
+            </tr>
+                    <tr>
+                <td>array</td>
+                <td>$rules</td>
+                <td><p>Règles de validation (field =&gt; 'rule1|rule2')</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>array</td>
+            <td><p>Données validées</p></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_index">
+        <div class="location">at line 53</div>
+        <code>                    void
+    <strong>index</strong>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Liste les projets accessibles par l'utilisateur</p></p>                <p><p>Retourne les projets selon le rôle : admin voit tout, user voit ses projets
+et ceux partagés, viewer voit uniquement les partagés.</p></p>        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a></td>
+                <td>$request</td>
+                <td><p>Requête HTTP</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_show">
+        <div class="location">at line 92</div>
+        <code>                    void
+    <strong>show</strong>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Affiche les détails d'un projet</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a></td>
+                <td>$request</td>
+                <td><p>Requête HTTP (id en route)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_create">
+        <div class="location">at line 118</div>
+        <code>                    void
+    <strong>create</strong>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Crée un nouveau projet et crawl</p></p>                <p><p>Accepte une URL de départ, extrait le domaine comme nom de projet,
+crée le projet si nécessaire, puis crée le crawl avec la configuration.</p></p>        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a></td>
+                <td>$request</td>
+                <td><p>Requête HTTP (start_url, depth_max, config options)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_update">
+        <div class="location">at line 244</div>
+        <code>                    void
+    <strong>update</strong>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Met à jour un projet (renommage)</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a></td>
+                <td>$request</td>
+                <td><p>Requête HTTP (id en route, name)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_delete">
+        <div class="location">at line 272</div>
+        <code>                    void
+    <strong>delete</strong>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Supprime un projet</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a></td>
+                <td>$request</td>
+                <td><p>Requête HTTP (id en route)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_deleteFromBody">
+        <div class="location">at line 295</div>
+        <code>                    void
+    <strong>deleteFromBody</strong>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Supprime un projet (ID dans le body pour compatibilité frontend)</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a></td>
+                <td>$request</td>
+                <td><p>Requête HTTP (project_id dans body)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_shares">
+        <div class="location">at line 321</div>
+        <code>                    void
+    <strong>shares</strong>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Liste les partages d'un projet</p></p>                <p><p>Retourne les utilisateurs avec qui le projet est partagé
+et ceux disponibles pour le partage.</p></p>        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a></td>
+                <td>$request</td>
+                <td><p>Requête HTTP (id en route)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_share">
+        <div class="location">at line 349</div>
+        <code>                    void
+    <strong>share</strong>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Partage un projet avec un utilisateur</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a></td>
+                <td>$request</td>
+                <td><p>Requête HTTP (id en route, user_id)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_unshare">
+        <div class="location">at line 377</div>
+        <code>                    void
+    <strong>unshare</strong>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Retire le partage d'un projet avec un utilisateur</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a></td>
+                <td>$request</td>
+                <td><p>Requête HTTP (id en route, user_id)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_shareFromBody">
+        <div class="location">at line 401</div>
+        <code>                    void
+    <strong>shareFromBody</strong>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Partage un projet (project_id et user_id dans le body - ancien format API)</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a></td>
+                <td>$request</td>
+                <td><p>Requête HTTP (project_id, user_id)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_unshareFromBody">
+        <div class="location">at line 429</div>
+        <code>                    void
+    <strong>unshareFromBody</strong>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Retire le partage d'un projet (project_id et user_id dans le body - ancien format API)</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a></td>
+                <td>$request</td>
+                <td><p>Requête HTTP (project_id, user_id)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_stats">
+        <div class="location">at line 453</div>
+        <code>                    void
+    <strong>stats</strong>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Retourne les statistiques d'un projet</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a></td>
+                <td>$request</td>
+                <td><p>Requête HTTP (id en route)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_duplicate">
+        <div class="location">at line 485</div>
+        <code>                    void
+    <strong>duplicate</strong>(<a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a> $request)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Duplique un crawl et démarre un nouveau crawl avec la même configuration</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a href="../../../App/Http/Request.html"><abbr title="App\Http\Request">Request</abbr></a></td>
+                <td>$request</td>
+                <td><p>Requête HTTP (project = path du crawl source)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+            </div>
+
+    
+</div><div id="footer">
+        Generated by <a href="https://github.com/code-lts/doctum">Doctum, a API Documentation generator and fork of Sami</a>.</div></div>
+    </div>
+    </body>
+
+</html>

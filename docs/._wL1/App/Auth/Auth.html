@@ -1,0 +1,1702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="robots" content="index, follow, all" />
+    <title>App\Auth\Auth | Scouter - Documentation PHP</title>
+
+            <link rel="stylesheet" type="text/css" href="../../css/bootstrap.min.css">
+        <link rel="stylesheet" type="text/css" href="../../css/bootstrap-theme.min.css">
+        <link rel="stylesheet" type="text/css" href="../../css/doctum.css">
+        <link rel="stylesheet" type="text/css" href="../../css/dark-theme.css">
+        <link rel="stylesheet" type="text/css" href="../../fonts/doctum-font.css">
+        <script src="../../js/jquery-3.5.1.slim.min.js"></script>
+        <script async defer src="../../doctum.js"></script>
+        <script async defer src="../../js/bootstrap.min.js"></script>
+        <script async defer src="../../js/autocomplete.min.js"></script>
+        <meta name="MobileOptimized" content="width">
+        <meta name="HandheldFriendly" content="true">
+        <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+
+    </head>
+
+    <body id="class" data-name="class:App_Auth_Auth" data-root-path="../../" data-search-index-url="../../doctum-search.json">
+            <div id="content">
+        <div id="left-column">
+                <div id="control-panel">
+                <div class="search-bar hidden" id="search-progress-bar-container">
+            <div class="progress">
+                <div class="progress-bar" role="progressbar" id="search-progress-bar"
+                    aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
+            </div>
+        </div>
+        <form id="search-form" action="../../search.html">
+            <span class="icon icon-search"></span>
+            <input name="search"
+                   id="doctum-search-auto-complete"
+                   class="typeahead form-control"
+                   type="search"
+                   placeholder="Search"
+                   spellcheck="false"
+                   autocorrect="off"
+                   autocomplete="off"
+                   autocapitalize="off">
+            <div class="auto-complete-results" id="auto-complete-results"></div>
+        </form>
+    </div>
+
+                <div id="api-tree"></div>
+
+        </div>
+        <div id="right-column">
+                <nav id="site-nav" class="navbar navbar-default" role="navigation">
+        <div class="container-fluid">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#navbar-elements">
+                    <span class="sr-only">Toggle navigation</span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="../../index.html">Scouter - Documentation PHP</a>
+            </div>
+            <div class="collapse navbar-collapse" id="navbar-elements">
+                <ul class="nav navbar-nav">
+                    <li><a href="../../classes.html">Classes</a></li>
+                    <li><a href="../../namespaces.html">Namespaces</a></li>
+                    <li><a href="../../interfaces.html">Interfaces</a></li>
+                    <li><a href="../../traits.html">Traits</a></li>
+                    <li><a href="../../doc-index.html">Index</a></li>
+                    <li><a href="../../search.html">Search</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+                        <div class="namespace-breadcrumbs">
+            <ol class="breadcrumb">
+                <li><span class="label label-default">class</span></li>
+                        <li><a href="../../App.html">App</a></li><li class="backslash">\</li><li><a href="../../App/Auth.html">Auth</a></li><li class="backslash">\</li><li>Auth</li>
+            </ol>
+        </div>
+                <div id="page-content">
+    <div class="page-header">
+        <h1>Auth    
+            </h1>
+    </div>
+
+            <i>Since: 1.0.0</i>
+        <br>
+    
+    <p>        class
+    <strong>Auth</strong>
+</p>
+
+        
+    
+        
+
+            <div class="description">
+            <p><p>Gestion de l'authentification et des autorisations</p></p>            <p><p>Cette classe gère l'ensemble du système d'authentification utilisateur :</p>
+<ul>
+<li>Connexion/déconnexion avec sessions PHP</li>
+<li>Gestion des rôles (admin, user, viewer)</li>
+<li>Contrôle d'accès aux projets et crawls</li>
+<li>Partage de projets entre utilisateurs</li>
+</ul></p>        </div>
+            
+        
+    
+    
+            <h2>Methods</h2>
+
+            <div class="container-fluid underlined">
+                    <div class="row">
+                <div class="col-md-2 type">
+                    
+                </div>
+                <div class="col-md-8">
+                    <a href="#method___construct">__construct</a>(<abbr title="App\Auth\App\Database\UserRepository">UserRepository</abbr>|null $users = null, <abbr title="App\Auth\App\Database\ProjectRepository">ProjectRepository</abbr>|null $projects = null, <abbr title="App\Auth\App\Database\CrawlRepository">CrawlRepository</abbr>|null $crawls = null, bool $skipDb = false)
+        
+                                            <p class="no-description">No description</p>
+                                    </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_login">login</a>(string $email, string $password)
+        
+                                            <p><p>Tente de connecter un utilisateur</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_logout">logout</a>()
+        
+                                            <p><p>Déconnecte l'utilisateur</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_isLoggedIn">isLoggedIn</a>()
+        
+                                            <p><p>Vérifie si un utilisateur est connecté</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    object|null
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_getCurrentUser">getCurrentUser</a>()
+        
+                                            <p><p>Récupère l'utilisateur connecté</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    int|null
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_getCurrentUserId">getCurrentUserId</a>()
+        
+                                            <p><p>Récupère l'ID de l'utilisateur connecté</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    string|null
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_getCurrentEmail">getCurrentEmail</a>()
+        
+                                            <p><p>Récupère l'email de l'utilisateur connecté</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_requireLogin">requireLogin</a>(string $loginUrl = &#039;/web/login.php&#039;)
+        
+                                            <p><p>Redirige vers la page de login si l'utilisateur n'est pas connecté</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_hasUsers">hasUsers</a>()
+        
+                                            <p><p>Vérifie si des utilisateurs existent dans la base</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    int|false
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_register">register</a>(string $email, string $password, string $role = &#039;user&#039;)
+        
+                                            <p><p>Enregistre un nouvel utilisateur</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    string|null
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_getCurrentRole">getCurrentRole</a>()
+        
+                                            <p><p>Récupère le rôle de l'utilisateur connecté</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_hasRole">hasRole</a>(string $role)
+        
+                                            <p><p>Vérifie si l'utilisateur connecté a un rôle spécifique</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_isAdmin">isAdmin</a>()
+        
+                                            <p><p>Vérifie si l'utilisateur connecté est admin</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_isViewer">isViewer</a>()
+        
+                                            <p><p>Vérifie si l'utilisateur connecté est viewer (lecture seule)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_canCreate">canCreate</a>()
+        
+                                            <p><p>Vérifie si l'utilisateur peut créer des crawls/projets</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_requireCanCreate">requireCanCreate</a>(bool $isApi = true)
+        
+                                            <p><p>Requiert que l'utilisateur puisse créer des projets/crawls</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_canAccessProject">canAccessProject</a>(int $projectId)
+        
+                                            <p><p>Vérifie si l'utilisateur peut accéder à un projet
+Retourne true si : Admin OU Propriétaire OU Partagé via project_shares</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_canManageProject">canManageProject</a>(int $projectId)
+        
+                                            <p><p>Vérifie si l'utilisateur peut gérer un projet (modifier, supprimer, partager)
+Retourne true si : Admin OU Propriétaire
+Refusé pour les utilisateurs en partage (Lecture seule)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_canAccessCrawl">canAccessCrawl</a>(int $crawlId)
+        
+                                            <p><p>Vérifie si l'utilisateur peut accéder à un crawl
+Basé sur l'accès au projet parent</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_canManageCrawl">canManageCrawl</a>(int $crawlId)
+        
+                                            <p><p>Vérifie si l'utilisateur peut gérer un crawl
+Basé sur la gestion du projet parent</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_requireProjectAccess">requireProjectAccess</a>(int $projectId)
+        
+                                            <p><p>Requiert que l'utilisateur puisse accéder au projet, sinon erreur 403</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_requireProjectManagement">requireProjectManagement</a>(int $projectId)
+        
+                                            <p><p>Requiert que l'utilisateur puisse gérer le projet, sinon erreur 403</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_canAccessCrawlByPath">canAccessCrawlByPath</a>(string $crawlPath)
+        
+                                            <p><p>Vérifie si l'utilisateur peut accéder à un crawl par son chemin</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_canManageCrawlByPath">canManageCrawlByPath</a>(string $crawlPath)
+        
+                                            <p><p>Vérifie si l'utilisateur peut gérer un crawl par son chemin</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_canManageCrawlById">canManageCrawlById</a>(int $crawlId)
+        
+                                            <p><p>Vérifie si l'utilisateur peut gérer un crawl par son ID</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_canAccessCrawlById">canAccessCrawlById</a>(int $crawlId)
+        
+                                            <p><p>Vérifie si l'utilisateur peut accéder à un crawl par son ID</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_requireCrawlAccessById">requireCrawlAccessById</a>(int $crawlId, bool $isApi = true)
+        
+                                            <p><p>Requiert l'accès au crawl par ID, sinon erreur 403</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_requireCrawlAccess">requireCrawlAccess</a>(string $crawlPath, bool $isApi = true)
+        
+                                            <p><p>Requiert l'accès au crawl par chemin, sinon erreur 403</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_requireCrawlManagement">requireCrawlManagement</a>(string $crawlPath, bool $isApi = true)
+        
+                                            <p><p>Requiert la gestion du crawl par chemin, sinon erreur 403</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_requireAdmin">requireAdmin</a>(bool $isApi = true)
+        
+                                            <p><p>Requiert d'être admin, sinon erreur 403</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_requireLoginOrRedirect">requireLoginOrRedirect</a>()
+        
+                                            <p><p>Requiert la connexion, sinon redirige vers login (pour pages HTML)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_requireLoginApi">requireLoginApi</a>()
+        
+                                            <p><p>Requiert la connexion pour une API, sinon erreur 401</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+            </div>
+
+
+        <h2>Details</h2>
+
+            <div id="method-details">
+                    <div class="method-item">
+                    <h3 id="method___construct">
+        <div class="location">at line 38</div>
+        <code>                    
+    <strong>__construct</strong>(<abbr title="App\Auth\App\Database\UserRepository">UserRepository</abbr>|null $users = null, <abbr title="App\Auth\App\Database\ProjectRepository">ProjectRepository</abbr>|null $projects = null, <abbr title="App\Auth\App\Database\CrawlRepository">CrawlRepository</abbr>|null $crawls = null, bool $skipDb = false)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p class="no-description">No description</p>
+                    
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><abbr title="App\Auth\App\Database\UserRepository">UserRepository</abbr>|null</td>
+                <td>$users</td>
+                <td><p>Injection pour tests</p></td>
+            </tr>
+                    <tr>
+                <td><abbr title="App\Auth\App\Database\ProjectRepository">ProjectRepository</abbr>|null</td>
+                <td>$projects</td>
+                <td><p>Injection pour tests</p></td>
+            </tr>
+                    <tr>
+                <td><abbr title="App\Auth\App\Database\CrawlRepository">CrawlRepository</abbr>|null</td>
+                <td>$crawls</td>
+                <td><p>Injection pour tests</p></td>
+            </tr>
+                    <tr>
+                <td>bool</td>
+                <td>$skipDb</td>
+                <td><p>Si true, n'instancie pas les repos (pour tests unitaires)</p></td>
+            </tr>
+            </table>
+
+            
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_login">
+        <div class="location">at line 73</div>
+        <code>                    bool
+    <strong>login</strong>(string $email, string $password)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Tente de connecter un utilisateur</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>string</td>
+                <td>$email</td>
+                <td><p>Email de l'utilisateur</p></td>
+            </tr>
+                    <tr>
+                <td>string</td>
+                <td>$password</td>
+                <td><p>Mot de passe</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td><p>True si connexion réussie</p></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_logout">
+        <div class="location">at line 97</div>
+        <code>                    
+    <strong>logout</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Déconnecte l'utilisateur</p></p>                        
+        </div>
+        <div class="tags">
+            
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_isLoggedIn">
+        <div class="location">at line 117</div>
+        <code>                    bool
+    <strong>isLoggedIn</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si un utilisateur est connecté</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td><p>True si connecté</p></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_getCurrentUser">
+        <div class="location">at line 126</div>
+        <code>                    object|null
+    <strong>getCurrentUser</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Récupère l'utilisateur connecté</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>object|null</td>
+            <td><p>L'utilisateur connecté ou null</p></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_getCurrentUserId">
+        <div class="location">at line 139</div>
+        <code>                    int|null
+    <strong>getCurrentUserId</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Récupère l'ID de l'utilisateur connecté</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>int|null</td>
+            <td><p>L'ID de l'utilisateur ou null</p></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_getCurrentEmail">
+        <div class="location">at line 148</div>
+        <code>                    string|null
+    <strong>getCurrentEmail</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Récupère l'email de l'utilisateur connecté</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>string|null</td>
+            <td><p>L'email ou null</p></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_requireLogin">
+        <div class="location">at line 157</div>
+        <code>                    
+    <strong>requireLogin</strong>(string $loginUrl = &#039;/web/login.php&#039;)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Redirige vers la page de login si l'utilisateur n'est pas connecté</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>string</td>
+                <td>$loginUrl</td>
+                <td><p>URL de la page de login</p></td>
+            </tr>
+            </table>
+
+            
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_hasUsers">
+        <div class="location">at line 169</div>
+        <code>                    bool
+    <strong>hasUsers</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si des utilisateurs existent dans la base</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td><p>True si au moins un utilisateur existe</p></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_register">
+        <div class="location">at line 181</div>
+        <code>                    int|false
+    <strong>register</strong>(string $email, string $password, string $role = &#039;user&#039;)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Enregistre un nouvel utilisateur</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>string</td>
+                <td>$email</td>
+                <td>Email</td>
+            </tr>
+                    <tr>
+                <td>string</td>
+                <td>$password</td>
+                <td><p>Mot de passe</p></td>
+            </tr>
+                    <tr>
+                <td>string</td>
+                <td>$role</td>
+                <td><p>Rôle de l'utilisateur (admin, user, viewer)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>int|false</td>
+            <td><p>L'ID de l'utilisateur créé ou false si email existe</p></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_getCurrentRole">
+        <div class="location">at line 195</div>
+        <code>                    string|null
+    <strong>getCurrentRole</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Récupère le rôle de l'utilisateur connecté</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>string|null</td>
+            <td><p>Le rôle ou null si non connecté</p></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_hasRole">
+        <div class="location">at line 205</div>
+        <code>                    bool
+    <strong>hasRole</strong>(string $role)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si l'utilisateur connecté a un rôle spécifique</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>string</td>
+                <td>$role</td>
+                <td><p>Le rôle à vérifier (admin, user, viewer)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_isAdmin">
+        <div class="location">at line 217</div>
+        <code>                    bool
+    <strong>isAdmin</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si l'utilisateur connecté est admin</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_isViewer">
+        <div class="location">at line 226</div>
+        <code>                    bool
+    <strong>isViewer</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si l'utilisateur connecté est viewer (lecture seule)</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_canCreate">
+        <div class="location">at line 235</div>
+        <code>                    bool
+    <strong>canCreate</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si l'utilisateur peut créer des crawls/projets</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td><p>True si admin ou user (pas viewer)</p></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_requireCanCreate">
+        <div class="location">at line 248</div>
+        <code>                    void
+    <strong>requireCanCreate</strong>(bool $isApi = true)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Requiert que l'utilisateur puisse créer des projets/crawls</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>bool</td>
+                <td>$isApi</td>
+                <td><p>Si true, retourne JSON. Si false, affiche page HTML</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_canAccessProject">
+        <div class="location">at line 267</div>
+        <code>                    bool
+    <strong>canAccessProject</strong>(int $projectId)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si l'utilisateur peut accéder à un projet
+Retourne true si : Admin OU Propriétaire OU Partagé via project_shares</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>int</td>
+                <td>$projectId</td>
+                <td><p>ID du projet</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_canManageProject">
+        <div class="location">at line 291</div>
+        <code>                    bool
+    <strong>canManageProject</strong>(int $projectId)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si l'utilisateur peut gérer un projet (modifier, supprimer, partager)
+Retourne true si : Admin OU Propriétaire
+Refusé pour les utilisateurs en partage (Lecture seule)</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>int</td>
+                <td>$projectId</td>
+                <td><p>ID du projet</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_canAccessCrawl">
+        <div class="location">at line 314</div>
+        <code>                    bool
+    <strong>canAccessCrawl</strong>(int $crawlId)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si l'utilisateur peut accéder à un crawl
+Basé sur l'accès au projet parent</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>int</td>
+                <td>$crawlId</td>
+                <td><p>ID du crawl</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_canManageCrawl">
+        <div class="location">at line 340</div>
+        <code>                    bool
+    <strong>canManageCrawl</strong>(int $crawlId)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si l'utilisateur peut gérer un crawl
+Basé sur la gestion du projet parent</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>int</td>
+                <td>$crawlId</td>
+                <td><p>ID du crawl</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_requireProjectAccess">
+        <div class="location">at line 364</div>
+        <code>                    void
+    <strong>requireProjectAccess</strong>(int $projectId)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Requiert que l'utilisateur puisse accéder au projet, sinon erreur 403</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>int</td>
+                <td>$projectId</td>
+                <td><p>ID du projet</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_requireProjectManagement">
+        <div class="location">at line 376</div>
+        <code>                    void
+    <strong>requireProjectManagement</strong>(int $projectId)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Requiert que l'utilisateur puisse gérer le projet, sinon erreur 403</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>int</td>
+                <td>$projectId</td>
+                <td><p>ID du projet</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_canAccessCrawlByPath">
+        <div class="location">at line 391</div>
+        <code>                    bool
+    <strong>canAccessCrawlByPath</strong>(string $crawlPath)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si l'utilisateur peut accéder à un crawl par son chemin</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>string</td>
+                <td>$crawlPath</td>
+                <td><p>Chemin du crawl (ex: &quot;lokoe-fr-20241201-120000&quot;)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_canManageCrawlByPath">
+        <div class="location">at line 416</div>
+        <code>                    bool
+    <strong>canManageCrawlByPath</strong>(string $crawlPath)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si l'utilisateur peut gérer un crawl par son chemin</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>string</td>
+                <td>$crawlPath</td>
+                <td><p>Chemin du crawl</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_canManageCrawlById">
+        <div class="location">at line 441</div>
+        <code>                    bool
+    <strong>canManageCrawlById</strong>(int $crawlId)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si l'utilisateur peut gérer un crawl par son ID</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>int</td>
+                <td>$crawlId</td>
+                <td><p>ID du crawl</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_canAccessCrawlById">
+        <div class="location">at line 466</div>
+        <code>                    bool
+    <strong>canAccessCrawlById</strong>(int $crawlId)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si l'utilisateur peut accéder à un crawl par son ID</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>int</td>
+                <td>$crawlId</td>
+                <td><p>ID du crawl</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_requireCrawlAccessById">
+        <div class="location">at line 491</div>
+        <code>                    void
+    <strong>requireCrawlAccessById</strong>(int $crawlId, bool $isApi = true)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Requiert l'accès au crawl par ID, sinon erreur 403</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>int</td>
+                <td>$crawlId</td>
+                <td><p>ID du crawl</p></td>
+            </tr>
+                    <tr>
+                <td>bool</td>
+                <td>$isApi</td>
+                <td><p>Si true, retourne JSON. Si false, affiche page HTML</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_requireCrawlAccess">
+        <div class="location">at line 519</div>
+        <code>                    void
+    <strong>requireCrawlAccess</strong>(string $crawlPath, bool $isApi = true)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Requiert l'accès au crawl par chemin, sinon erreur 403</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>string</td>
+                <td>$crawlPath</td>
+                <td><p>Chemin du crawl</p></td>
+            </tr>
+                    <tr>
+                <td>bool</td>
+                <td>$isApi</td>
+                <td><p>Si true, retourne JSON. Si false, affiche page HTML</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_requireCrawlManagement">
+        <div class="location">at line 547</div>
+        <code>                    void
+    <strong>requireCrawlManagement</strong>(string $crawlPath, bool $isApi = true)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Requiert la gestion du crawl par chemin, sinon erreur 403</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>string</td>
+                <td>$crawlPath</td>
+                <td><p>Chemin du crawl</p></td>
+            </tr>
+                    <tr>
+                <td>bool</td>
+                <td>$isApi</td>
+                <td><p>Si true, retourne JSON. Si false, affiche page HTML</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_requireAdmin">
+        <div class="location">at line 567</div>
+        <code>                    void
+    <strong>requireAdmin</strong>(bool $isApi = true)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Requiert d'être admin, sinon erreur 403</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>bool</td>
+                <td>$isApi</td>
+                <td><p>Si true, retourne JSON. Si false, affiche page HTML</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_requireLoginOrRedirect">
+        <div class="location">at line 592</div>
+        <code>                    void
+    <strong>requireLoginOrRedirect</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Requiert la connexion, sinon redirige vers login (pour pages HTML)</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_requireLoginApi">
+        <div class="location">at line 603</div>
+        <code>                    void
+    <strong>requireLoginApi</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Requiert la connexion pour une API, sinon erreur 401</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+            </div>
+
+    
+</div><div id="footer">
+        Generated by <a href="https://github.com/code-lts/doctum">Doctum, a API Documentation generator and fork of Sami</a>.</div></div>
+    </div>
+    </body>
+
+</html>

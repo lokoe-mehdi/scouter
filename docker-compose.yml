@@ -1,0 +1,105 @@
+services:
+  # Base de données PostgreSQL (avec init.sql intégré)
+  postgres:
+    build: ./docker/postgres
+    # Config "Ferrari" ajustée pour la stabilité :
+    # - synchronous_commit=off : Rapide, risque minime de perte de données en cas de crash
+    # - max_connections=200 : Réduit de 300 à 200 pour économiser la RAM
+    # - work_mem=16MB : Réduit de 64MB à 16MB pour éviter les OOM (Out Of Memory) si beaucoup de connexions
+    # - shared_buffers=512MB : Nécessite >1GB RAM sur le serveur
+    # max_locks_per_transaction=256 : Augmenté de 64 (défaut) pour supporter les crawls parallèles
+    command: postgres -c synchronous_commit=off -c max_connections=200 -c shared_buffers=512MB -c work_mem=16MB -c maintenance_work_mem=256MB -c effective_cache_size=1GB -c wal_buffers=16MB -c checkpoint_completion_target=0.9 -c random_page_cost=1.1 -c effective_io_concurrency=200 -c min_wal_size=1GB -c max_wal_size=4GB -c max_locks_per_transaction=256
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Application PHP principale (Le cerveau)
+  scouter:
+    build: .
+    expose:
+      - 8080
+    environment:
+      - PHP_CLI_SERVER_WORKERS=8
+      - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - MAX_CONCURRENT_CURL=30
+      - MAX_CONCURRENT_CHROME=30
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    depends_on:
+      renderer-1:
+        condition: service_started
+      renderer-2:
+        condition: service_started
+      renderer-3:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Service Worker 1 (Base & Anchor)
+  worker-1: &worker-base
+    build: .
+    entrypoint: ["php", "app/bin/worker.php"]
+    restart: unless-stopped
+    stop_grace_period: 3s
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
+      - MAX_CONCURRENT_CURL=30
+      - MAX_CONCURRENT_CHROME=15
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      renderer-1:
+        condition: service_started
+      renderer-2:
+        condition: service_started
+      renderer-3:
+        condition: service_started
+
+  worker-2:
+    <<: *worker-base
+  worker-3:
+    <<: *worker-base
+  worker-4:
+    <<: *worker-base
+
+  # Service de rendu JavaScript (Puppeteer) - Multiple instances pour parallélisme
+  renderer-1: &renderer-base
+    build: ./renderer
+    init: true
+    expose:
+      - 3000
+    environment:
+      - SCOUTER_API_URL=http://scouter:8080
+    cap_add:
+      - SYS_ADMIN
+    restart: unless-stopped
+
+  renderer-2:
+    <<: *renderer-base
+  renderer-3:
+    <<: *renderer-base
+
+volumes:
+  postgres_data:

@@ -1,0 +1,87 @@
+services:
+  # Base de données PostgreSQL
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    command: postgres -c max_locks_per_transaction=256
+    environment:
+      - POSTGRES_DB=scouter
+      - POSTGRES_USER=scouter
+      - POSTGRES_PASSWORD=scouter
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    restart: unless-stopped
+    networks:
+      - scouter-net
+
+  # Application PHP principale
+  scouter:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./web:/app/web
+      - ./app:/app/app
+      - ./vendor:/app/vendor
+      - ./crawls:/var/www/crawls
+      - ./logs:/app/logs
+    environment:
+      - PHP_CLI_SERVER_WORKERS=8
+      - RENDERER_URL=http://renderer:3000
+      - DATABASE_URL=postgresql://scouter:scouter@postgres:5432/scouter
+    restart: unless-stopped
+    networks:
+      - scouter-net
+    depends_on:
+      - renderer
+      - postgres
+
+  # Service Worker (Crawl)
+  worker:
+    build: .
+    entrypoint: ["php", "app/bin/worker.php"]
+    restart: unless-stopped
+    deploy:
+      mode: replicated
+      replicas: 4
+    environment:
+      - DATABASE_URL=postgresql://scouter:scouter@postgres:5432/scouter
+      - RENDERER_URL=http://renderer:3000
+      - MAX_CONCURRENT_CURL=30
+      - MAX_CONCURRENT_CHROME=15
+    volumes:
+      - ./web:/app/web
+      - ./app:/app/app
+      - ./vendor:/app/vendor
+      - ./logs:/app/logs
+    networks:
+      - scouter-net
+    depends_on:
+      - postgres
+      - renderer
+
+  # Service de rendu JavaScript - Multiple instances pour parallélisme
+  renderer:
+    build: ./renderer
+    init: true
+    expose:
+      - 3000
+    environment:
+      - SCOUTER_API_URL=http://scouter:8080
+    cap_add:
+      - SYS_ADMIN
+    restart: unless-stopped
+    networks:
+      - scouter-net
+    deploy:
+      mode: replicated
+      replicas: 3
+
+networks:
+  scouter-net:
+    driver: bridge
+
+volumes:
+  postgres_data:

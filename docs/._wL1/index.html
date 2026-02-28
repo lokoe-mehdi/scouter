@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="robots" content="index, follow, all" />
+    <title>Namespaces | Scouter - Documentation API</title>
+
+            <link rel="stylesheet" type="text/css" href="css/bootstrap.min.css">
+        <link rel="stylesheet" type="text/css" href="css/bootstrap-theme.min.css">
+        <link rel="stylesheet" type="text/css" href="css/doctum.css">
+        <link rel="stylesheet" type="text/css" href="css/dark-theme.css">
+        <link rel="stylesheet" type="text/css" href="fonts/doctum-font.css">
+        <script src="js/jquery-3.5.1.slim.min.js"></script>
+        <script async defer src="doctum.js"></script>
+        <script async defer src="js/bootstrap.min.js"></script>
+        <script async defer src="js/autocomplete.min.js"></script>
+        <meta name="MobileOptimized" content="width">
+        <meta name="HandheldFriendly" content="true">
+        <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+
+    </head>
+
+    <body id="index" data-name="" data-root-path="" data-search-index-url="doctum-search.json">
+            <div id="content">
+        <div id="left-column">
+                <div id="control-panel">
+                <div class="search-bar hidden" id="search-progress-bar-container">
+            <div class="progress">
+                <div class="progress-bar" role="progressbar" id="search-progress-bar"
+                    aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
+            </div>
+        </div>
+        <form id="search-form" action="search.html">
+            <span class="icon icon-search"></span>
+            <input name="search"
+                   id="doctum-search-auto-complete"
+                   class="typeahead form-control"
+                   type="search"
+                   placeholder="Search"
+                   spellcheck="false"
+                   autocorrect="off"
+                   autocomplete="off"
+                   autocapitalize="off">
+            <div class="auto-complete-results" id="auto-complete-results"></div>
+        </form>
+    </div>
+
+                <div id="api-tree"></div>
+
+        </div>
+        <div id="right-column">
+                <nav id="site-nav" class="navbar navbar-default" role="navigation">
+        <div class="container-fluid">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#navbar-elements">
+                    <span class="sr-only">Toggle navigation</span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="index.html">Scouter - Documentation API</a>
+            </div>
+            <div class="collapse navbar-collapse" id="navbar-elements">
+                <ul class="nav navbar-nav">
+                    <li><a href="classes.html">Classes</a></li>
+                    <li><a href="namespaces.html">Namespaces</a></li>
+                    <li><a href="interfaces.html">Interfaces</a></li>
+                    <li><a href="traits.html">Traits</a></li>
+                    <li><a href="doc-index.html">Index</a></li>
+                    <li><a href="search.html">Search</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+                        <div id="page-content">
+    <div class="getting-started">
+        <h2>🚀 Scouter - Crawler SEO Professionnel</h2>
+        <p>Bienvenue dans la documentation API de <strong>Scouter</strong>, le crawler SEO développé par <a href="https://lokoe.fr">Lokoé</a>.</p>
+        
+        <h3>Présentation</h3>
+        <p>Scouter est un outil complet de crawl et d'analyse SEO technique qui permet d'auditer n'importe quel site web. Il combine puissance d'analyse et simplicité d'utilisation.</p>
+        
+        <h3>Fonctionnalités principales</h3>
+        <div class="feature-grid">
+            <div class="feature-card"><strong>🔍 Crawl multi-niveaux</strong><br>Profondeur configurable de 0 à N avec parallélisme</div>
+            <div class="feature-card"><strong>🤖 Robots.txt</strong><br>Respect automatique des directives Allow/Disallow</div>
+            <div class="feature-card"><strong>🔗 Canonical</strong><br>Détection et suivi des balises canonical</div>
+            <div class="feature-card"><strong>⚡ JavaScript</strong><br>Mode rendu via Puppeteer pour les SPA</div>
+            <div class="feature-card"><strong>📊 Analytics</strong><br>PageRank interne, inlinks, duplicates (Simhash)</div>
+            <div class="feature-card"><strong>🔧 Extracteurs</strong><br>XPath et Regex personnalisés</div>
+        </div>
+        
+        <h3>Installation rapide</h3>
+        <pre><code># Cloner et démarrer
+git clone https://github.com/lokoe/scouter.git
+cd scouter
+./start.sh      # Linux/Mac
+start.bat       # Windows
+
+# Accès : http://localhost:8080</code></pre>
+        
+        <h3>Classes principales</h3>
+        <ul>
+            <li><a href="App/Core/Crawler.html">App\Core\Crawler</a> - Orchestrateur principal du crawl</li>
+            <li><a href="App/Core/Page.html">App\Core\Page</a> - Analyse et extraction des données d'une page</li>
+            <li><a href="App/Database/CrawlDatabase.html">App\Database\CrawlDatabase</a> - Gestion des données de crawl</li>
+            <li><a href="App/Analysis/Simhash.html">App\Analysis\Simhash</a> - Détection de contenu dupliqué</li>
+        </ul>
+    </div>
+    
+    <div class="page-header">
+        <h2>Namespaces</h2>
+    </div>
+</div><div id="footer">
+        Generated by <a href="https://github.com/code-lts/doctum">Doctum, a API Documentation generator and fork of Sami</a>.</div></div>
+    </div>
+    </body>
+
+</html>

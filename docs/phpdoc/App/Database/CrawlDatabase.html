@@ -1,0 +1,1624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="robots" content="index, follow, all" />
+    <title>App\Database\CrawlDatabase | Scouter - Documentation PHP</title>
+
+            <link rel="stylesheet" type="text/css" href="../../css/bootstrap.min.css">
+        <link rel="stylesheet" type="text/css" href="../../css/bootstrap-theme.min.css">
+        <link rel="stylesheet" type="text/css" href="../../css/doctum.css">
+        <link rel="stylesheet" type="text/css" href="../../css/dark-theme.css">
+        <link rel="stylesheet" type="text/css" href="../../fonts/doctum-font.css">
+        <script src="../../js/jquery-3.5.1.slim.min.js"></script>
+        <script async defer src="../../doctum.js"></script>
+        <script async defer src="../../js/bootstrap.min.js"></script>
+        <script async defer src="../../js/autocomplete.min.js"></script>
+        <meta name="MobileOptimized" content="width">
+        <meta name="HandheldFriendly" content="true">
+        <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+
+    </head>
+
+    <body id="class" data-name="class:App_Database_CrawlDatabase" data-root-path="../../" data-search-index-url="../../doctum-search.json">
+            <div id="content">
+        <div id="left-column">
+                <div id="control-panel">
+                <div class="search-bar hidden" id="search-progress-bar-container">
+            <div class="progress">
+                <div class="progress-bar" role="progressbar" id="search-progress-bar"
+                    aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
+            </div>
+        </div>
+        <form id="search-form" action="../../search.html">
+            <span class="icon icon-search"></span>
+            <input name="search"
+                   id="doctum-search-auto-complete"
+                   class="typeahead form-control"
+                   type="search"
+                   placeholder="Search"
+                   spellcheck="false"
+                   autocorrect="off"
+                   autocomplete="off"
+                   autocapitalize="off">
+            <div class="auto-complete-results" id="auto-complete-results"></div>
+        </form>
+    </div>
+
+                <div id="api-tree"></div>
+
+        </div>
+        <div id="right-column">
+                <nav id="site-nav" class="navbar navbar-default" role="navigation">
+        <div class="container-fluid">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#navbar-elements">
+                    <span class="sr-only">Toggle navigation</span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="../../index.html">Scouter - Documentation PHP</a>
+            </div>
+            <div class="collapse navbar-collapse" id="navbar-elements">
+                <ul class="nav navbar-nav">
+                    <li><a href="../../classes.html">Classes</a></li>
+                    <li><a href="../../namespaces.html">Namespaces</a></li>
+                    <li><a href="../../interfaces.html">Interfaces</a></li>
+                    <li><a href="../../traits.html">Traits</a></li>
+                    <li><a href="../../doc-index.html">Index</a></li>
+                    <li><a href="../../search.html">Search</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+                        <div class="namespace-breadcrumbs">
+            <ol class="breadcrumb">
+                <li><span class="label label-default">class</span></li>
+                        <li><a href="../../App.html">App</a></li><li class="backslash">\</li><li><a href="../../App/Database.html">Database</a></li><li class="backslash">\</li><li>CrawlDatabase</li>
+            </ol>
+        </div>
+                <div id="page-content">
+    <div class="page-header">
+        <h1>CrawlDatabase    
+            </h1>
+    </div>
+
+    
+    <p>        class
+    <strong>CrawlDatabase</strong>
+</p>
+
+        
+    
+        
+
+            <div class="description">
+            <p><p>Gestion des données de crawl dans PostgreSQL</p></p>            <p><p>Cette classe gère les opérations sur les données de crawl :</p>
+<ul>
+<li>Pages : insertion, mise à jour, requêtes</li>
+<li>Liens : insertion en batch</li>
+<li>HTML : stockage du contenu brut</li>
+<li>Statistiques : mise à jour des stats de crawl</li>
+</ul>
+<p>Les analyses post-crawl sont déléguées à App\Analysis\PostProcessor.</p></p>        </div>
+            
+                <h2>Traits</h2>
+
+        
+    <div class="container-fluid underlined">
+                    <div class="row">
+                <div class="col-md-6">
+                    <a href="../../App/Database/DeadlockRetry.html"><abbr title="App\Database\DeadlockRetry">DeadlockRetry</abbr></a>    </div>
+                <div class="col-md-6"><p>Trait pour gérer les deadlocks PostgreSQL avec retry et backoff exponentiel</p></div>
+            </div>
+            </div>
+    
+    
+    
+            <h2>Methods</h2>
+
+            <div class="container-fluid underlined">
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_cleanupTransactionState">cleanupTransactionState</a>(<a target="_blank" rel="noopener" href="https://www.php.net/PDO">PDO</a> $pdo)
+        
+                                            <p><p>Nettoie l'état de transaction si elle est en erreur (25P02)
+PostgreSQL reste en état &quot;transaction aborted&quot; après une erreur
+jusqu'à ce qu'on fasse un ROLLBACK explicite</p></p>                </div>
+                <div class="col-md-2"><small>from&nbsp;<a href="../../App/Database/DeadlockRetry.html#method_cleanupTransactionState">
+<abbr title="App\Database\DeadlockRetry">DeadlockRetry</abbr></a></small></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    mixed
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_executeWithRetry">executeWithRetry</a>(<a target="_blank" rel="noopener" href="https://www.php.net/PDO">PDO</a> $pdo, callable $callback, int $maxRetries = 3)
+        
+                                            <p><p>Exécute une callback avec retry automatique en cas de deadlock
+Attend si une création de partition est en cours (exclusive lock 12345)</p></p>                </div>
+                <div class="col-md-2"><small>from&nbsp;<a href="../../App/Database/DeadlockRetry.html#method_executeWithRetry">
+<abbr title="App\Database\DeadlockRetry">DeadlockRetry</abbr></a></small></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    mixed
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_executeTransactionWithRetry">executeTransactionWithRetry</a>(<a target="_blank" rel="noopener" href="https://www.php.net/PDO">PDO</a> $pdo, callable $callback, int $maxRetries = 3)
+        
+                                            <p><p>Exécute une transaction complète avec retry automatique</p></p>                </div>
+                <div class="col-md-2"><small>from&nbsp;<a href="../../App/Database/DeadlockRetry.html#method_executeTransactionWithRetry">
+<abbr title="App\Database\DeadlockRetry">DeadlockRetry</abbr></a></small></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_isRetryableError">isRetryableError</a>(<a target="_blank" rel="noopener" href="https://www.php.net/Exception">Exception</a> $e)
+        
+                                            <p><p>Vérifie si une exception est récupérable (deadlock, serialization, transaction aborted)</p></p>                </div>
+                <div class="col-md-2"><small>from&nbsp;<a href="../../App/Database/DeadlockRetry.html#method_isRetryableError">
+<abbr title="App\Database\DeadlockRetry">DeadlockRetry</abbr></a></small></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_isDeadlock">isDeadlock</a>(<a target="_blank" rel="noopener" href="https://www.php.net/Exception">Exception</a> $e)
+        <small><span class="label label-danger">deprecated</span></small>
+                                            <p class="no-description">No description</p>
+                                    </div>
+                <div class="col-md-2"><small>from&nbsp;<a href="../../App/Database/DeadlockRetry.html#method_isDeadlock">
+<abbr title="App\Database\DeadlockRetry">DeadlockRetry</abbr></a></small></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    
+                </div>
+                <div class="col-md-8">
+                    <a href="#method___construct">__construct</a>(int $crawlId, array $config = [])
+        
+                                            <p class="no-description">No description</p>
+                                    </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    <a target="_blank" rel="noopener" href="https://www.php.net/PDO">PDO</a>
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_getDb">getDb</a>()
+        
+                                            <p><p>Retourne la connexion PDO</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    int
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_getCrawlId">getCrawlId</a>()
+        
+                                            <p><p>Retourne le crawl_id</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    string
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_getCrawlStatus">getCrawlStatus</a>()
+        
+                                            <p><p>Récupère le statut actuel du crawl</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_createPartitions">createPartitions</a>()
+        
+                                            <p><p>Crée les partitions pour ce crawl
+Utilise un advisory lock EXCLUSIF pour bloquer tous les crawls pendant la création</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_acquireSharedLock">acquireSharedLock</a>()
+        
+                                            <p><p>Prend un shared lock avant les opérations critiques
+Permet à plusieurs crawls de travailler en parallèle
+Mais bloque si une création de partition est en cours</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_releaseSharedLock">releaseSharedLock</a>()
+        
+                                            <p><p>Libère le shared lock</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_insertPage">insertPage</a>(array $data)
+        
+                                            <p><p>Insère une page (URL découverte) avec retry sur deadlock</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_updatePage">updatePage</a>(string $pageId, array $data)
+        
+                                            <p><p>Met à jour une page après crawl (avec retry sur deadlock)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_insertPageSchemas">insertPageSchemas</a>(string $pageId, array $schemas)
+        
+                                            <p><p>Insère les types de schémas pour une page dans la table page_schemas (TRUE batch)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_insertLink">insertLink</a>(array $data)
+        
+                                            <p><p>Insère un lien (avec retry sur deadlock)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_insertLinks">insertLinks</a>(array $links)
+        
+                                            <p><p>Insère plusieurs liens en batch (TRUE batch insert - 1 query pour N liens)
+Avec retry automatique sur deadlock</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_insertPages">insertPages</a>(array $pages)
+        
+                                            <p><p>Insère plusieurs pages en batch (TRUE batch insert - 1 query pour N pages)
+Avec retry automatique sur deadlock</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_insertHtml">insertHtml</a>(string $pageId, string $html)
+        
+                                            <p><p>Insère le HTML d'une page (avec retry sur deadlock)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    array
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_getUrlsToCrawl">getUrlsToCrawl</a>(bool $respectRobots = true)
+        
+                                            <p><p>Récupère les URLs à crawler
+Note: FOR UPDATE SKIP LOCKED n'est pas utilisé ici car les URLs sont
+récupérées en batch avant le crawl parallèle (pas de contention)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    array
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_getAndLockUrlsToCrawl">getAndLockUrlsToCrawl</a>(int $batchSize = 10, bool $respectRobots = true)
+        
+                                            <p><p>Récupère et verrouille un batch d'URLs à crawler (pour workers concurrents)
+Utilise FOR UPDATE SKIP LOCKED pour éviter les deadlocks</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    int
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_getCurrentDepth">getCurrentDepth</a>()
+        
+                                            <p><p>Récupère la profondeur actuelle (pour reprise de crawl)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    bool
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_isNewCrawl">isNewCrawl</a>()
+        
+                                            <p><p>Vérifie si c'est un nouveau crawl (aucune page)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_updateCrawlStats">updateCrawlStats</a>()
+        
+                                            <p><p>Met à jour les statistiques du crawl dans la table crawls</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_finishCrawl">finishCrawl</a>()
+        
+                                            <p><p>Marque le crawl comme terminé</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    static&nbsp;array|null
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_getConfigFromDb">getConfigFromDb</a>(int $crawlId)
+        
+                                            <p><p>Récupère la config du crawl depuis la base</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    static&nbsp;object|null
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_getCrawlByPath">getCrawlByPath</a>(string $path)
+        
+                                            <p><p>Récupère un crawl par son path (directory)</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    static&nbsp;object|null
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_getCrawlById">getCrawlById</a>(int $id)
+        
+                                            <p><p>Récupère un crawl par son ID</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    void
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_runPostProcessing">runPostProcessing</a>()
+        
+                                            <p><p>Exécute tous les post-traitements via PostProcessor</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+            </div>
+
+
+        <h2>Details</h2>
+
+            <div id="method-details">
+                    <div class="method-item">
+                    <h3 id="method_cleanupTransactionState">
+        <div class="location">in <a href="../../App/Database/DeadlockRetry.html#method_cleanupTransactionState">
+<abbr title="App\Database\DeadlockRetry">DeadlockRetry</abbr></a> at line 56</div>
+        <code>            protected        void
+    <strong>cleanupTransactionState</strong>(<a target="_blank" rel="noopener" href="https://www.php.net/PDO">PDO</a> $pdo)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Nettoie l'état de transaction si elle est en erreur (25P02)
+PostgreSQL reste en état &quot;transaction aborted&quot; après une erreur
+jusqu'à ce qu'on fasse un ROLLBACK explicite</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a target="_blank" rel="noopener" href="https://www.php.net/PDO">PDO</a></td>
+                <td>$pdo</td>
+                <td><p>Connexion PDO</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_executeWithRetry">
+        <div class="location">in <a href="../../App/Database/DeadlockRetry.html#method_executeWithRetry">
+<abbr title="App\Database\DeadlockRetry">DeadlockRetry</abbr></a> at line 79</div>
+        <code>            protected        mixed
+    <strong>executeWithRetry</strong>(<a target="_blank" rel="noopener" href="https://www.php.net/PDO">PDO</a> $pdo, callable $callback, int $maxRetries = 3)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Exécute une callback avec retry automatique en cas de deadlock
+Attend si une création de partition est en cours (exclusive lock 12345)</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a target="_blank" rel="noopener" href="https://www.php.net/PDO">PDO</a></td>
+                <td>$pdo</td>
+                <td><p>Connexion PDO</p></td>
+            </tr>
+                    <tr>
+                <td>callable</td>
+                <td>$callback</td>
+                <td><p>Fonction à exécuter (reçoit $pdo en argument)</p></td>
+            </tr>
+                    <tr>
+                <td>int</td>
+                <td>$maxRetries</td>
+                <td><p>Nombre max de tentatives (défaut: 3)</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>mixed</td>
+            <td><p>Résultat de la callback</p></td>
+        </tr>
+    </table>
+
+            
+                            <h4>Exceptions</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a target="_blank" rel="noopener" href="https://www.php.net/PDOException">PDOException</a></td>
+                <td></td>
+            </tr>
+            </table>
+
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_executeTransactionWithRetry">
+        <div class="location">in <a href="../../App/Database/DeadlockRetry.html#method_executeTransactionWithRetry">
+<abbr title="App\Database\DeadlockRetry">DeadlockRetry</abbr></a> at line 155</div>
+        <code>            protected        mixed
+    <strong>executeTransactionWithRetry</strong>(<a target="_blank" rel="noopener" href="https://www.php.net/PDO">PDO</a> $pdo, callable $callback, int $maxRetries = 3)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Exécute une transaction complète avec retry automatique</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a target="_blank" rel="noopener" href="https://www.php.net/PDO">PDO</a></td>
+                <td>$pdo</td>
+                <td><p>Connexion PDO</p></td>
+            </tr>
+                    <tr>
+                <td>callable</td>
+                <td>$callback</td>
+                <td><p>Fonction à exécuter dans la transaction</p></td>
+            </tr>
+                    <tr>
+                <td>int</td>
+                <td>$maxRetries</td>
+                <td><p>Nombre max de tentatives</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>mixed</td>
+            <td><p>Résultat de la callback</p></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_isRetryableError">
+        <div class="location">in <a href="../../App/Database/DeadlockRetry.html#method_isRetryableError">
+<abbr title="App\Database\DeadlockRetry">DeadlockRetry</abbr></a> at line 207</div>
+        <code>            protected        bool
+    <strong>isRetryableError</strong>(<a target="_blank" rel="noopener" href="https://www.php.net/Exception">Exception</a> $e)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si une exception est récupérable (deadlock, serialization, transaction aborted)</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a target="_blank" rel="noopener" href="https://www.php.net/Exception">Exception</a></td>
+                <td>$e</td>
+                <td><p>Exception à vérifier</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td><p>True si c'est une erreur récupérable</p></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_isDeadlock">
+        <div class="location">in <a href="../../App/Database/DeadlockRetry.html#method_isDeadlock">
+<abbr title="App\Database\DeadlockRetry">DeadlockRetry</abbr></a> at line 221</div>
+        <code>            protected        bool
+    <strong>isDeadlock</strong>(<a target="_blank" rel="noopener" href="https://www.php.net/Exception">Exception</a> $e)
+        <small><span class="label label-danger">deprecated</span></small></code>
+    </h3>
+    <div class="details">    
+            <p>
+                <small><span class="label label-danger">deprecated</span></small>
+                            <tr>
+                    <td>Use</td>
+                    <td>isRetryableError() instead</td>
+                </tr>
+                    </p>
+    
+            
+
+        <div class="method-description">
+                            <p class="no-description">No description</p>
+                    
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><a target="_blank" rel="noopener" href="https://www.php.net/Exception">Exception</a></td>
+                <td>$e</td>
+                <td></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method___construct">
+        <div class="location">at line 33</div>
+        <code>                    
+    <strong>__construct</strong>(int $crawlId, array $config = [])
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p class="no-description">No description</p>
+                    
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>int</td>
+                <td>$crawlId</td>
+                <td></td>
+            </tr>
+                    <tr>
+                <td>array</td>
+                <td>$config</td>
+                <td></td>
+            </tr>
+            </table>
+
+            
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_getDb">
+        <div class="location">at line 43</div>
+        <code>                    <a target="_blank" rel="noopener" href="https://www.php.net/PDO">PDO</a>
+    <strong>getDb</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Retourne la connexion PDO</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td><a target="_blank" rel="noopener" href="https://www.php.net/PDO">PDO</a></td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_getCrawlId">
+        <div class="location">at line 51</div>
+        <code>                    int
+    <strong>getCrawlId</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Retourne le crawl_id</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>int</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_getCrawlStatus">
+        <div class="location">at line 59</div>
+        <code>                    string
+    <strong>getCrawlStatus</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Récupère le statut actuel du crawl</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>string</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_createPartitions">
+        <div class="location">at line 70</div>
+        <code>                    void
+    <strong>createPartitions</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Crée les partitions pour ce crawl
+Utilise un advisory lock EXCLUSIF pour bloquer tous les crawls pendant la création</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_acquireSharedLock">
+        <div class="location">at line 92</div>
+        <code>                    void
+    <strong>acquireSharedLock</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Prend un shared lock avant les opérations critiques
+Permet à plusieurs crawls de travailler en parallèle
+Mais bloque si une création de partition est en cours</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_releaseSharedLock">
+        <div class="location">at line 100</div>
+        <code>                    void
+    <strong>releaseSharedLock</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Libère le shared lock</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_insertPage">
+        <div class="location">at line 122</div>
+        <code>                    void
+    <strong>insertPage</strong>(array $data)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Insère une page (URL découverte) avec retry sur deadlock</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>array</td>
+                <td>$data</td>
+                <td></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_updatePage">
+        <div class="location">at line 150</div>
+        <code>                    void
+    <strong>updatePage</strong>(string $pageId, array $data)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Met à jour une page après crawl (avec retry sur deadlock)</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>string</td>
+                <td>$pageId</td>
+                <td></td>
+            </tr>
+                    <tr>
+                <td>array</td>
+                <td>$data</td>
+                <td></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_insertPageSchemas">
+        <div class="location">at line 220</div>
+        <code>                    void
+    <strong>insertPageSchemas</strong>(string $pageId, array $schemas)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Insère les types de schémas pour une page dans la table page_schemas (TRUE batch)</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>string</td>
+                <td>$pageId</td>
+                <td></td>
+            </tr>
+                    <tr>
+                <td>array</td>
+                <td>$schemas</td>
+                <td></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_insertLink">
+        <div class="location">at line 247</div>
+        <code>                    void
+    <strong>insertLink</strong>(array $data)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Insère un lien (avec retry sur deadlock)</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>array</td>
+                <td>$data</td>
+                <td></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_insertLinks">
+        <div class="location">at line 273</div>
+        <code>                    void
+    <strong>insertLinks</strong>(array $links)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Insère plusieurs liens en batch (TRUE batch insert - 1 query pour N liens)
+Avec retry automatique sur deadlock</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>array</td>
+                <td>$links</td>
+                <td></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_insertPages">
+        <div class="location">at line 313</div>
+        <code>                    void
+    <strong>insertPages</strong>(array $pages)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Insère plusieurs pages en batch (TRUE batch insert - 1 query pour N pages)
+Avec retry automatique sur deadlock</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>array</td>
+                <td>$pages</td>
+                <td></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_insertHtml">
+        <div class="location">at line 358</div>
+        <code>                    void
+    <strong>insertHtml</strong>(string $pageId, string $html)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Insère le HTML d'une page (avec retry sur deadlock)</p></p>                <p><p>Limite la taille du HTML à 1MB pour éviter les timeouts sur les pages anormalement grandes.
+Les pages trop volumineuses sont tronquées avec un marqueur.</p></p>        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>string</td>
+                <td>$pageId</td>
+                <td></td>
+            </tr>
+                    <tr>
+                <td>string</td>
+                <td>$html</td>
+                <td></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_getUrlsToCrawl">
+        <div class="location">at line 388</div>
+        <code>                    array
+    <strong>getUrlsToCrawl</strong>(bool $respectRobots = true)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Récupère les URLs à crawler
+Note: FOR UPDATE SKIP LOCKED n'est pas utilisé ici car les URLs sont
+récupérées en batch avant le crawl parallèle (pas de contention)</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>bool</td>
+                <td>$respectRobots</td>
+                <td></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>array</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_getAndLockUrlsToCrawl">
+        <div class="location">at line 411</div>
+        <code>                    array
+    <strong>getAndLockUrlsToCrawl</strong>(int $batchSize = 10, bool $respectRobots = true)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Récupère et verrouille un batch d'URLs à crawler (pour workers concurrents)
+Utilise FOR UPDATE SKIP LOCKED pour éviter les deadlocks</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>int</td>
+                <td>$batchSize</td>
+                <td><p>Nombre d'URLs à récupérer</p></td>
+            </tr>
+                    <tr>
+                <td>bool</td>
+                <td>$respectRobots</td>
+                <td><p>Respecter robots.txt</p></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>array</td>
+            <td><p>Liste des URLs verrouillées</p></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_getCurrentDepth">
+        <div class="location">at line 451</div>
+        <code>                    int
+    <strong>getCurrentDepth</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Récupère la profondeur actuelle (pour reprise de crawl)</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>int</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_isNewCrawl">
+        <div class="location">at line 467</div>
+        <code>                    bool
+    <strong>isNewCrawl</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Vérifie si c'est un nouveau crawl (aucune page)</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>bool</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_updateCrawlStats">
+        <div class="location">at line 477</div>
+        <code>                    void
+    <strong>updateCrawlStats</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Met à jour les statistiques du crawl dans la table crawls</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_finishCrawl">
+        <div class="location">at line 542</div>
+        <code>                    void
+    <strong>finishCrawl</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Marque le crawl comme terminé</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_getConfigFromDb">
+        <div class="location">at line 559</div>
+        <code>        static            array|null
+    <strong>getConfigFromDb</strong>(int $crawlId)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Récupère la config du crawl depuis la base</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>int</td>
+                <td>$crawlId</td>
+                <td></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>array|null</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_getCrawlByPath">
+        <div class="location">at line 575</div>
+        <code>        static            object|null
+    <strong>getCrawlByPath</strong>(string $path)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Récupère un crawl par son path (directory)</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>string</td>
+                <td>$path</td>
+                <td></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>object|null</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_getCrawlById">
+        <div class="location">at line 586</div>
+        <code>        static            object|null
+    <strong>getCrawlById</strong>(int $id)
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Récupère un crawl par son ID</p></p>                        
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td>int</td>
+                <td>$id</td>
+                <td></td>
+            </tr>
+            </table>
+
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>object|null</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_runPostProcessing">
+        <div class="location">at line 597</div>
+        <code>                    void
+    <strong>runPostProcessing</strong>()
+        </code>
+    </h3>
+    <div class="details">    
+    
+            
+
+        <div class="method-description">
+                            <p><p>Exécute tous les post-traitements via PostProcessor</p></p>                        
+        </div>
+        <div class="tags">
+            
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td>void</td>
+            <td></td>
+        </tr>
+    </table>
+
+            
+            
+            
+                    </div>
+    </div>
+
+            </div>
+            </div>
+
+    
+</div><div id="footer">
+        Generated by <a href="https://github.com/code-lts/doctum">Doctum, a API Documentation generator and fork of Sami</a>.</div></div>
+    </div>
+    </body>
+
+</html>

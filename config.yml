@@ -1,0 +1,24 @@
+general:
+  start: {start}
+  domains:
+    - {dom}
+    - www.{dom}
+  depthMax: 30
+  user-agent: Scouter/0.3 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)
+  crawl_speed: fast
+  crawl_mode: classic
+
+advanced:
+  respect:
+    robots: true
+    nofollow: true
+    canonical: true
+  httpAuth:
+    enabled: false
+    username: ""
+    password: ""
+  customHeaders: {}
+  xPathExtractors:
+    h2: //h2
+  regexExtractors:
+    google_analytics: "ua":"(UA-\d{8}-\d)"
