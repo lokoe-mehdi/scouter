@@ -24,7 +24,6 @@ services:
     volumes:
       - ./web:/app/web
       - ./app:/app/app
-      - ./vendor:/app/vendor
       - ./crawls:/var/www/crawls
       - ./logs:/app/logs
     environment:
@@ -54,7 +53,6 @@ services:
     volumes:
       - ./web:/app/web
       - ./app:/app/app
-      - ./vendor:/app/vendor
       - ./logs:/app/logs
     networks:
       - scouter-net
