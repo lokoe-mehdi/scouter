@@ -27,15 +27,15 @@ class FilterBar {
         
         // Labels
         this.operatorLabels = {
-            'contains': 'contient', 'not_contains': 'ne contient pas',
-            'regex': 'correspond à la regex', 'not_regex': 'ne correspond pas à la regex',
+            'contains': __('filter.operator_contains'), 'not_contains': __('filter.operator_not_contains'),
+            'regex': __('filter.operator_regex'), 'not_regex': __('filter.operator_not_regex'),
             '=': '=', '>': '>', '<': '<', '>=': '≥', '<=': '≤', '!=': '≠',
-            'in': 'est', 'not_in': "n'est pas"
+            'in': __('filter.operator_is'), 'not_in': __('filter.operator_is_not')
         };
-        
-        this.seoValueLabels = { 'unique': 'Unique', 'empty': 'Vide', 'duplicate': 'Dupliqué' };
+
+        this.seoValueLabels = { 'unique': __('filter.seo_unique'), 'empty': __('filter.seo_empty'), 'duplicate': __('filter.seo_duplicate') };
         this.httpCodeLabels = { '1xx': '1xx (100-199)', '2xx': '2xx (200-299)', '3xx': '3xx (300-399)', '4xx': '4xx (400-499)', '5xx': '5xx (500-599)', 'other': 'Autre' };
-        this.boolLabels = { 'true': 'Oui', 'false': 'Non' };
+        this.boolLabels = { 'true': __('filter.bool_yes'), 'false': __('filter.bool_no') };
         
         // État
         this.filterGroups = [];
@@ -179,7 +179,7 @@ class FilterBar {
         let targetBadge = '';
         if (this.hasTarget && chip.target) {
             const targetClass = chip.target === 'link' ? 'link' : chip.target;
-            const targetLabel = chip.target === 'link' ? 'LIEN' : (chip.target === 'source' ? 'SRC' : 'TGT');
+            const targetLabel = chip.target === 'link' ? __('filter.target_link') : (chip.target === 'source' ? __('filter.target_source') : __('filter.target_target'));
             targetBadge = `<span class="chip-target ${targetClass}">${targetLabel}</span>`;
         }
         
@@ -575,8 +575,8 @@ class FilterBar {
         // Ajouter les boutons d'action
         html += `
             <div class="popover-actions">
-                <button class="popover-btn popover-btn-primary" onclick="applyFilterConfig()">Appliquer</button>
-                <button class="popover-btn popover-btn-secondary" onclick="closeAllPopovers()">Annuler</button>
+                <button class="popover-btn popover-btn-primary" onclick="applyFilterConfig()">${__('filter.btn_apply')}</button>
+                <button class="popover-btn popover-btn-secondary" onclick="closeAllPopovers()">${__('confirm.cancel')}</button>
             </div>
         `;
         
@@ -599,10 +599,10 @@ class FilterBar {
             const currentTarget = existingChip?.target || this.pendingFilterConfig?.target || 'source';
             targetHtml = `
                 <div class="popover-row">
-                    <label class="popover-label">Appliquer sur</label>
+                    <label class="popover-label">${__('filter.label_apply_on')}</label>
                     <div class="target-selector">
-                        <button type="button" class="target-btn source ${currentTarget === 'source' ? 'active' : ''}" data-target="source" onclick="selectTarget('source')">Page source</button>
-                        <button type="button" class="target-btn target ${currentTarget === 'target' ? 'active' : ''}" data-target="target" onclick="selectTarget('target')">Page cible</button>
+                        <button type="button" class="target-btn source ${currentTarget === 'source' ? 'active' : ''}" data-target="source" onclick="selectTarget('source')">${__('filter.target_page_source')}</button>
+                        <button type="button" class="target-btn target ${currentTarget === 'target' ? 'active' : ''}" data-target="target" onclick="selectTarget('target')">${__('filter.target_page_target')}</button>
                     </div>
                 </div>
             `;
@@ -633,15 +633,15 @@ class FilterBar {
         const op = existingChip?.operator || 'contains';
         const val = existingChip?.value || '';
         const opLabels = {
-            'contains': 'Contient',
-            'not_contains': 'Ne contient pas',
-            'regex': 'Correspond à la regex',
-            'not_regex': 'Ne correspond pas à la regex'
+            'contains': __('filter.operator_contains'),
+            'not_contains': __('filter.operator_not_contains'),
+            'regex': __('filter.operator_regex'),
+            'not_regex': __('filter.operator_not_regex')
         };
-        
+
         return `
             <div class="popover-row">
-                <label class="popover-label">Condition</label>
+                <label class="popover-label">${__('filter.label_condition')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configOperator" value="${op}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
@@ -649,15 +649,15 @@ class FilterBar {
                         <span class="material-symbols-outlined">expand_more</span>
                     </div>
                     <div class="styled-select-menu">
-                        ${Object.entries(opLabels).map(([k, v]) => 
+                        ${Object.entries(opLabels).map(([k, v]) =>
                             `<div class="styled-select-item ${op === k ? 'active' : ''}" data-value="${k}" onclick="selectStyledOption(this, 'configOperator')">${v}</div>`
                         ).join('')}
                     </div>
                 </div>
             </div>
             <div class="popover-row">
-                <label class="popover-label">Valeur</label>
-                <input type="text" class="popover-input" id="configValue" placeholder="Texte ou regex..." value="${val}">
+                <label class="popover-label">${__('filter.label_value')}</label>
+                <input type="text" class="popover-input" id="configValue" placeholder="${__('filter.placeholder_text')}" value="${val}">
             </div>
         `;
     }
@@ -665,10 +665,10 @@ class FilterBar {
     _generateNumberConfigHtml(config, existingChip) {
         const op = existingChip?.operator || '=';
         const val = existingChip?.value || '';
-        
+
         return `
             <div class="popover-row">
-                <label class="popover-label">Opérateur</label>
+                <label class="popover-label">${__('filter.label_operator')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configOperator" value="${op}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
@@ -676,34 +676,34 @@ class FilterBar {
                         <span class="material-symbols-outlined">expand_more</span>
                     </div>
                     <div class="styled-select-menu">
-                        ${config.operators.map(o => 
+                        ${config.operators.map(o =>
                             `<div class="styled-select-item ${op === o ? 'active' : ''}" data-value="${o}" onclick="selectStyledOption(this, 'configOperator')">${this.operatorLabels[o]}</div>`
                         ).join('')}
                     </div>
                 </div>
             </div>
             <div class="popover-row">
-                <label class="popover-label">Valeur</label>
-                <input type="number" class="popover-input" id="configValue" placeholder="Nombre..." value="${val}">
+                <label class="popover-label">${__('filter.label_value')}</label>
+                <input type="number" class="popover-input" id="configValue" placeholder="${__('filter.placeholder_number')}" value="${val}">
             </div>
         `;
     }
 
     _generateBooleanConfigHtml(config, existingChip) {
         const val = existingChip?.value || 'true';
-        
+
         return `
             <div class="popover-row">
-                <label class="popover-label">Valeur</label>
+                <label class="popover-label">${__('filter.label_value')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configValue" value="${val}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
-                        <span class="select-value">${val === 'true' ? 'Oui' : 'Non'}</span>
+                        <span class="select-value">${val === 'true' ? __('filter.bool_yes') : __('filter.bool_no')}</span>
                         <span class="material-symbols-outlined">expand_more</span>
                     </div>
                     <div class="styled-select-menu">
-                        <div class="styled-select-item ${val === 'true' ? 'active' : ''}" data-value="true" onclick="selectStyledOption(this, 'configValue')">Oui</div>
-                        <div class="styled-select-item ${val === 'false' ? 'active' : ''}" data-value="false" onclick="selectStyledOption(this, 'configValue')">Non</div>
+                        <div class="styled-select-item ${val === 'true' ? 'active' : ''}" data-value="true" onclick="selectStyledOption(this, 'configValue')">${__('filter.bool_yes')}</div>
+                        <div class="styled-select-item ${val === 'false' ? 'active' : ''}" data-value="false" onclick="selectStyledOption(this, 'configValue')">${__('filter.bool_no')}</div>
                     </div>
                 </div>
             </div>
@@ -716,25 +716,25 @@ class FilterBar {
         const selectedValues = !isValueMode && Array.isArray(existingChip?.value) ? existingChip.value : ['2xx'];
         const op = existingChip?.operator || '=';
         const numVal = isValueMode ? existingChip?.value || '' : '';
-        
+
         return `
             <div class="popover-row">
-                <label class="popover-label">Filtrer par</label>
+                <label class="popover-label">${__('filter.label_filter_by')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configFilterMode" value="${filterMode}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
-                        <span class="select-value">${filterMode === 'group' ? 'Groupe de codes' : 'Valeur exacte'}</span>
+                        <span class="select-value">${filterMode === 'group' ? __('filter.mode_code_group') : __('filter.mode_exact_value')}</span>
                         <span class="material-symbols-outlined">expand_more</span>
                     </div>
                     <div class="styled-select-menu">
-                        <div class="styled-select-item ${filterMode === 'group' ? 'active' : ''}" data-value="group" onclick="selectStyledOption(this, 'configFilterMode'); toggleHttpCodeMode('group')">Groupe de codes</div>
-                        <div class="styled-select-item ${filterMode === 'value' ? 'active' : ''}" data-value="value" onclick="selectStyledOption(this, 'configFilterMode'); toggleHttpCodeMode('value')">Valeur exacte</div>
+                        <div class="styled-select-item ${filterMode === 'group' ? 'active' : ''}" data-value="group" onclick="selectStyledOption(this, 'configFilterMode'); toggleHttpCodeMode('group')">${__('filter.mode_code_group')}</div>
+                        <div class="styled-select-item ${filterMode === 'value' ? 'active' : ''}" data-value="value" onclick="selectStyledOption(this, 'configFilterMode'); toggleHttpCodeMode('value')">${__('filter.mode_exact_value')}</div>
                     </div>
                 </div>
             </div>
             <div id="httpCodeGroupMode" style="${filterMode === 'group' ? '' : 'display:none'}">
                 <div class="popover-row">
-                    <label class="popover-label">Groupes</label>
+                    <label class="popover-label">${__('filter.label_groups')}</label>
                     <div class="styled-checkbox-list">
                         ${config.values.map(v => `
                             <label class="styled-checkbox-item">
@@ -748,7 +748,7 @@ class FilterBar {
             </div>
             <div id="httpCodeValueMode" style="${filterMode === 'value' ? '' : 'display:none'}">
                 <div class="popover-row">
-                    <label class="popover-label">Opérateur</label>
+                    <label class="popover-label">${__('filter.label_operator')}</label>
                     <div class="styled-select-wrapper">
                         <input type="hidden" id="configOperator" value="${op}">
                         <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
@@ -756,15 +756,15 @@ class FilterBar {
                             <span class="material-symbols-outlined">expand_more</span>
                         </div>
                         <div class="styled-select-menu">
-                            ${config.operators.map(o => 
+                            ${config.operators.map(o =>
                                 `<div class="styled-select-item ${op === o ? 'active' : ''}" data-value="${o}" onclick="selectStyledOption(this, 'configOperator')">${this.operatorLabels[o]}</div>`
                             ).join('')}
                         </div>
                     </div>
                 </div>
                 <div class="popover-row">
-                    <label class="popover-label">Code</label>
-                    <input type="number" class="popover-input" id="configValue" placeholder="Ex: 200, 404..." value="${numVal}">
+                    <label class="popover-label">${__('filter.label_code')}</label>
+                    <input type="number" class="popover-input" id="configValue" placeholder="${__('filter.placeholder_code')}" value="${numVal}">
                 </div>
             </div>
         `;
@@ -776,32 +776,32 @@ class FilterBar {
         const selectedValues = !isValueMode && Array.isArray(existingChip?.value) ? existingChip.value : ['empty'];
         const op = existingChip?.operator || 'contains';
         const textVal = isValueMode ? existingChip?.value || '' : '';
-        
-        const opLabels = { 
-            'contains': 'Contient', 
-            'not_contains': 'Ne contient pas', 
-            'regex': 'Correspond à la regex', 
-            'not_regex': 'Ne correspond pas à la regex' 
+
+        const opLabels = {
+            'contains': __('filter.operator_contains'),
+            'not_contains': __('filter.operator_not_contains'),
+            'regex': __('filter.operator_regex'),
+            'not_regex': __('filter.operator_not_regex')
         };
-        
+
         return `
             <div class="popover-row">
-                <label class="popover-label">Filtrer par</label>
+                <label class="popover-label">${__('filter.label_filter_by')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configFilterMode" value="${filterMode}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
-                        <span class="select-value">${filterMode === 'status' ? 'État' : 'Valeur (texte)'}</span>
+                        <span class="select-value">${filterMode === 'status' ? __('filter.mode_status') : __('filter.mode_text_value')}</span>
                         <span class="material-symbols-outlined">expand_more</span>
                     </div>
                     <div class="styled-select-menu">
-                        <div class="styled-select-item ${filterMode === 'status' ? 'active' : ''}" data-value="status" onclick="selectStyledOption(this, 'configFilterMode'); toggleSeoMode('status')">État</div>
-                        <div class="styled-select-item ${filterMode === 'value' ? 'active' : ''}" data-value="value" onclick="selectStyledOption(this, 'configFilterMode'); toggleSeoMode('value')">Valeur (texte)</div>
+                        <div class="styled-select-item ${filterMode === 'status' ? 'active' : ''}" data-value="status" onclick="selectStyledOption(this, 'configFilterMode'); toggleSeoMode('status')">${__('filter.mode_status')}</div>
+                        <div class="styled-select-item ${filterMode === 'value' ? 'active' : ''}" data-value="value" onclick="selectStyledOption(this, 'configFilterMode'); toggleSeoMode('value')">${__('filter.mode_text_value')}</div>
                     </div>
                 </div>
             </div>
             <div id="seoStatusMode" style="${filterMode === 'status' ? '' : 'display:none'}">
                 <div class="popover-row">
-                    <label class="popover-label">État</label>
+                    <label class="popover-label">${__('filter.mode_status')}</label>
                     <div class="styled-checkbox-list">
                         ${config.values.map(v => `
                             <label class="styled-checkbox-item">
@@ -815,7 +815,7 @@ class FilterBar {
             </div>
             <div id="seoValueMode" style="${filterMode === 'value' ? '' : 'display:none'}">
                 <div class="popover-row">
-                    <label class="popover-label">Condition</label>
+                    <label class="popover-label">${__('filter.label_condition')}</label>
                     <div class="styled-select-wrapper">
                         <input type="hidden" id="configSeoOperator" value="${op}">
                         <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
@@ -823,15 +823,15 @@ class FilterBar {
                             <span class="material-symbols-outlined">expand_more</span>
                         </div>
                         <div class="styled-select-menu">
-                            ${Object.entries(opLabels).map(([k, v]) => 
+                            ${Object.entries(opLabels).map(([k, v]) =>
                                 `<div class="styled-select-item ${op === k ? 'active' : ''}" data-value="${k}" onclick="selectStyledOption(this, 'configSeoOperator')">${v}</div>`
                             ).join('')}
                         </div>
                     </div>
                 </div>
                 <div class="popover-row">
-                    <label class="popover-label">Valeur</label>
-                    <input type="text" class="popover-input" id="configSeoValue" placeholder="Texte ou regex..." value="${textVal}">
+                    <label class="popover-label">${__('filter.label_value')}</label>
+                    <input type="text" class="popover-input" id="configSeoValue" placeholder="${__('filter.placeholder_text')}" value="${textVal}">
                 </div>
             </div>
         `;
@@ -840,24 +840,24 @@ class FilterBar {
     _generateCategoryConfigHtml(config, existingChip) {
         const op = existingChip?.operator || 'in';
         const selectedIds = Array.isArray(existingChip?.value) ? existingChip.value : [];
-        
+
         return `
             <div class="popover-row">
-                <label class="popover-label">Mode</label>
+                <label class="popover-label">${__('filter.label_mode')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configOperator" value="${op}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
-                        <span class="select-value">${op === 'in' ? 'Est dans' : "N'est pas dans"}</span>
+                        <span class="select-value">${op === 'in' ? __('filter.is_in') : __('filter.is_not_in')}</span>
                         <span class="material-symbols-outlined">expand_more</span>
                     </div>
                     <div class="styled-select-menu">
-                        <div class="styled-select-item ${op === 'in' ? 'active' : ''}" data-value="in" onclick="selectStyledOption(this, 'configOperator')">Est dans</div>
-                        <div class="styled-select-item ${op === 'not_in' ? 'active' : ''}" data-value="not_in" onclick="selectStyledOption(this, 'configOperator')">N'est pas dans</div>
+                        <div class="styled-select-item ${op === 'in' ? 'active' : ''}" data-value="in" onclick="selectStyledOption(this, 'configOperator')">${__('filter.is_in')}</div>
+                        <div class="styled-select-item ${op === 'not_in' ? 'active' : ''}" data-value="not_in" onclick="selectStyledOption(this, 'configOperator')">${__('filter.is_not_in')}</div>
                     </div>
                 </div>
             </div>
             <div class="popover-row">
-                <label class="popover-label">Catégories</label>
+                <label class="popover-label">${__('filter.label_categories')}</label>
                 <div class="styled-checkbox-list" style="max-height: 200px;">
                     ${this.availableCategories.map(cat => `
                         <label class="styled-checkbox-item">
@@ -878,25 +878,25 @@ class FilterBar {
         const countVal = isCountMode ? existingChip?.value || '0' : '0';
         const containsOp = !isCountMode ? existingChip?.operator || 'contains' : 'contains';
         const selectedSchemas = !isCountMode && Array.isArray(existingChip?.value) ? existingChip.value : [];
-        
+
         return `
             <div class="popover-row">
-                <label class="popover-label">Filtrer par</label>
+                <label class="popover-label">${__('filter.label_filter_by')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configSchemasMode" value="${mode}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
-                        <span class="select-value">${mode === 'count' ? 'Nombre de schemas' : 'Types spécifiques'}</span>
+                        <span class="select-value">${mode === 'count' ? __('filter.mode_schema_count') : __('filter.mode_specific_types')}</span>
                         <span class="material-symbols-outlined">expand_more</span>
                     </div>
                     <div class="styled-select-menu">
-                        <div class="styled-select-item ${mode === 'count' ? 'active' : ''}" data-value="count" onclick="selectStyledOption(this, 'configSchemasMode'); toggleSchemasMode('count')">Nombre de schemas</div>
-                        <div class="styled-select-item ${mode === 'contains' ? 'active' : ''}" data-value="contains" onclick="selectStyledOption(this, 'configSchemasMode'); toggleSchemasMode('contains')">Types spécifiques</div>
+                        <div class="styled-select-item ${mode === 'count' ? 'active' : ''}" data-value="count" onclick="selectStyledOption(this, 'configSchemasMode'); toggleSchemasMode('count')">${__('filter.mode_schema_count')}</div>
+                        <div class="styled-select-item ${mode === 'contains' ? 'active' : ''}" data-value="contains" onclick="selectStyledOption(this, 'configSchemasMode'); toggleSchemasMode('contains')">${__('filter.mode_specific_types')}</div>
                     </div>
                 </div>
             </div>
             <div id="schemasCountMode" style="${mode === 'count' ? '' : 'display:none'}">
                 <div class="popover-row">
-                    <label class="popover-label">Opérateur</label>
+                    <label class="popover-label">${__('filter.label_operator')}</label>
                     <div class="styled-select-wrapper">
                         <input type="hidden" id="configSchemasOperator" value="${op}">
                         <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
@@ -904,34 +904,34 @@ class FilterBar {
                             <span class="material-symbols-outlined">expand_more</span>
                         </div>
                         <div class="styled-select-menu">
-                            ${['=', '>', '<', '>=', '<='].map(o => 
+                            ${['=', '>', '<', '>=', '<='].map(o =>
                                 `<div class="styled-select-item ${op === o ? 'active' : ''}" data-value="${o}" onclick="selectStyledOption(this, 'configSchemasOperator')">${this.operatorLabels[o]}</div>`
                             ).join('')}
                         </div>
                     </div>
                 </div>
                 <div class="popover-row">
-                    <label class="popover-label">Nombre</label>
+                    <label class="popover-label">${__('filter.label_number')}</label>
                     <input type="number" class="popover-input" id="configSchemasCount" placeholder="0" value="${countVal}">
                 </div>
             </div>
             <div id="schemasContainsMode" style="${mode === 'contains' ? '' : 'display:none'}">
                 <div class="popover-row">
-                    <label class="popover-label">Mode</label>
+                    <label class="popover-label">${__('filter.label_mode')}</label>
                     <div class="styled-select-wrapper">
                         <input type="hidden" id="configSchemasContainsOp" value="${containsOp}">
                         <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
-                            <span class="select-value">${containsOp === 'contains' ? 'Contient' : 'Ne contient pas'}</span>
+                            <span class="select-value">${containsOp === 'contains' ? __('filter.operator_contains') : __('filter.operator_not_contains')}</span>
                             <span class="material-symbols-outlined">expand_more</span>
                         </div>
                         <div class="styled-select-menu">
-                            <div class="styled-select-item ${containsOp === 'contains' ? 'active' : ''}" data-value="contains" onclick="selectStyledOption(this, 'configSchemasContainsOp')">Contient</div>
-                            <div class="styled-select-item ${containsOp === 'not_contains' ? 'active' : ''}" data-value="not_contains" onclick="selectStyledOption(this, 'configSchemasContainsOp')">Ne contient pas</div>
+                            <div class="styled-select-item ${containsOp === 'contains' ? 'active' : ''}" data-value="contains" onclick="selectStyledOption(this, 'configSchemasContainsOp')">${__('filter.operator_contains')}</div>
+                            <div class="styled-select-item ${containsOp === 'not_contains' ? 'active' : ''}" data-value="not_contains" onclick="selectStyledOption(this, 'configSchemasContainsOp')">${__('filter.operator_not_contains')}</div>
                         </div>
                     </div>
                 </div>
                 <div class="popover-row">
-                    <label class="popover-label">Types de schema</label>
+                    <label class="popover-label">${__('filter.label_schema_types')}</label>
                     <div class="styled-checkbox-list" style="max-height: 150px;">
                         ${this.availableSchemas.map(s => `
                             <label class="styled-checkbox-item">

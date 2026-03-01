@@ -48,7 +48,7 @@ if ($hasCustomExtractions) {
         
         foreach ($rows as $row) {
             $catInfo = $categoriesMap[$row->cat_id] ?? null;
-            $catName = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+            $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
             
             if (!isset($completionByCategory[$catName])) {
                 $completionByCategory[$catName] = [
@@ -91,22 +91,21 @@ foreach ($chartCategories as $catName) {
 }
 
 $chartSeries = [
-    ['name' => 'Non renseigné', 'data' => $chartEmpty, 'color' => '#E5E7EB'],
-    ['name' => 'Renseigné', 'data' => $chartFilled, 'color' => '#6bd899ff']
+    ['name' => __('extractions.series_not_filled'), 'data' => $chartEmpty, 'color' => '#E5E7EB'],
+    ['name' => __('extractions.series_filled'), 'data' => $chartFilled, 'color' => '#6bd899ff']
 ];
 
 ?>
 
-<h1 class="page-title">Extractions personnalisées</h1>
+<h1 class="page-title"><?= __('extractions.page_title') ?></h1>
 
 <?php if (!$hasCustomExtractions): ?>
     <div class="card" style="padding: 3rem; text-align: center;">
         <span class="material-symbols-outlined" style="font-size: 4rem; color: var(--text-secondary); margin-bottom: 1rem;">info</span>
-        <h2 style="color: var(--text-secondary); margin-bottom: 1rem;">Aucune extraction personnalisée</h2>
+        <h2 style="color: var(--text-secondary); margin-bottom: 1rem;"><?= __('extractions.no_extractions') ?></h2>
         <p style="color: var(--text-secondary); max-width: 600px; margin: 0 auto;">
-            Ce crawl ne contient pas d'extractions HTML personnalisées. 
-            Pour ajouter des extractions, configurez les <strong>xPathExtractors</strong> ou <strong>regexExtractors</strong> 
-            dans le fichier <code>config.yml</code> de votre projet.
+            <?= __('extractions.no_extractions_desc') ?>
+            <?= __('extractions.no_extractions_hint') ?>
         </p>
     </div>
 <?php else: ?>
@@ -128,8 +127,8 @@ ORDER BY COUNT(*) DESC";
     
     Component::chart([
         'type' => 'horizontalBar',
-        'title' => 'Taux de complétion par catégorie',
-        'subtitle' => 'Pourcentage d\'URLs avec au moins une extraction personnalisée renseignée',
+        'title' => __('extractions.chart_completion'),
+        'subtitle' => __('extractions.chart_completion_desc'),
         'categories' => $chartCategories,
         'series' => $chartSeries,
         'stacking' => 'percent',
@@ -149,7 +148,7 @@ ORDER BY COUNT(*) DESC";
     }
 
     $urlTableConfig = [
-        'title' => 'URLs avec extractions personnalisées',
+        'title' => __('extractions.table_title'),
         'id' => 'extractionsTable',
         'whereClause' => 'WHERE c.crawled = true',
         'orderBy' => 'ORDER BY c.url ASC',

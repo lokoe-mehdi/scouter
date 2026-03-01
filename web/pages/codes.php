@@ -71,7 +71,7 @@ $codeByCategory = $stmt->fetchAll(PDO::FETCH_OBJ);
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 foreach ($codeByCategory as $row) {
     $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
 }
 
 /**
@@ -81,7 +81,7 @@ foreach ($codeByCategory as $row) {
  */
 ?>
 
-<h1 class="page-title">Analyse des codes de réponse HTTP</h1>
+<h1 class="page-title"><?= __('codes.page_title') ?></h1>
 
 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
 
@@ -94,9 +94,9 @@ foreach ($codeByCategory as $row) {
         Component::card([
             'color' => 'error',
             'icon' => 'schedule',
-            'title' => 'Timeout',
+            'title' => __('codes.card_timeout'),
             'value' => number_format($codeFamilyStats->code_0xx),
-            'desc' => 'Code 0'
+            'desc' => __('codes.card_timeout_desc')
         ]);
     }
     
@@ -104,42 +104,42 @@ foreach ($codeByCategory as $row) {
         Component::card([
             'color' => 'info',
             'icon' => 'info',
-            'title' => 'Codes 1xx',
+            'title' => __('codes.card_1xx'),
             'value' => number_format($codeFamilyStats->code_1xx),
-            'desc' => 'Informationnel'
+            'desc' => __('codes.card_1xx_desc')
         ]);
     }
     
     Component::card([
         'color' => 'success',
         'icon' => 'check_circle',
-        'title' => 'Codes 2xx',
+        'title' => __('codes.card_2xx'),
         'value' => number_format($codeFamilyStats->code_2xx),
-        'desc' => 'Succès'
+        'desc' => __('codes.card_2xx_desc')
     ]);
-    
+
     Component::card([
         'color' => 'warning',
         'icon' => 'arrow_forward',
-        'title' => 'Codes 3xx',
+        'title' => __('codes.card_3xx'),
         'value' => number_format($codeFamilyStats->code_3xx),
-        'desc' => 'Redirections'
+        'desc' => __('codes.card_3xx_desc')
     ]);
-    
+
     Component::card([
         'color' => 'error',
         'icon' => 'warning',
-        'title' => 'Codes 4xx',
+        'title' => __('codes.card_4xx'),
         'value' => number_format($codeFamilyStats->code_4xx),
-        'desc' => 'Erreurs client'
+        'desc' => __('codes.card_4xx_desc')
     ]);
-    
+
     Component::card([
         'color' => 'color1',
         'icon' => 'local_fire_department',
-        'title' => 'Codes 5xx',
+        'title' => __('codes.card_5xx'),
         'value' => number_format($codeFamilyStats->code_5xx),
-        'desc' => 'Erreurs serveur'
+        'desc' => __('codes.card_5xx_desc')
     ]);
         ?>
     </div>
@@ -164,16 +164,16 @@ foreach ($codeByCategory as $row) {
     }
     
     Component::simpleTable([
-    'title' => 'Statistiques par code HTTP',
-    'subtitle' => 'Vue détaillée des codes de réponse',
+    'title' => __('codes.table_title'),
+    'subtitle' => __('codes.table_subtitle'),
     'columns' => [
-        ['key' => 'code', 'label' => 'Code HTTP', 'type' => 'badge-autodetect'],
-        ['key' => 'description', 'label' => 'Description', 'type' => 'bold'],
-        ['key' => 'total', 'label' => 'Total URLs', 'type' => 'default'],
-        ['key' => 'percent', 'label' => 'Pourcentage', 'type' => 'percent_bar'],
-        ['key' => 'avg_time', 'label' => 'Temps moyen (ms)', 'type' => 'default'],
-        ['key' => 'avg_inlinks', 'label' => 'Inlinks moyen', 'type' => 'default'],
-        ['key' => 'avg_outlinks', 'label' => 'Outlinks moyen', 'type' => 'default']
+        ['key' => 'code', 'label' => __('codes.col_code'), 'type' => 'badge-autodetect'],
+        ['key' => 'description', 'label' => __('codes.col_description'), 'type' => 'bold'],
+        ['key' => 'total', 'label' => __('codes.col_total'), 'type' => 'default'],
+        ['key' => 'percent', 'label' => __('codes.col_percentage'), 'type' => 'percent_bar'],
+        ['key' => 'avg_time', 'label' => __('codes.col_avg_time'), 'type' => 'default'],
+        ['key' => 'avg_inlinks', 'label' => __('codes.col_avg_inlinks'), 'type' => 'default'],
+        ['key' => 'avg_outlinks', 'label' => __('codes.col_avg_outlinks'), 'type' => 'default']
     ],
         'data' => $codeTableData
     ]);
@@ -196,8 +196,8 @@ foreach ($codeByCategory as $row) {
         
         Component::chart([
         'type' => 'donut',
-        'title' => 'Répartition des codes HTTP',
-        'subtitle' => 'Distribution globale en donut',
+        'title' => __('codes.chart_title'),
+        'subtitle' => __('codes.chart_subtitle'),
         'series' => [
             [
                 'name' => 'URLs',
@@ -308,11 +308,11 @@ foreach ($codeByCategory as $row) {
         
         Component::chart([
         'type' => 'horizontalBar',
-        'title' => 'Distribution par catégorie',
-        'subtitle' => 'Pourcentage de codes HTTP par catégorie',
+        'title' => __('codes.chart_category_title'),
+        'subtitle' => __('codes.chart_category_subtitle'),
         'categories' => $categories,
         'series' => $allSeries,
-        'yAxisTitle' => 'Pourcentage',
+        'yAxisTitle' => __('common.percentage'),
         'yAxisMax' => 100,
         'stacking' => 'percent',
             'height' => 350,
@@ -326,7 +326,7 @@ foreach ($codeByCategory as $row) {
          ======================================== -->
     <?php
     Component::urlTable([
-        'title' => 'URLs non 200',
+        'title' => __('codes.table_non200'),
         'id' => 'codes_urls',
         'whereClause' => 'WHERE c.code != 200 AND c.crawled = true AND c.is_html = true',
         'orderBy' => 'ORDER BY c.code DESC, c.inlinks DESC',
@@ -343,7 +343,7 @@ foreach ($codeByCategory as $row) {
          ======================================== -->
     <?php
     Component::linkTable([
-        'title' => 'Liens vers les URLs non 200',
+        'title' => __('codes.table_links_non200'),
         'id' => 'codes_links',
         'whereClause' => 'WHERE ct.code != 200 AND ct.crawled = true AND ct.is_html = true',
         'orderBy' => 'ORDER BY ct.code DESC, ct.inlinks DESC',

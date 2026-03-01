@@ -20,7 +20,7 @@ if(!isset($linkTableConfig) || !is_array($linkTableConfig)) {
 require_once __DIR__ . '/scope-modal.php';
 
 // Extraction des paramètres
-$componentTitle = $linkTableConfig['title'] ?? 'Résultats';
+$componentTitle = $linkTableConfig['title'] ?? __('table.results');
 $componentId = $linkTableConfig['id'] ?? 'table_' . uniqid();
 $pdo = $linkTableConfig['pdo'] ?? null;
 $projectDir = $linkTableConfig['projectDir'] ?? '';
@@ -153,28 +153,28 @@ if (!empty($scopeItems) && !empty($sqlParams)) {
 // Colonnes spécifiques aux liens (en premier dans le sélecteur)
 $linkSpecificColumns = [
     'anchor' => 'Anchor',
-    'external' => 'Externe',
+    'external' => __('columns.external'),
     'nofollow' => 'Follow',
-    'type' => 'Type de lien'
+    'type' => __('columns.link_type')
 ];
 
 // Colonnes disponibles (seront dupliquées en source_ et target_)
 $availableColumns = [
     'url' => 'URL',
-    'depth' => 'Profondeur',
-    'code' => 'Code HTTP',
-    'category' => 'Catégorie',
-    'inlinks' => 'Liens entrants',
-    'outlinks' => 'Liens sortants',
+    'depth' => __('columns.depth'),
+    'code' => __('columns.http_code'),
+    'category' => __('columns.category'),
+    'inlinks' => __('columns.inlinks'),
+    'outlinks' => __('columns.outlinks'),
     'response_time' => 'TTFB (ms)',
-    'schemas' => 'Données structurées',
-    'compliant' => 'Indexable',
+    'schemas' => __('columns.structured_data'),
+    'compliant' => __('columns.indexable'),
     'canonical' => 'Canonical',
-    'canonical_value' => 'URL Canonical',
+    'canonical_value' => __('columns.canonical_url'),
     'noindex' => 'Noindex',
-    'blocked' => 'Bloqué',
-    'redirect_to' => 'Redirige vers',
-    'content_type' => 'Type de contenu',
+    'blocked' => __('columns.blocked'),
+    'redirect_to' => __('columns.redirect_to'),
+    'content_type' => __('columns.content_type'),
     'pri' => 'PageRank',
     'title_status' => 'Title Status',
     'title' => 'Title',
@@ -182,9 +182,9 @@ $availableColumns = [
     'h1' => 'H1',
     'metadesc_status' => 'Meta Desc Status',
     'metadesc' => 'Meta Description',
-    'h1_multiple' => 'H1 Multiples',
-    'headings_missing' => 'Mauvaise structure hn',
-    'word_count' => 'Nb mots'
+    'h1_multiple' => __('columns.h1_multiple'),
+    'headings_missing' => __('columns.bad_heading_structure'),
+    'word_count' => __('columns.word_count')
 ];
 
 // Ajout des colonnes d'extracteurs JSONB aux colonnes disponibles
@@ -695,12 +695,12 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
             
             <!-- Droite : Scope + Copier + Export CSV -->
             <div style="display: flex; gap: 0.5rem; align-items: center;">
-                <span onclick="showTableScope_<?= $componentId ?>()" class="chart-action-btn" title="Voir le scope des données" style="cursor: pointer;">
+                <span onclick="showTableScope_<?= $componentId ?>()" class="chart-action-btn" title="<?= __('table.view_scope') ?>" style="cursor: pointer;">
                     <span class="material-symbols-outlined">database</span>
                 </span>
                 <button class="btn-table-action btn-copy" onclick="copyTableToClipboard_<?= $componentId ?>(event)">
                     <span class="material-symbols-outlined">content_copy</span>
-                    Copier
+                    <?= __('table.copy') ?>
                 </button>
                 <button class="btn-table-action btn-export" onclick="exportToCSV_<?= $componentId ?>()">
                     <span class="material-symbols-outlined">download</span>
@@ -715,16 +715,16 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
             <div style="position: relative;">
                 <button class="btn-table-action btn-columns-select" onclick="toggleColumnDropdown_<?= $componentId ?>()">
                     <span class="material-symbols-outlined">view_column</span>
-                    Colonnes
+                    <?= __('table.columns') ?>
                 </button>
                 <div id="columnDropdown_<?= $componentId ?>" class="column-dropdown-<?= $componentId ?>" style="display: none; position: absolute; left: 0; top: 100%; margin-top: 0.5rem; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 250px; max-height: 450px; z-index: 1000; flex-direction: column;">
                     <!-- Header fixe -->
                     <div style="padding: 1rem 1rem 0.5rem 1rem; border-bottom: 1px solid var(--border-color); background: white; border-radius: 8px 8px 0 0;">
-                        <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;">Sélectionner les colonnes</div>
+                        <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;"><?= __('table.select_columns') ?></div>
                         <div style="font-size: 0.85rem; color: var(--text-secondary);">
-                            <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(true)" style="color: var(--primary-color); text-decoration: none; cursor: pointer;">tout cocher</a>
+                            <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(true)" style="color: var(--primary-color); text-decoration: none; cursor: pointer;"><?= __('table.check_all') ?></a>
                             <span style="margin: 0 0.25rem; color: var(--border-color);">|</span>
-                            <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(false)" style="color: var(--text-secondary); text-decoration: none; cursor: pointer;">tout décocher</a>
+                            <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(false)" style="color: var(--text-secondary); text-decoration: none; cursor: pointer;"><?= __('table.uncheck_all') ?></a>
                         </div>
                     </div>
                     
@@ -732,7 +732,7 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                     <div style="flex: 1; overflow-y: auto; padding: 0.5rem 1rem; max-height: 280px;">
                         <!-- Colonnes spécifiques aux liens en premier -->
                         <div style="margin-bottom: 0.75rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--border-color);">
-                            <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem; text-transform: uppercase;">Colonnes Liens</div>
+                            <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem; text-transform: uppercase;"><?= __('table.link_columns') ?></div>
                             <?php foreach($linkSpecificColumns as $key => $label): ?>
                             <label style="display: block; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s; background: #f8f9fa;" onmouseover="this.style.background='#e9ecef'" onmouseout="this.style.background='#f8f9fa'">
                                 <input type="checkbox" class="column-checkbox-<?= $componentId ?>" value="<?= $key ?>" 
@@ -744,29 +744,29 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                         </div>
                         
                         <!-- Colonnes URL (source/target) -->
-                        <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem; text-transform: uppercase;">Colonnes URL</div>
+                        <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem; text-transform: uppercase;"><?= __('table.url_columns') ?></div>
                         <?php foreach($availableColumns as $key => $label): ?>
                         <label style="display: block; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='var(--background)'" onmouseout="this.style.background='transparent'">
                             <input type="checkbox" class="column-checkbox-<?= $componentId ?>" value="<?= $key ?>" 
                                 <?= in_array($key, $selectedColumnsRaw) ? 'checked' : '' ?>
                                 <?= $key === 'url' ? 'disabled' : '' ?>
                                 style="margin-right: 0.5rem; accent-color: var(--primary-color);">
-                            <?= $label ?><?= $key === 'url' ? ' (obligatoire)' : '' ?>
+                            <?= $label ?><?= $key === 'url' ? ' (' . __('table.mandatory') . ')' : '' ?>
                         </label>
                         <?php endforeach; ?>
                     </div>
                     
                     <!-- Footer fixe avec boutons -->
                     <div style="padding: 1rem; border-top: 1px solid var(--border-color); background: white; border-radius: 0 0 8px 8px; display: flex; gap: 0.5rem;">
-                        <button class="btn" onclick="applyColumns_<?= $componentId ?>()" style="flex: 1; background: var(--primary-color); color: white; border: none; padding: 0.6rem; font-weight: 500;">Appliquer</button>
-                        <button class="btn" onclick="toggleColumnDropdown_<?= $componentId ?>()" style="flex: 1; background: #95a5a6; color: white; border: none; padding: 0.6rem; font-weight: 500;">Annuler</button>
+                        <button class="btn" onclick="applyColumns_<?= $componentId ?>()" style="flex: 1; background: var(--primary-color); color: white; border: none; padding: 0.6rem; font-weight: 500;"><?= __('table.apply') ?></button>
+                        <button class="btn" onclick="toggleColumnDropdown_<?= $componentId ?>()" style="flex: 1; background: #95a5a6; color: white; border: none; padding: 0.6rem; font-weight: 500;"><?= __('table.cancel') ?></button>
                     </div>
                 </div>
             </div>
             
             <!-- Droite : Pagination -->
             <div id="paginationTop_<?= $componentId ?>" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">
-                <span id="paginationInfo_<?= $componentId ?>">Affichage de <?= number_format(($offset ?? 0) + 1) ?> à <?= number_format(min(($offset ?? 0) + $perPage, $totalResults ?? 0)) ?> sur <?= number_format($totalResults ?? 0) ?> Liens</span>
+                <span id="paginationInfo_<?= $componentId ?>"><?= __('table.pagination_info_links', ['start' => number_format(($offset ?? 0) + 1), 'end' => number_format(min(($offset ?? 0) + $perPage, $totalResults ?? 0)), 'total' => number_format($totalResults ?? 0)]) ?></span>
                 <button onclick="changePage_<?= $componentId ?>(<?= max(1, $page_num - 1) ?>)" <?= $page_num <= 1 ? 'disabled' : '' ?> style="padding: 0.4rem; border: 1px solid #dee2e6; background: white; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; <?= $page_num <= 1 ? 'opacity: 0.4; cursor: default;' : '' ?>" onmouseover="<?= $page_num > 1 ? 'this.style.background=\"#f8f9fa\"; this.style.borderColor=\"#adb5bd\"' : '' ?>" onmouseout="<?= $page_num > 1 ? 'this.style.background=\"white\"; this.style.borderColor=\"#dee2e6\"' : '' ?>">
                     <span class="material-symbols-outlined" style="font-size: 20px;">chevron_left</span>
                 </button>
@@ -826,8 +826,8 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                     <td colspan="<?= count($selectedColumns) ?>" style="text-align: center; padding: 4rem 2rem;">
                         <div style="display: flex; flex-direction: column; align-items: center; gap: 1rem; color: var(--text-secondary);">
                             <span class="material-symbols-outlined" style="font-size: 64px; color: #95a5a6; opacity: 0.5;">search_off</span>
-                            <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">Aucun résultat</div>
-                            <div style="font-size: 0.9rem; max-width: 400px; line-height: 1.5;">Aucun lien ne correspond aux critères de recherche actuels.</div>
+                            <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);"><?= __('table.no_results') ?></div>
+                            <div style="font-size: 0.9rem; max-width: 400px; line-height: 1.5;"><?= __('table.no_link_match') ?></div>
                         </div>
                     </td>
                 </tr>
@@ -841,7 +841,7 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                             <td class="col-<?= $col ?>" style="max-width: 400px; position: relative;">
                                 <div style="display: flex; align-items: center; overflow: hidden;">
                                     <?php if($copyUrl && $link->$col): ?>
-                                    <span class="copy-path-btn" data-path="<?= htmlspecialchars(parse_url($link->$col, PHP_URL_PATH) ?: '/') ?>" title="Copier le chemin" style="cursor: pointer; color: var(--text-secondary); margin-right: 0.4rem; flex-shrink: 0;" onclick="event.preventDefault(); event.stopPropagation(); navigator.clipboard.writeText(this.dataset.path).then(() => { if(typeof showGlobalStatus === 'function') showGlobalStatus('Chemin copié', 'success'); })">
+                                    <span class="copy-path-btn" data-path="<?= htmlspecialchars(parse_url($link->$col, PHP_URL_PATH) ?: '/') ?>" title="<?= __('table.copy_path') ?>" style="cursor: pointer; color: var(--text-secondary); margin-right: 0.4rem; flex-shrink: 0;" onclick="event.preventDefault(); event.stopPropagation(); navigator.clipboard.writeText(this.dataset.path).then(() => { if(typeof showGlobalStatus === 'function') showGlobalStatus(__('table.path_copied'), 'success'); })">
                                         <span class="material-symbols-outlined" style="font-size: 16px;">content_copy</span>
                                     </span>
                                     <?php endif; ?>
@@ -849,7 +849,7 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                                         <?= htmlspecialchars($link->$col ?? '') ?>
                                     </span>
                                     <?php if($link->$col): ?>
-                                    <a href="<?= htmlspecialchars($link->$col) ?>" target="_blank" rel="noopener noreferrer" title="Ouvrir l'URL dans un nouvel onglet" style="display: inline-flex; align-items: center; color: var(--text-secondary); text-decoration: none; margin-left: 0.5rem; flex-shrink: 0;">
+                                    <a href="<?= htmlspecialchars($link->$col) ?>" target="_blank" rel="noopener noreferrer" title="<?= __('common.open_new_tab') ?>" style="display: inline-flex; align-items: center; color: var(--text-secondary); text-decoration: none; margin-left: 0.5rem; flex-shrink: 0;">
                                         <span class="material-symbols-outlined" style="font-size: 16px;">open_in_new</span>
                                     </a>
                                     <?php endif; ?>
@@ -978,7 +978,7 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
     <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem;">
         <!-- Gauche : Sélecteur nombre par page -->
         <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);">
-            <span>Afficher :</span>
+            <span><?= __('table.show') ?> :</span>
             <div style="position: relative;">
                 <button id="perPageBtn_<?= $componentId ?>" onclick="togglePerPageDropdown_<?= $componentId ?>()" style="padding: 0.4rem 0.8rem 0.4rem 0.6rem; border: 1px solid #dee2e6; border-radius: 4px; background: white; cursor: pointer; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s ease; min-width: 60px;">
                     <span id="perPageValue_<?= $componentId ?>"><?= $perPage ?></span>
@@ -991,12 +991,12 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                     <div onclick="selectPerPage_<?= $componentId ?>(500)" style="padding: 0.5rem 0.75rem; cursor: pointer; transition: background 0.15s ease; <?= $perPage == 500 ? 'background: #f8f9fa; font-weight: 600;' : '' ?>" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='<?= $perPage == 500 ? '#f8f9fa' : 'white' ?>'">500</div>
                 </div>
             </div>
-            <span>par page</span>
+            <span><?= __('table.per_page') ?></span>
         </div>
         
         <!-- Droite : Pagination -->
         <div id="paginationBottom_<?= $componentId ?>" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">
-            <span id="paginationInfoBottom_<?= $componentId ?>">Affichage de <?= number_format(($offset ?? 0) + 1) ?> à <?= number_format(min(($offset ?? 0) + $perPage, $totalResults ?? 0)) ?> sur <?= number_format($totalResults ?? 0) ?> Liens</span>
+            <span id="paginationInfoBottom_<?= $componentId ?>"><?= __('table.pagination_info_links', ['start' => number_format(($offset ?? 0) + 1), 'end' => number_format(min(($offset ?? 0) + $perPage, $totalResults ?? 0)), 'total' => number_format($totalResults ?? 0)]) ?></span>
             <button onclick="changePage_<?= $componentId ?>(<?= max(1, $page_num - 1) ?>)" <?= $page_num <= 1 ? 'disabled' : '' ?> style="padding: 0.4rem; border: 1px solid #dee2e6; background: white; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; <?= $page_num <= 1 ? 'opacity: 0.4; cursor: default;' : '' ?>" onmouseover="<?= $page_num > 1 ? 'this.style.background=\"#f8f9fa\"; this.style.borderColor=\"#adb5bd\"' : '' ?>" onmouseout="<?= $page_num > 1 ? 'this.style.background=\"white\"; this.style.borderColor=\"#dee2e6\"' : '' ?>">
                 <span class="material-symbols-outlined" style="font-size: 20px;">chevron_left</span>
             </button>
@@ -1186,7 +1186,7 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
             const offset = (page - 1) * currentPerPage;
             const start = offset + 1;
             const end = Math.min(offset + currentPerPage, totalResults);
-            const paginationText = `Affichage de ${start.toLocaleString('fr-FR')} à ${end.toLocaleString('fr-FR')} sur ${totalResults.toLocaleString('fr-FR')} Liens`;
+            const paginationText = __('table.pagination_info_links', {start: start.toLocaleString(), end: end.toLocaleString(), total: totalResults.toLocaleString()});
             
             document.getElementById('paginationInfo_' + componentId).textContent = paginationText;
             document.getElementById('paginationInfoBottom_' + componentId).textContent = paginationText;
@@ -1346,10 +1346,10 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
         });
         
         navigator.clipboard.writeText(text).then(() => {
-            showGlobalStatus('✓ Texte copié', 'success');
+            showGlobalStatus(__('table.text_copied'), 'success');
         }).catch(err => {
             console.error('Erreur:', err);
-            showGlobalStatus('Erreur lors de la copie', 'error');
+            showGlobalStatus(__('table.copy_error'), 'error');
         });
     };
 
@@ -1530,12 +1530,12 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                 }
                 
                 // Afficher un message de succès
-                showGlobalStatus('✓ Colonnes mises à jour', 'success');
+                showGlobalStatus(__('table.columns_updated'), 'success');
             }
         })
         .catch(error => {
             console.error('Erreur lors du chargement:', error);
-            alert('Erreur lors de la mise à jour des colonnes');
+            alert(__('table.columns_update_error'));
         });
     };
 
@@ -1642,19 +1642,19 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                         navigator.clipboard.writeText(path).then(() => {
                             // Afficher notification
                             if (typeof showGlobalStatus === 'function') {
-                                showGlobalStatus('Chemin copié : ' + path, 'success');
+                                showGlobalStatus(__('table.path_copied') + ' : ' + path, 'success');
                             } else {
                                 // Fallback notification
                                 const notif = document.createElement('div');
                                 notif.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#2ecc71;color:#fff;padding:10px 20px;border-radius:6px;z-index:10000;font-size:14px;';
-                                notif.textContent = 'Chemin copié : ' + path;
+                                notif.textContent = __('table.path_copied') + ' : ' + path;
                                 document.body.appendChild(notif);
                                 setTimeout(() => notif.remove(), 2000);
                             }
                         }).catch(err => {
                             console.error('Erreur copie:', err);
                             if (typeof showGlobalStatus === 'function') {
-                                showGlobalStatus('Erreur lors de la copie', 'error');
+                                showGlobalStatus(__('table.copy_error'), 'error');
                             }
                         });
                     }

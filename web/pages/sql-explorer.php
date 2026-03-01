@@ -75,39 +75,39 @@ $initialQuery = isset($_GET['query']) ? urldecode($_GET['query']) : 'SELECT * FR
 // Requêtes pré-enregistrées (adaptées pour PostgreSQL)
 $savedQueries = [
     [
-        'name' => 'Répartition par code de réponse',
-        'description' => 'Nombre d\'URLs par code de statut HTTP',
-        'category' => 'Analyse',
+        'name' => __('sql_explorer.query_response_codes'),
+        'description' => __('sql_explorer.query_response_codes_desc'),
+        'category' => __('sql_explorer.cat_analysis'),
         'query' => "SELECT\n\tcode,\n\tCOUNT(url) AS urls\nFROM pages\nWHERE crawled = true\nGROUP BY code\nORDER BY urls DESC"
     ],
     [
-        'name' => 'Distribution par niveau de profondeur',
-        'description' => 'Répartition des URLs compliant par profondeur',
-        'category' => 'Analyse',
+        'name' => __('sql_explorer.query_depth_distribution'),
+        'description' => __('sql_explorer.query_depth_distribution_desc'),
+        'category' => __('sql_explorer.cat_analysis'),
         'query' => "SELECT\n\tdepth,\n\tCOUNT(url) AS urls\nFROM pages\nWHERE compliant = true\nGROUP BY depth\nORDER BY depth ASC"
     ],
     [
-        'name' => 'Top 20 URLs Pagerank',
-        'description' => 'Pages les plus populaires du site',
-        'category' => 'SEO',
+        'name' => __('sql_explorer.query_top_pagerank'),
+        'description' => __('sql_explorer.query_top_pagerank_desc'),
+        'category' => __('sql_explorer.cat_seo'),
         'query' => "SELECT\n\turl,\n\tpri AS pagerank,\n\tinlinks,\n\tcode\nFROM pages\nWHERE crawled = true AND compliant = true\nORDER BY pagerank DESC\nLIMIT 20"
     ],
     [
-        'name' => 'Tous les liens',
-        'description' => 'Liste complète des liens avec source et cible',
-        'category' => 'Liens',
+        'name' => __('sql_explorer.query_all_links'),
+        'description' => __('sql_explorer.query_all_links_desc'),
+        'category' => __('sql_explorer.cat_links'),
         'query' => "SELECT\n\ts.url AS source_url,\n\tcs.cat AS source_cat,\n\tt.url AS target_url,\n\tct.cat AS target_cat,\n\tl.anchor,\n\tl.type,\n\tl.external,\n\tl.nofollow\nFROM links l\nLEFT JOIN pages s ON l.src = s.id\nLEFT JOIN pages t ON l.target = t.id\nLEFT JOIN categories cs ON cs.id = s.cat_id\nLEFT JOIN categories ct ON ct.id = t.cat_id\nLIMIT 100"
     ],
     [
-        'name' => 'URLs non indexables',
-        'description' => 'Pages bloquées ou avec noindex',
-        'category' => 'SEO',
+        'name' => __('sql_explorer.query_non_indexable'),
+        'description' => __('sql_explorer.query_non_indexable_desc'),
+        'category' => __('sql_explorer.cat_seo'),
         'query' => "SELECT\n\turl,\n\tcode,\n\tblocked,\n\tnoindex,\n\tcanonical\nFROM pages\nWHERE crawled = true AND compliant = false"
     ],
     [
-        'name' => 'Répartition par catégorie',
-        'description' => 'Nombre d\'URLs par catégorie',
-        'category' => 'Analyse',
+        'name' => __('sql_explorer.query_by_category'),
+        'description' => __('sql_explorer.query_by_category_desc'),
+        'category' => __('sql_explorer.cat_analysis'),
         'query' => "SELECT\n\tc.cat AS category,\n\tCOUNT(*) AS urls\nFROM pages p\nLEFT JOIN categories c ON c.id = p.cat_id\nWHERE p.crawled = true\nGROUP BY category\nORDER BY urls DESC"
     ]
 ];
@@ -1264,7 +1264,7 @@ $savedQueries = [
     <div class="sql-sidebar">
         <h3>
             <span class="material-symbols-outlined">table_view</span>
-            Tables
+            <?= __('sql_explorer.tables') ?>
         </h3>
         
         <?php if (!empty($tables)): ?>
@@ -1294,7 +1294,7 @@ $savedQueries = [
         <?php else: ?>
             <div class="empty-state">
                 <span class="material-symbols-outlined">database</span>
-                <p>Aucune table trouvée</p>
+                <p><?= __('sql_explorer.no_tables') ?></p>
             </div>
         <?php endif; ?>
         
@@ -1302,7 +1302,7 @@ $savedQueries = [
         <div class="saved-queries-section">
             <h3>
                 <span class="material-symbols-outlined">bookmark</span>
-                Requêtes sauvegardées
+                <?= __('sql_explorer.saved_queries') ?>
             </h3>
             
             <?php foreach ($savedQueries as $index => $query): ?>
@@ -1320,7 +1320,7 @@ $savedQueries = [
     <!-- Main content -->
     <div class="sql-main">
         <!-- Bouton toggle sidebar -->
-        <button class="sidebar-toggle" onclick="toggleSidebar()" title="Masquer/Afficher la sidebar">
+        <button class="sidebar-toggle" onclick="toggleSidebar()" title="<?= __('sql_explorer.toggle_sidebar') ?>">
             <span class="material-symbols-outlined">chevron_left</span>
         </button>
         <!-- SQL Editor -->
@@ -1328,7 +1328,7 @@ $savedQueries = [
             <!-- Onglets en haut -->
             <div class="tabs-container" id="tabsContainer">
                 <div class="tab active" data-tab-id="0" onmousedown="handleTabMouseDown(event)" onauxclick="handleTabMiddleClick(0, event)">
-                    <span class="tab-title">Requête 1</span>
+                    <span class="tab-title"><?= __('sql_explorer.query_tab') ?> 1</span>
                     <span class="tab-close" onclick="closeTab(0, event)">×</span>
                 </div>
                 <div class="tab-add" onclick="addNewTab()">
@@ -1343,12 +1343,12 @@ $savedQueries = [
                 <div class="toolbar-left">
                     <button class="execute-btn" onclick="executeQuery()">
                         <span class="material-symbols-outlined">play_arrow</span>
-                        Exécuter
+                        <?= __('sql_explorer.execute') ?>
                         <span class="shortcut">Ctrl+Enter</span>
                     </button>
                 </div>
                 <div class="toolbar-right">
-                    <button class="help-btn" onclick="showSQLHelp()" title="Aide SQL">
+                    <button class="help-btn" onclick="showSQLHelp()" title="<?= __('sql_explorer.sql_help') ?>">
                         <span class="material-symbols-outlined">help</span>
                     </button>
                 </div>
@@ -1361,16 +1361,16 @@ $savedQueries = [
             <div class="sql-results-toolbar">
                 <div class="result-info" id="resultInfo">
                     <span class="material-symbols-outlined">table_chart</span>
-                    <span>Résultats</span>
+                    <span><?= __('common.results') ?></span>
                 </div>
                 <div class="toolbar-actions">
-                    <button id="copyBtn" class="btn-secondary-action" onclick="copyTableToClipboard()" disabled title="Copier le tableau">
+                    <button id="copyBtn" class="btn-secondary-action" onclick="copyTableToClipboard()" disabled title="<?= __('sql_explorer.copy_table') ?>">
                         <span class="material-symbols-outlined">content_copy</span>
-                        Copier
+                        <?= __('common.copy') ?>
                     </button>
                     <button id="exportBtn" class="btn-primary-action" onclick="exportToCSV()" disabled>
                         <span class="material-symbols-outlined">download</span>
-                        Export CSV
+                        <?= __('sql_explorer.export_csv') ?>
                     </button>
                 </div>
             </div>
@@ -1381,14 +1381,14 @@ $savedQueries = [
                     <div class="results-table-wrapper">
                         <div id="resultsContentChart" class="empty-state">
                             <span class="material-symbols-outlined">play_circle</span>
-                            <p>Exécutez une requête SQL pour voir les résultats</p>
+                            <p><?= __('sql_explorer.execute_query_prompt') ?></p>
                         </div>
                     </div>
                     <div class="chart-panel">
                         <div class="chart-panel-header">
                             <h4>
                                 <span class="material-symbols-outlined">donut_small</span>
-                                Graphique
+                                <?= __('sql_explorer.chart') ?>
                             </h4>
                             <div class="chart-type-switch">
                                 <button class="chart-type-btn active" data-type="doughnut" onclick="changeChartType('doughnut')">
@@ -1413,7 +1413,7 @@ $savedQueries = [
             <div id="resultsClassic" class="results-table-wrapper">
                 <div id="resultsContent" class="empty-state">
                     <span class="material-symbols-outlined">play_circle</span>
-                    <p>Exécutez une requête SQL pour voir les résultats</p>
+                    <p><?= __('sql_explorer.run_query_prompt') ?></p>
                 </div>
             </div>
             
@@ -1430,147 +1430,146 @@ $savedQueries = [
         <div class="help-modal-header">
             <h2>
                 <span class="material-symbols-outlined">help</span>
-                Guide SQL Explorer
+                <?= __('sql_explorer.help_title') ?>
             </h2>
             <button class="help-modal-close" onclick="hideSQLHelp()">
                 <span class="material-symbols-outlined">close</span>
             </button>
         </div>
         <div class="help-modal-body">
-            <h3>🚀 Introduction</h3>
+            <h3><?= __('sql_explorer.help_introduction') ?></h3>
             <p>
-                Le SQL Explorer vous permet d'interroger directement la base de données du crawl avec des requêtes SQL personnalisées. 
-                Utilisez l'autocomplétion intelligente et les requêtes pré-enregistrées pour explorer vos données efficacement.
+                <?= __('sql_explorer.help_introduction_text') ?>
             </p>
 
-            <h3>📊 Schéma de la base de données PostgreSQL</h3>
-            <p><strong>Architecture :</strong> Les données sont partitionnées par crawl. Les tables <code>pages</code>, <code>links</code> et <code>categories</code> sont des tables virtuelles qui pointent automatiquement vers la partition du crawl actuel.</p>
+            <h3><?= __('sql_explorer.help_schema') ?></h3>
+            <p><strong><?= __('sql_explorer.help_architecture') ?></strong> <?= __('sql_explorer.help_architecture_text') ?></p>
             
-            <h4>Table principale : <code>pages</code></h4>
-            <p>Cette table contient toutes les informations sur les URLs crawlées :</p>
+            <h4><?= __('sql_explorer.help_table_pages') ?></h4>
+            <p><?= __('sql_explorer.help_table_pages_desc') ?></p>
             
             <table class="schema-table">
                 <thead>
                     <tr>
-                        <th>Champ</th>
-                        <th>Type</th>
-                        <th>Description</th>
+                        <th><?= __('sql_explorer.help_field') ?></th>
+                        <th><?= __('sql_explorer.help_type') ?></th>
+                        <th><?= __('sql_explorer.help_description') ?></th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td><code>id</code></td><td>CHAR(8)</td><td>Identifiant unique de l'URL</td></tr>
-                    <tr><td><code>url</code></td><td>TEXT</td><td>URL complète de la page</td></tr>
-                    <tr><td><code>domain</code></td><td>VARCHAR(255)</td><td>Domaine de l'URL</td></tr>
-                    <tr><td><code>code</code></td><td>INTEGER</td><td>Code HTTP (200, 404, 301...). <code>311</code> = redirection JS</td></tr>
-                    <tr><td><code>depth</code></td><td>INTEGER</td><td>Profondeur de crawl (0 = accueil)</td></tr>
-                    <tr><td><code>crawled</code></td><td>BOOLEAN</td><td>true si crawlée</td></tr>
-                    <tr><td><code>compliant</code></td><td>BOOLEAN</td><td>true si indexable</td></tr>
-                    <tr><td><code>external</code></td><td>BOOLEAN</td><td>true si URL externe</td></tr>
-                    <tr><td><code>blocked</code></td><td>BOOLEAN</td><td>true si bloquée par robots.txt</td></tr>
-                    <tr><td><code>noindex</code></td><td>BOOLEAN</td><td>true si meta noindex</td></tr>
-                    <tr><td><code>nofollow</code></td><td>BOOLEAN</td><td>true si meta nofollow</td></tr>
-                    <tr><td><code>canonical</code></td><td>BOOLEAN</td><td>true si l'URL = sa canonical</td></tr>
-                    <tr><td><code>canonical_value</code></td><td>TEXT</td><td>URL de la balise canonical</td></tr>
-                    <tr><td><code>redirect_to</code></td><td>TEXT</td><td>URL de redirection (si 3xx)</td></tr>
-                    <tr><td><code>content_type</code></td><td>VARCHAR(100)</td><td>Content-Type HTTP</td></tr>
-                    <tr><td><code>response_time</code></td><td>FLOAT</td><td>Temps de réponse (ms)</td></tr>
-                    <tr><td><code>inlinks</code></td><td>INTEGER</td><td>Liens entrants</td></tr>
-                    <tr><td><code>outlinks</code></td><td>INTEGER</td><td>Liens sortants</td></tr>
-                    <tr><td><code>pri</code></td><td>FLOAT</td><td>Score PageRank interne</td></tr>
-                    <tr><td><code>title</code></td><td>TEXT</td><td>Balise &lt;title&gt;</td></tr>
+                    <tr><td><code>id</code></td><td>CHAR(8)</td><td><?= __('sql_explorer.help_col_id') ?></td></tr>
+                    <tr><td><code>url</code></td><td>TEXT</td><td><?= __('sql_explorer.help_col_url') ?></td></tr>
+                    <tr><td><code>domain</code></td><td>VARCHAR(255)</td><td><?= __('sql_explorer.help_col_domain') ?></td></tr>
+                    <tr><td><code>code</code></td><td>INTEGER</td><td><?= __('sql_explorer.help_col_code') ?></td></tr>
+                    <tr><td><code>depth</code></td><td>INTEGER</td><td><?= __('sql_explorer.help_col_depth') ?></td></tr>
+                    <tr><td><code>crawled</code></td><td>BOOLEAN</td><td><?= __('sql_explorer.help_col_crawled') ?></td></tr>
+                    <tr><td><code>compliant</code></td><td>BOOLEAN</td><td><?= __('sql_explorer.help_col_compliant') ?></td></tr>
+                    <tr><td><code>external</code></td><td>BOOLEAN</td><td><?= __('sql_explorer.help_col_external') ?></td></tr>
+                    <tr><td><code>blocked</code></td><td>BOOLEAN</td><td><?= __('sql_explorer.help_col_blocked') ?></td></tr>
+                    <tr><td><code>noindex</code></td><td>BOOLEAN</td><td><?= __('sql_explorer.help_col_noindex') ?></td></tr>
+                    <tr><td><code>nofollow</code></td><td>BOOLEAN</td><td><?= __('sql_explorer.help_col_nofollow') ?></td></tr>
+                    <tr><td><code>canonical</code></td><td>BOOLEAN</td><td><?= __('sql_explorer.help_col_canonical') ?></td></tr>
+                    <tr><td><code>canonical_value</code></td><td>TEXT</td><td><?= __('sql_explorer.help_col_canonical_value') ?></td></tr>
+                    <tr><td><code>redirect_to</code></td><td>TEXT</td><td><?= __('sql_explorer.help_col_redirect_to') ?></td></tr>
+                    <tr><td><code>content_type</code></td><td>VARCHAR(100)</td><td><?= __('sql_explorer.help_col_content_type') ?></td></tr>
+                    <tr><td><code>response_time</code></td><td>FLOAT</td><td><?= __('sql_explorer.help_col_response_time') ?></td></tr>
+                    <tr><td><code>inlinks</code></td><td>INTEGER</td><td><?= __('sql_explorer.help_col_inlinks') ?></td></tr>
+                    <tr><td><code>outlinks</code></td><td>INTEGER</td><td><?= __('sql_explorer.help_col_outlinks') ?></td></tr>
+                    <tr><td><code>pri</code></td><td>FLOAT</td><td><?= __('sql_explorer.help_col_pri') ?></td></tr>
+                    <tr><td><code>title</code></td><td>TEXT</td><td><?= __('sql_explorer.help_col_title') ?></td></tr>
                     <tr><td><code>title_status</code></td><td>VARCHAR(50)</td><td>unique / empty / duplicate</td></tr>
-                    <tr><td><code>h1</code></td><td>TEXT</td><td>Premier H1</td></tr>
+                    <tr><td><code>h1</code></td><td>TEXT</td><td><?= __('sql_explorer.help_col_h1') ?></td></tr>
                     <tr><td><code>h1_status</code></td><td>VARCHAR(50)</td><td>unique / empty / duplicate</td></tr>
                     <tr><td><code>metadesc</code></td><td>TEXT</td><td>Meta description</td></tr>
                     <tr><td><code>metadesc_status</code></td><td>VARCHAR(50)</td><td>unique / empty / duplicate</td></tr>
-                    <tr><td><code>h1_multiple</code></td><td>BOOLEAN</td><td>true si plusieurs H1</td></tr>
-                    <tr><td><code>headings_missing</code></td><td>BOOLEAN</td><td>true si mauvaise structure hn</td></tr>
-                    <tr><td><code>simhash</code></td><td>BIGINT</td><td>Hash de similarité (duplicate detection)</td></tr>
-                    <tr><td><code>is_html</code></td><td>BOOLEAN</td><td>true si contenu HTML</td></tr>
+                    <tr><td><code>h1_multiple</code></td><td>BOOLEAN</td><td><?= __('sql_explorer.help_col_h1_multiple') ?></td></tr>
+                    <tr><td><code>headings_missing</code></td><td>BOOLEAN</td><td><?= __('sql_explorer.help_col_headings_missing') ?></td></tr>
+                    <tr><td><code>simhash</code></td><td>BIGINT</td><td><?= __('sql_explorer.help_col_simhash') ?></td></tr>
+                    <tr><td><code>is_html</code></td><td>BOOLEAN</td><td><?= __('sql_explorer.help_col_is_html') ?></td></tr>
                     <tr><td><code>cat_id</code></td><td>INTEGER</td><td>FK → categories.id</td></tr>
-                    <tr><td><code>extracts</code></td><td>JSONB</td><td>Extractions XPath/Regex</td></tr>
-                    <tr><td><code>schemas</code></td><td>TEXT[]</td><td>Types Schema.org (JSON-LD @type)</td></tr>
-                    <tr><td><code>date</code></td><td>TIMESTAMP</td><td>Date de crawl</td></tr>
+                    <tr><td><code>extracts</code></td><td>JSONB</td><td><?= __('sql_explorer.help_col_extracts') ?></td></tr>
+                    <tr><td><code>schemas</code></td><td>TEXT[]</td><td><?= __('sql_explorer.help_col_schemas') ?></td></tr>
+                    <tr><td><code>date</code></td><td>TIMESTAMP</td><td><?= __('sql_explorer.help_col_date') ?></td></tr>
                 </tbody>
             </table>
 
-            <h4>Table des catégories : <code>categories</code></h4>
-            <p>Stocke les catégories et leurs couleurs personnalisées :</p>
-            
+            <h4><?= __('sql_explorer.help_table_categories') ?></h4>
+            <p><?= __('sql_explorer.help_table_categories_desc') ?></p>
+
             <table class="schema-table">
                 <thead>
                     <tr>
-                        <th>Champ</th>
-                        <th>Type</th>
-                        <th>Description</th>
+                        <th><?= __('sql_explorer.help_field') ?></th>
+                        <th><?= __('sql_explorer.help_type') ?></th>
+                        <th><?= __('sql_explorer.help_description') ?></th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td><code>id</code></td><td>INTEGER</td><td>Identifiant unique de la catégorie</td></tr>
-                    <tr><td><code>cat</code></td><td>VARCHAR(255)</td><td>Nom de la catégorie</td></tr>
-                    <tr><td><code>color</code></td><td>VARCHAR(7)</td><td>Couleur hexadécimale (ex: #3498db)</td></tr>
+                    <tr><td><code>id</code></td><td>INTEGER</td><td><?= __('sql_explorer.help_col_cat_id') ?></td></tr>
+                    <tr><td><code>cat</code></td><td>VARCHAR(255)</td><td><?= __('sql_explorer.help_col_cat_name') ?></td></tr>
+                    <tr><td><code>color</code></td><td>VARCHAR(7)</td><td><?= __('sql_explorer.help_col_cat_color') ?></td></tr>
                 </tbody>
             </table>
 
-            <h4>Table des liens : <code>links</code></h4>
-            <p>Stocke tous les liens découverts lors du crawl :</p>
-            
+            <h4><?= __('sql_explorer.help_table_links') ?></h4>
+            <p><?= __('sql_explorer.help_table_links_desc') ?></p>
+
             <table class="schema-table">
                 <thead>
                     <tr>
-                        <th>Champ</th>
-                        <th>Type</th>
-                        <th>Description</th>
+                        <th><?= __('sql_explorer.help_field') ?></th>
+                        <th><?= __('sql_explorer.help_type') ?></th>
+                        <th><?= __('sql_explorer.help_description') ?></th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td><code>src</code></td><td>CHAR(8)</td><td>ID page source (FK → pages.id)</td></tr>
-                    <tr><td><code>target</code></td><td>CHAR(8)</td><td>ID page cible (FK → pages.id)</td></tr>
-                    <tr><td><code>anchor</code></td><td>TEXT</td><td>Texte d'ancre du lien</td></tr>
-                    <tr><td><code>type</code></td><td>VARCHAR(50)</td><td>Type de lien (ahref, canonical, redirect)</td></tr>
-                    <tr><td><code>external</code></td><td>BOOLEAN</td><td>true si lien externe</td></tr>
-                    <tr><td><code>nofollow</code></td><td>BOOLEAN</td><td>true si attribut nofollow</td></tr>
+                    <tr><td><code>src</code></td><td>CHAR(8)</td><td><?= __('sql_explorer.help_col_link_src') ?></td></tr>
+                    <tr><td><code>target</code></td><td>CHAR(8)</td><td><?= __('sql_explorer.help_col_link_target') ?></td></tr>
+                    <tr><td><code>anchor</code></td><td>TEXT</td><td><?= __('sql_explorer.help_col_link_anchor') ?></td></tr>
+                    <tr><td><code>type</code></td><td>VARCHAR(50)</td><td><?= __('sql_explorer.help_col_link_type') ?></td></tr>
+                    <tr><td><code>external</code></td><td>BOOLEAN</td><td><?= __('sql_explorer.help_col_link_external') ?></td></tr>
+                    <tr><td><code>nofollow</code></td><td>BOOLEAN</td><td><?= __('sql_explorer.help_col_link_nofollow') ?></td></tr>
                 </tbody>
             </table>
 
-            <h4>Table des clusters de duplication : <code>duplicate_clusters</code></h4>
-            <p>Stocke les groupes de pages dupliquées (exactes ou similaires) :</p>
-            
+            <h4><?= __('sql_explorer.help_table_duplicates') ?></h4>
+            <p><?= __('sql_explorer.help_table_duplicates_desc') ?></p>
+
             <table class="schema-table">
                 <thead>
                     <tr>
-                        <th>Champ</th>
-                        <th>Type</th>
-                        <th>Description</th>
+                        <th><?= __('sql_explorer.help_field') ?></th>
+                        <th><?= __('sql_explorer.help_type') ?></th>
+                        <th><?= __('sql_explorer.help_description') ?></th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td><code>id</code></td><td>SERIAL</td><td>Identifiant unique du cluster</td></tr>
-                    <tr><td><code>similarity</code></td><td>INTEGER</td><td>% de similarité (100 = exact, &lt;100 = near-duplicate)</td></tr>
-                    <tr><td><code>page_count</code></td><td>INTEGER</td><td>Nombre de pages dans le cluster</td></tr>
-                    <tr><td><code>page_ids</code></td><td>TEXT[]</td><td>Array des IDs de pages (CHAR(8))</td></tr>
+                    <tr><td><code>id</code></td><td>SERIAL</td><td><?= __('sql_explorer.help_col_dup_id') ?></td></tr>
+                    <tr><td><code>similarity</code></td><td>INTEGER</td><td><?= __('sql_explorer.help_col_dup_similarity') ?></td></tr>
+                    <tr><td><code>page_count</code></td><td>INTEGER</td><td><?= __('sql_explorer.help_col_dup_page_count') ?></td></tr>
+                    <tr><td><code>page_ids</code></td><td>TEXT[]</td><td><?= __('sql_explorer.help_col_dup_page_ids') ?></td></tr>
                 </tbody>
             </table>
 
-            <h4>Table des données structurées : <code>page_schemas</code></h4>
-            <p>Table de liaison pour les types Schema.org (JSON-LD) trouvés sur chaque page :</p>
-            
+            <h4><?= __('sql_explorer.help_table_schemas') ?></h4>
+            <p><?= __('sql_explorer.help_table_schemas_desc') ?></p>
+
             <table class="schema-table">
                 <thead>
                     <tr>
-                        <th>Champ</th>
-                        <th>Type</th>
-                        <th>Description</th>
+                        <th><?= __('sql_explorer.help_field') ?></th>
+                        <th><?= __('sql_explorer.help_type') ?></th>
+                        <th><?= __('sql_explorer.help_description') ?></th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td><code>page_id</code></td><td>CHAR(8)</td><td>ID de la page (FK → pages.id)</td></tr>
-                    <tr><td><code>schema_type</code></td><td>VARCHAR(100)</td><td>Type Schema.org (@type: Article, Product...)</td></tr>
+                    <tr><td><code>page_id</code></td><td>CHAR(8)</td><td><?= __('sql_explorer.help_col_schema_page_id') ?></td></tr>
+                    <tr><td><code>schema_type</code></td><td>VARCHAR(100)</td><td><?= __('sql_explorer.help_col_schema_type') ?></td></tr>
                 </tbody>
             </table>
 
-            <h3>🔗 Relations entre tables</h3>
-            <p>Les tables sont liées par des clés étrangères :</p>
+            <h3><?= __('sql_explorer.help_relations') ?></h3>
+            <p><?= __('sql_explorer.help_relations_text') ?></p>
             <pre><code>-- Liens internes
 links.src → pages.id       (page source du lien)
 links.target → pages.id    (page cible du lien)
@@ -1589,18 +1588,18 @@ LEFT JOIN categories c ON pages.cat_id = c.id
 -- Pour les clusters: WHERE pages.id = ANY(duplicate_clusters.page_ids)
 -- Pour les schemas: LEFT JOIN page_schemas ps ON ps.page_id = p.id</code></pre>
             <p>
-                <strong>Notes :</strong>
+                <strong><?= __('sql_explorer.help_notes') ?></strong>
             </p>
             <ul>
-                <li>Pour obtenir le nom de catégorie, faites une jointure avec <code>categories</code></li>
-                <li>Les extractions personnalisées sont en JSONB dans <code>extracts</code></li>
-                <li><code>page_ids</code> et <code>schemas</code> sont des tableaux PostgreSQL (TEXT[]), utilisez <code>ANY()</code> ou <code>@&gt;</code></li>
-                <li>La table <code>page_schemas</code> permet des GROUP BY rapides sur les types de données structurées</li>
+                <li><?= __('sql_explorer.help_note_category_join') ?></li>
+                <li><?= __('sql_explorer.help_note_jsonb') ?></li>
+                <li><?= __('sql_explorer.help_note_arrays') ?></li>
+                <li><?= __('sql_explorer.help_note_page_schemas') ?></li>
             </ul>
 
-            <h3>💡 Exemples de requêtes utiles</h3>
-            
-            <h4>Analyse des codes de réponse</h4>
+            <h3><?= __('sql_explorer.help_examples') ?></h3>
+
+            <h4><?= __('sql_explorer.help_ex_response_codes') ?></h4>
             <pre><code>SELECT 
     code,
     COUNT(*) AS nb_urls
@@ -1609,7 +1608,7 @@ WHERE crawled = true
 GROUP BY code 
 ORDER BY nb_urls DESC;</code></pre>
 
-            <h4>Pages les plus populaires</h4>
+            <h4><?= __('sql_explorer.help_ex_popular_pages') ?></h4>
             <pre><code>SELECT 
     url,
     inlinks,
@@ -1620,7 +1619,7 @@ WHERE crawled = true AND compliant = true
 ORDER BY inlinks DESC 
 LIMIT 20;</code></pre>
 
-            <h4>Analyse par catégorie</h4>
+            <h4><?= __('sql_explorer.help_ex_category_analysis') ?></h4>
             <pre><code>-- Répartition des URLs par catégorie
 SELECT 
     COALESCE(c.cat, 'Non catégorisé') AS categorie,
@@ -1644,7 +1643,7 @@ WHERE p.crawled = true
 GROUP BY c.cat, c.color
 ORDER BY nb_urls DESC;</code></pre>
 
-            <h4>Détection de problèmes SEO</h4>
+            <h4><?= __('sql_explorer.help_ex_seo_issues') ?></h4>
             <pre><code>-- URLs sans titre
 SELECT url, code FROM pages 
 WHERE crawled = true AND (title IS NULL OR title = '') 
@@ -1658,7 +1657,7 @@ GROUP BY title
 HAVING COUNT(*) > 1
 ORDER BY nb_pages DESC;</code></pre>
 
-            <h4>Analyse des liens internes</h4>
+            <h4><?= __('sql_explorer.help_ex_internal_links') ?></h4>
             <pre><code>-- Top 20 des ancres les plus utilisées
 SELECT 
     anchor,
@@ -1682,8 +1681,8 @@ GROUP BY p.id, p.url, p.title
 ORDER BY nb_liens_sortants DESC
 LIMIT 20;</code></pre>
 
-            <h4>Exploitation des extractions personnalisées (JSONB)</h4>
-            <p>Les extractions XPath/Regex sont stockées en JSONB. Utilisez l'opérateur <code>-&gt;&gt;</code> pour extraire une valeur texte :</p>
+            <h4><?= __('sql_explorer.help_ex_jsonb') ?></h4>
+            <p><?= __('sql_explorer.help_ex_jsonb_text') ?></p>
             <pre><code>-- Exemple 1 : Extraire un champ spécifique (ex: 'price')
 SELECT 
     url,
@@ -1717,8 +1716,8 @@ SELECT
 FROM pages
 WHERE crawled = true;</code></pre>
 
-            <h4>Analyse des données structurées (Schema.org)</h4>
-            <p>Les types Schema.org sont stockés dans la colonne <code>schemas</code> (tableau) et la table <code>page_schemas</code> pour les stats :</p>
+            <h4><?= __('sql_explorer.help_ex_structured_data') ?></h4>
+            <p><?= __('sql_explorer.help_ex_structured_data_text') ?></p>
             <pre><code>-- Exemple 1 : Distribution des types de schemas
 SELECT 
     schema_type,
@@ -1757,40 +1756,40 @@ WHERE schemas IS NOT NULL AND array_length(schemas, 1) > 0
 ORDER BY nb_schemas DESC
 LIMIT 20;</code></pre>
 
-            <h3>⚡ Fonctionnalités de l'éditeur</h3>
+            <h3><?= __('sql_explorer.help_editor_features') ?></h3>
             <ul>
-                <li><strong>Autocomplétion intelligente</strong> : Tapez pour voir les suggestions de tables et colonnes</li>
-                <li><strong>Coloration syntaxique</strong> : Code SQL coloré pour une meilleure lisibilité</li>
-                <li><strong>Raccourcis clavier</strong> : 
+                <li><strong><?= __('sql_explorer.help_feat_autocomplete') ?></strong> : <?= __('sql_explorer.help_feat_autocomplete_desc') ?></li>
+                <li><strong><?= __('sql_explorer.help_feat_syntax') ?></strong> : <?= __('sql_explorer.help_feat_syntax_desc') ?></li>
+                <li><strong><?= __('sql_explorer.help_feat_shortcuts') ?></strong> :
                     <ul>
-                        <li><code>Ctrl+Enter</code> : Exécuter la requête</li>
-                        <li><code>Ctrl+Space</code> : Forcer l'autocomplétion</li>
-                        <li><code>Tab</code> : Indentation</li>
+                        <li><code>Ctrl+Enter</code> : <?= __('sql_explorer.help_feat_shortcut_execute') ?></li>
+                        <li><code>Ctrl+Space</code> : <?= __('sql_explorer.help_feat_shortcut_autocomplete') ?></li>
+                        <li><code>Tab</code> : <?= __('sql_explorer.help_feat_shortcut_indent') ?></li>
                     </ul>
                 </li>
-                <li><strong>Onglets multiples</strong> : Travaillez sur plusieurs requêtes simultanément</li>
-                <li><strong>Requêtes sauvegardées</strong> : Cliquez sur une requête pré-définie pour la charger</li>
-                <li><strong>Export CSV</strong> : Exportez tous les résultats (même si l'affichage est limité à 500 lignes)</li>
+                <li><strong><?= __('sql_explorer.help_feat_tabs') ?></strong> : <?= __('sql_explorer.help_feat_tabs_desc') ?></li>
+                <li><strong><?= __('sql_explorer.help_feat_saved') ?></strong> : <?= __('sql_explorer.help_feat_saved_desc') ?></li>
+                <li><strong><?= __('sql_explorer.help_feat_export') ?></strong> : <?= __('sql_explorer.help_feat_export_desc') ?></li>
             </ul>
 
-            <h3>🎯 Conseils d'utilisation</h3>
+            <h3><?= __('sql_explorer.help_tips') ?></h3>
             <ul>
-                <li>Utilisez <code>LIMIT</code> pour limiter les résultats lors de vos tests</li>
-                <li>Filtrez sur <code>crawled=1</code> pour ne voir que les pages crawlées</li>
-                <li>Filtrez sur <code>compliant=1</code> pour ne voir que les pages indexables</li>
-                <li>Utilisez <code>LEFT JOIN</code> pour inclure les URLs sans catégorie</li>
-                <li>Les fonctions PostgreSQL sont disponibles : <code>COUNT()</code>, <code>AVG()</code>, <code>SUM()</code>, <code>COALESCE()</code>, etc.</li>
-                <li>Pour les JSONB : utilisez <code>-&gt;&gt;</code> pour extraire du texte, <code>-&gt;</code> pour extraire du JSON</li>
-                <li>Convertissez les types avec <code>::NUMERIC</code>, <code>::INTEGER</code>, <code>::DATE</code>, etc.</li>
+                <li><?= __('sql_explorer.help_tip_limit') ?></li>
+                <li><?= __('sql_explorer.help_tip_crawled') ?></li>
+                <li><?= __('sql_explorer.help_tip_compliant') ?></li>
+                <li><?= __('sql_explorer.help_tip_left_join') ?></li>
+                <li><?= __('sql_explorer.help_tip_pg_functions') ?></li>
+                <li><?= __('sql_explorer.help_tip_jsonb') ?></li>
+                <li><?= __('sql_explorer.help_tip_cast') ?></li>
             </ul>
 
-            <h3>⚠️ Limitations et sécurité</h3>
+            <h3><?= __('sql_explorer.help_limitations') ?></h3>
             <ul>
-                <li><strong>Base de données en lecture seule</strong> : Seules les requêtes <code>SELECT</code> sont autorisées</li>
-                <li><strong>Modifications interdites</strong> : Les commandes <code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code>, <code>DROP</code>, <code>CREATE</code>, etc. sont bloquées</li>
-                <li><strong>Affichage limité</strong> : 500 lignes maximum pour les performances (export CSV complet disponible)</li>
-                <li><strong>Timeout automatique</strong> : Les requêtes trop longues sont interrompues</li>
-                <li><strong>Protection multi-niveaux</strong> : Validation des requêtes + connexion en lecture seule</li>
+                <li><strong><?= __('sql_explorer.help_limit_readonly') ?></strong> : <?= __('sql_explorer.help_limit_readonly_desc') ?></li>
+                <li><strong><?= __('sql_explorer.help_limit_no_modify') ?></strong> : <?= __('sql_explorer.help_limit_no_modify_desc') ?></li>
+                <li><strong><?= __('sql_explorer.help_limit_display') ?></strong> : <?= __('sql_explorer.help_limit_display_desc') ?></li>
+                <li><strong><?= __('sql_explorer.help_limit_timeout') ?></strong> : <?= __('sql_explorer.help_limit_timeout_desc') ?></li>
+                <li><strong><?= __('sql_explorer.help_limit_protection') ?></strong> : <?= __('sql_explorer.help_limit_protection_desc') ?></li>
             </ul>
         </div>
     </div>
@@ -1809,7 +1808,7 @@ const savedQueries = <?= json_encode($savedQueries) ?>;
 
 // Système d'onglets
 let tabs = [
-    { id: 0, title: 'Requête 1', query: <?= json_encode($initialQuery) ?>, editor: null }
+    { id: 0, title: '<?= __('sql_explorer.query_tab') ?> 1', query: <?= json_encode($initialQuery) ?>, editor: null }
 ];
 let activeTabId = 0;
 let nextTabId = 1;
@@ -2058,7 +2057,7 @@ function switchTab(tabId) {
 function addNewTab() {
     const newTab = {
         id: nextTabId,
-        title: `Requête ${nextTabId + 1}`,
+        title: `<?= __('sql_explorer.query_tab') ?> ${nextTabId + 1}`,
         query: '',
         editor: null
     };
@@ -2252,7 +2251,7 @@ function executeQuery() {
     let query = sqlEditor ? sqlEditor.getValue() : document.getElementById('sqlEditor').value;
     
     if (!query.trim()) {
-        showError('Veuillez entrer une requête SQL');
+        showError(__('sql_explorer.error_empty_query'));
         return;
     }
     
@@ -2263,12 +2262,12 @@ function executeQuery() {
     document.getElementById('resultsContent').innerHTML = `
         <div class="loading">
             <div class="spinner"></div>
-            <span>Exécution de la requête...</span>
+            <span>${__('sql_explorer.executing_query')}</span>
         </div>
     `;
     document.getElementById('resultInfo').innerHTML = `
         <span class="material-symbols-outlined spinning">progress_activity</span>
-        <span>Exécution...</span>
+        <span>${__('sql_explorer.executing')}</span>
     `;
     document.getElementById('truncationAlert').style.display = 'none';
     
@@ -2292,7 +2291,7 @@ function executeQuery() {
         }
     })
     .catch(error => {
-        showError('Erreur lors de l\'exécution de la requête : ' + error.message);
+        showError(__('sql_explorer.error_execution') + error.message);
     });
 }
 
@@ -2317,11 +2316,11 @@ function displayResults(data) {
             resultsContent.className = 'empty-state';
             resultsContent.innerHTML = `
                 <span class="material-symbols-outlined">inbox</span>
-                <p>Aucun résultat</p>
+                <p>${__('common.no_results')}</p>
             `;
             resultInfo.innerHTML = `
                 <span class="material-symbols-outlined">table_chart</span>
-                <span>0 ligne</span>
+                <span>${__('sql_explorer.zero_rows')}</span>
             `;
             exportBtn.disabled = true;
             document.getElementById('copyBtn').disabled = true;
@@ -2398,7 +2397,7 @@ function displayResults(data) {
         if (isLimited) {
             alertContainer.innerHTML = `
                 <span class="material-symbols-outlined">info</span>
-                <strong>Affichage limité :</strong> ${maxDisplayRows} premières lignes sur ${data.rows.length} au total. Utilisez l'export CSV ou Copier pour obtenir toutes les données.
+                <strong>${__('sql_explorer.display_limited')}</strong> ${__('sql_explorer.display_limited_detail').replace(':displayed', maxDisplayRows).replace(':total', data.rows.length)}
             `;
             alertContainer.style.display = 'flex';
         } else {
@@ -2408,7 +2407,7 @@ function displayResults(data) {
         // Mise à jour du result info avec la nouvelle structure
         resultInfo.innerHTML = `
             <span class="material-symbols-outlined">table_chart</span>
-            <span>${data.rows.length} ligne${data.rows.length > 1 ? 's' : ''}${isLimited ? ` (${maxDisplayRows} affichées)` : ''}</span>
+            <span>${data.rows.length} ${data.rows.length > 1 ? __('sql_explorer.rows') : __('sql_explorer.row')}${isLimited ? ` (${maxDisplayRows} ${__('sql_explorer.displayed')})` : ''}</span>
         `;
         exportBtn.disabled = false; // Activer le bouton d'export
         document.getElementById('copyBtn').disabled = false;
@@ -2417,12 +2416,12 @@ function displayResults(data) {
         currentResultData = null;
         resultsContent.innerHTML = `
             <div class="success-message">
-                <strong>Succès !</strong> ${data.affected_rows} ligne${data.affected_rows > 1 ? 's' : ''} affectée${data.affected_rows > 1 ? 's' : ''}
+                <strong>${__('common.success')}</strong> ${data.affected_rows} ${data.affected_rows > 1 ? __('sql_explorer.rows_affected_plural') : __('sql_explorer.row_affected')}
             </div>
         `;
         resultInfo.innerHTML = `
             <span class="material-symbols-outlined">table_chart</span>
-            <span>Résultats</span>
+            <span>${__('common.results')}</span>
         `;
         exportBtn.disabled = true;
         document.getElementById('copyBtn').disabled = true;
@@ -2438,12 +2437,12 @@ function showError(message) {
     
     document.getElementById('resultsContent').innerHTML = `
         <div class="error-message">
-            <strong>Erreur :</strong> ${escapeHtml(message)}
+            <strong>${__('common.error')} :</strong> ${escapeHtml(message)}
         </div>
     `;
     document.getElementById('resultInfo').innerHTML = `
         <span class="material-symbols-outlined">error</span>
-        <span style="color: var(--danger);">Erreur</span>
+        <span style="color: var(--danger);">${__('common.error')}</span>
     `;
     document.getElementById('exportBtn').disabled = true;
     document.getElementById('copyBtn').disabled = true;
@@ -2479,7 +2478,7 @@ function copyTableToClipboard() {
         // Copier dans le presse-papier
         navigator.clipboard.writeText(content).then(() => {
             // Feedback visuel
-            copyBtn.innerHTML = '<span class="material-symbols-outlined">check</span> Copié !';
+            copyBtn.innerHTML = '<span class="material-symbols-outlined">check</span> ' + __('common.copied');
             copyBtn.style.color = 'var(--success)';
             copyBtn.style.borderColor = 'var(--success)';
             
@@ -2490,7 +2489,7 @@ function copyTableToClipboard() {
             }, 1500);
         }).catch(err => {
             console.error('Erreur copie:', err);
-            alert('Impossible de copier dans le presse-papier');
+            alert(__('sql_explorer.error_clipboard'));
         });
     } catch (error) {
         console.error('Erreur:', error);
@@ -2500,7 +2499,7 @@ function copyTableToClipboard() {
 // Exporter vers CSV
 function exportToCSV() {
     if (!currentResultData || !currentResultData.rows.length) {
-        alert('Aucune donnée à exporter');
+        alert(__('sql_explorer.error_no_data'));
         return;
     }
     
@@ -2510,7 +2509,7 @@ function exportToCSV() {
     
     // Afficher l'animation de chargement
     exportBtn.disabled = true;
-    exportBtn.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span> Export en cours...';
+    exportBtn.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span> ' + __('sql_explorer.exporting');
     
     // Utiliser setTimeout pour permettre à l'UI de se mettre à jour
     setTimeout(() => {
@@ -2558,7 +2557,7 @@ function exportToCSV() {
             // En cas d'erreur, restaurer le bouton immédiatement
             exportBtn.disabled = false;
             exportBtn.innerHTML = originalContent;
-            alert('Erreur lors de l\'export: ' + error.message);
+            alert(__('sql_explorer.error_export') + error.message);
         }
     }, 100);
 }

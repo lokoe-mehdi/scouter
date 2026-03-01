@@ -18,7 +18,7 @@ define('SCOPE_MODAL_INCLUDED', true);
         <div class="scope-modal-header">
             <h3>
                 <span class="material-symbols-outlined">database</span>
-                <span id="scope-modal-title">Scope des données</span>
+                <span id="scope-modal-title"><?= __('scope.data_scope') ?></span>
             </h3>
             <button class="scope-modal-close" onclick="closeScopeModal()">
                 <span class="material-symbols-outlined">close</span>
@@ -28,14 +28,14 @@ define('SCOPE_MODAL_INCLUDED', true);
             <div id="scope-container" class="scope-section">
                 <div class="scope-section-title">
                     <span class="material-symbols-outlined">filter_alt</span>
-                    Scope des données
+                    <?= __('scope.data_scope') ?>
                 </div>
                 <div id="scope-text" class="scope-section-text"></div>
             </div>
             <div id="scope-order-container" class="scope-section" style="display: none;">
                 <div class="scope-section-title">
                     <span class="material-symbols-outlined">sort</span>
-                    Ordre de tri
+                    <?= __('scope.sort_order') ?>
                 </div>
                 <div id="scope-order-text" class="scope-section-text"></div>
             </div>
@@ -43,17 +43,17 @@ define('SCOPE_MODAL_INCLUDED', true);
                 <div class="scope-sql-header">
                     <div class="scope-sql-title">
                         <span class="material-symbols-outlined">code</span>
-                        Requête SQL (compatible SQL Explorer)
+                        <?= __('scope.sql_query_label') ?>
                     </div>
                     <button class="scope-sql-copy-btn" onclick="copyScopeSql()">
                         <span class="material-symbols-outlined">content_copy</span>
-                        Copier
+                        <?= __('scope.copy') ?>
                     </button>
                 </div>
                 <pre id="scope-sql-content" class="scope-sql-query"></pre>
                 <div class="scope-sql-hint">
                     <span class="material-symbols-outlined" style="color: var(--primary-color, #26a69a);">open_in_new</span>
-                    <a href="#" id="scope-sql-explorer-link">Exécutez-la dans le SQL Explorer</a> pour explorer les données.
+                    <a href="#" id="scope-sql-explorer-link"><?= __('scope.run_in_sql_explorer') ?></a>
                 </div>
             </div>
         </div>
@@ -285,13 +285,13 @@ define('SCOPE_MODAL_INCLUDED', true);
     // Générer le HTML du scope
     function generateScopeHtml(scopeItems) {
         if (scopeItems && scopeItems.length > 0) {
-            return 'Données filtrées sur : ' + scopeItems.map(item => 
+            return __('scope.filtered_on') + ' ' + scopeItems.map(item =>
                 '<mark style="background: #e0f2f1; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em;">' + 
                 item.replace(/</g, '&lt;').replace(/>/g, '&gt;') + 
                 '</mark>'
             ).join(' + ');
         }
-        return '<mark style="background: #e0f2f1; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em;">Toutes les données</mark> — Aucun filtre appliqué';
+        return '<mark style="background: #e0f2f1; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em;">' + __('scope.all_data') + '</mark> — ' + __('scope.no_filter');
     }
     
     // Ouvrir la modale de scope
@@ -300,7 +300,7 @@ define('SCOPE_MODAL_INCLUDED', true);
         if (!modal) return;
         
         // Titre
-        document.getElementById('scope-modal-title').textContent = options.title || 'Scope des données';
+        document.getElementById('scope-modal-title').textContent = options.title || __('scope.data_scope');
         
         // Scope
         document.getElementById('scope-text').innerHTML = generateScopeHtml(options.scopeItems);
@@ -351,7 +351,7 @@ define('SCOPE_MODAL_INCLUDED', true);
         
         navigator.clipboard.writeText(rawSql).then(() => {
             if (typeof showGlobalStatus === 'function') {
-                showGlobalStatus('Requête SQL copiée !', 'success');
+                showGlobalStatus(__('scope.sql_copied'), 'success');
             }
         }).catch(err => {
             console.error('Erreur copie:', err);

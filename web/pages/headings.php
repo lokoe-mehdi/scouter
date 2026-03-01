@@ -54,7 +54,7 @@ $hnByCategory = [];
 
 foreach ($categoryStatsRaw as $row) {
     $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     
     $h1ByCategory[] = [
         'category' => $catName,
@@ -72,7 +72,7 @@ foreach ($categoryStatsRaw as $row) {
 }
 ?>
 
-<h1 class="page-title">Hiérarchie des titres &lt;hn&gt;</h1>
+<h1 class="page-title"><?= __('headings.page_title') ?></h1>
 
 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
 
@@ -95,33 +95,33 @@ foreach ($categoryStatsRaw as $row) {
     Component::card([
         'color' => 'primary',
         'icon' => 'verified',
-        'title' => 'Pages analysées',
+        'title' => __('headings.card_analyzed'),
         'value' => number_format($total),
-        'desc' => 'URLs indexables'
+        'desc' => __('headings.card_analyzed_desc')
     ]);
     
     Component::card([
         'color' => $problemCount > 0 ? 'error' : 'success',
         'icon' => 'warning',
-        'title' => 'Problèmes',
+        'title' => __('headings.card_problems'),
         'value' => $problemPercent . '%',
-        'desc' => number_format($problemCount) . ' pages avec problème hn'
+        'desc' => number_format($problemCount) . ' ' . __('headings.card_problems_desc')
     ]);
     
     Component::card([
         'color' => $h1MultipleCount > 0 ? 'error' : 'success',
         'icon' => 'format_h1',
-        'title' => 'H1 multiples',
+        'title' => __('headings.card_h1_multiple'),
         'value' => number_format($h1MultipleCount),
-        'desc' => ($total > 0 ? round(($h1MultipleCount / $total) * 100, 1) : 0) . '% des pages'
+        'desc' => ($total > 0 ? round(($h1MultipleCount / $total) * 100, 1) : 0) . '% '.__('common.of_pages')
     ]);
     
     Component::card([
         'color' => $hnMissingCount > 0 ? 'warning' : 'success',
         'icon' => 'format_list_numbered',
-        'title' => 'Mauvaise structure hn',
+        'title' => __('headings.card_bad_structure'),
         'value' => number_format($hnMissingCount),
-        'desc' => ($total > 0 ? round(($hnMissingCount / $total) * 100, 1) : 0) . '% des pages'
+        'desc' => ($total > 0 ? round(($hnMissingCount / $total) * 100, 1) : 0) . '% '.__('common.of_pages')
     ]);
     ?>
 </div>
@@ -132,14 +132,14 @@ foreach ($categoryStatsRaw as $row) {
     // H1 Multiple vs Unique Donut
     Component::chart([
         'type' => 'donut',
-        'title' => 'Doublons de H1',
-        'subtitle' => 'H1 unique vs multiples',
+        'title' => __('headings.chart_h1_duplicates'),
+        'subtitle' => __('headings.chart_h1_subtitle'),
         'series' => [
             [
                 'name' => 'Pages',
                 'data' => [
-                    ['name' => 'H1 unique', 'y' => $h1UniqueCount, 'color' => '#6bd899'],
-                    ['name' => 'H1 multiples', 'y' => $h1MultipleCount, 'color' => '#d86b6b']
+                    ['name' => __('headings.series_h1_unique'), 'y' => $h1UniqueCount, 'color' => '#6bd899'],
+                    ['name' => __('headings.series_h1_multiple'), 'y' => $h1MultipleCount, 'color' => '#d86b6b']
                 ]
             ]
         ],
@@ -150,14 +150,14 @@ foreach ($categoryStatsRaw as $row) {
     // Hn Missing vs OK Donut
     Component::chart([
         'type' => 'donut',
-        'title' => 'Hiérarchie hn',
-        'subtitle' => 'Structure correcte vs mauvaise structure',
+        'title' => __('headings.chart_hierarchy'),
+        'subtitle' => __('headings.chart_hierarchy_subtitle'),
         'series' => [
             [
                 'name' => 'Pages',
                 'data' => [
-                    ['name' => 'Structure OK', 'y' => $hnOkCount, 'color' => '#6bd899'],
-                    ['name' => 'Mauvaise structure', 'y' => $hnMissingCount, 'color' => '#d8bf6b']
+                    ['name' => __('headings.series_structure_ok'), 'y' => $hnOkCount, 'color' => '#6bd899'],
+                    ['name' => __('headings.series_bad_structure'), 'y' => $hnMissingCount, 'color' => '#d8bf6b']
                 ]
             ]
         ],
@@ -173,22 +173,22 @@ foreach ($categoryStatsRaw as $row) {
     // H1 par catégorie
     Component::chart([
         'type' => 'horizontalBar',
-        'title' => 'Doublons de H1',
-        'subtitle' => 'Par catégorie',
+        'title' => __('headings.chart_h1_duplicates'),
+        'subtitle' => __('seo_tags.chart_category_subtitle'),
         'categories' => array_map(function($cat) { return $cat['category']; }, $h1ByCategory),
         'series' => [
             [
-                'name' => 'H1 unique',
+                'name' => __('headings.series_h1_unique'),
                 'data' => array_map(function($cat) { return $cat['unique']; }, $h1ByCategory),
                 'color' => '#6bd899'
             ],
             [
-                'name' => 'H1 multiples',
+                'name' => __('headings.series_h1_multiple'),
                 'data' => array_map(function($cat) { return $cat['multiple']; }, $h1ByCategory),
                 'color' => '#d86b6b'
             ]
         ],
-        'yAxisTitle' => 'Pourcentage',
+        'yAxisTitle' => __('common.percentage'),
         'stacking' => 'percent',
         'height' => 400,
         'sqlQuery' => $sqlHeadingsByCategory
@@ -197,22 +197,22 @@ foreach ($categoryStatsRaw as $row) {
     // Hn par catégorie
     Component::chart([
         'type' => 'horizontalBar',
-        'title' => 'Hiérarchie hn',
-        'subtitle' => 'Par catégorie',
+        'title' => __('headings.chart_hierarchy'),
+        'subtitle' => __('seo_tags.chart_category_subtitle'),
         'categories' => array_map(function($cat) { return $cat['category']; }, $hnByCategory),
         'series' => [
             [
-                'name' => 'Structure OK',
+                'name' => __('headings.series_structure_ok'),
                 'data' => array_map(function($cat) { return $cat['ok']; }, $hnByCategory),
                 'color' => '#6bd899'
             ],
             [
-                'name' => 'Mauvaise structure',
+                'name' => __('headings.series_bad_structure'),
                 'data' => array_map(function($cat) { return $cat['missing']; }, $hnByCategory),
                 'color' => '#d8bf6b'
             ]
         ],
-        'yAxisTitle' => 'Pourcentage',
+        'yAxisTitle' => __('common.percentage'),
         'stacking' => 'percent',
         'height' => 400,
         'sqlQuery' => $sqlHeadingsByCategory
@@ -223,7 +223,7 @@ foreach ($categoryStatsRaw as $row) {
 <!-- Liste des URLs avec problèmes de headings -->
 <?php
 $urlTableConfig = [
-    'title' => 'Pages avec problèmes de hiérarchie',
+    'title' => __('headings.table_problems'),
     'id' => 'headingsTable',
     'whereClause' => "WHERE c.compliant = true AND (c.h1_multiple = true OR c.headings_missing = true)",
     'orderBy' => 'ORDER BY c.h1_multiple DESC, c.headings_missing DESC, c.url',

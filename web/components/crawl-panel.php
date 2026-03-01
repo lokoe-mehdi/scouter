@@ -19,8 +19,8 @@
         <div class="crawl-panel-header-left">
             <div class="crawl-panel-status-dot" id="crawlPanelStatusDot"></div>
             <div class="crawl-panel-title">
-                <span id="crawlPanelProjectName">Crawl en cours</span>
-                <span class="crawl-panel-badge" id="crawlPanelBadge">En attente</span>
+                <span id="crawlPanelProjectName"><?= __('crawl_panel.crawl_running') ?></span>
+                <span class="crawl-panel-badge" id="crawlPanelBadge"><?= __('crawl_panel.status_pending') ?></span>
             </div>
         </div>
         <div class="crawl-panel-header-actions">
@@ -29,7 +29,7 @@
                 <span class="material-symbols-outlined">swap_vert</span>
                 <span class="crawl-panel-selector-badge" id="crawlPanelSelectorBadge">2</span>
             </button>
-            <button class="crawl-panel-btn-icon" onclick="CrawlPanel.minimize()" title="Réduire">
+            <button class="crawl-panel-btn-icon" onclick="CrawlPanel.minimize()" title="<?= __('simple_table.btn_collapse') ?>">
                 <span class="material-symbols-outlined">close</span>
             </button>
         </div>
@@ -39,7 +39,7 @@
     <div class="crawl-panel-crawl-list" id="crawlPanelCrawlList" style="display: none;">
         <div class="crawl-panel-crawl-list-header">
             <span class="material-symbols-outlined">list</span>
-            Crawls en cours
+            <?= __('crawl_panel.crawls_running') ?>
         </div>
         <div class="crawl-panel-crawl-list-items" id="crawlPanelCrawlListItems">
             <!-- Items dynamiques -->

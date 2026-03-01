@@ -2,7 +2,7 @@
 // Connexion à la base de données (déjà établie dans dashboard.php via $pdo)
 // Vérifier que $pdo existe
 if(!isset($pdo)) {
-    echo "<div class='status-message status-error'>Erreur: Connexion à la base de données non établie</div>";
+    echo "<div class='status-message status-error'>" . __('categorize.db_error') . "</div>";
     return;
 }
 
@@ -13,7 +13,7 @@ $categoryColors = $GLOBALS['categoryColors'] ?? [];
 $crawledDomain = $crawlRecord->domain ?? '';
 
 // Lecture de la config de catégorisation depuis PostgreSQL
-$catYmlContent = "# Définissez vos catégories ici\n# Format:\n# Nom de la catégorie:\n#   - pattern1\n#   - pattern2\n";
+$catYmlContent = "# " . __('categorize.yaml_comment_define') . "\n# " . __('categorize.yaml_comment_format') . "\n# " . __('categorize.yaml_comment_cat_name') . "\n#   - pattern1\n#   - pattern2\n";
 $yamlCategories = [];
 
 try {
@@ -51,7 +51,7 @@ try {
         $categoryColors[$cat->cat] = $cat->color ?? '#aaaaaa';
     }
 } catch(PDOException $e) {
-    echo "<div class='status-message status-error'>Erreur SQL: " . htmlspecialchars($e->getMessage()) . "</div>";
+    echo "<div class='status-message status-error'>" . __('categorize.sql_error') . htmlspecialchars($e->getMessage()) . "</div>";
     $categories = [];
 }
 
@@ -76,12 +76,12 @@ try {
     foreach ($categoryStatsRaw as $row) {
         $catInfo = $categoriesMap[$row->cat_id] ?? null;
         $obj = new stdClass();
-        $obj->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+        $obj->category = $catInfo ? $catInfo['cat'] : __('categorize.uncategorized');
         $obj->count = $row->count;
         $categoryStats[] = $obj;
     }
 } catch(PDOException $e) {
-    echo "<div class='status-message status-error'>Erreur SQL: " . htmlspecialchars($e->getMessage()) . "</div>";
+    echo "<div class='status-message status-error'>" . __('categorize.sql_error') . htmlspecialchars($e->getMessage()) . "</div>";
     $categoryStats = [];
 }
 ?>
@@ -1652,12 +1652,12 @@ body {
     <div class="categorize-panel">
         <h3>
             <span class="material-symbols-outlined">edit_note</span>
-            Éditeur cat.yml
+            <?= __('categorize.editor_title') ?>
             <div class="btn-help-group">
-                <button class="btn-help" onclick="generateColors()" title="Générer les couleurs automatiquement">
+                <button class="btn-help" onclick="generateColors()" title="<?= __('categorize.btn_generate_colors') ?>">
                     <span class="material-symbols-outlined">palette</span>
                 </button>
-                <button class="btn-help" onclick="showHelp()" title="Aide sur la catégorisation">
+                <button class="btn-help" onclick="showHelp()" title="<?= __('categorize.help_title') ?>">
                     <span class="material-symbols-outlined">help</span>
                 </button>
             </div>
@@ -1667,11 +1667,11 @@ body {
         <div class="editor-mode-toggle">
             <button class="mode-btn" data-mode="code" onclick="switchEditorMode('code')">
                 <span class="material-symbols-outlined">code</span>
-                Code
+                <?= __('categorize.mode_code') ?>
             </button>
             <button class="mode-btn active" data-mode="visual" onclick="switchEditorMode('visual')">
                 <span class="material-symbols-outlined">dashboard_customize</span>
-                Visuel
+                <?= __('categorize.mode_visual') ?>
             </button>
         </div>
         
@@ -1685,17 +1685,17 @@ body {
             <div id="rulesContainer" class="rules-container"></div>
             <button class="add-rule-btn" onclick="addNewRule()">
                 <span class="material-symbols-outlined">add</span>
-                Ajouter une règle
+                <?= __('categorize.btn_add_rule') ?>
             </button>
         </div>
         <div class="editor-actions">
             <button class="btn btn-primary" onclick="testCategorization()" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
                 <span class="material-symbols-outlined">science</span>
-                Tester
+                <?= __('categorize.btn_test') ?>
             </button>
             <button class="btn btn-success" onclick="saveCategorization()" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
                 <span class="material-symbols-outlined">save</span>
-                Sauvegarder
+                <?= __('categorize.btn_save') ?>
                 <span class="shortcut-hint">Ctrl+S</span>
             </button>
         </div>
@@ -1715,7 +1715,7 @@ body {
             
             <div id="testModeNotice" class="test-mode-notice" style="display: none;">
                 <span class="material-symbols-outlined">science</span>
-                <span>Mode test</span>
+                <span><?= __('categorize.test_mode') ?></span>
             </div>
         </div>
         
@@ -1778,191 +1778,182 @@ body {
         <div class="help-modal-header">
             <h2>
                 <span class="material-symbols-outlined">help</span>
-                Guide de catégorisation YAML
+                <?= __('categorize.help_guide_title') ?>
             </h2>
             <button class="help-modal-close" onclick="hideHelp()">
                 <span class="material-symbols-outlined">close</span>
             </button>
         </div>
         <div class="help-modal-body">
-            <h3>📚 Introduction</h3>
+            <h3><?= __('categorize.help_intro_title') ?></h3>
             <p>
-                Le fichier <code>cat.yml</code> permet de catégoriser automatiquement les URLs de votre site web en fonction de patterns (motifs). 
-                Chaque catégorie contient des règles qui définissent quelles URLs appartiennent à cette catégorie.
+                <?= __('categorize.help_intro_text') ?>
             </p>
 
-            <h3>🏗️ Structure de base</h3>
-            <p>Chaque catégorie suit cette structure :</p>
-            <pre><code>Nom_de_la_categorie:
-  dom: votre-domaine.com
-  include:
-    - pattern1
-    - pattern2
-  exclude:
-    - pattern_a_exclure</code></pre>
+            <h3><?= __('categorize.help_structure_title') ?></h3>
+            <p><?= __('categorize.help_structure_text') ?></p>
+            <pre><code><?= __('categorize.help_structure_example') ?></code></pre>
 
-            <h4>Les 3 éléments essentiels :</h4>
+            <h4><?= __('categorize.help_elements_title') ?></h4>
             <ul>
-                <li><strong>dom</strong> : Le domaine à cibler (obligatoire)</li>
-                <li><strong>include</strong> : Liste des patterns qui DOIVENT matcher (obligatoire)</li>
-                <li><strong>exclude</strong> : Liste des patterns qui NE DOIVENT PAS matcher (optionnel)</li>
+                <li><strong>dom</strong> : <?= __('categorize.help_element_dom') ?></li>
+                <li><strong>include</strong> : <?= __('categorize.help_element_include') ?></li>
+                <li><strong>exclude</strong> : <?= __('categorize.help_element_exclude') ?></li>
             </ul>
 
-            <h3>🎯 Exemples pratiques</h3>
+            <h3><?= __('categorize.help_examples_title') ?></h3>
 
-            <h4>Exemple 1 : Catégorie "Blog"</h4>
+            <h4><?= __('categorize.help_example1_title') ?></h4>
             <pre><code>blog:
-  dom: monsite.com
+  dom: mysite.com
   include:
     - ^/blog/
     - ^/articles/</code></pre>
-            <p>✅ Matche : <code>https://monsite.com/blog/mon-article</code></p>
-            <p>✅ Matche : <code>https://monsite.com/articles/guide</code></p>
-            <p>❌ Ne matche pas : <code>https://monsite.com/produits</code></p>
+            <p><?= __('categorize.help_example1_match1') ?></p>
+            <p><?= __('categorize.help_example1_match2') ?></p>
+            <p><?= __('categorize.help_example1_nomatch') ?></p>
 
-            <h4>Exemple 2 : Produits avec exclusion</h4>
-            <pre><code>produits:
-  dom: monsite.com
+            <h4><?= __('categorize.help_example2_title') ?></h4>
+            <pre><code>products:
+  dom: mysite.com
   include:
-    - ^/produits/
+    - ^/products/
   exclude:
     - /archive/
     - /test/</code></pre>
-            <p>✅ Matche : <code>https://monsite.com/produits/chaise</code></p>
-            <p>❌ Ne matche pas : <code>https://monsite.com/produits/archive/ancien</code></p>
+            <p><?= __('categorize.help_example2_match') ?></p>
+            <p><?= __('categorize.help_example2_nomatch') ?></p>
 
-            <h4>Exemple 3 : Homepage</h4>
+            <h4><?= __('categorize.help_example3_title') ?></h4>
             <pre><code>homepage:
-  dom: monsite.com
+  dom: mysite.com
   include:
     - ^/$
     - ^/index</code></pre>
-            <p>✅ Matche : <code>https://monsite.com/</code></p>
-            <p>✅ Matche : <code>https://monsite.com/index.html</code></p>
+            <p><?= __('categorize.help_example3_match1') ?></p>
+            <p><?= __('categorize.help_example3_match2') ?></p>
 
-            <h3>🔧 Patterns et Regex</h3>
-            
+            <h3><?= __('categorize.help_regex_title') ?></h3>
+
             <div class="help-box">
-                <strong>💡 Astuce :</strong> Les patterns utilisent les expressions régulières (regex). Voici les symboles les plus utiles :
+                <strong><?= __('categorize.help_regex_tip') ?></strong>
             </div>
 
-            <h4>Symboles de base :</h4>
+            <h4><?= __('categorize.help_regex_basics_title') ?></h4>
             <ul>
-                <li><code>^</code> : Début de l'URL (après le domaine)</li>
-                <li><code>$</code> : Fin de l'URL</li>
-                <li><code>.</code> : N'importe quel caractère</li>
-                <li><code>*</code> : 0 ou plusieurs fois le caractère précédent</li>
-                <li><code>+</code> : 1 ou plusieurs fois le caractère précédent</li>
-                <li><code>?</code> : 0 ou 1 fois le caractère précédent</li>
-                <li><code>|</code> : OU logique</li>
-                <li><code>[abc]</code> : Un des caractères a, b ou c</li>
-                <li><code>[0-9]</code> : Un chiffre</li>
-                <li><code>\d</code> : Un chiffre (équivalent à [0-9])</li>
-                <li><code>\w</code> : Un caractère alphanumérique</li>
+                <li><code>^</code> : <?= __('categorize.help_regex_caret') ?></li>
+                <li><code>$</code> : <?= __('categorize.help_regex_dollar') ?></li>
+                <li><code>.</code> : <?= __('categorize.help_regex_dot') ?></li>
+                <li><code>*</code> : <?= __('categorize.help_regex_star') ?></li>
+                <li><code>+</code> : <?= __('categorize.help_regex_plus') ?></li>
+                <li><code>?</code> : <?= __('categorize.help_regex_question') ?></li>
+                <li><code>|</code> : <?= __('categorize.help_regex_pipe') ?></li>
+                <li><code>[abc]</code> : <?= __('categorize.help_regex_bracket') ?></li>
+                <li><code>[0-9]</code> : <?= __('categorize.help_regex_range') ?></li>
+                <li><code>\d</code> : <?= __('categorize.help_regex_digit') ?></li>
+                <li><code>\w</code> : <?= __('categorize.help_regex_word') ?></li>
             </ul>
 
-            <h4>Exemples de patterns avancés :</h4>
-            <pre><code># URLs se terminant par .pdf
+            <h4><?= __('categorize.help_regex_advanced_title') ?></h4>
+            <pre><code># <?= __('categorize.help_regex_ex_pdf') ?>
 \.pdf$
 
-# URLs contenant un ID numérique
-/produit-\d+
+# <?= __('categorize.help_regex_ex_numid') ?>
+/product-\d+
 
-# URLs avec paramètres UTM
+# <?= __('categorize.help_regex_ex_utm') ?>
 \?utm_source=
 
-# URLs avec plusieurs variantes
+# <?= __('categorize.help_regex_ex_variants') ?>
 ^/(blog|articles|news)/
 
-# URLs de pagination
+# <?= __('categorize.help_regex_ex_pagination') ?>
 /page-[0-9]+</code></pre>
 
-            <h3>📋 Exemples complets</h3>
+            <h3><?= __('categorize.help_full_examples_title') ?></h3>
 
-            <h4>Site e-commerce :</h4>
+            <h4><?= __('categorize.help_ecommerce_title') ?></h4>
             <pre><code>homepage:
   dom: shop.com
   include:
     - ^/$
 
-categories_produits:
+product_categories:
   dom: shop.com
   include:
-    - ^/categorie/
+    - ^/category/
   exclude:
     - /archive/
 
-fiches_produits:
+product_pages:
   dom: shop.com
   include:
-    - ^/produit-\d+
+    - ^/product-\d+
     - ^/p/
 
 panier_checkout:
   dom: shop.com
   include:
-    - ^/panier
+    - ^/cart
     - ^/checkout
-    - ^/commande
+    - ^/order
 
-compte_client:
+customer_account:
   dom: shop.com
   include:
-    - ^/mon-compte
-    - ^/profil</code></pre>
+    - ^/my-account
+    - ^/profile</code></pre>
 
-            <h4>Site de contenu :</h4>
+            <h4><?= __('categorize.help_content_site_title') ?></h4>
             <pre><code>articles:
   dom: blog.com
   include:
     - ^/\d{4}/\d{2}/
   exclude:
-    - /brouillon/
+    - /draft/
 
-auteurs:
+authors:
   dom: blog.com
   include:
-    - ^/auteur/
+    - ^/author/
 
 tags:
   dom: blog.com
   include:
     - ^/tag/
-    - ^/categorie/</code></pre>
+    - ^/category/</code></pre>
 
-            <h3>⚠️ Bonnes pratiques</h3>
+            <h3><?= __('categorize.help_best_practices_title') ?></h3>
 
             <div class="help-box help-box-warning">
-                <strong>⚠️ Attention à l'ordre !</strong><br>
-                Les catégories sont appliquées dans l'ordre du fichier. Une URL ne peut appartenir qu'à UNE seule catégorie (la première qui matche).
+                <strong><?= __('categorize.help_order_warning') ?></strong><br>
+                <?= __('categorize.help_order_warning_text') ?>
             </div>
 
             <ul>
-                <li>✅ Mettez les catégories les plus spécifiques en premier</li>
-                <li>✅ Utilisez <code>^</code> pour matcher depuis le début</li>
-                <li>✅ Utilisez <code>$</code> pour matcher jusqu'à la fin</li>
-                <li>✅ Testez vos patterns avant de sauvegarder</li>
-                <li>❌ Évitez les patterns trop larges qui matchent tout</li>
-                <li>❌ N'oubliez pas d'échapper les caractères spéciaux : <code>\.</code> <code>\?</code> <code>\+</code></li>
+                <li><?= __('categorize.help_bp_specific_first') ?></li>
+                <li><?= __('categorize.help_bp_use_caret') ?></li>
+                <li><?= __('categorize.help_bp_use_dollar') ?></li>
+                <li><?= __('categorize.help_bp_test_before') ?></li>
+                <li><?= __('categorize.help_bp_avoid_broad') ?></li>
+                <li><?= __('categorize.help_bp_escape_chars') ?></li>
             </ul>
 
-            <h3>🧪 Workflow recommandé</h3>
+            <h3><?= __('categorize.help_workflow_title') ?></h3>
 
             <div class="help-box help-box-success">
-                <strong>✅ Processus en 4 étapes :</strong>
+                <strong><?= __('categorize.help_workflow_process') ?></strong>
                 <ol style="margin: 0.5rem 0; padding-left: 1.5rem;">
-                    <li>Éditez votre fichier YAML</li>
-                    <li>Cliquez sur <strong>"Tester"</strong> pour voir le résultat</li>
-                    <li>Vérifiez le graphique et le tableau des URLs</li>
-                    <li>Si tout est OK, cliquez sur <strong>"Sauvegarder"</strong></li>
+                    <li><?= __('categorize.help_workflow_step1') ?></li>
+                    <li><?= __('categorize.help_workflow_step2') ?></li>
+                    <li><?= __('categorize.help_workflow_step3') ?></li>
+                    <li><?= __('categorize.help_workflow_step4') ?></li>
                 </ol>
             </div>
 
-            <h3>❓ Besoin d'aide ?</h3>
+            <h3><?= __('categorize.help_need_help_title') ?></h3>
             <p>
-                Si vous avez des difficultés avec les expressions régulières, vous pouvez utiliser des outils en ligne comme 
-                <a href="https://regex101.com/" target="_blank" style="color: var(--primary-color);">regex101.com</a> 
-                pour tester vos patterns.
+                <?= __('categorize.help_need_help_text') ?>
             </p>
         </div>
     </div>
@@ -1971,7 +1962,8 @@ tags:
 <script>
 // Mapping global des couleurs de catégories (depuis PHP)
 const globalCategoryColors = <?= json_encode($categoryColors, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-const TEMP_CATEGORY_COLOR = '#95a5a6'; // Gris pour les nouvelles catégories temporaires
+const TEMP_CATEGORY_COLOR = '#95a5a6';
+const UNCATEGORIZED_LABEL = <?= json_encode(__('categorize.uncategorized')) ?>;
 
 // Variables pour l'AJAX
 const categorizeProjectDir = <?= json_encode($projectDir) ?>;
@@ -1997,8 +1989,8 @@ function Categorize_getCategoryColor(categoryName) {
 }
 
 function isTemporaryCategory(categoryName) {
-    // "Non catégorisé" n'est pas une catégorie temporaire, c'est une catégorie système
-    if (categoryName === 'Non catégorisé') return false;
+    // "Non catégorisé" / "Uncategorized" n'est pas une catégorie temporaire, c'est une catégorie système
+    if (categoryName === UNCATEGORIZED_LABEL) return false;
     return !globalCategoryColors[categoryName];
 }
 
@@ -2026,14 +2018,14 @@ function renderChart(data, testMode = false) {
     }
     
     if(!data || data.length === 0) {
-        if (pillsContainer) pillsContainer.innerHTML = '<span style="color: var(--text-secondary); font-size: 0.8rem;">Aucune catégorie</span>';
+        if (pillsContainer) pillsContainer.innerHTML = '<span style="color: var(--text-secondary); font-size: 0.8rem;">' + __('categorize.no_categories') + '</span>';
         return;
     }
     
     // Trier : "Non catégorisé" en premier, puis par count décroissant
     allCategoryData = [...data].sort((a, b) => {
-        if (a.category === 'Non catégorisé') return -1;
-        if (b.category === 'Non catégorisé') return 1;
+        if (a.category === UNCATEGORIZED_LABEL) return -1;
+        if (b.category === UNCATEGORIZED_LABEL) return 1;
         return parseInt(b.count) - parseInt(a.count);
     });
     
@@ -2048,8 +2040,8 @@ function renderPillsPage() {
     const total = allCategoryData.reduce((sum, item) => sum + parseInt(item.count), 0);
     
     // Séparer "Non catégorisé" des autres
-    const nonCatItem = allCategoryData.find(item => item.category === 'Non catégorisé');
-    const otherCategories = allCategoryData.filter(item => item.category !== 'Non catégorisé');
+    const nonCatItem = allCategoryData.find(item => item.category === UNCATEGORIZED_LABEL);
+    const otherCategories = allCategoryData.filter(item => item.category !== UNCATEGORIZED_LABEL);
     
     const totalPages = Math.ceil(otherCategories.length / PILLS_PER_PAGE);
     const startIdx = pillsPage * PILLS_PER_PAGE;
@@ -2081,12 +2073,12 @@ function renderPillsPage() {
         }
     } else {
         // Si pas de nonCatItem dans les données, créer un badge à 0%
-        const color = Categorize_getCategoryColor('Non catégorisé');
+        const color = Categorize_getCategoryColor(UNCATEGORIZED_LABEL);
         const textColor = getContrastTextColor(color);
-        
+
         html += `
-            <div class="category-pill pill-disabled" style="background: ${color}; color: ${textColor};" title="Non catégorisé: 0 URLs (0.0%)">
-                <span class="category-pill-name">Non catégorisé</span>
+            <div class="category-pill pill-disabled" style="background: ${color}; color: ${textColor};" title="${UNCATEGORIZED_LABEL}: 0 URLs (0.0%)">
+                <span class="category-pill-name">${UNCATEGORIZED_LABEL}</span>
                 <span class="category-pill-pct">0.0%</span>
             </div>
         `;
@@ -2135,7 +2127,7 @@ function renderPillsPage() {
 }
 
 function changePillsPage(delta) {
-    const otherCategories = allCategoryData.filter(item => item.category !== 'Non catégorisé');
+    const otherCategories = allCategoryData.filter(item => item.category !== UNCATEGORIZED_LABEL);
     const totalPages = Math.ceil(otherCategories.length / PILLS_PER_PAGE);
     pillsPage = Math.max(0, Math.min(totalPages - 1, pillsPage + delta));
     renderPillsPage();
@@ -2209,8 +2201,7 @@ function loadCategorizeTable(filterCat = '') {
 function filterByChartCategory(category) {
     if (isTestMode) return;
     
-    // Convertir "Non catégorisé" en "none" pour l'URL
-    const filterValue = category === 'Non catégorisé' ? 'none' : category;
+    const filterValue = category === UNCATEGORIZED_LABEL ? 'none' : category;
     
     // Toggle: si déjà actif, désactiver
     if (activeFilter === category) {
@@ -2264,7 +2255,7 @@ function refreshCategorizationView() {
             if (data.success) {
                 // Mettre à jour les couleurs globales AVANT le rendu du graphique
                 data.stats.forEach(s => {
-                    if (s.color && s.category !== 'Non catégorisé') {
+                    if (s.color && s.category !== UNCATEGORIZED_LABEL) {
                         globalCategoryColors[s.category] = s.color;
                     }
                 });
@@ -2310,7 +2301,7 @@ function generateColors() {
     syncCodeToVisual();
     
     if (rulesData.length === 0) {
-        showGlobalStatus('Aucune catégorie trouvée', 'warning');
+        showGlobalStatus(__('categorize.no_categories'), 'warning');
         return;
     }
     
@@ -2326,7 +2317,7 @@ function generateColors() {
     // Mettre à jour le mode visuel
     renderRules();
     
-    showGlobalStatus('Couleurs générées pour ' + rulesData.length + ' catégories', 'success');
+    showGlobalStatus(__('categorize.msg_colors_generated') + ' (' + rulesData.length + ')', 'success');
 }
 
 // Initialiser le graphique et l'éditeur au chargement
@@ -2381,7 +2372,7 @@ function testCategorization() {
     // Convertir les tabulations en double espaces (YAML n'accepte que les espaces)
     const yamlContent = yamlEditor.getValue().replace(/\t/g, '  ');
     
-    showGlobalStatus('Analyse de la catégorisation en cours...', 'warning');
+    showGlobalStatus(__('categorize.msg_testing'), 'warning');
     
     fetch('../api/categorization/test', {
         method: 'POST',
@@ -2396,25 +2387,25 @@ function testCategorization() {
     .then(response => response.json())
     .then(data => {
         if(data.success) {
-            showGlobalStatus('✓ Test réussi ! ' + data.categories_count + ' catégories détectées. Sauvegardez pour voir le tableau mis à jour.', 'success');
+            showGlobalStatus(__('categorize.msg_test_success') + ' ' + __('categorize.categories_found').replace(':count', data.categories_count), 'success');
             
             // Mettre à jour les graphiques en mode test (utilise les couleurs de rulesData)
             renderChart(data.stats, true);
         } else {
-            showGlobalStatus('✗ Erreur: ' + data.error, 'error');
+            showGlobalStatus(__('common.error') + ': ' + data.error, 'error');
         }
     })
     .catch(error => {
-        showGlobalStatus('✗ Erreur de communication: ' + error, 'error');
+        showGlobalStatus(__('common.error') + ': ' + error, 'error');
     });
 }
 
 // Sauvegarder la catégorisation
 async function saveCategorization() {
     const confirmed = await customConfirm(
-        'Êtes-vous sûr de vouloir sauvegarder et appliquer cette catégorisation ?',
-        'Sauvegarder la catégorisation',
-        'Sauvegarder',
+        __('categorize.confirm_save'),
+        __('categorize.confirm_save_title'),
+        __('common.save'),
         'primary'
     );
     
@@ -2425,7 +2416,7 @@ async function saveCategorization() {
     // Convertir les tabulations en double espaces (YAML n'accepte que les espaces)
     const yamlContent = yamlEditor.getValue().replace(/\t/g, '  ');
     
-    showGlobalStatus('Sauvegarde et application en cours...', 'warning');
+    showGlobalStatus(__('categorize.msg_saving'), 'warning');
     
     fetch('../api/categorization/save', {
         method: 'POST',
@@ -2444,9 +2435,9 @@ async function saveCategorization() {
             const otherCrawls = data.other_crawls || 0;
 
             if (otherCrawls > 0) {
-                showGlobalStatus(`✓ Catégorisation appliquée (${categorizedCount} URLs). Batch en cours pour ${otherCrawls} autre(s) crawl(s)...`, 'success');
+                showGlobalStatus(__('categorize.msg_saved_batch').replace(':count', categorizedCount).replace(':crawls', otherCrawls), 'success');
             } else {
-                showGlobalStatus(`✓ Catégorisation appliquée avec succès (${categorizedCount} URLs) !`, 'success');
+                showGlobalStatus(__('categorize.msg_saved').replace(':count', categorizedCount), 'success');
             }
 
             // Rafraîchir le graphique et le tableau en AJAX
@@ -2457,11 +2448,11 @@ async function saveCategorization() {
                 startBatchPolling(data.job_id);
             }
         } else {
-            showGlobalStatus('✗ Erreur: ' + data.error, 'error');
+            showGlobalStatus(__('common.error') + ': ' + data.error, 'error');
         }
     })
     .catch(error => {
-        showGlobalStatus('✗ Erreur de communication: ' + error, 'error');
+        showGlobalStatus(__('common.error') + ': ' + error, 'error');
     });
 }
 
@@ -2616,8 +2607,8 @@ function renderRules() {
         container.innerHTML = `
             <div class="rules-empty">
                 <span class="material-symbols-outlined">category</span>
-                <p>Aucune règle définie</p>
-                <p style="font-size: 0.8rem; margin-top: 0.5rem;">Cliquez sur "Ajouter une règle" pour commencer</p>
+                <p>${__('categorize.no_rules')}</p>
+                <p style="font-size: 0.8rem; margin-top: 0.5rem;">${__('categorize.no_rules_hint')}</p>
             </div>
         `;
         return;
@@ -2649,7 +2640,7 @@ function createRuleCard(rule, index) {
                     <span class="material-symbols-outlined rule-expand-icon">expand_more</span>
                 </div>
                 <div class="rule-header-bottom">
-                    <span class="rule-meta-badge rule-meta-badge-domain" title="${escapeHtml(rule.dom) || 'Non défini'}">
+                    <span class="rule-meta-badge rule-meta-badge-domain" title="${escapeHtml(rule.dom) || __('categorize.not_defined')}">
                         <span class="material-symbols-outlined">language</span>
                         ${escapeHtml(rule.dom) || '—'}
                     </span>
@@ -2664,7 +2655,7 @@ function createRuleCard(rule, index) {
                                 ${excludeCount}
                             </span>
                         ` : ''}
-                        <button class="rule-delete-btn" onclick="deleteRule(${index}); event.stopPropagation();" title="Supprimer">
+                        <button class="rule-delete-btn" onclick="deleteRule(${index}); event.stopPropagation();" title="${__('common.delete')}">
                             <span class="material-symbols-outlined">delete</span>
                         </button>
                     </div>
@@ -2674,15 +2665,15 @@ function createRuleCard(rule, index) {
                 <div class="rule-field">
                     <label class="rule-field-label">
                         <span class="material-symbols-outlined">badge</span>
-                        Nom de la catégorie
+                        ${__('categorize.field_name')}
                     </label>
-                    <input type="text" class="rule-domain-input" value="${escapeHtml(rule.name)}" 
-                           onchange="updateRuleName(${index}, this.value)" placeholder="Nom de la catégorie">
+                    <input type="text" class="rule-domain-input" value="${escapeHtml(rule.name)}"
+                           onchange="updateRuleName(${index}, this.value)" placeholder="${__('categorize.field_name')}">
                 </div>
                 <div class="rule-field">
                     <label class="rule-field-label">
                         <span class="material-symbols-outlined">language</span>
-                        Domaine
+                        ${__('categorize.field_domain')}
                     </label>
                     <input type="text" class="rule-domain-input" value="${escapeHtml(rule.dom)}" 
                            onchange="updateRuleDom(${index}, this.value)" placeholder="example.com">
@@ -2690,29 +2681,29 @@ function createRuleCard(rule, index) {
                 <div class="rule-field include">
                     <label class="rule-field-label">
                         <span class="material-symbols-outlined">check_circle</span>
-                        Include (patterns à inclure)
+                        ${__('categorize.field_include')}
                     </label>
                     <div class="pattern-list">
                         ${rule.include.map((pattern, pIndex) => `
                             <div class="pattern-item">
                                 <input type="text" value="${escapeHtml(pattern)}" 
                                        onchange="updatePattern(${index}, 'include', ${pIndex}, this.value)"
-                                       placeholder="^/chemin/">
-                                <button class="pattern-remove-btn" onclick="removePattern(${index}, 'include', ${pIndex})" title="Supprimer">
+                                       placeholder="^/path/">
+                                <button class="pattern-remove-btn" onclick="removePattern(${index}, 'include', ${pIndex})" title="${__('common.delete')}">
                                     <span class="material-symbols-outlined">close</span>
                                 </button>
                             </div>
                         `).join('')}
                         <button class="pattern-add-btn" onclick="addPattern(${index}, 'include')">
                             <span class="material-symbols-outlined">add</span>
-                            Ajouter un pattern
+                            ${__('categorize.add_pattern')}
                         </button>
                     </div>
                 </div>
                 <div class="rule-field exclude">
                     <label class="rule-field-label">
                         <span class="material-symbols-outlined">block</span>
-                        Exclude (patterns à exclure)
+                        ${__('categorize.field_exclude')}
                     </label>
                     <div class="pattern-list">
                         ${rule.exclude.map((pattern, pIndex) => `
@@ -2720,14 +2711,14 @@ function createRuleCard(rule, index) {
                                 <input type="text" value="${escapeHtml(pattern)}" 
                                        onchange="updatePattern(${index}, 'exclude', ${pIndex}, this.value)"
                                        placeholder="/archive/">
-                                <button class="pattern-remove-btn" onclick="removePattern(${index}, 'exclude', ${pIndex})" title="Supprimer">
+                                <button class="pattern-remove-btn" onclick="removePattern(${index}, 'exclude', ${pIndex})" title="${__('common.delete')}">
                                     <span class="material-symbols-outlined">close</span>
                                 </button>
                             </div>
                         `).join('')}
                         <button class="pattern-add-btn" onclick="addPattern(${index}, 'exclude')">
                             <span class="material-symbols-outlined">add</span>
-                            Ajouter un pattern
+                            ${__('categorize.add_pattern')}
                         </button>
                     </div>
                 </div>
@@ -2758,7 +2749,7 @@ function addNewRule() {
     const crawledDomain = '<?= $crawledDomain ?>';
     
     rulesData.push({
-        name: 'nouvelle_categorie',
+        name: __('categorize.new_category'),
         dom: crawledDomain,
         include: ['^/product/\\d+\\.html$'],
         exclude: []
@@ -2778,11 +2769,11 @@ function addNewRule() {
 
 // Delete rule
 async function deleteRule(index) {
-    const ruleName = rulesData[index]?.name || 'cette règle';
+    const ruleName = rulesData[index]?.name || __('categorize.this_rule');
     const confirmed = await customConfirm(
-        `Êtes-vous sûr de vouloir supprimer la règle "${ruleName}" ?`,
-        'Supprimer la règle',
-        'Supprimer',
+        __('categorize.confirm_delete_rule').replace(':name', ruleName),
+        __('categorize.confirm_delete_rule_title'),
+        __('common.delete'),
         'danger'
     );
     

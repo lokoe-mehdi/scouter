@@ -58,7 +58,7 @@ $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 $depthByCategory = [];
 foreach ($depthByCategoryRaw as $row) {
     $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     $depthByCategory[] = $row;
 }
 
@@ -69,7 +69,7 @@ foreach ($depthByCategoryRaw as $row) {
  */
 ?>
 
-<h1 class="page-title">Analyse des niveaux de profondeur</h1>
+<h1 class="page-title"><?= __('depth.page_title') ?></h1>
 
 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
 
@@ -92,16 +92,16 @@ foreach($depthStats as $stat) {
 }
 
     Component::simpleTable([
-    'title' => 'Statistiques par niveau',
-    'subtitle' => 'Analyse de la profondeur du site',
+    'title' => __('depth.table_title'),
+    'subtitle' => __('depth.table_subtitle'),
     'columns' => [
-        ['key' => 'depth', 'label' => 'Profondeur', 'type' => 'bold'],
-        ['key' => 'total', 'label' => 'URLs Crawlées', 'type' => 'default'],
-        ['key' => 'compliant', 'label' => 'URLs Indexables', 'type' => 'badge-success'],
-        ['key' => 'percent_compliant', 'label' => '% Indexables', 'type' => 'percent_bar'],
-        ['key' => 'ok', 'label' => '200 OK', 'type' => 'default'],
-        ['key' => 'avg_inlinks', 'label' => 'Inlinks moyen', 'type' => 'default'],
-        ['key' => 'avg_pagerank', 'label' => 'PageRank moyen', 'type' => 'default']
+        ['key' => 'depth', 'label' => __('depth.col_depth'), 'type' => 'bold'],
+        ['key' => 'total', 'label' => __('depth.col_crawled'), 'type' => 'default'],
+        ['key' => 'compliant', 'label' => __('depth.col_indexable'), 'type' => 'badge-success'],
+        ['key' => 'percent_compliant', 'label' => __('depth.col_pct_indexable'), 'type' => 'percent_bar'],
+        ['key' => 'ok', 'label' => __('depth.col_200ok'), 'type' => 'default'],
+        ['key' => 'avg_inlinks', 'label' => __('depth.col_avg_inlinks'), 'type' => 'default'],
+        ['key' => 'avg_pagerank', 'label' => __('depth.col_avg_pagerank'), 'type' => 'default']
     ],
         'data' => $depthTableData
     ]);
@@ -115,23 +115,23 @@ foreach($depthStats as $stat) {
     // Graphique 1: Distribution par profondeur (Bar Chart empilé)
     Component::chart([
         'type' => 'bar',
-        'title' => 'Distribution des URLs par profondeur',
-        'subtitle' => 'Indexables vs Non-indexables par niveau',
+        'title' => __('depth.chart_title'),
+        'subtitle' => __('depth.chart_subtitle'),
         'categories' => array_map(function($s) { return 'Niveau ' . $s->depth; }, $depthStats),
         'series' => [
             [
-                'name' => 'Non-indexables',
+                'name' => __('depth.series_non_indexable'),
                 'data' => array_map(function($s) { return (int)$s->total - (int)$s->compliant; }, $depthStats),
                 'color' => '#95a5a6'
             ],
             [
-                'name' => 'Indexables',
+                'name' => __('depth.series_indexable'),
                 'data' => array_map(function($s) { return (int)$s->compliant; }, $depthStats),
                 'color' => '#6bd899'
             ]
         ],
         'stacking' => 'normal',
-        'yAxisTitle' => 'Nombre d\'URLs',
+        'yAxisTitle' => __('depth.label_url_count'),
         'height' => 400,
         'sqlQuery' => $sqlDepthStats
     ]);
@@ -161,11 +161,11 @@ foreach($depthStats as $stat) {
         
         Component::chart([
         'type' => 'bar',
-        'title' => 'Distribution par profondeur et catégorie',
-        'subtitle' => 'Répartition en pourcentage par catégorie',
+        'title' => __('depth.chart_category_title'),
+        'subtitle' => __('depth.chart_category_subtitle'),
         'categories' => array_map(function($s) { return 'Niveau ' . $s->depth; }, $depthStats),
         'series' => $series,
-        'yAxisTitle' => 'Pourcentage',
+        'yAxisTitle' => __('common.percentage'),
         'yAxisMax' => 100,
         'stacking' => 'percent',
         'height' => 400,
@@ -179,7 +179,7 @@ foreach($depthStats as $stat) {
          ======================================== -->
     <?php
     Component::urlTable([
-        'title' => 'URLs les plus profondes',
+        'title' => __('depth.table_deepest'),
         'id' => 'responsetimetable',
         'whereClause' => 'WHERE c.crawled = true AND c.is_html = true',
         'orderBy' => 'ORDER BY c.depth DESC',

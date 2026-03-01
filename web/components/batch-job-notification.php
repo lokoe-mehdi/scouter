@@ -91,8 +91,8 @@
     <div class="batch-job-content">
         <span class="material-symbols-outlined rotating">sync</span>
         <div class="batch-job-text">
-            <strong>Catégorisation en cours</strong>
-            <span id="batch-job-progress">0% complété</span>
+            <strong id="batch-job-title"><?= __('batch.categorization_in_progress') ?></strong>
+            <span id="batch-job-progress"><?= __('batch_job.progress', ['percent' => '0']) ?></span>
         </div>
         <button class="btn-dismiss" onclick="dismissBatchNotification()">
             <span class="material-symbols-outlined">close</span>
@@ -150,7 +150,7 @@ function showBatchNotification(job) {
 
     badge.style.display = 'block';
     const progress = job.progress || 0;
-    progressText.textContent = `${progress}% complété`;
+    progressText.textContent = `${progress}% ${__('batch.completed')}`;
     progressFill.style.width = `${progress}%`;
 }
 
@@ -160,8 +160,8 @@ function showCompletionNotification() {
     const rotating = badge.querySelector('.rotating');
     const progressText = document.getElementById('batch-job-progress');
 
-    content.textContent = 'Catégorisation terminée';
-    progressText.textContent = '100% complété';
+    content.textContent = __('batch.categorization_done');
+    progressText.textContent = `100% ${__('batch.completed')}`;
     rotating.classList.remove('rotating');
     rotating.textContent = 'check_circle';
     badge.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
@@ -173,8 +173,8 @@ function showErrorNotification(error) {
     const rotating = badge.querySelector('.rotating');
     const progressText = document.getElementById('batch-job-progress');
 
-    content.textContent = 'Erreur de catégorisation';
-    progressText.textContent = error || 'Une erreur est survenue';
+    content.textContent = __('batch.categorization_error');
+    progressText.textContent = error || __('batch.error_occurred');
     rotating.classList.remove('rotating');
     rotating.textContent = 'error';
     badge.style.background = 'linear-gradient(135deg, #eb3349 0%, #f45c43 100%)';

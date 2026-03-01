@@ -287,7 +287,7 @@ const CrawlPanel = {
                         if (crawlData.success && crawlData.crawl) {
                             const finishedCrawl = {
                                 crawl_id: trackedId,
-                                domain: crawlData.crawl.domain || 'Crawl terminé',
+                                domain: crawlData.crawl.domain || __('crawl_panel.crawl_finished'),
                                 project_dir: crawlData.crawl.project_dir || '',
                                 urls: parseInt(crawlData.crawl.urls, 10) || 0,
                                 crawled: parseInt(crawlData.crawl.crawled, 10) || 0,
@@ -603,7 +603,7 @@ const CrawlPanel = {
                         <div class="crawl-panel-crawl-list-item-dot" style="background: var(--success); animation: none;"></div>
                         <div class="crawl-panel-crawl-list-item-info">
                             <div class="crawl-panel-crawl-list-item-name">${this.escapeHtml(crawl.domain)}</div>
-                            <div class="crawl-panel-crawl-list-item-stats" style="color: var(--success);">Terminé (non vu)</div>
+                            <div class="crawl-panel-crawl-list-item-stats" style="color: var(--success);">${__('crawl_panel.finished_unseen')}</div>
                         </div>
                         <div class="crawl-panel-crawl-list-item-progress" style="color: var(--success);">✓</div>
                     </div>
@@ -622,7 +622,7 @@ const CrawlPanel = {
                         <div class="crawl-panel-crawl-list-item-dot" style="background: var(--success); animation: none;"></div>
                         <div class="crawl-panel-crawl-list-item-info">
                             <div class="crawl-panel-crawl-list-item-name">${this.escapeHtml(crawl.domain)}</div>
-                            <div class="crawl-panel-crawl-list-item-stats" style="color: #94a3b8;">Terminé</div>
+                            <div class="crawl-panel-crawl-list-item-stats" style="color: #94a3b8;">${__('crawl_panel.status_completed')}</div>
                         </div>
                         <div class="crawl-panel-crawl-list-item-progress" style="color: var(--success);">✓</div>
                     </div>
@@ -722,9 +722,9 @@ const CrawlPanel = {
             }
             
             if (this.elements.minimizedText) {
-                this.elements.minimizedText.textContent = runningCount > 1 
-                    ? 'Crawls en cours' 
-                    : 'Crawl en cours';
+                this.elements.minimizedText.textContent = runningCount > 1
+                    ? __('crawl_panel.crawls_running')
+                    : __('crawl_panel.crawl_running');
             }
             
             // Calculer la progression globale (pondérée par le nombre d'URLs)
@@ -761,9 +761,9 @@ const CrawlPanel = {
             }
             
             if (this.elements.minimizedText) {
-                this.elements.minimizedText.textContent = unseenCount > 1 
-                    ? 'Crawls terminés' 
-                    : 'Crawl terminé';
+                this.elements.minimizedText.textContent = unseenCount > 1
+                    ? __('crawl_panel.crawls_finished')
+                    : __('crawl_panel.crawl_finished_singular');
             }
             
             if (this.elements.minimizedProgress) {
@@ -1117,16 +1117,16 @@ const CrawlPanel = {
         }
         
         const statusLabels = {
-            pending: 'En attente',
-            queued: 'En file d\'attente',
-            running: 'En cours...',
-            stopping: 'Arrêt en cours...',
-            processing: 'Post-traitements...',
-            completed: 'Terminé',
-            finished: 'Terminé',
-            stopped: 'Arrêté',
-            failed: 'Échoué',
-            error: 'Erreur'
+            pending: __('crawl_panel.status_pending'),
+            queued: __('crawl_panel.status_queued'),
+            running: __('crawl_panel.status_running'),
+            stopping: __('crawl_panel.status_stopping'),
+            processing: __('crawl_panel.status_processing'),
+            completed: __('crawl_panel.status_completed'),
+            finished: __('crawl_panel.status_finished'),
+            stopped: __('crawl_panel.status_stopped'),
+            failed: __('crawl_panel.status_failed'),
+            error: __('crawl_panel.status_error')
         };
 
         if (this.elements.badge) {
@@ -1150,9 +1150,9 @@ const CrawlPanel = {
             // Désactiver si déjà en cours d'arrêt
             this.elements.stopBtn.disabled = isStopping;
             if (isStopping) {
-                this.elements.stopBtn.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span> Arrêt...';
+                this.elements.stopBtn.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span> ' + __('crawl_panel.stopping');
             } else {
-                this.elements.stopBtn.innerHTML = '<span class="material-symbols-outlined">stop_circle</span> Arrêter';
+                this.elements.stopBtn.innerHTML = '<span class="material-symbols-outlined">stop_circle</span> ' + __('crawl_panel.btn_stop');
             }
         }
         if (this.elements.resumeBtn) {
@@ -1362,7 +1362,7 @@ const CrawlPanel = {
      */
     clearTerminal() {
         if (this.elements.terminal) {
-            this.elements.terminal.innerHTML = '<div class="crawl-panel-log-line crawl-panel-log-system crawl-panel-loading">Chargement des logs...</div>';
+            this.elements.terminal.innerHTML = '<div class="crawl-panel-log-line crawl-panel-log-system crawl-panel-loading">' + __('crawl_panel.loading_logs') + '</div>';
         }
     },
 
@@ -1426,9 +1426,9 @@ const CrawlPanel = {
         if (!this.state.currentCrawl) return;
 
         const confirmed = await customConfirm(
-            'Êtes-vous sûr de vouloir arrêter le crawl ?\n\nLes données collectées seront analysées.',
-            'Arrêter le crawl',
-            'Arrêter',
+            __('crawl_panel.confirm_stop'),
+            __('crawl_panel.confirm_stop_title'),
+            __('crawl_panel.btn_stop'),
             'danger'
         );
 
@@ -1436,7 +1436,7 @@ const CrawlPanel = {
 
         if (this.elements.stopBtn) {
             this.elements.stopBtn.disabled = true;
-            this.elements.stopBtn.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span> Arrêt...';
+            this.elements.stopBtn.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span> ' + __('crawl_panel.stopping');
         }
 
         try {
@@ -1449,16 +1449,16 @@ const CrawlPanel = {
             const result = await response.json();
 
             if (!response.ok || !result.success) {
-                throw new Error(result.error || 'Erreur lors de l\'arrêt');
+                throw new Error(result.error || __('crawl_panel.error_stop'));
             }
 
             this.updateStatus('processing');
 
         } catch (error) {
-            alert(`Erreur: ${error.message}`);
+            alert(`${__('crawl_panel.error_label')}: ${error.message}`);
             if (this.elements.stopBtn) {
                 this.elements.stopBtn.disabled = false;
-                this.elements.stopBtn.innerHTML = '<span class="material-symbols-outlined">stop_circle</span> Arrêter';
+                this.elements.stopBtn.innerHTML = '<span class="material-symbols-outlined">stop_circle</span> ' + __('crawl_panel.btn_stop');
             }
         }
     },
@@ -1470,9 +1470,9 @@ const CrawlPanel = {
         if (!this.state.currentCrawl) return;
 
         const confirmed = await customConfirm(
-            'Reprendre le crawl là où il s\'est arrêté ?',
-            'Reprendre le crawl',
-            'Reprendre',
+            __('crawl_panel.confirm_resume'),
+            __('crawl_panel.confirm_resume_title'),
+            __('crawl_panel.btn_resume'),
             'success'
         );
 
@@ -1480,7 +1480,7 @@ const CrawlPanel = {
 
         if (this.elements.resumeBtn) {
             this.elements.resumeBtn.disabled = true;
-            this.elements.resumeBtn.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span> Reprise...';
+            this.elements.resumeBtn.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span> ' + __('crawl_panel.resuming');
         }
 
         try {
@@ -1493,7 +1493,7 @@ const CrawlPanel = {
             const result = await response.json();
 
             if (!response.ok) {
-                throw new Error(result.error || 'Erreur lors de la reprise');
+                throw new Error(result.error || __('crawl_panel.error_resume'));
             }
 
             // Update status to queued
@@ -1524,14 +1524,14 @@ const CrawlPanel = {
             // Reset button
             if (this.elements.resumeBtn) {
                 this.elements.resumeBtn.disabled = false;
-                this.elements.resumeBtn.innerHTML = '<span class="material-symbols-outlined">play_arrow</span> Reprendre';
+                this.elements.resumeBtn.innerHTML = '<span class="material-symbols-outlined">play_arrow</span> ' + __('crawl_panel.btn_resume');
             }
 
         } catch (error) {
             alert(`Erreur: ${error.message}`);
             if (this.elements.resumeBtn) {
                 this.elements.resumeBtn.disabled = false;
-                this.elements.resumeBtn.innerHTML = '<span class="material-symbols-outlined">play_arrow</span> Reprendre';
+                this.elements.resumeBtn.innerHTML = '<span class="material-symbols-outlined">play_arrow</span> ' + __('crawl_panel.btn_resume');
             }
         }
     },
@@ -1628,14 +1628,14 @@ async function startCrawlWithPanel(projectDir, projectName) {
         const result = await response.json();
 
         if (!response.ok || !result.success) {
-            throw new Error(result.error || 'Erreur lors du démarrage du crawl');
+            throw new Error(result.error || __('crawl_panel.error_start'));
         }
 
         CrawlPanel.start(projectDir, projectName, result.crawl_id);
         return result;
 
     } catch (error) {
-        alert(`Erreur: ${error.message}`);
+        alert(`${__('crawl_panel.error_label')}: ${error.message}`);
         throw error;
     }
 }

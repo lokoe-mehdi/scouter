@@ -489,7 +489,7 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
 .chip-add-or:hover { transform: translateY(-50%) scale(1.15); }
 .chip-add-or .material-symbols-outlined { font-size: 14px; }
 .chip-add-or::after {
-    content: 'Ajouter une condition OU';
+    content: '<?= __('filter.add_or_condition') ?>';
     position: absolute;
     bottom: calc(100% + 6px);
     left: 50%;
@@ -785,7 +785,7 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
     <!-- Search Input -->
     <div class="smart-search-wrapper">
         <span class="material-symbols-outlined search-icon">search</span>
-        <input type="text" id="globalSearch" placeholder="Rechercher un lien..." value="<?= htmlspecialchars($search) ?>">
+        <input type="text" id="globalSearch" placeholder="<?= __('link_explorer.search_placeholder') ?>" value="<?= htmlspecialchars($search) ?>">
     </div>
     
     <!-- Filter Chips -->
@@ -794,13 +794,13 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
     <!-- Add Filter Button -->
     <button class="btn-add-filter" onclick="openFieldSelector(event)">
         <span class="material-symbols-outlined">add</span>
-        Filtre
+        <?= __('link_explorer.filter') ?>
     </button>
-    
+
     <!-- Clear All -->
     <button class="btn-clear-filters" id="btnClearAll" style="display: none;" onclick="clearFilters()">
         <span class="material-symbols-outlined">close</span>
-        Tout effacer
+        <?= __('link_explorer.clear_all') ?>
     </button>
 </div>
 
@@ -810,44 +810,44 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
 <!-- Field Selector Popover -->
 <div class="filter-popover" id="fieldSelectorPopover">
     <div class="popover-header">
-        <span class="popover-title">Ajouter un filtre</span>
+        <span class="popover-title"><?= __('link_explorer.add_filter') ?></span>
         <button class="popover-close" onclick="closeAllPopovers()">
             <span class="material-symbols-outlined">close</span>
         </button>
     </div>
     <div class="popover-field-list">
-        <div class="popover-section-title">Propriétés du lien</div>
+        <div class="popover-section-title"><?= __('link_explorer.section_link_props') ?></div>
         <div class="popover-field-item" onclick="selectField('anchor', 'link')">
-            <span class="material-symbols-outlined">text_fields</span> Ancre du lien
+            <span class="material-symbols-outlined">text_fields</span> <?= __('link_explorer.field_anchor') ?>
         </div>
         <div class="popover-field-item" onclick="selectField('type', 'link')">
-            <span class="material-symbols-outlined">category</span> Type de lien
+            <span class="material-symbols-outlined">category</span> <?= __('link_explorer.field_link_type') ?>
         </div>
         <div class="popover-field-item" onclick="selectField('external', 'link')">
-            <span class="material-symbols-outlined">open_in_new</span> Interne/Externe
+            <span class="material-symbols-outlined">open_in_new</span> <?= __('link_explorer.field_internal_external') ?>
         </div>
         <div class="popover-field-item" onclick="selectField('link_nofollow', 'link')">
-            <span class="material-symbols-outlined">link_off</span> Dofollow/Nofollow
+            <span class="material-symbols-outlined">link_off</span> <?= __('link_explorer.field_dofollow_nofollow') ?>
         </div>
         <div class="popover-field-item" onclick="addSelfLinkFilter()">
-            <span class="material-symbols-outlined">sync</span> Self-link (autolien)
+            <span class="material-symbols-outlined">sync</span> <?= __('link_explorer.field_self_link') ?>
         </div>
-        
-        <div class="popover-section-title">Page source ou cible</div>
+
+        <div class="popover-section-title"><?= __('link_explorer.section_page_source_target') ?></div>
         <div class="popover-field-item" onclick="selectField('url', 'page')">
             <span class="material-symbols-outlined">link</span> URL
         </div>
         <div class="popover-field-item" onclick="selectField('category', 'page')">
-            <span class="material-symbols-outlined">label</span> Catégorie
+            <span class="material-symbols-outlined">label</span> <?= __('link_explorer.field_category') ?>
         </div>
         <div class="popover-field-item" onclick="selectField('depth', 'page')">
-            <span class="material-symbols-outlined">layers</span> Profondeur
+            <span class="material-symbols-outlined">layers</span> <?= __('link_explorer.field_depth') ?>
         </div>
         <div class="popover-field-item" onclick="selectField('code', 'page')">
-            <span class="material-symbols-outlined">http</span> Code HTTP
+            <span class="material-symbols-outlined">http</span> <?= __('link_explorer.field_http_code') ?>
         </div>
         <div class="popover-field-item" onclick="selectField('compliant', 'page')">
-            <span class="material-symbols-outlined">verified</span> Indexable
+            <span class="material-symbols-outlined">verified</span> <?= __('link_explorer.field_indexable') ?>
         </div>
         <div class="popover-field-item" onclick="selectField('canonical', 'page')">
             <span class="material-symbols-outlined">content_copy</span> Canonical
@@ -862,34 +862,34 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
             <span class="material-symbols-outlined">description</span> Meta Description
         </div>
         <div class="popover-field-item" onclick="selectField('inlinks', 'page')">
-            <span class="material-symbols-outlined">arrow_back</span> Liens entrants
+            <span class="material-symbols-outlined">arrow_back</span> <?= __('link_explorer.field_inlinks') ?>
         </div>
         <div class="popover-field-item" onclick="selectField('outlinks', 'page')">
-            <span class="material-symbols-outlined">arrow_forward</span> Liens sortants
+            <span class="material-symbols-outlined">arrow_forward</span> <?= __('link_explorer.field_outlinks') ?>
         </div>
         <div class="popover-field-item" onclick="selectField('noindex', 'page')">
             <span class="material-symbols-outlined">block</span> Noindex
         </div>
         <div class="popover-field-item" onclick="selectField('nofollow', 'page')">
-            <span class="material-symbols-outlined">link_off</span> Nofollow (page)
+            <span class="material-symbols-outlined">link_off</span> <?= __('link_explorer.field_nofollow_page') ?>
         </div>
         <div class="popover-field-item" onclick="selectField('blocked', 'page')">
-            <span class="material-symbols-outlined">dangerous</span> Bloqué robots.txt
+            <span class="material-symbols-outlined">dangerous</span> <?= __('link_explorer.field_blocked_robots') ?>
         </div>
         <div class="popover-field-item" onclick="selectField('h1_multiple', 'page')">
-            <span class="material-symbols-outlined">format_h1</span> H1 multiples
+            <span class="material-symbols-outlined">format_h1</span> <?= __('link_explorer.field_h1_multiple') ?>
         </div>
         <div class="popover-field-item" onclick="selectField('headings_missing', 'page')">
-            <span class="material-symbols-outlined">format_list_numbered</span> Mauvaise structure hn
+            <span class="material-symbols-outlined">format_list_numbered</span> <?= __('link_explorer.field_headings_missing') ?>
         </div>
         <div class="popover-field-item" onclick="selectField('schemas', 'page')">
-            <span class="material-symbols-outlined">data_object</span> Données structurées
+            <span class="material-symbols-outlined">data_object</span> <?= __('link_explorer.field_structured_data') ?>
         </div>
         <div class="popover-field-item" onclick="selectField('response_time', 'page')">
             <span class="material-symbols-outlined">speed</span> TTFB (ms)
         </div>
         <div class="popover-field-item" onclick="selectField('word_count', 'page')">
-            <span class="material-symbols-outlined">format_size</span> Nb mots
+            <span class="material-symbols-outlined">format_size</span> <?= __('link_explorer.field_word_count') ?>
         </div>
     </div>
 </div>
@@ -897,7 +897,7 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
 <!-- Filter Config Popover -->
 <div class="filter-popover" id="filterConfigPopover">
     <div class="popover-header">
-        <span class="popover-title" id="configPopoverTitle">Configurer le filtre</span>
+        <span class="popover-title" id="configPopoverTitle"><?= __('link_explorer.configure_filter') ?></span>
         <button class="popover-close" onclick="closeAllPopovers()">
             <span class="material-symbols-outlined">close</span>
         </button>
@@ -908,7 +908,7 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
 <!-- Utilisation du composant URL Table -->
 <?php
 $linkTableConfig = [
-    'title' => 'Liens trouvés',
+    'title' => __('link_explorer.links_found'),
     'id' => 'main_explorer',
     'whereClause' => 'WHERE ' . $whereClause,
     'orderBy' => 'ORDER BY cs.url',
@@ -931,48 +931,48 @@ const availableCategories = <?= json_encode($availableCategories) ?>;
 // Configuration des champs
 const fieldConfig = {
     // Champs liés au lien (pas de source/target)
-    anchor: { label: 'Ancre', icon: 'text_fields', type: 'text', scope: 'link', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
-    external: { label: 'Interne/Externe', icon: 'open_in_new', type: 'internal_external', scope: 'link' },
-    link_nofollow: { label: 'Dofollow/Nofollow', icon: 'link_off', type: 'dofollow_nofollow', scope: 'link' },
-    type: { label: 'Type de lien', icon: 'category', type: 'link_type', scope: 'link', values: ['ahref', 'canonical', 'redirect'] },
+    anchor: { label: __('link_explorer.field_anchor'), icon: 'text_fields', type: 'text', scope: 'link', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
+    external: { label: __('link_explorer.field_internal_external'), icon: 'open_in_new', type: 'internal_external', scope: 'link' },
+    link_nofollow: { label: __('link_explorer.field_dofollow_nofollow'), icon: 'link_off', type: 'dofollow_nofollow', scope: 'link' },
+    type: { label: __('link_explorer.field_link_type'), icon: 'category', type: 'link_type', scope: 'link', values: ['ahref', 'canonical', 'redirect'] },
     self_link: { label: 'Self-link', icon: 'sync', type: 'instant', scope: 'link' },
     // Champs liés à la page (source ou target)
     url: { label: 'URL', icon: 'link', type: 'text', scope: 'page', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
-    category: { label: 'Catégorie', icon: 'label', type: 'category', scope: 'page', operators: ['in', 'not_in'] },
-    depth: { label: 'Profondeur', icon: 'layers', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] },
-    code: { label: 'Code HTTP', icon: 'http', type: 'http_code', scope: 'page', values: ['1xx', '2xx', '3xx', '4xx', '5xx', 'other'], operators: ['=', '>', '<', '>=', '<=', '!='] },
-    compliant: { label: 'Indexable', icon: 'verified', type: 'boolean', scope: 'page' },
+    category: { label: __('link_explorer.field_category'), icon: 'label', type: 'category', scope: 'page', operators: ['in', 'not_in'] },
+    depth: { label: __('link_explorer.field_depth'), icon: 'layers', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] },
+    code: { label: __('link_explorer.field_http_code'), icon: 'http', type: 'http_code', scope: 'page', values: ['1xx', '2xx', '3xx', '4xx', '5xx', 'other'], operators: ['=', '>', '<', '>=', '<=', '!='] },
+    compliant: { label: __('link_explorer.field_indexable'), icon: 'verified', type: 'boolean', scope: 'page' },
     canonical: { label: 'Canonical', icon: 'content_copy', type: 'boolean', scope: 'page' },
     title: { label: 'Title', icon: 'title', type: 'seo', scope: 'page', values: ['unique', 'empty', 'duplicate'], operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
     h1: { label: 'H1', icon: 'format_h1', type: 'seo', scope: 'page', values: ['unique', 'empty', 'duplicate'], operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
     metadesc: { label: 'Meta Desc', icon: 'description', type: 'seo', scope: 'page', values: ['unique', 'empty', 'duplicate'], operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
-    inlinks: { label: 'Liens entrants', icon: 'arrow_back', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] },
-    outlinks: { label: 'Liens sortants', icon: 'arrow_forward', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] },
+    inlinks: { label: __('link_explorer.field_inlinks'), icon: 'arrow_back', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] },
+    outlinks: { label: __('link_explorer.field_outlinks'), icon: 'arrow_forward', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] },
     noindex: { label: 'Noindex', icon: 'block', type: 'boolean', scope: 'page' },
     nofollow: { label: 'Nofollow', icon: 'link_off', type: 'boolean', scope: 'page' },
-    blocked: { label: 'Bloqué', icon: 'dangerous', type: 'boolean', scope: 'page' },
-    h1_multiple: { label: 'H1 multiples', icon: 'format_h1', type: 'boolean', scope: 'page' },
-    headings_missing: { label: 'Mauvaise structure hn', icon: 'format_list_numbered', type: 'boolean', scope: 'page' },
-    schemas: { label: 'Données structurées', icon: 'data_object', type: 'schemas', scope: 'page', operators: ['=', '>', '<', '>=', '<=', 'contains', 'not_contains'] },
+    blocked: { label: __('link_explorer.field_blocked'), icon: 'dangerous', type: 'boolean', scope: 'page' },
+    h1_multiple: { label: __('link_explorer.field_h1_multiple'), icon: 'format_h1', type: 'boolean', scope: 'page' },
+    headings_missing: { label: __('link_explorer.field_headings_missing'), icon: 'format_list_numbered', type: 'boolean', scope: 'page' },
+    schemas: { label: __('link_explorer.field_structured_data'), icon: 'data_object', type: 'schemas', scope: 'page', operators: ['=', '>', '<', '>=', '<=', 'contains', 'not_contains'] },
     response_time: { label: 'TTFB (ms)', icon: 'speed', type: 'number', scope: 'page', operators: ['>', '<', '>=', '<='] },
-    word_count: { label: 'Nb mots', icon: 'format_size', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] }
+    word_count: { label: __('link_explorer.field_word_count'), icon: 'format_size', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] }
 };
 
 const availableSchemas = <?= json_encode($availableSchemas) ?>;
 
 const operatorLabels = {
-    'contains': 'contient', 'not_contains': 'ne contient pas',
-    'regex': 'correspond à la regex', 'not_regex': 'ne correspond pas à la regex',
+    'contains': __('link_explorer.op_contains'), 'not_contains': __('link_explorer.op_not_contains'),
+    'regex': __('link_explorer.op_regex'), 'not_regex': __('link_explorer.op_not_regex'),
     '=': '=', '>': '>', '<': '<', '>=': '≥', '<=': '≤', '!=': '≠',
-    'in': 'est', 'not_in': "n'est pas"
+    'in': __('link_explorer.op_is'), 'not_in': __('link_explorer.op_is_not')
 };
-const seoValueLabels = { 'unique': 'Unique', 'empty': 'Vide', 'duplicate': 'Dupliqué' };
-const httpCodeLabels = { '1xx': '1xx (100-199)', '2xx': '2xx (200-299)', '3xx': '3xx (300-399)', '4xx': '4xx (400-499)', '5xx': '5xx (500-599)', 'other': 'Autre' };
-const boolLabels = { 'true': 'Oui', 'false': 'Non' };
-const internalExternalLabels = { 'external': 'Externe', 'internal': 'Interne' };
+const seoValueLabels = { 'unique': __('link_explorer.seo_unique'), 'empty': __('link_explorer.seo_empty'), 'duplicate': __('link_explorer.seo_duplicate') };
+const httpCodeLabels = { '1xx': '1xx (100-199)', '2xx': '2xx (200-299)', '3xx': '3xx (300-399)', '4xx': '4xx (400-499)', '5xx': '5xx (500-599)', 'other': __('link_explorer.other') };
+const boolLabels = { 'true': __('common.yes'), 'false': __('common.no') };
+const internalExternalLabels = { 'external': __('link_explorer.external'), 'internal': __('link_explorer.internal') };
 const dofollowNofollowLabels = { 'nofollow': 'Nofollow', 'dofollow': 'Dofollow' };
-const linkTypeLabels = { 'ahref': 'Ahref', 'canonical': 'Canonical', 'redirect': 'Redirection' };
-const targetLabels = { 'source': 'Source', 'target': 'Cible', 'link': 'Lien' };
+const linkTypeLabels = { 'ahref': 'Ahref', 'canonical': 'Canonical', 'redirect': __('link_explorer.redirect') };
+const targetLabels = { 'source': __('link_explorer.source'), 'target': __('link_explorer.target'), 'link': __('link_explorer.link') };
 
 let filterGroups = [];
 let pendingFilterConfig = null;
@@ -1016,7 +1016,7 @@ function renderChips() {
         if (groupIndex > 0) {
             const andSep = document.createElement('span');
             andSep.className = 'chip-and-separator';
-            andSep.textContent = 'et';
+            andSep.textContent = __('link_explorer.and');
             container.appendChild(andSep);
         }
         
@@ -1029,7 +1029,7 @@ function renderChips() {
                 if (chipIndex > 0) {
                     const orConn = document.createElement('span');
                     orConn.className = 'chip-or-connector';
-                    orConn.textContent = 'ou';
+                    orConn.textContent = __('link_explorer.or');
                     chipGroup.appendChild(orConn);
                 }
                 chipGroup.appendChild(createChipElement(chip, groupIndex, chipIndex));
@@ -1052,7 +1052,7 @@ function createChipElement(chip, groupIndex, chipIndex) {
     
     const config = fieldConfig[chip.field] || { label: chip.field };
     const targetClass = config.scope === 'link' ? 'link' : chip.target;
-    const targetLabel = config.scope === 'link' ? 'Lien' : (chip.target === 'target' ? 'Cible' : 'Source');
+    const targetLabel = config.scope === 'link' ? targetLabels['link'] : (chip.target === 'target' ? targetLabels['target'] : targetLabels['source']);
     let displayValue = formatChipValue(chip);
     
     // Pour les filtres instantanés (self-link), ne pas afficher la valeur
@@ -1203,10 +1203,10 @@ function openConfigPopover(field, existingChip = null) {
         const currentTarget = existingChip?.target || pendingFilterConfig.target || 'source';
         html += `
             <div class="popover-row">
-                <label class="popover-label">Appliquer à</label>
+                <label class="popover-label">${__('link_explorer.apply_to')}</label>
                 <div class="target-selector">
-                    <button type="button" class="target-btn source ${currentTarget === 'source' ? 'active' : ''}" onclick="selectTarget('source')">Source</button>
-                    <button type="button" class="target-btn target ${currentTarget === 'target' ? 'active' : ''}" onclick="selectTarget('target')">Cible</button>
+                    <button type="button" class="target-btn source ${currentTarget === 'source' ? 'active' : ''}" onclick="selectTarget('source')">${__('link_explorer.source')}</button>
+                    <button type="button" class="target-btn target ${currentTarget === 'target' ? 'active' : ''}" onclick="selectTarget('target')">${__('link_explorer.target')}</button>
                 </div>
                 <input type="hidden" id="configTarget" value="${currentTarget}">
             </div>
@@ -1216,10 +1216,10 @@ function openConfigPopover(field, existingChip = null) {
     if (config.type === 'text') {
         const op = existingChip?.operator || 'contains';
         const val = existingChip?.value || '';
-        const opLabels = { 'contains': 'Contient', 'not_contains': 'Ne contient pas', 'regex': 'Regex', 'not_regex': 'Pas regex' };
+        const opLabels = { 'contains': __('link_explorer.op_contains_label'), 'not_contains': __('link_explorer.op_not_contains_label'), 'regex': 'Regex', 'not_regex': __('link_explorer.op_not_regex_label') };
         html += `
             <div class="popover-row">
-                <label class="popover-label">Condition</label>
+                <label class="popover-label">${__('link_explorer.label_condition')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configOperator" value="${op}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
@@ -1232,7 +1232,7 @@ function openConfigPopover(field, existingChip = null) {
                 </div>
             </div>
             <div class="popover-row">
-                <label class="popover-label">Valeur</label>
+                <label class="popover-label">${__('link_explorer.label_value')}</label>
                 <input type="text" class="popover-input" id="configValue" placeholder="Texte..." value="${val}">
             </div>
         `;
@@ -1241,7 +1241,7 @@ function openConfigPopover(field, existingChip = null) {
         const val = existingChip?.value || '';
         html += `
             <div class="popover-row">
-                <label class="popover-label">Opérateur</label>
+                <label class="popover-label">${__('link_explorer.label_operator')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configOperator" value="${op}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
@@ -1254,7 +1254,7 @@ function openConfigPopover(field, existingChip = null) {
                 </div>
             </div>
             <div class="popover-row">
-                <label class="popover-label">Valeur</label>
+                <label class="popover-label">${__('link_explorer.label_value')}</label>
                 <input type="number" class="popover-input" id="configValue" placeholder="Nombre..." value="${val}">
             </div>
         `;
@@ -1262,16 +1262,16 @@ function openConfigPopover(field, existingChip = null) {
         const val = existingChip?.value || 'true';
         html += `
             <div class="popover-row">
-                <label class="popover-label">Valeur</label>
+                <label class="popover-label">${__('link_explorer.label_value')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configValue" value="${val}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
-                        <span class="select-value">${val === 'true' ? 'Oui' : 'Non'}</span>
+                        <span class="select-value">${val === 'true' ? __('common.yes') : __('common.no')}</span>
                         <span class="material-symbols-outlined">expand_more</span>
                     </div>
                     <div class="styled-select-menu">
-                        <div class="styled-select-item ${val === 'true' ? 'active' : ''}" data-value="true" onclick="selectStyledOption(this, 'configValue')">Oui</div>
-                        <div class="styled-select-item ${val === 'false' ? 'active' : ''}" data-value="false" onclick="selectStyledOption(this, 'configValue')">Non</div>
+                        <div class="styled-select-item ${val === 'true' ? 'active' : ''}" data-value="true" onclick="selectStyledOption(this, 'configValue')">${__('common.yes')}</div>
+                        <div class="styled-select-item ${val === 'false' ? 'active' : ''}" data-value="false" onclick="selectStyledOption(this, 'configValue')">${__('common.no')}</div>
                     </div>
                 </div>
             </div>
@@ -1286,22 +1286,22 @@ function openConfigPopover(field, existingChip = null) {
         
         html += `
             <div class="popover-row">
-                <label class="popover-label">Filtrer par</label>
+                <label class="popover-label">${__('link_explorer.filter_by')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configFilterMode" value="${filterMode}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
-                        <span class="select-value">${filterMode === 'group' ? 'Groupe de codes' : 'Valeur exacte'}</span>
+                        <span class="select-value">${filterMode === 'group' ? __('link_explorer.code_group') : __('link_explorer.exact_value')}</span>
                         <span class="material-symbols-outlined">expand_more</span>
                     </div>
                     <div class="styled-select-menu">
-                        <div class="styled-select-item ${filterMode === 'group' ? 'active' : ''}" data-value="group" onclick="selectStyledOption(this, 'configFilterMode'); toggleHttpCodeMode('group')">Groupe de codes</div>
-                        <div class="styled-select-item ${filterMode === 'value' ? 'active' : ''}" data-value="value" onclick="selectStyledOption(this, 'configFilterMode'); toggleHttpCodeMode('value')">Valeur exacte</div>
+                        <div class="styled-select-item ${filterMode === 'group' ? 'active' : ''}" data-value="group" onclick="selectStyledOption(this, 'configFilterMode'); toggleHttpCodeMode('group')">${__('link_explorer.code_group')}</div>
+                        <div class="styled-select-item ${filterMode === 'value' ? 'active' : ''}" data-value="value" onclick="selectStyledOption(this, 'configFilterMode'); toggleHttpCodeMode('value')">${__('link_explorer.exact_value')}</div>
                     </div>
                 </div>
             </div>
             <div id="httpCodeGroupMode" style="${filterMode === 'group' ? '' : 'display:none'}">
                 <div class="popover-row">
-                    <label class="popover-label">Groupes (plusieurs possibles)</label>
+                    <label class="popover-label">${__('link_explorer.label_groups')}</label>
                     <div class="styled-checkbox-list" style="max-height: 180px;">
                         ${config.values.map(v => `
                             <label class="styled-checkbox-item">
@@ -1315,7 +1315,7 @@ function openConfigPopover(field, existingChip = null) {
             </div>
             <div id="httpCodeValueMode" style="${filterMode === 'value' ? '' : 'display:none'}">
                 <div class="popover-row">
-                    <label class="popover-label">Opérateur</label>
+                    <label class="popover-label">${__('link_explorer.label_operator')}</label>
                     <div class="styled-select-wrapper">
                         <input type="hidden" id="configOperator" value="${op}">
                         <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
@@ -1328,7 +1328,7 @@ function openConfigPopover(field, existingChip = null) {
                     </div>
                 </div>
                 <div class="popover-row">
-                    <label class="popover-label">Code</label>
+                    <label class="popover-label">${__('link_explorer.label_code')}</label>
                     <input type="number" class="popover-input" id="configValue" placeholder="Ex: 200, 404..." value="${numVal}">
                 </div>
             </div>
@@ -1337,7 +1337,7 @@ function openConfigPopover(field, existingChip = null) {
         const val = existingChip?.value || 'external';
         html += `
             <div class="popover-row">
-                <label class="popover-label">Type</label>
+                <label class="popover-label">${__('link_explorer.label_type')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configValue" value="${val}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
@@ -1345,8 +1345,8 @@ function openConfigPopover(field, existingChip = null) {
                         <span class="material-symbols-outlined">expand_more</span>
                     </div>
                     <div class="styled-select-menu">
-                        <div class="styled-select-item ${val === 'internal' ? 'active' : ''}" data-value="internal" onclick="selectStyledOption(this, 'configValue')">Interne</div>
-                        <div class="styled-select-item ${val === 'external' ? 'active' : ''}" data-value="external" onclick="selectStyledOption(this, 'configValue')">Externe</div>
+                        <div class="styled-select-item ${val === 'internal' ? 'active' : ''}" data-value="internal" onclick="selectStyledOption(this, 'configValue')">${__('link_explorer.internal')}</div>
+                        <div class="styled-select-item ${val === 'external' ? 'active' : ''}" data-value="external" onclick="selectStyledOption(this, 'configValue')">${__('link_explorer.external')}</div>
                     </div>
                 </div>
             </div>
@@ -1355,7 +1355,7 @@ function openConfigPopover(field, existingChip = null) {
         const val = existingChip?.value || 'nofollow';
         html += `
             <div class="popover-row">
-                <label class="popover-label">Type</label>
+                <label class="popover-label">${__('link_explorer.label_type')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configValue" value="${val}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
@@ -1373,7 +1373,7 @@ function openConfigPopover(field, existingChip = null) {
         const selectedValues = Array.isArray(existingChip?.value) ? existingChip.value : (existingChip?.value ? [existingChip.value] : []);
         html += `
             <div class="popover-row">
-                <label class="popover-label">Types de lien (plusieurs possibles)</label>
+                <label class="popover-label">${__('link_explorer.label_link_types')}</label>
                 <div class="styled-checkbox-list" style="max-height: 140px;">
                     ${config.values.map(v => `
                         <label class="styled-checkbox-item">
@@ -1392,26 +1392,26 @@ function openConfigPopover(field, existingChip = null) {
         const selectedValues = !isValueMode && Array.isArray(existingChip?.value) ? existingChip.value : (!isValueMode && existingChip?.value ? [existingChip.value] : ['empty']);
         const op = existingChip?.operator || 'contains';
         const textVal = isValueMode ? existingChip?.value || '' : '';
-        const opLabels = { 'contains': 'Contient', 'not_contains': 'Ne contient pas', 'regex': 'Correspond à la regex', 'not_regex': 'Ne correspond pas à la regex' };
-        
+        const opLabels = { 'contains': __('link_explorer.op_contains_label'), 'not_contains': __('link_explorer.op_not_contains_label'), 'regex': __('link_explorer.op_regex_label'), 'not_regex': __('link_explorer.op_not_regex_label') };
+
         html += `
             <div class="popover-row">
-                <label class="popover-label">Filtrer par</label>
+                <label class="popover-label">${__('link_explorer.filter_by')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configFilterMode" value="${filterMode}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
-                        <span class="select-value">${filterMode === 'status' ? 'État' : 'Valeur (texte)'}</span>
+                        <span class="select-value">${filterMode === 'status' ? __('link_explorer.state') : __('link_explorer.text_value')}</span>
                         <span class="material-symbols-outlined">expand_more</span>
                     </div>
                     <div class="styled-select-menu">
-                        <div class="styled-select-item ${filterMode === 'status' ? 'active' : ''}" data-value="status" onclick="selectStyledOption(this, 'configFilterMode'); toggleSeoMode('status')">État</div>
-                        <div class="styled-select-item ${filterMode === 'value' ? 'active' : ''}" data-value="value" onclick="selectStyledOption(this, 'configFilterMode'); toggleSeoMode('value')">Valeur (texte)</div>
+                        <div class="styled-select-item ${filterMode === 'status' ? 'active' : ''}" data-value="status" onclick="selectStyledOption(this, 'configFilterMode'); toggleSeoMode('status')">${__('link_explorer.state')}</div>
+                        <div class="styled-select-item ${filterMode === 'value' ? 'active' : ''}" data-value="value" onclick="selectStyledOption(this, 'configFilterMode'); toggleSeoMode('value')">${__('link_explorer.text_value')}</div>
                     </div>
                 </div>
             </div>
             <div id="seoStatusMode" style="${filterMode === 'status' ? '' : 'display:none'}">
                 <div class="popover-row">
-                    <label class="popover-label">État (plusieurs possibles)</label>
+                    <label class="popover-label">${__('link_explorer.label_states')}</label>
                     <div class="styled-checkbox-list" style="max-height: 140px;">
                         ${config.values.map(v => `
                             <label class="styled-checkbox-item">
@@ -1425,7 +1425,7 @@ function openConfigPopover(field, existingChip = null) {
             </div>
             <div id="seoValueMode" style="${filterMode === 'value' ? '' : 'display:none'}">
                 <div class="popover-row">
-                    <label class="popover-label">Condition</label>
+                    <label class="popover-label">${__('link_explorer.label_condition')}</label>
                     <div class="styled-select-wrapper">
                         <input type="hidden" id="configOperator" value="${op}">
                         <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
@@ -1438,7 +1438,7 @@ function openConfigPopover(field, existingChip = null) {
                     </div>
                 </div>
                 <div class="popover-row">
-                    <label class="popover-label">Valeur</label>
+                    <label class="popover-label">${__('link_explorer.label_value')}</label>
                     <input type="text" class="popover-input" id="configValue" placeholder="Texte..." value="${textVal}">
                 </div>
             </div>
@@ -1454,22 +1454,22 @@ function openConfigPopover(field, existingChip = null) {
         
         html += `
             <div class="popover-row">
-                <label class="popover-label">Filtrer par</label>
+                <label class="popover-label">${__('link_explorer.filter_by')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configFilterMode" value="${filterMode}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
-                        <span class="select-value">${filterMode === 'count' ? 'Nombre de schemas' : 'Type de schema'}</span>
+                        <span class="select-value">${filterMode === 'count' ? __('link_explorer.schema_count') : __('link_explorer.schema_type')}</span>
                         <span class="material-symbols-outlined">expand_more</span>
                     </div>
                     <div class="styled-select-menu">
-                        <div class="styled-select-item ${filterMode === 'count' ? 'active' : ''}" data-value="count" onclick="selectStyledOption(this, 'configFilterMode'); toggleSchemasMode('count')">Nombre de schemas</div>
-                        <div class="styled-select-item ${filterMode === 'contains' ? 'active' : ''}" data-value="contains" onclick="selectStyledOption(this, 'configFilterMode'); toggleSchemasMode('contains')">Type de schema</div>
+                        <div class="styled-select-item ${filterMode === 'count' ? 'active' : ''}" data-value="count" onclick="selectStyledOption(this, 'configFilterMode'); toggleSchemasMode('count')">${__('link_explorer.schema_count')}</div>
+                        <div class="styled-select-item ${filterMode === 'contains' ? 'active' : ''}" data-value="contains" onclick="selectStyledOption(this, 'configFilterMode'); toggleSchemasMode('contains')">${__('link_explorer.schema_type')}</div>
                     </div>
                 </div>
             </div>
             <div id="schemasCountMode" style="${filterMode === 'count' ? '' : 'display:none'}">
                 <div class="popover-row">
-                    <label class="popover-label">Opérateur</label>
+                    <label class="popover-label">${__('link_explorer.label_operator')}</label>
                     <div class="styled-select-wrapper">
                         <input type="hidden" id="configOperator" value="${op}">
                         <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
@@ -1482,31 +1482,31 @@ function openConfigPopover(field, existingChip = null) {
                     </div>
                 </div>
                 <div class="popover-row">
-                    <label class="popover-label">Nombre</label>
+                    <label class="popover-label">${__('link_explorer.label_number')}</label>
                     <input type="number" class="popover-input" id="configValue" placeholder="Ex: 0, 1, 5..." value="${numVal}" min="0">
                 </div>
             </div>
             <div id="schemasContainsMode" style="${filterMode === 'contains' ? '' : 'display:none'}">
                 <div class="popover-row">
-                    <label class="popover-label">Condition</label>
+                    <label class="popover-label">${__('link_explorer.label_condition')}</label>
                     <div class="styled-select-wrapper">
                         <input type="hidden" id="configContainsOperator" value="${containsOp}">
                         <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
-                            <span class="select-value">${containsOp === 'contains' ? 'Contient' : 'Ne contient pas'}</span>
+                            <span class="select-value">${containsOp === 'contains' ? __('link_explorer.op_contains_label') : __('link_explorer.op_not_contains_label')}</span>
                             <span class="material-symbols-outlined">expand_more</span>
                         </div>
                         <div class="styled-select-menu">
-                            <div class="styled-select-item ${containsOp === 'contains' ? 'active' : ''}" data-value="contains" onclick="selectStyledOption(this, 'configContainsOperator')">Contient</div>
-                            <div class="styled-select-item ${containsOp === 'not_contains' ? 'active' : ''}" data-value="not_contains" onclick="selectStyledOption(this, 'configContainsOperator')">Ne contient pas</div>
+                            <div class="styled-select-item ${containsOp === 'contains' ? 'active' : ''}" data-value="contains" onclick="selectStyledOption(this, 'configContainsOperator')">${__('link_explorer.op_contains_label')}</div>
+                            <div class="styled-select-item ${containsOp === 'not_contains' ? 'active' : ''}" data-value="not_contains" onclick="selectStyledOption(this, 'configContainsOperator')">${__('link_explorer.op_not_contains_label')}</div>
                         </div>
                     </div>
                 </div>
                 <div class="popover-row">
-                    <label class="popover-label">Types de schemas</label>
+                    <label class="popover-label">${__('link_explorer.label_schema_types')}</label>
                     <div class="checkbox-actions" style="display:flex;gap:0.75rem;margin-bottom:0.35rem;font-size:0.75rem;">
-                        <a href="#" onclick="event.preventDefault();document.querySelectorAll('.schema-checkbox').forEach(c=>c.checked=true);" style="color:var(--primary-color);text-decoration:none;">tout cocher</a>
+                        <a href="#" onclick="event.preventDefault();document.querySelectorAll('.schema-checkbox').forEach(c=>c.checked=true);" style="color:var(--primary-color);text-decoration:none;">${__('link_explorer.check_all')}</a>
                         <span style="color:var(--text-secondary);">|</span>
-                        <a href="#" onclick="event.preventDefault();document.querySelectorAll('.schema-checkbox').forEach(c=>c.checked=false);" style="color:var(--text-secondary);text-decoration:none;">tout décocher</a>
+                        <a href="#" onclick="event.preventDefault();document.querySelectorAll('.schema-checkbox').forEach(c=>c.checked=false);" style="color:var(--text-secondary);text-decoration:none;">${__('link_explorer.uncheck_all')}</a>
                     </div>
                     <div class="styled-checkbox-list" style="max-height: 200px;">
                         ${availableSchemas.map(schema => `
@@ -1525,25 +1525,25 @@ function openConfigPopover(field, existingChip = null) {
         const selectedIds = existingChip?.value || [];
         html += `
             <div class="popover-row">
-                <label class="popover-label">Condition</label>
+                <label class="popover-label">${__('link_explorer.label_condition')}</label>
                 <div class="styled-select-wrapper">
                     <input type="hidden" id="configOperator" value="${op}">
                     <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
-                        <span class="select-value">${op === 'in' ? 'Est dans' : "N'est pas dans"}</span>
+                        <span class="select-value">${op === 'in' ? __('link_explorer.is_in') : __('link_explorer.is_not_in')}</span>
                         <span class="material-symbols-outlined">expand_more</span>
                     </div>
                     <div class="styled-select-menu">
-                        <div class="styled-select-item ${op === 'in' ? 'active' : ''}" data-value="in" onclick="selectStyledOption(this, 'configOperator')">Est dans</div>
-                        <div class="styled-select-item ${op === 'not_in' ? 'active' : ''}" data-value="not_in" onclick="selectStyledOption(this, 'configOperator')">N'est pas dans</div>
+                        <div class="styled-select-item ${op === 'in' ? 'active' : ''}" data-value="in" onclick="selectStyledOption(this, 'configOperator')">${__('link_explorer.is_in')}</div>
+                        <div class="styled-select-item ${op === 'not_in' ? 'active' : ''}" data-value="not_in" onclick="selectStyledOption(this, 'configOperator')">${__('link_explorer.is_not_in')}</div>
                     </div>
                 </div>
             </div>
             <div class="popover-row">
-                <label class="popover-label">Catégories</label>
+                <label class="popover-label">${__('link_explorer.label_categories')}</label>
                 <div class="checkbox-actions" style="display:flex;gap:0.75rem;margin-bottom:0.35rem;font-size:0.75rem;">
-                    <a href="#" onclick="event.preventDefault();document.querySelectorAll('.cat-checkbox').forEach(c=>c.checked=true);" style="color:var(--primary-color);text-decoration:none;">tout cocher</a>
+                    <a href="#" onclick="event.preventDefault();document.querySelectorAll('.cat-checkbox').forEach(c=>c.checked=true);" style="color:var(--primary-color);text-decoration:none;">${__('link_explorer.check_all')}</a>
                     <span style="color:var(--text-secondary);">|</span>
-                    <a href="#" onclick="event.preventDefault();document.querySelectorAll('.cat-checkbox').forEach(c=>c.checked=false);" style="color:var(--text-secondary);text-decoration:none;">tout décocher</a>
+                    <a href="#" onclick="event.preventDefault();document.querySelectorAll('.cat-checkbox').forEach(c=>c.checked=false);" style="color:var(--text-secondary);text-decoration:none;">${__('link_explorer.uncheck_all')}</a>
                 </div>
                 <div class="styled-checkbox-list">
                     ${availableCategories.map(cat => `
@@ -1560,8 +1560,8 @@ function openConfigPopover(field, existingChip = null) {
     
     html += `
         <div class="popover-actions">
-            <button class="popover-btn popover-btn-secondary" onclick="closeAllPopovers()">Annuler</button>
-            <button class="popover-btn popover-btn-primary" onclick="confirmFilter()">Appliquer</button>
+            <button class="popover-btn popover-btn-secondary" onclick="closeAllPopovers()">${__('common.cancel')}</button>
+            <button class="popover-btn popover-btn-primary" onclick="confirmFilter()">${__('common.apply')}</button>
         </div>
     `;
     

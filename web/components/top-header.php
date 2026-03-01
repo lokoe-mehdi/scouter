@@ -76,7 +76,7 @@ $userInitials = getUserInitials($currentUserEmail);
                 <span class="material-symbols-outlined">schedule</span>
                 <?php
                 $currentDate = DateTime::createFromFormat('Ymd-His', substr($projectDir ?? '', -15));
-                echo $currentDate ? $currentDate->format('d/m/Y H:i') : 'Crawl actuel';
+                echo $currentDate ? $currentDate->format('d/m/Y H:i') : __('header.current_crawl');
                 ?>
                 <span class="material-symbols-outlined">expand_more</span>
             </button>
@@ -96,17 +96,17 @@ $userInitials = getUserInitials($currentUserEmail);
                        class="crawl-dropdown-item <?= $isActiveCrawl ? 'active' : '' ?>">
                         <div class="crawl-item-main">
                             <div class="crawl-item-date">
-                                <?= $crawlDate ? $crawlDate->format('d/m/Y H:i') : 'Date inconnue' ?>
+                                <?= $crawlDate ? $crawlDate->format('d/m/Y H:i') : __('header.date_unknown') ?>
                             </div>
                             <?php if ($isActiveCrawl): ?>
-                                <span class="crawl-item-badge">Actuel</span>
+                                <span class="crawl-item-badge"><?= __('header.badge_current') ?></span>
                             <?php endif; ?>
                         </div>
                         <div class="crawl-item-row">
                             <div class="crawl-item-stats">
                                 <span><?= number_format($crawl['stats']['urls']) ?> URLs</span>
                                 <span>•</span>
-                                <span><?= number_format($crawl['stats']['crawled']) ?> crawlées</span>
+                                <span><?= number_format($crawl['stats']['crawled']) ?> <?= __('header.crawled') ?></span>
                             </div>
                             <?php if (!empty($crawl['config'])): ?>
                             <div class="crawl-item-config">
@@ -132,7 +132,7 @@ $userInitials = getUserInitials($currentUserEmail);
         <!-- Ghost link : Retour aux projets -->
         <a href="<?= $basePath ?>index.php" class="header-back-link">
             <span class="material-symbols-outlined">arrow_back</span>
-            Projets
+            <?= __('header.projects') ?>
         </a>
         <?php endif; ?>
         
@@ -140,7 +140,7 @@ $userInitials = getUserInitials($currentUserEmail);
         <!-- Ghost link : Retour à l'accueil -->
         <a href="<?= $basePath ?>index.php" class="header-back-link">
             <span class="material-symbols-outlined">arrow_back</span>
-            Accueil
+            <?= __('header.home') ?>
         </a>
         <?php endif; ?>
         
@@ -154,23 +154,32 @@ $userInitials = getUserInitials($currentUserEmail);
                     <div class="user-dropdown-avatar"><?= $userInitials ?></div>
                     <div class="user-dropdown-info">
                         <span class="user-dropdown-email"><?= htmlspecialchars($currentUserEmail) ?></span>
-                        <span class="user-dropdown-role"><?= $isAdmin ? 'Administrateur' : 'Utilisateur' ?></span>
+                        <span class="user-dropdown-role"><?= $isAdmin ? __('header.admin_role') : __('header.user_role') ?></span>
                     </div>
                 </div>
                 <div class="user-dropdown-divider"></div>
                 <?php if ($isAdmin): ?>
                 <a href="<?= $basePath ?>pages/admin.php" class="user-dropdown-item">
                     <span class="material-symbols-outlined">manage_accounts</span>
-                    Gérer les utilisateurs
+                    <?= __('header.manage_users') ?>
                 </a>
                 <a href="<?= $basePath ?>pages/monitor.php" class="user-dropdown-item">
                     <span class="material-symbols-outlined">monitoring</span>
-                    System Monitor
+                    <?= __('header.system_monitor') ?>
                 </a>
                 <?php endif; ?>
+                <div class="user-dropdown-divider"></div>
+                <div style="display: flex; gap: 0.5rem; padding: 0.5rem 1rem;">
+                    <?php foreach (I18n::getInstance()->getSupportedLanguages() as $lang): ?>
+                        <a href="?lang=<?= $lang ?>&<?= http_build_query(array_diff_key($_GET, ['lang' => ''])) ?>"
+                           style="padding: 0.3rem 0.6rem; border-radius: 4px; text-decoration: none; font-size: 0.85rem; font-weight: <?= $lang === I18n::getInstance()->getLang() ? '600' : '400' ?>; color: <?= $lang === I18n::getInstance()->getLang() ? 'var(--primary-color)' : 'var(--text-secondary)' ?>; background: <?= $lang === I18n::getInstance()->getLang() ? 'rgba(78,205,196,0.1)' : 'transparent' ?>; text-transform: uppercase;">
+                            <?= $lang ?>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
                 <a href="<?= $basePath ?>api/logout" class="user-dropdown-item user-dropdown-item-danger">
                     <span class="material-symbols-outlined">logout</span>
-                    Déconnexion
+                    <?= __('header.logout') ?>
                 </a>
             </div>
         </div>

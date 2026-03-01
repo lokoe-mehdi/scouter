@@ -12,6 +12,7 @@
  */
 
 require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../config/i18n.php';
 
 use App\Http\Router;
 use App\Http\Request;

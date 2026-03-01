@@ -16,11 +16,11 @@
             <div class="url-tabs">
                 <button class="url-tab active" onclick="switchUrlTab('details')">
                     <span class="material-symbols-outlined">info</span>
-                    Détails
+                    <?= __('modal.details') ?>
                 </button>
                 <button class="url-tab" onclick="switchUrlTab('extractions')">
                     <span class="material-symbols-outlined">description</span>
-                    Extractions
+                    <?= __('modal.extractions') ?>
                 </button>
                 <button class="url-tab" id="headingsTabBtn" onclick="switchUrlTab('headings')" style="display: none;">
                     <span class="material-symbols-outlined">format_size</span>
@@ -40,7 +40,7 @@
                 </button>
                 <button class="url-tab" id="previewTabBtn" onclick="switchUrlTab('preview')" style="display: none;">
                     <span class="material-symbols-outlined">visibility</span>
-                    Prévisualiser
+                    <?= __('modal.preview') ?>
                 </button>
             </div>
             
@@ -49,7 +49,7 @@
                 <!-- Chargement -->
                 <div id="urlLoading" class="url-loading">
                     <span class="material-symbols-outlined spinning">progress_activity</span>
-                    Chargement...
+                    <?= __('modal.loading') ?>
                 </div>
                 
                 <!-- Onglet Détails -->
@@ -83,12 +83,12 @@
                         <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
                             <button class="btn-table-action btn-copy" onclick="copyHtmlSource()">
                                 <span class="material-symbols-outlined">content_copy</span>
-                                Copier
+                                <?= __('modal.copy') ?>
                             </button>
                         </div>
                         <div id="htmlLoading" class="url-loading" style="display: none;">
                             <span class="material-symbols-outlined spinning">progress_activity</span>
-                            Chargement du HTML...
+                            <?= __('modal.loading_html') ?>
                         </div>
                         <div id="htmlEditorWrapper" class="html-editor-wrapper">
                             <textarea id="htmlSourceEditor"></textarea>
@@ -799,7 +799,7 @@ function openUrlModal(url, project = null) {
                 displayUrlDetails(data);
             } else {
                 console.error('API Error:', data);
-                alert('Erreur: ' + (data.error || 'Impossible de charger les détails'));
+                alert(__('modal.load_error') + ': ' + (data.error || __('modal.cannot_load_details')));
                 closeUrlModal();
             }
         })
@@ -810,7 +810,7 @@ function openUrlModal(url, project = null) {
                 return;
             }
             console.error('Fetch Error:', error);
-            alert('Erreur de chargement: ' + error.message);
+            alert(__('modal.load_error') + ': ' + error.message);
             closeUrlModal();
         });
 }
@@ -939,7 +939,9 @@ function getCodeBadge(code) {
     return `<span style="display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 0.85rem; font-weight: 600; background: ${bgColor}; color: ${textColor};">${code}</span>`;
 }
 
-function getBooleanBadge(value, trueLabel = 'Oui', falseLabel = 'Non') {
+function getBooleanBadge(value, trueLabel = null, falseLabel = null) {
+    trueLabel = trueLabel || __('modal.yes');
+    falseLabel = falseLabel || __('modal.no');
     if (value) {
         return `<span style="display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 0.85rem; font-weight: 600; background: #D4EDDA; color: #155724;">${trueLabel}</span>`;
     } else {
@@ -953,43 +955,43 @@ function displayDetails(data) {
     
     // Icônes pour chaque type de donnée
     const iconMap = {
-        'Code HTTP': 'http',
-        'Indexable': 'verified',
-        'Catégorie': 'folder',
-        'Profondeur': 'layers',
+        [__('modal.http_code')]: 'http',
+        [__('modal.indexable')]: 'verified',
+        [__('modal.category')]: 'folder',
+        [__('modal.depth')]: 'layers',
         'Inlinks': 'link',
         'Outlinks': 'open_in_new',
-        'Temps de réponse': 'speed',
+        [__('modal.response_time')]: 'speed',
         'Noindex': 'block',
         'Nofollow': 'link_off',
-        'Canonique': 'content_copy',
-        'Bloqué robots.txt': 'smart_toy',
-        'Crawlé': 'check_circle',
-        'Redirection vers': 'redo',
-        'Date de crawl': 'schedule'
+        [__('modal.canonical')]: 'content_copy',
+        [__('modal.blocked_robots')]: 'smart_toy',
+        [__('modal.crawled')]: 'check_circle',
+        [__('modal.redirect_to')]: 'redo',
+        [__('modal.crawl_date')]: 'schedule'
     };
-    
+
     const details = [
-        { label: 'Code HTTP', value: getCodeBadge(url.code), isHtml: true },
-        { label: 'Indexable', value: getBooleanBadge(url.compliant, 'Oui', 'Non'), isHtml: true },
-        { label: 'Catégorie', value: getCategoryBadge(data.category, url.category_color), isHtml: true },
-        { label: 'Profondeur', value: url.depth },
+        { label: __('modal.http_code'), value: getCodeBadge(url.code), isHtml: true },
+        { label: __('modal.indexable'), value: getBooleanBadge(url.compliant), isHtml: true },
+        { label: __('modal.category'), value: getCategoryBadge(data.category, url.category_color), isHtml: true },
+        { label: __('modal.depth'), value: url.depth },
         { label: 'Inlinks', value: data.inlinks_count },
         { label: 'Outlinks', value: url.outlinks || 0 },
         { label: 'TTFB', value: url.response_time ? url.response_time.toFixed(0) + ' ms' : 'N/A', tooltip: 'Time To First Byte' },
-        { label: 'Noindex', value: getBooleanBadge(url.noindex, 'Oui', 'Non'), isHtml: true },
-        { label: 'Nofollow', value: getBooleanBadge(url.nofollow, 'Oui', 'Non'), isHtml: true },
-        { label: 'Canonique', value: getBooleanBadge(url.canonical, 'Oui', 'Non'), isHtml: true },
-        { label: 'Bloqué robots.txt', value: getBooleanBadge(url.blocked, 'Oui', 'Non'), isHtml: true },
-        { label: 'Crawlé', value: getBooleanBadge(url.crawled, 'Oui', 'Non'), isHtml: true },
+        { label: 'Noindex', value: getBooleanBadge(url.noindex), isHtml: true },
+        { label: 'Nofollow', value: getBooleanBadge(url.nofollow), isHtml: true },
+        { label: __('modal.canonical'), value: getBooleanBadge(url.canonical), isHtml: true },
+        { label: __('modal.blocked_robots'), value: getBooleanBadge(url.blocked), isHtml: true },
+        { label: __('modal.crawled'), value: getBooleanBadge(url.crawled), isHtml: true },
     ];
-    
+
     if (url.redirect_to) {
-        details.push({ label: 'Redirection vers', value: url.redirect_to });
+        details.push({ label: __('modal.redirect_to'), value: url.redirect_to });
     }
-    
+
     if (url.date) {
-        details.push({ label: 'Date de crawl', value: new Date(url.date).toLocaleString('fr-FR') });
+        details.push({ label: __('modal.crawl_date'), value: new Date(url.date).toLocaleString() });
     }
     
     // Extractions custom
@@ -1005,14 +1007,14 @@ function displayDetails(data) {
         <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
             <button class="btn-table-action btn-copy" onclick="copyDetailsTable()">
                 <span class="material-symbols-outlined">content_copy</span>
-                Copier
+                ${__('modal.copy')}
             </button>
         </div>
         <table class="data-table details-table" id="detailsTable" style="width: 100%;">
             <thead>
                 <tr>
-                    <th style="width: 30%;">Information</th>
-                    <th>Valeur</th>
+                    <th style="width: 30%;">${__('modal.information')}</th>
+                    <th>${__('modal.value')}</th>
                 </tr>
             </thead>
             <tbody>
@@ -1041,7 +1043,7 @@ function displayHeadings(data) {
         container.innerHTML = `
             <div class="empty-state">
                 <span class="material-symbols-outlined">format_size</span>
-                <p>Aucun heading trouvé</p>
+                <p>${__('modal.no_headings')}</p>
             </div>
         `;
         // Pas d'erreurs si pas de headings
@@ -1184,10 +1186,10 @@ function copyHeadingsTable() {
     });
     
     navigator.clipboard.writeText(text).then(() => {
-        showGlobalStatus('✓ Headings copiés', 'success');
+        showGlobalStatus(__('modal.headings_copied'), 'success');
     }).catch(err => {
-        console.error('Erreur:', err);
-        showGlobalStatus('Erreur lors de la copie', 'error');
+        console.error('Error:', err);
+        showGlobalStatus(__('table.copy_error'), 'error');
     });
 }
 
@@ -1200,7 +1202,7 @@ function displayExtractions(data) {
     
     // Extractions standard (ordre: Content-Type, URL Canonique, Données structurées, Title, H1, Meta Description)
     if (url.content_type) extractions.push({ label: 'Content-Type', value: url.content_type });
-    if (url.canonical_value) extractions.push({ label: 'URL Canonique', value: url.canonical_value });
+    if (url.canonical_value) extractions.push({ label: __('modal.canonical_url'), value: url.canonical_value });
     
     // Données structurées (schemas)
     let schemasHtml = '0';
@@ -1209,7 +1211,7 @@ function displayExtractions(data) {
             `<a href="https://schema.org/${schema}" target="_blank" style="display: inline-block; background: #e9ecef; color: #495057; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; margin: 2px 4px 2px 0; text-decoration: none;">${schema}</a>`
         ).join('');
     }
-    extractions.push({ label: 'Données structurées', value: schemasHtml });
+    extractions.push({ label: __('modal.structured_data'), value: schemasHtml });
     
     if (data.extracts) {
         if (data.extracts.title) extractions.push({ label: 'Title', value: data.extracts.title });
@@ -1218,19 +1220,19 @@ function displayExtractions(data) {
     }
     
     // Analyse des headings
-    extractions.push({ 
-        label: 'H1 Multiples', 
-        value: url.h1_multiple ? '<span style="color: #e74c3c;">Oui</span>' : '<span style="color: #27ae60;">Non</span>'
+    extractions.push({
+        label: __('modal.h1_multiple'),
+        value: url.h1_multiple ? '<span style="color: #e74c3c;">' + __('modal.yes') + '</span>' : '<span style="color: #27ae60;">' + __('modal.no') + '</span>'
     });
-    extractions.push({ 
-        label: 'Mauvaise structure hn', 
-        value: url.headings_missing ? '<span style="color: #e74c3c;">Oui</span>' : '<span style="color: #27ae60;">Non</span>'
+    extractions.push({
+        label: __('modal.bad_heading_structure'),
+        value: url.headings_missing ? '<span style="color: #e74c3c;">' + __('modal.yes') + '</span>' : '<span style="color: #27ae60;">' + __('modal.no') + '</span>'
     });
-    
+
     // Nombre de mots (word_count)
-    extractions.push({ 
-        label: 'Nombre de mots', 
-        value: url.word_count ? url.word_count.toLocaleString('fr-FR') : '0'
+    extractions.push({
+        label: __('modal.word_count'),
+        value: url.word_count ? url.word_count.toLocaleString() : '0'
     });
     
     if (data.extracts) {
@@ -1247,7 +1249,7 @@ function displayExtractions(data) {
         container.innerHTML = `
             <div class="empty-state">
                 <span class="material-symbols-outlined">description</span>
-                <p>Aucune extraction disponible</p>
+                <p>${__('modal.no_extractions')}</p>
             </div>
         `;
         return;
@@ -1257,14 +1259,14 @@ function displayExtractions(data) {
         <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
             <button class="btn-table-action btn-copy" onclick="copyExtractionsTable()">
                 <span class="material-symbols-outlined">content_copy</span>
-                Copier
+                ${__('modal.copy')}
             </button>
         </div>
         <table class="data-table details-table" id="extractionsTable" style="width: 100%;">
             <thead>
                 <tr>
-                    <th style="width: 30%;">Champ</th>
-                    <th>Valeur</th>
+                    <th style="width: 30%;">${__('modal.field')}</th>
+                    <th>${__('modal.value')}</th>
                 </tr>
             </thead>
             <tbody>
@@ -1286,7 +1288,7 @@ function displayLinks(links, tabId, type) {
         container.innerHTML = `
             <div class="empty-state">
                 <span class="material-symbols-outlined">link_off</span>
-                <p>Aucun ${type === 'inlink' ? 'lien entrant' : 'lien sortant'}</p>
+                <p>${type === 'inlink' ? __('modal.no_inlinks') : __('modal.no_outlinks')}</p>
             </div>
         `;
         return;
@@ -1299,16 +1301,16 @@ function displayLinks(links, tabId, type) {
         <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
             <button class="btn-table-action btn-copy" onclick="copyLinksTable('${tabId}')">
                 <span class="material-symbols-outlined">content_copy</span>
-                Copier
+                ${__('modal.copy')}
             </button>
         </div>
         <table class="data-table" id="${tabId}Table" style="width: 100%; table-layout: fixed;">
             <thead>
                 <tr>
                     <th style="width: 35%;">URL</th>
-                    <th style="width: 15%;">Ancre</th>
-                    <th style="width: 12%;">Catégorie</th>
-                    <th style="width: 10%; text-align: center;">Type</th>
+                    <th style="width: 15%;">${__('modal.anchor')}</th>
+                    <th style="width: 12%;">${__('modal.category')}</th>
+                    <th style="width: 10%; text-align: center;">${__('modal.type')}</th>
                     ${type === 'outlink' ? '<th style="width: 10%; text-align: center;">Tag</th>' : ''}
                     <th style="width: 10%; text-align: center;">Follow</th>
                 </tr>
@@ -1325,10 +1327,10 @@ function displayLinks(links, tabId, type) {
                         ? '<span class="badge-small" style="background: #FFF3CD; color: #856404;">Redirect</span>'
                         : '<span class="badge-small" style="background: #D1ECF1; color: #0C5460;">Ahref</span>';
                     
-                    const tagBadge = type === 'outlink' 
-                        ? (link.external 
-                            ? '<span class="badge-small" style="background: #F8D7DA; color: #721C24;">Externe</span>' 
-                            : '<span class="badge-small" style="background: #E2E3E5; color: #383D41;">Interne</span>')
+                    const tagBadge = type === 'outlink'
+                        ? (link.external
+                            ? '<span class="badge-small" style="background: #F8D7DA; color: #721C24;">' + __('modal.external') + '</span>'
+                            : '<span class="badge-small" style="background: #E2E3E5; color: #383D41;">' + __('modal.internal') + '</span>')
                         : '';
                     
                     return `
@@ -1391,10 +1393,10 @@ function copyDetailsTable() {
     });
     
     navigator.clipboard.writeText(text).then(() => {
-        showGlobalStatus('✓ Texte copié', 'success');
+        showGlobalStatus(__('table.text_copied'), 'success');
     }).catch(err => {
         console.error('Erreur:', err);
-        showGlobalStatus('Erreur lors de la copie', 'error');
+        showGlobalStatus(__('table.copy_error'), 'error');
     });
 }
 
@@ -1415,10 +1417,10 @@ function copyExtractionsTable() {
     });
     
     navigator.clipboard.writeText(text).then(() => {
-        showGlobalStatus('✓ Texte copié', 'success');
+        showGlobalStatus(__('table.text_copied'), 'success');
     }).catch(err => {
         console.error('Erreur:', err);
-        showGlobalStatus('Erreur lors de la copie', 'error');
+        showGlobalStatus(__('table.copy_error'), 'error');
     });
 }
 
@@ -1445,31 +1447,31 @@ function copyLinksTable(tabId) {
     });
     
     navigator.clipboard.writeText(text).then(() => {
-        showGlobalStatus('✓ Texte copié', 'success');
+        showGlobalStatus(__('table.text_copied'), 'success');
     }).catch(err => {
         console.error('Erreur:', err);
-        showGlobalStatus('Erreur lors de la copie', 'error');
+        showGlobalStatus(__('table.copy_error'), 'error');
     });
 }
 
 // Copier le code HTML dans le presse-papier
 function copyHtmlSource() {
     if (!htmlSourceEditor) {
-        showGlobalStatus('Aucun code HTML à copier', 'error');
+        showGlobalStatus(__('modal.no_html_to_copy'), 'error');
         return;
     }
     
     const html = htmlSourceEditor.getValue();
     if (!html) {
-        showGlobalStatus('Aucun code HTML à copier', 'error');
+        showGlobalStatus(__('modal.no_html_to_copy'), 'error');
         return;
     }
     
     navigator.clipboard.writeText(html).then(() => {
-        showGlobalStatus('✓ Code HTML copié !', 'success');
+        showGlobalStatus(__('modal.html_copied'), 'success');
     }).catch(err => {
         console.error('Erreur lors de la copie:', err);
-        showGlobalStatus('Erreur lors de la copie', 'error');
+        showGlobalStatus(__('table.copy_error'), 'error');
     });
 }
 
@@ -1595,7 +1597,7 @@ function loadHtmlSource() {
                 htmlSourceEditor.refresh();
                 htmlSourceLoaded = true;
             } else {
-                alert('Erreur: ' + (data.error || 'Impossible de charger le HTML'));
+                alert(__('modal.load_error') + ': ' + (data.error || __('modal.cannot_load_html')));
             }
         })
         .catch(error => {
@@ -1604,7 +1606,7 @@ function loadHtmlSource() {
             document.getElementById('htmlLoading').style.display = 'none';
             document.getElementById('htmlEditorWrapper').style.opacity = '1';
             console.error('Fetch Error:', error);
-            alert('Erreur de chargement: ' + error.message);
+            alert(__('modal.load_error') + ': ' + error.message);
         });
 }
 

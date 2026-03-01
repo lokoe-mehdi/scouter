@@ -30,7 +30,7 @@ if (!isset($chartConfig)) {
 }
 
 $type = $chartConfig['type'] ?? 'bar';
-$title = $chartConfig['title'] ?? 'Graphique';
+$title = $chartConfig['title'] ?? __('chart.default_title');
 $subtitle = $chartConfig['subtitle'] ?? '';
 $categories = $chartConfig['categories'] ?? [];
 $series = $chartConfig['series'] ?? [];
@@ -424,21 +424,21 @@ endif;
         </div>
         <?php if ($showActions): ?>
         <div style="display: flex; gap: 0.5rem;">
-            <button onclick="toggleChartView('<?= $chartId ?>')" class="chart-action-btn" id="toggle-<?= $chartId ?>" title="Afficher en tableau">
+            <button onclick="toggleChartView('<?= $chartId ?>')" class="chart-action-btn" id="toggle-<?= $chartId ?>" title="<?= __('chart.table_view') ?>">
                 <span class="material-symbols-outlined">table_chart</span>
             </button>
-            <button onclick="copyChartData('<?= $chartId ?>', event)" class="chart-action-btn" title="Copier les données">
+            <button onclick="copyChartData('<?= $chartId ?>', event)" class="chart-action-btn" title="<?= __('chart.copy_data') ?>">
                 <span class="material-symbols-outlined">content_copy</span>
             </button>
-            <button onclick="downloadChart('<?= $chartId ?>')" class="chart-action-btn" title="Enregistrer l'image">
+            <button onclick="downloadChart('<?= $chartId ?>')" class="chart-action-btn" title="<?= __('chart.save_image') ?>">
                 <span class="material-symbols-outlined">download</span>
             </button>
             <?php if ($sqlQuery): ?>
-            <button onclick="showChartSqlScope('<?= $chartId ?>')" class="chart-action-btn" title="Voir la requête SQL">
+            <button onclick="showChartSqlScope('<?= $chartId ?>')" class="chart-action-btn" title="<?= __('chart.view_sql') ?>">
                 <span class="material-symbols-outlined">database</span>
             </button>
             <?php endif; ?>
-            <button onclick="expandChart('<?= $chartId ?>', '<?= addslashes(str_replace(["\r", "\n"], ' ', $title)) ?>', '<?= addslashes(str_replace(["\r", "\n"], ' ', $subtitle)) ?>')" class="chart-action-btn" title="Agrandir">
+            <button onclick="expandChart('<?= $chartId ?>', '<?= addslashes(str_replace(["\r", "\n"], ' ', $title)) ?>', '<?= addslashes(str_replace(["\r", "\n"], ' ', $subtitle)) ?>')" class="chart-action-btn" title="<?= __('chart.expand') ?>">
                 <span class="material-symbols-outlined">fullscreen</span>
             </button>
         </div>
@@ -1008,7 +1008,7 @@ if (typeof window.downloadChart === 'undefined') {
             chartView.style.display = 'none';
             tableView.style.display = 'block';
             toggleIcon.textContent = 'bar_chart';
-            toggleBtn.setAttribute('data-tooltip', 'Afficher le graphique');
+            toggleBtn.setAttribute('data-tooltip', __('chart.chart_view'));
             
             // Générer le tableau si vide
             if (!tableView.innerHTML) {
@@ -1020,7 +1020,7 @@ if (typeof window.downloadChart === 'undefined') {
             chartView.style.display = 'block';
             tableView.style.display = 'none';
             toggleIcon.textContent = 'table_chart';
-            toggleBtn.setAttribute('data-tooltip', 'Afficher en tableau');
+            toggleBtn.setAttribute('data-tooltip', __('chart.table_view'));
         }
     };
     
@@ -1034,7 +1034,7 @@ if (typeof window.downloadChart === 'undefined') {
         
         // Sankey: afficher Source, Cible, % des liens
         if (isSankey && series.length > 0 && series[0].data) {
-            html += '<thead><tr><th>Catégorie source</th><th>Catégorie cible</th><th>% des liens</th></tr></thead>';
+            html += '<thead><tr><th>' + __('chart.source_category') + '</th><th>' + __('chart.target_category') + '</th><th>' + __('chart.link_percent') + '</th></tr></thead>';
             html += '<tbody>';
             series[0].data.forEach(point => {
                 let from = point.from || point.fromNode?.name || '-';
@@ -1051,7 +1051,7 @@ if (typeof window.downloadChart === 'undefined') {
             const categories = chart.xAxis[0].categories;
             
             // En-têtes
-            html += '<thead><tr><th>Catégorie</th>';
+            html += '<thead><tr><th>' + __('chart.category') + '</th>';
             series.forEach(s => {
                 if (s.name && s.visible !== false) {
                     html += '<th>' + s.name + '</th>';
@@ -1080,7 +1080,7 @@ if (typeof window.downloadChart === 'undefined') {
                 
                 if (firstPoint.name !== undefined && firstPoint.y !== undefined) {
                     // Donut
-                    html += '<thead><tr><th>Libellé</th><th>Valeur</th></tr></thead>';
+                    html += '<thead><tr><th>' + __('chart.label') + '</th><th>' + __('chart.value') + '</th></tr></thead>';
                     html += '<tbody>';
                     series[0].data.forEach(point => {
                         html += '<tr><td>' + point.name + '</td><td>' + point.y + '</td></tr>';
@@ -1150,7 +1150,7 @@ if (typeof window.downloadChart === 'undefined') {
         if (hasCategories) {
             // Graphique avec catégories (bar, line, horizontalBar)
             const categories = chart.xAxis[0].categories;
-            data = 'Catégorie';
+            data = __('chart.category');
             series.forEach(s => {
                 if (s.name && s.visible !== false) {
                     data += '\t' + s.name;
@@ -1177,7 +1177,7 @@ if (typeof window.downloadChart === 'undefined') {
                 
                 // Vérifier si c'est un donut (points avec name et y)
                 if (firstPoint.name !== undefined && firstPoint.y !== undefined) {
-                    data = 'Libellé\tValeur\n';
+                    data = __('chart.label') + '\t' + __('chart.value') + '\n';
                     series[0].data.forEach(point => {
                         data += point.name + '\t' + point.y + '\n';
                     });
@@ -1231,13 +1231,13 @@ if (typeof window.downloadChart === 'undefined') {
         navigator.clipboard.writeText(data).then(() => {
             // Notification globale
             if (typeof showGlobalStatus === 'function') {
-                showGlobalStatus('✓ Données du graphique copiées !', 'success');
+                showGlobalStatus(__('chart.data_copied'), 'success');
             }
         }).catch(err => {
             console.error('Erreur lors de la copie:', err);
             // Notification d'erreur
             if (typeof showGlobalStatus === 'function') {
-                showGlobalStatus('Erreur lors de la copie des données', 'error');
+                showGlobalStatus(__('chart.copy_error'), 'error');
             }
         });
     };
@@ -1275,10 +1275,10 @@ if (typeof window.downloadChart === 'undefined') {
                             <p id="chart-modal-subtitle" class="chart-modal-subtitle"></p>
                         </div>
                         <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            <button id="chart-modal-copy-btn" class="chart-action-btn" style="color: white;" title="Copier les données">
+                            <button id="chart-modal-copy-btn" class="chart-action-btn" style="color: white;" title="${__('chart.copy_data')}">
                                 <span class="material-symbols-outlined">content_copy</span>
                             </button>
-                            <button id="chart-modal-download-btn" class="chart-action-btn" style="color: white;" title="Enregistrer l'image">
+                            <button id="chart-modal-download-btn" class="chart-action-btn" style="color: white;" title="${__('chart.save_image')}">
                                 <span class="material-symbols-outlined">download</span>
                             </button>
                             <button class="chart-modal-close" onclick="closeChartModal()">
@@ -1364,7 +1364,7 @@ if (typeof window.downloadChart === 'undefined') {
         // Utiliser le composant scope-modal partagé
         if (typeof openScopeModal === 'function') {
             openScopeModal({
-                title: metadata.title || 'Scope des données',
+                title: metadata.title || __('scope.data_scope'),
                 scopeItems: metadata.scopeItems,
                 sqlQuery: metadata.sqlQuery
             });

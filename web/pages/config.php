@@ -18,13 +18,13 @@ if (!empty($crawlRecord->config)) {
         }
         
         if (empty($configData)) {
-            $configError = "Configuration vide ou invalide.";
-        }
+            $configError = __('config.error_empty_config');
+    }
     } catch (Exception $e) {
-        $configError = "Erreur lors de la lecture de la configuration : " . $e->getMessage();
+        $configError = __('config.error_reading_config') . $e->getMessage();
     }
 } else {
-    $configError = "Aucune configuration trouvée pour ce crawl.";
+    $configError = __('config.error_no_config');
 }
 ?>
 
@@ -135,18 +135,18 @@ if (!empty($crawlRecord->config)) {
 </style>
 
 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-    <h1 class="page-title" style="margin: 0;">Paramètres du crawl</h1>
+    <h1 class="page-title" style="margin: 0;"><?= __('config.page_title') ?></h1>
     <?php if ($canManageCurrentProject): ?>
     <button class="btn btn-danger" onclick="deleteCrawl()" style="display: flex; align-items: center; gap: 0.5rem;">
         <span class="material-symbols-outlined">delete</span>
-        Supprimer le crawl
+        <?= __('config.delete_crawl') ?>
     </button>
     <?php endif; ?>
 </div>
 
 <?php if ($configError): ?>
     <div class="alert alert-error">
-        <strong>Erreur :</strong> <?= htmlspecialchars($configError) ?>
+        <strong><?= __('common.error') ?> :</strong> <?= htmlspecialchars($configError) ?>
     </div>
 <?php elseif ($configData): ?>
     <div class="config-layout">
@@ -155,13 +155,13 @@ if (!empty($crawlRecord->config)) {
         <div class="config-section">
             <h2>
                 <span class="material-symbols-outlined">settings</span>
-                Configuration générale
+                <?= __('config.section_general') ?>
             </h2>
             <table class="data-table">
                 <tbody>
                     <?php if (isset($configData['general']['start'])): ?>
                     <tr>
-                        <td style="width: 200px; font-weight: 600; color: var(--text-secondary);">URL de départ</td>
+                        <td style="width: 200px; font-weight: 600; color: var(--text-secondary);"><?= __('config.start_url') ?></td>
                         <td>
                             <a href="<?= htmlspecialchars($configData['general']['start']) ?>" target="_blank" style="color: var(--primary-color); text-decoration: none;">
                                 <?= htmlspecialchars($configData['general']['start']) ?>
@@ -172,7 +172,7 @@ if (!empty($crawlRecord->config)) {
 
                     <?php if (isset($configData['general']['domains']) && is_array($configData['general']['domains'])): ?>
                     <tr>
-                        <td style="width: 200px; font-weight: 600; color: var(--text-secondary);">Domaines autorisés</td>
+                        <td style="width: 200px; font-weight: 600; color: var(--text-secondary);"><?= __('config.allowed_domains') ?></td>
                         <td>
                             <?php foreach ($configData['general']['domains'] as $domain): ?>
                                 <div style="padding: 0.25rem 0;"><?= htmlspecialchars($domain) ?></div>
@@ -183,8 +183,8 @@ if (!empty($crawlRecord->config)) {
 
                     <?php if (isset($configData['general']['depthMax'])): ?>
                     <tr>
-                        <td style="width: 200px; font-weight: 600; color: var(--text-secondary);">Profondeur maximale</td>
-                        <td><strong><?= htmlspecialchars($configData['general']['depthMax']) ?></strong> niveaux</td>
+                        <td style="width: 200px; font-weight: 600; color: var(--text-secondary);"><?= __('config.max_depth') ?></td>
+                        <td><strong><?= htmlspecialchars($configData['general']['depthMax']) ?></strong> <?= __('common.levels') ?></td>
                     </tr>
                     <?php endif; ?>
 
@@ -197,15 +197,15 @@ if (!empty($crawlRecord->config)) {
 
                     <?php if (isset($configData['general']['crawl_speed'])): ?>
                     <tr>
-                        <td style="width: 200px; font-weight: 600; color: var(--text-secondary);">Vitesse de crawl</td>
+                        <td style="width: 200px; font-weight: 600; color: var(--text-secondary);"><?= __('config.crawl_speed') ?></td>
                         <td>
-                            <?php 
+                            <?php
                             $speed = $configData['general']['crawl_speed'];
                             $speedLabels = [
-                                'very_slow' => ['label' => 'Très lent', 'desc' => '1 URL/seconde', 'icon' => 'speed', 'color' => 'var(--danger)'],
-                                'slow' => ['label' => 'Lent', 'desc' => '5 URLs/seconde', 'icon' => 'speed', 'color' => 'var(--warning)'],
-                                'fast' => ['label' => 'Rapide', 'desc' => '20 URLs/seconde', 'icon' => 'speed', 'color' => 'var(--success)'],
-                                'unlimited' => ['label' => 'Sans limite', 'desc' => 'Maximum de performance', 'icon' => 'bolt', 'color' => 'var(--primary-color)']
+                                'very_slow' => ['label' => __('config.speed_very_slow'), 'desc' => __('config.speed_very_slow_desc'), 'icon' => 'speed', 'color' => 'var(--danger)'],
+                                'slow' => ['label' => __('config.speed_slow'), 'desc' => __('config.speed_slow_desc'), 'icon' => 'speed', 'color' => 'var(--warning)'],
+                                'fast' => ['label' => __('config.speed_fast'), 'desc' => __('config.speed_fast_desc'), 'icon' => 'speed', 'color' => 'var(--success)'],
+                                'unlimited' => ['label' => __('config.speed_unlimited'), 'desc' => __('config.speed_unlimited_desc'), 'icon' => 'bolt', 'color' => 'var(--primary-color)']
                             ];
                             $speedInfo = $speedLabels[$speed] ?? $speedLabels['fast'];
                             ?>
@@ -224,13 +224,13 @@ if (!empty($crawlRecord->config)) {
 
                     <?php if (isset($configData['general']['crawl_mode'])): ?>
                     <tr>
-                        <td style="width: 200px; font-weight: 600; color: var(--text-secondary);">Mode de crawl</td>
+                        <td style="width: 200px; font-weight: 600; color: var(--text-secondary);"><?= __('config.crawl_mode') ?></td>
                         <td>
-                            <?php 
+                            <?php
                             $mode = $configData['general']['crawl_mode'];
                             $modeLabels = [
-                                'classic' => ['label' => 'Crawl classique', 'desc' => 'Requêtes HTTP standard', 'icon' => 'http', 'color' => 'var(--info)'],
-                                'javascript' => ['label' => 'Crawl avec exécution JS', 'desc' => 'Rendu JavaScript (plus lent)', 'icon' => 'javascript', 'color' => 'var(--warning)']
+                                'classic' => ['label' => __('config.mode_classic'), 'desc' => __('config.mode_classic_desc'), 'icon' => 'http', 'color' => 'var(--info)'],
+                                'javascript' => ['label' => __('config.mode_javascript'), 'desc' => __('config.mode_javascript_desc'), 'icon' => 'javascript', 'color' => 'var(--warning)']
                             ];
                             $modeInfo = $modeLabels[$mode] ?? $modeLabels['classic'];
                             ?>
@@ -256,22 +256,22 @@ if (!empty($crawlRecord->config)) {
         <div class="config-section">
             <h2>
                 <span class="material-symbols-outlined">tune</span>
-                Configuration avancée
+                <?= __('config.section_advanced') ?>
             </h2>
             
             <?php if (isset($configData['advanced']['respect'])): ?>
-            <h3 style="margin: 1.5rem 0 1rem 0; color: var(--text-primary); font-size: 1.1rem;">Respect des directives</h3>
+            <h3 style="margin: 1.5rem 0 1rem 0; color: var(--text-primary); font-size: 1.1rem;"><?= __('config.directives_respect') ?></h3>
             <table class="data-table" style="margin-bottom: 2rem;">
                 <tbody>
                     <?php if (isset($configData['advanced']['respect']['robots'])): ?>
                     <tr>
-                        <td style="width: 300px;">Respect du <strong>robots.txt</strong></td>
+                        <td style="width: 300px;"><?= __('config.respect_robots') ?></td>
                         <td>
                             <span class="config-value boolean <?= $configData['advanced']['respect']['robots'] ? 'true' : 'false' ?>">
                                 <span class="material-symbols-outlined">
                                     <?= $configData['advanced']['respect']['robots'] ? 'check_circle' : 'cancel' ?>
                                 </span>
-                                <?= $configData['advanced']['respect']['robots'] ? 'Oui' : 'Non' ?>
+                                <?= $configData['advanced']['respect']['robots'] ? __('common.yes') : __('common.no') ?>
                             </span>
                         </td>
                     </tr>
@@ -279,13 +279,13 @@ if (!empty($crawlRecord->config)) {
 
                     <?php if (isset($configData['advanced']['respect']['nofollow'])): ?>
                     <tr>
-                        <td style="width: 300px;">Respect du <strong>nofollow</strong></td>
+                        <td style="width: 300px;"><?= __('config.respect_nofollow') ?></td>
                         <td>
                             <span class="config-value boolean <?= $configData['advanced']['respect']['nofollow'] ? 'true' : 'false' ?>">
                                 <span class="material-symbols-outlined">
                                     <?= $configData['advanced']['respect']['nofollow'] ? 'check_circle' : 'cancel' ?>
                                 </span>
-                                <?= $configData['advanced']['respect']['nofollow'] ? 'Oui' : 'Non' ?>
+                                <?= $configData['advanced']['respect']['nofollow'] ? __('common.yes') : __('common.no') ?>
                             </span>
                         </td>
                     </tr>
@@ -293,13 +293,13 @@ if (!empty($crawlRecord->config)) {
 
                     <?php if (isset($configData['advanced']['respect']['canonical'])): ?>
                     <tr>
-                        <td style="width: 300px;">Respect du <strong>canonical</strong></td>
+                        <td style="width: 300px;"><?= __('config.respect_canonical') ?></td>
                         <td>
                             <span class="config-value boolean <?= $configData['advanced']['respect']['canonical'] ? 'true' : 'false' ?>">
                                 <span class="material-symbols-outlined">
                                     <?= $configData['advanced']['respect']['canonical'] ? 'check_circle' : 'cancel' ?>
                                 </span>
-                                <?= $configData['advanced']['respect']['canonical'] ? 'Oui' : 'Non' ?>
+                                <?= $configData['advanced']['respect']['canonical'] ? __('common.yes') : __('common.no') ?>
                             </span>
                         </td>
                     </tr>
@@ -309,17 +309,17 @@ if (!empty($crawlRecord->config)) {
             <?php endif; ?>
 
             <?php if (isset($configData['advanced']['httpAuth'])): ?>
-            <h3 style="margin: 1.5rem 0 1rem 0; color: var(--text-primary); font-size: 1.1rem;">Authentification HTTP</h3>
+            <h3 style="margin: 1.5rem 0 1rem 0; color: var(--text-primary); font-size: 1.1rem;"><?= __('config.http_auth') ?></h3>
             <table class="data-table" style="margin-bottom: 2rem;">
                 <tbody>
                     <tr>
-                        <td style="width: 300px;">Authentification activée</td>
+                        <td style="width: 300px;"><?= __('config.auth_enabled') ?></td>
                         <td>
                             <span class="config-value boolean <?= ($configData['advanced']['httpAuth']['enabled'] === true) ? 'true' : 'false' ?>">
                                 <span class="material-symbols-outlined">
                                     <?= ($configData['advanced']['httpAuth']['enabled'] === true) ? 'check_circle' : 'cancel' ?>
                                 </span>
-                                <?= ($configData['advanced']['httpAuth']['enabled'] === true) ? 'Oui' : 'Non' ?>
+                                <?= ($configData['advanced']['httpAuth']['enabled'] === true) ? __('common.yes') : __('common.no') ?>
                             </span>
                         </td>
                     </tr>
@@ -329,7 +329,7 @@ if (!empty($crawlRecord->config)) {
                         <td><code class="config-code"><?= htmlspecialchars($configData['advanced']['httpAuth']['username'] ?? '') ?></code></td>
                     </tr>
                     <tr>
-                        <td style="width: 300px;">Mot de passe</td>
+                        <td style="width: 300px;"><?= __('config.password') ?></td>
                         <td>
                             <div style="display: flex; align-items: center; gap: 0.5rem;">
                                 <code class="config-code" id="passwordField" data-password="<?= htmlspecialchars($configData['advanced']['httpAuth']['password'] ?? '') ?>">••••••••</code>
@@ -345,12 +345,12 @@ if (!empty($crawlRecord->config)) {
             <?php endif; ?>
 
             <?php if (isset($configData['advanced']['customHeaders']) && is_array($configData['advanced']['customHeaders']) && !empty($configData['advanced']['customHeaders'])): ?>
-            <h3 style="margin: 1.5rem 0 1rem 0; color: var(--text-primary); font-size: 1.1rem;">Headers HTTP personnalisés</h3>
+            <h3 style="margin: 1.5rem 0 1rem 0; color: var(--text-primary); font-size: 1.1rem;"><?= __('config.custom_headers') ?></h3>
             <table class="data-table" style="margin-bottom: 2rem;">
                 <thead>
                     <tr>
-                        <th style="width: 250px;">Clé</th>
-                        <th>Valeur</th>
+                        <th style="width: 250px;"><?= __('config.key') ?></th>
+                        <th><?= __('config.value') ?></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -365,7 +365,7 @@ if (!empty($crawlRecord->config)) {
             <?php endif; ?>
 
             <?php if (isset($configData['advanced']['xPathExtractors']) && !empty($configData['advanced']['xPathExtractors'])): ?>
-            <h3 style="margin: 1.5rem 0 1rem 0; color: var(--text-primary); font-size: 1.1rem;">Extracteurs XPath</h3>
+            <h3 style="margin: 1.5rem 0 1rem 0; color: var(--text-primary); font-size: 1.1rem;"><?= __('config.xpath_extractors') ?></h3>
             <table class="data-table" style="margin-bottom: 2rem;">
                 <thead>
                     <tr>
@@ -385,7 +385,7 @@ if (!empty($crawlRecord->config)) {
             <?php endif; ?>
 
             <?php if (isset($configData['advanced']['regexExtractors']) && !empty($configData['advanced']['regexExtractors'])): ?>
-            <h3 style="margin: 1.5rem 0 1rem 0; color: var(--text-primary); font-size: 1.1rem;">Extracteurs Regex</h3>
+            <h3 style="margin: 1.5rem 0 1rem 0; color: var(--text-primary); font-size: 1.1rem;"><?= __('config.regex_extractors') ?></h3>
             <table class="data-table">
                 <thead>
                     <tr>
@@ -408,7 +408,7 @@ if (!empty($crawlRecord->config)) {
     </div>
 <?php else: ?>
     <div class="alert alert-error">
-        Aucune configuration trouvée.
+        <?= __('config.error_no_config') ?>
     </div>
 <?php endif; ?>
 
@@ -418,9 +418,9 @@ async function deleteCrawl() {
     const projectName = '<?= addslashes($projectName) ?>';
     
     const confirmed = await customConfirm(
-        `Êtes-vous sûr de vouloir supprimer définitivement le crawl "${projectName}" ?\n\nCette action est irréversible et supprimera toutes les données associées.`,
-        'Supprimer le crawl',
-        'Supprimer',
+        __('config.delete_confirm', {name: projectName}),
+        __('config.delete_crawl'),
+        __('common.delete'),
         'danger'
     );
     
@@ -438,14 +438,14 @@ async function deleteCrawl() {
         const result = await response.json();
         
         if (!response.ok || !result.success) {
-            throw new Error(result.error || 'Erreur lors de la suppression du crawl');
+            throw new Error(result.error || __('config.delete_error'));
         }
         
         // Redirect to home page
         window.location.href = '../index.php';
         
     } catch (error) {
-        alert(`Erreur: ${error.message}`);
+        alert(`${__('common.error')}: ${error.message}`);
     }
 }
 

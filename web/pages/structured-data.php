@@ -52,7 +52,7 @@ $schemaByCategory = $stmt->fetchAll(PDO::FETCH_OBJ);
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 foreach ($schemaByCategory as $row) {
     $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
 }
 
 // Nombre total de types de schemas distincts
@@ -70,7 +70,7 @@ $percentWithSchema = $globalStats->total_pages > 0
  */
 ?>
 
-<h1 class="page-title">Données structurées (Schema.org)</h1>
+<h1 class="page-title"><?= __('structured_data.page_title') ?></h1>
 
 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
 
@@ -82,33 +82,33 @@ $percentWithSchema = $globalStats->total_pages > 0
     Component::card([
         'color' => 'primary',
         'icon' => 'check_circle',
-        'title' => 'Pages analysées',
+        'title' => __('structured_data.card_analyzed'),
         'value' => number_format($globalStats->total_pages ?? 0),
-        'desc' => 'Pages indexables'
+        'desc' => __('structured_data.card_analyzed_desc')
     ]);
     
     Component::card([
         'color' => 'success',
         'icon' => 'percent',
-        'title' => 'Taux de complétion',
+        'title' => __('structured_data.card_completion'),
         'value' => $percentWithSchema . '%',
-        'desc' => 'Pages avec schema'
+        'desc' => __('structured_data.card_completion_desc')
     ]);
     
     Component::card([
         'color' => 'success',
         'icon' => 'data_object',
-        'title' => 'Pages avec schema',
+        'title' => __('structured_data.card_with_schema'),
         'value' => number_format($globalStats->pages_with_schema ?? 0),
-        'desc' => $totalSchemaTypes . ' types distincts'
+        'desc' => $totalSchemaTypes . ' ' . __('structured_data.card_with_schema_desc')
     ]);
     
     Component::card([
         'color' => 'warning',
         'icon' => 'warning',
-        'title' => 'Pages sans schema',
+        'title' => __('structured_data.card_without_schema'),
         'value' => number_format($globalStats->pages_without_schema ?? 0),
-        'desc' => (100 - $percentWithSchema) . '% des pages'
+        'desc' => (100 - $percentWithSchema) . '% ' . __('structured_data.card_without_schema_desc')
     ]);
     ?>
     </div>
@@ -131,12 +131,12 @@ $percentWithSchema = $globalStats->total_pages > 0
     
     if (!empty($schemaTableData)) {
         Component::simpleTable([
-            'title' => 'Distribution des types de schemas',
-            'subtitle' => 'Nombre de pages par type Schema.org',
+            'title' => __('structured_data.table_types'),
+            'subtitle' => __('structured_data.table_types_desc'),
             'columns' => [
-                ['key' => 'schema_type', 'label' => 'Type Schema.org', 'type' => 'bold'],
-                ['key' => 'page_count', 'label' => 'Nombre de pages', 'type' => 'default'],
-                ['key' => 'percent', 'label' => 'Pourcentage', 'type' => 'percent_bar']
+                ['key' => 'schema_type', 'label' => __('structured_data.col_schema_type'), 'type' => 'bold'],
+                ['key' => 'page_count', 'label' => __('structured_data.col_page_count'), 'type' => 'default'],
+                ['key' => 'percent', 'label' => __('common.percentage'), 'type' => 'percent_bar']
             ],
             'data' => $schemaTableData
         ]);
@@ -165,8 +165,8 @@ $percentWithSchema = $globalStats->total_pages > 0
             
             Component::chart([
                 'type' => 'donut',
-                'title' => 'Répartition des schemas',
-                'subtitle' => 'Types de données structurées',
+                'title' => __('structured_data.chart_distribution'),
+                'subtitle' => __('structured_data.chart_distribution_desc'),
                 'series' => [
                     [
                         'name' => 'Pages',
@@ -190,8 +190,8 @@ $percentWithSchema = $globalStats->total_pages > 0
             
             Component::chart([
                 'type' => 'horizontalBar',
-                'title' => 'Top 10 schemas les plus utilisés',
-                'subtitle' => 'Nombre de pages par type',
+                'title' => __('structured_data.chart_top10'),
+                'subtitle' => __('structured_data.table_types_desc'),
                 'categories' => $schemaTypes,
                 'series' => [
                     [
@@ -223,12 +223,12 @@ $percentWithSchema = $globalStats->total_pages > 0
             
             Component::chart([
                 'type' => 'horizontalBar',
-                'title' => 'Nombre moyen de schemas par page',
-                'subtitle' => 'Par catégorie, du plus riche au moins riche',
+                'title' => __('structured_data.chart_avg'),
+                'subtitle' => __('structured_data.chart_avg_desc'),
                 'categories' => $categories,
                 'series' => [
                     [
-                        'name' => 'Schemas/page',
+                        'name' => __('structured_data.series_schemas_per_page'),
                         'data' => $seriesAvgSchemas,
                         'color' => 'var(--primary-color)'
                     ]
@@ -245,7 +245,7 @@ $percentWithSchema = $globalStats->total_pages > 0
          ======================================== -->
     <?php
     Component::urlTable([
-        'title' => 'Pages avec données structurées',
+        'title' => __('structured_data.table_with'),
         'id' => 'structured_data_urls',
         'whereClause' => 'WHERE array_length(c.schemas, 1) > 0 AND c.crawled = true AND c.compliant = true',
         'orderBy' => 'ORDER BY c.depth ASC, c.pri DESC',
@@ -262,7 +262,7 @@ $percentWithSchema = $globalStats->total_pages > 0
          ======================================== -->
     <?php
     Component::urlTable([
-        'title' => 'Pages sans données structurées',
+        'title' => __('structured_data.table_without'),
         'id' => 'no_structured_data_urls',
         'whereClause' => 'WHERE (array_length(c.schemas, 1) IS NULL OR array_length(c.schemas, 1) = 0) AND c.crawled = true AND c.compliant = true',
         'orderBy' => 'ORDER BY c.depth ASC, c.pri DESC',

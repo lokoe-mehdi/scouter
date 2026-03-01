@@ -21,26 +21,26 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
         <!-- Crawl Report -->
         <div class="icon-rail-item <?= $activeSection === 'report' ? 'active' : '' ?>" 
              data-section="report" 
-             data-tooltip="Crawl Report">
+             data-tooltip="<?= __('sidebar.crawl_report') ?>">
             <span class="material-symbols-outlined">assessment</span>
-            <span class="icon-rail-label">Rapport</span>
+            <span class="icon-rail-label"><?= __('sidebar.report') ?></span>
         </div>
 
         <!-- Data Explorer -->
         <div class="icon-rail-item <?= $activeSection === 'explorer' ? 'active' : '' ?>" 
              data-section="explorer" 
-             data-tooltip="Data Explorer">
+             data-tooltip="<?= __('sidebar.data_explorer') ?>">
             <span class="material-symbols-outlined">manage_search</span>
-            <span class="icon-rail-label">Explorer</span>
+            <span class="icon-rail-label"><?= __('sidebar.explorer') ?></span>
         </div>
 
         <!-- Categorize (lien direct) -->
         <?php if ($canManageCurrentProject): ?>
         <a href="?crawl=<?= $crawlId ?>&page=categorize" 
            class="icon-rail-item icon-rail-link <?= $activeSection === 'categorize' ? 'active' : '' ?>" 
-           data-tooltip="Catégorisation">
+           data-tooltip="<?= __('sidebar.categorization') ?>">
             <span class="material-symbols-outlined">style</span>
-            <span class="icon-rail-label">Segments</span>
+            <span class="icon-rail-label"><?= __('sidebar.segments') ?></span>
         </a>
         <?php endif; ?>
     </nav>
@@ -50,9 +50,9 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
     <div class="icon-rail-bottom">
         <a href="?crawl=<?= $crawlId ?>&page=config" 
            class="icon-rail-item icon-rail-link <?= $activeSection === 'config' ? 'active' : '' ?>" 
-           data-tooltip="Paramètres">
+           data-tooltip="<?= __('sidebar.settings') ?>">
             <span class="material-symbols-outlined">settings</span>
-            <span class="icon-rail-label">Config</span>
+            <span class="icon-rail-label"><?= __('sidebar.config') ?></span>
         </a>
     </div>
     <?php endif; ?>
@@ -64,7 +64,7 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
     <div class="sidebar-panel-section" data-section="report" style="<?= $activeSection !== 'report' ? 'display: none;' : '' ?>">
         <div class="sidebar-panel-header">
             <span class="material-symbols-outlined">assessment</span>
-            <span>Crawl Report</span>
+            <span><?= __('sidebar.crawl_report') ?></span>
             <button class="sidebar-panel-close" onclick="closeSidebarPanel()">
                 <span class="material-symbols-outlined">chevron_left</span>
             </button>
@@ -75,94 +75,94 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
             <a href="?crawl=<?= $crawlId ?>&page=home" 
                class="sidebar-panel-item <?= $page === 'home' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">dashboard</span>
-                <span>Vue d'ensemble</span>
+                <span><?= __('sidebar.overview') ?></span>
             </a>
         </div>
         
         <!-- Technique -->
         <div class="sidebar-panel-group">
-            <div class="sidebar-panel-group-title">Accessibilité moteur</div>
+            <div class="sidebar-panel-group-title"><?= __('sidebar.engine_accessibility') ?></div>
             <a href="?crawl=<?= $crawlId ?>&page=accessibility" 
                class="sidebar-panel-item <?= $page === 'accessibility' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">folder</span>
-                <span>Indexabilité</span>
+                <span><?= __('sidebar.indexability') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=codes" 
                class="sidebar-panel-item <?= $page === 'codes' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">http</span>
-                <span>Codes de réponse</span>
+                <span><?= __('sidebar.response_codes') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=response-time" 
                class="sidebar-panel-item <?= $page === 'response-time' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">speed</span>
-                <span>Temps de réponse</span>
+                <span><?= __('sidebar.response_time') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=depth" 
                class="sidebar-panel-item <?= $page === 'depth' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">layers</span>
-                <span>Niveaux de profondeur</span>
+                <span><?= __('sidebar.depth_levels') ?></span>
             </a>
         </div>
         
         <!-- Contenu -->
         <div class="sidebar-panel-group">
-            <div class="sidebar-panel-group-title">Contenu</div>
+            <div class="sidebar-panel-group-title"><?= __('sidebar.content') ?></div>
             <a href="?crawl=<?= $crawlId ?>&page=seo-tags" 
                class="sidebar-panel-item <?= $page === 'seo-tags' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">label</span>
-                <span>Balises SEO</span>
+                <span><?= __('sidebar.seo_tags') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=headings" 
                class="sidebar-panel-item <?= $page === 'headings' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">format_h1</span>
-                <span>Hiérarchie Hn</span>
+                <span><?= __('sidebar.heading_hierarchy') ?></span>
             </a>
             
             <a href="?crawl=<?= $crawlId ?>&page=content-richness" 
                class="sidebar-panel-item <?= $page === 'content-richness' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">format_size</span>
-                <span>Richesse de contenu</span>
+                <span><?= __('sidebar.content_richness') ?></span>
             </a>
 
             <a href="?crawl=<?= $crawlId ?>&page=duplication" 
                class="sidebar-panel-item <?= $page === 'duplication' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">content_copy</span>
-                <span>Duplication</span>
+                <span><?= __('sidebar.duplication') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=structured-data" 
                class="sidebar-panel-item <?= $page === 'structured-data' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">data_object</span>
-                <span>Données structurées</span>
+                <span><?= __('sidebar.structured_data') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=extractions" 
                class="sidebar-panel-item <?= $page === 'extractions' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">code</span>
-                <span>Extractions</span>
+                <span><?= __('sidebar.extractions') ?></span>
             </a>
         </div>
         
         <!-- Maillage -->
         <div class="sidebar-panel-group">
-            <div class="sidebar-panel-group-title">Maillage</div>
+            <div class="sidebar-panel-group-title"><?= __('sidebar.linking') ?></div>
             <a href="?crawl=<?= $crawlId ?>&page=inlinks" 
                class="sidebar-panel-item <?= $page === 'inlinks' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">link</span>
-                <span>Inlinks</span>
+                <span><?= __('sidebar.inlinks') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=outlinks" 
                class="sidebar-panel-item <?= $page === 'outlinks' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">open_in_new</span>
-                <span>Outlinks</span>
+                <span><?= __('sidebar.outlinks') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=pagerank" 
                class="sidebar-panel-item <?= $page === 'pagerank' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">star</span>
-                <span>PageRank</span>
+                <span><?= __('sidebar.pagerank') ?></span>
             </a>
-            <a href="?crawl=<?= $crawlId ?>&page=pagerank-leak" 
+            <a href="?crawl=<?= $crawlId ?>&page=pagerank-leak"
                class="sidebar-panel-item <?= $page === 'pagerank-leak' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">sprint</span>
-                <span>Fuite de PageRank</span>
+                <span><?= __('sidebar.pagerank_leak') ?></span>
             </a>
         </div>
     </div>
@@ -171,7 +171,7 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
     <div class="sidebar-panel-section" data-section="explorer" style="<?= $activeSection !== 'explorer' ? 'display: none;' : '' ?>">
         <div class="sidebar-panel-header">
             <span class="material-symbols-outlined">travel_explore</span>
-            <span>Data Explorer</span>
+            <span><?= __('sidebar.data_explorer') ?></span>
             <button class="sidebar-panel-close" onclick="closeSidebarPanel()">
                 <span class="material-symbols-outlined">chevron_left</span>
             </button>
@@ -181,17 +181,17 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
             <a href="?crawl=<?= $crawlId ?>&page=url-explorer" 
                class="sidebar-panel-item <?= $page === 'url-explorer' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">link</span>
-                <span>URL Explorer</span>
+                <span><?= __('sidebar.url_explorer') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=link-explorer" 
                class="sidebar-panel-item <?= $page === 'link-explorer' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">hub</span>
-                <span>Link Explorer</span>
+                <span><?= __('sidebar.link_explorer') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=sql-explorer" 
                class="sidebar-panel-item <?= $page === 'sql-explorer' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">database</span>
-                <span>SQL Explorer</span>
+                <span><?= __('sidebar.sql_explorer') ?></span>
             </a>
         </div>
     </div>

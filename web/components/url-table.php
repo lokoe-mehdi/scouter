@@ -23,7 +23,7 @@ require_once __DIR__ . '/table-core.php';
 require_once __DIR__ . '/scope-modal.php';
 
 // Extraction des paramètres
-$componentTitle = $urlTableConfig['title'] ?? 'Résultats';
+$componentTitle = $urlTableConfig['title'] ?? __('table.results');
 $componentId = $urlTableConfig['id'] ?? 'table_' . uniqid();
 $pdo = $urlTableConfig['pdo'] ?? null;
 $projectDir = $urlTableConfig['projectDir'] ?? '';
@@ -107,21 +107,21 @@ $orderBy = preg_replace('/\bcategory\b/', 'c.cat_id', $orderBy);
 // Colonnes disponibles
 $availableColumns = [
     'url' => 'URL',
-    'depth' => 'Profondeur',
-    'code' => 'Code HTTP',
-    'category' => 'Catégorie',
-    'inlinks' => 'Liens entrants',
-    'outlinks' => 'Liens sortants',
+    'depth' => __('columns.depth'),
+    'code' => __('columns.http_code'),
+    'category' => __('columns.category'),
+    'inlinks' => __('columns.inlinks'),
+    'outlinks' => __('columns.outlinks'),
     'response_time' => 'TTFB (ms)',
-    'schemas' => 'Données structurées',
-    'compliant' => 'Indexable',
+    'schemas' => __('columns.structured_data'),
+    'compliant' => __('columns.indexable'),
     'canonical' => 'Canonical',
-    'canonical_value' => 'URL Canonical',
+    'canonical_value' => __('columns.canonical_url'),
     'noindex' => 'Noindex',
     'nofollow' => 'Nofollow',
-    'blocked' => 'Bloqué',
-    'redirect_to' => 'Redirige vers',
-    'content_type' => 'Type de contenu',
+    'blocked' => __('columns.blocked'),
+    'redirect_to' => __('columns.redirect_to'),
+    'content_type' => __('columns.content_type'),
     'pri' => 'PageRank',
     'title_status' => 'Title Status',
     'title' => 'Title',
@@ -129,9 +129,9 @@ $availableColumns = [
     'h1' => 'H1',
     'metadesc_status' => 'Meta Desc Status',
     'metadesc' => 'Meta Description',
-    'h1_multiple' => 'H1 Multiples',
-    'headings_missing' => 'Mauvaise structure hn',
-    'word_count' => 'Nb mots'
+    'h1_multiple' => __('columns.h1_multiple'),
+    'headings_missing' => __('columns.bad_heading_structure'),
+    'word_count' => __('columns.word_count')
 ];
 
 // Ajout des colonnes d'extracteurs JSONB aux colonnes disponibles
@@ -347,12 +347,12 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
             <?php if(!$lightMode): ?>
             <!-- Droite : Scope + Copier + Export CSV -->
             <div style="display: flex; gap: 0.5rem; align-items: center;">
-                <span onclick="showTableScope_<?= $componentId ?>()" class="chart-action-btn" title="Voir le scope des données" style="cursor: pointer;">
+                <span onclick="showTableScope_<?= $componentId ?>()" class="chart-action-btn" title="<?= __('table.view_scope') ?>" style="cursor: pointer;">
                     <span class="material-symbols-outlined">database</span>
                 </span>
                 <button class="btn-table-action btn-copy" onclick="copyTableToClipboard_<?= $componentId ?>(event)">
                     <span class="material-symbols-outlined">content_copy</span>
-                    Copier
+                    <?= __('table.copy') ?>
                 </button>
                 <button class="btn-table-action btn-export" onclick="exportToCSV_<?= $componentId ?>()">
                     <span class="material-symbols-outlined">download</span>
@@ -368,16 +368,16 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
             <div style="position: relative;">
                 <button class="btn-table-action btn-columns-select" onclick="toggleColumnDropdown_<?= $componentId ?>()">
                     <span class="material-symbols-outlined">view_column</span>
-                    Colonnes
+                    <?= __('table.columns') ?>
                 </button>
                 <div id="columnDropdown_<?= $componentId ?>" class="column-dropdown-<?= $componentId ?>" style="display: none; position: absolute; left: 0; top: 100%; margin-top: 0.5rem; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 250px; max-height: 450px; z-index: 1000; flex-direction: column;">
                     <!-- Header fixe -->
                     <div style="padding: 1rem 1rem 0.5rem 1rem; border-bottom: 1px solid var(--border-color); background: white; border-radius: 8px 8px 0 0;">
-                        <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;">Sélectionner les colonnes</div>
+                        <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;"><?= __('table.select_columns') ?></div>
                         <div style="font-size: 0.85rem; color: var(--text-secondary);">
-                            <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(true)" style="color: var(--primary-color); text-decoration: none; cursor: pointer;">tout cocher</a>
+                            <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(true)" style="color: var(--primary-color); text-decoration: none; cursor: pointer;"><?= __('table.check_all') ?></a>
                             <span style="margin: 0 0.25rem; color: var(--border-color);">|</span>
-                            <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(false)" style="color: var(--text-secondary); text-decoration: none; cursor: pointer;">tout décocher</a>
+                            <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(false)" style="color: var(--text-secondary); text-decoration: none; cursor: pointer;"><?= __('table.uncheck_all') ?></a>
                         </div>
                     </div>
                     
@@ -389,22 +389,22 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                                 <?= in_array($key, $selectedColumns) ? 'checked' : '' ?>
                                 <?= $key === 'url' ? 'disabled' : '' ?>
                                 style="margin-right: 0.5rem; accent-color: var(--primary-color);">
-                            <?= $label ?><?= $key === 'url' ? ' (obligatoire)' : '' ?>
+                            <?= $label ?><?= $key === 'url' ? ' (' . __('table.mandatory') . ')' : '' ?>
                         </label>
                         <?php endforeach; ?>
                     </div>
                     
                     <!-- Footer fixe avec boutons -->
                     <div style="padding: 1rem; border-top: 1px solid var(--border-color); background: white; border-radius: 0 0 8px 8px; display: flex; gap: 0.5rem;">
-                        <button class="btn" onclick="applyColumns_<?= $componentId ?>()" style="flex: 1; background: var(--primary-color); color: white; border: none; padding: 0.6rem; font-weight: 500;">Appliquer</button>
-                        <button class="btn" onclick="toggleColumnDropdown_<?= $componentId ?>()" style="flex: 1; background: #95a5a6; color: white; border: none; padding: 0.6rem; font-weight: 500;">Annuler</button>
+                        <button class="btn" onclick="applyColumns_<?= $componentId ?>()" style="flex: 1; background: var(--primary-color); color: white; border: none; padding: 0.6rem; font-weight: 500;"><?= __('table.apply') ?></button>
+                        <button class="btn" onclick="toggleColumnDropdown_<?= $componentId ?>()" style="flex: 1; background: #95a5a6; color: white; border: none; padding: 0.6rem; font-weight: 500;"><?= __('table.cancel') ?></button>
                     </div>
                 </div>
             </div>
             
             <!-- Droite : Pagination -->
             <div id="paginationTop_<?= $componentId ?>" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">
-                <span id="paginationInfo_<?= $componentId ?>">Affichage de <?= number_format(($offset ?? 0) + 1) ?> à <?= number_format(min(($offset ?? 0) + $perPage, $totalResults ?? 0)) ?> sur <?= number_format($totalResults ?? 0) ?> URLs</span>
+                <span id="paginationInfo_<?= $componentId ?>"><?= __('table.pagination_info', ['start' => number_format(($offset ?? 0) + 1), 'end' => number_format(min(($offset ?? 0) + $perPage, $totalResults ?? 0)), 'total' => number_format($totalResults ?? 0)]) ?></span>
                 <button onclick="changePage_<?= $componentId ?>(<?= max(1, $page_num - 1) ?>)" <?= $page_num <= 1 ? 'disabled' : '' ?> style="padding: 0.4rem; border: 1px solid #dee2e6; background: white; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; <?= $page_num <= 1 ? 'opacity: 0.4; cursor: default;' : '' ?>" onmouseover="<?= $page_num > 1 ? 'this.style.background=\"#f8f9fa\"; this.style.borderColor=\"#adb5bd\"' : '' ?>" onmouseout="<?= $page_num > 1 ? 'this.style.background=\"white\"; this.style.borderColor=\"#dee2e6\"' : '' ?>">
                     <span class="material-symbols-outlined" style="font-size: 20px;">chevron_left</span>
                 </button>
@@ -464,8 +464,8 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                     <td colspan="<?= count($selectedColumns) ?>" style="text-align: center; padding: 4rem 2rem;">
                         <div style="display: flex; flex-direction: column; align-items: center; gap: 1rem; color: var(--text-secondary);">
                             <span class="material-symbols-outlined" style="font-size: 64px; color: #95a5a6; opacity: 0.5;">search_off</span>
-                            <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">Aucun résultat</div>
-                            <div style="font-size: 0.9rem; max-width: 400px; line-height: 1.5;">Aucune URL ne correspond aux critères de recherche actuels.</div>
+                            <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);"><?= __('table.no_results') ?></div>
+                            <div style="font-size: 0.9rem; max-width: 400px; line-height: 1.5;"><?= __('table.no_url_match') ?></div>
                         </div>
                     </td>
                 </tr>
@@ -477,14 +477,14 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                             <td class="col-url" style="max-width: 400px; position: relative;">
                                 <div style="display: flex; align-items: center; overflow: hidden;">
                                     <?php if($copyUrl): ?>
-                                    <span class="copy-path-btn" data-path="<?= htmlspecialchars(parse_url($url->url, PHP_URL_PATH) ?: '/') ?>" title="Copier le chemin" style="cursor: pointer; color: var(--text-secondary); margin-right: 0.4rem; flex-shrink: 0;" onclick="event.preventDefault(); event.stopPropagation(); navigator.clipboard.writeText(this.dataset.path).then(() => { if(typeof showGlobalStatus === 'function') showGlobalStatus('Chemin copié', 'success'); })">
+                                    <span class="copy-path-btn" data-path="<?= htmlspecialchars(parse_url($url->url, PHP_URL_PATH) ?: '/') ?>" title="<?= __('table.copy_path') ?>" style="cursor: pointer; color: var(--text-secondary); margin-right: 0.4rem; flex-shrink: 0;" onclick="event.preventDefault(); event.stopPropagation(); navigator.clipboard.writeText(this.dataset.path).then(() => { if(typeof showGlobalStatus === 'function') showGlobalStatus(__('table.path_copied'), 'success'); })">
                                         <span class="material-symbols-outlined" style="font-size: 16px;">content_copy</span>
                                     </span>
                                     <?php endif; ?>
                                     <span class="url-clickable" data-url="<?= htmlspecialchars($url->url) ?>" style="cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;">
                                         <?= htmlspecialchars($url->url) ?>
                                     </span>
-                                    <a href="<?= htmlspecialchars($url->url) ?>" target="_blank" rel="noopener noreferrer" title="Ouvrir l'URL dans un nouvel onglet" style="display: inline-flex; align-items: center; color: var(--text-secondary); text-decoration: none; margin-left: 0.5rem; flex-shrink: 0;">
+                                    <a href="<?= htmlspecialchars($url->url) ?>" target="_blank" rel="noopener noreferrer" title="<?= __('common.open_new_tab') ?>" style="display: inline-flex; align-items: center; color: var(--text-secondary); text-decoration: none; margin-left: 0.5rem; flex-shrink: 0;">
                                         <span class="material-symbols-outlined" style="font-size: 16px;">open_in_new</span>
                                     </a>
                                 </div>
@@ -612,15 +612,15 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
             <div style="position: relative;">
                 <button class="btn-table-action btn-columns-select" onclick="toggleColumnDropdown_<?= $componentId ?>()">
                     <span class="material-symbols-outlined">view_column</span>
-                    Colonnes
+                    <?= __('table.columns') ?>
                 </button>
                 <div id="columnDropdown_<?= $componentId ?>" class="column-dropdown-<?= $componentId ?>" style="display: none; position: absolute; left: 0; bottom: 100%; margin-bottom: 0.5rem; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 250px; max-height: 450px; z-index: 1000; flex-direction: column;">
                     <div style="padding: 1rem 1rem 0.5rem 1rem; border-bottom: 1px solid var(--border-color); background: white; border-radius: 8px 8px 0 0;">
-                        <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;">Sélectionner les colonnes</div>
+                        <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;"><?= __('table.select_columns') ?></div>
                         <div style="font-size: 0.85rem; color: var(--text-secondary);">
-                            <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(true)" style="color: var(--primary-color); text-decoration: none; cursor: pointer;">tout cocher</a>
+                            <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(true)" style="color: var(--primary-color); text-decoration: none; cursor: pointer;"><?= __('table.check_all') ?></a>
                             <span style="margin: 0 0.25rem; color: var(--border-color);">|</span>
-                            <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(false)" style="color: var(--text-secondary); text-decoration: none; cursor: pointer;">tout décocher</a>
+                            <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(false)" style="color: var(--text-secondary); text-decoration: none; cursor: pointer;"><?= __('table.uncheck_all') ?></a>
                         </div>
                     </div>
                     <div style="flex: 1; overflow-y: auto; padding: 0.5rem 1rem; max-height: 280px;">
@@ -630,13 +630,13 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                                 <?= in_array($key, $selectedColumns) ? 'checked' : '' ?>
                                 <?= $key === 'url' ? 'disabled' : '' ?>
                                 style="margin-right: 0.5rem; accent-color: var(--primary-color);">
-                            <?= $label ?><?= $key === 'url' ? ' (obligatoire)' : '' ?>
+                            <?= $label ?><?= $key === 'url' ? ' (' . __('table.mandatory') . ')' : '' ?>
                         </label>
                         <?php endforeach; ?>
                     </div>
                     <div style="padding: 1rem; border-top: 1px solid var(--border-color); background: white; border-radius: 0 0 8px 8px; display: flex; gap: 0.5rem;">
-                        <button class="btn" onclick="applyColumns_<?= $componentId ?>()" style="flex: 1; background: var(--primary-color); color: white; border: none; padding: 0.6rem; font-weight: 500;">Appliquer</button>
-                        <button class="btn" onclick="toggleColumnDropdown_<?= $componentId ?>()" style="flex: 1; background: #95a5a6; color: white; border: none; padding: 0.6rem; font-weight: 500;">Annuler</button>
+                        <button class="btn" onclick="applyColumns_<?= $componentId ?>()" style="flex: 1; background: var(--primary-color); color: white; border: none; padding: 0.6rem; font-weight: 500;"><?= __('table.apply') ?></button>
+                        <button class="btn" onclick="toggleColumnDropdown_<?= $componentId ?>()" style="flex: 1; background: #95a5a6; color: white; border: none; padding: 0.6rem; font-weight: 500;"><?= __('table.cancel') ?></button>
                     </div>
                 </div>
             </div>
@@ -644,7 +644,7 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
             
             <?php if(!$hideTitle): ?>
             <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span>Afficher</span>
+                <span><?= __('table.show') ?></span>
                 <div style="position: relative;">
                     <button id="perPageBtn_<?= $componentId ?>" onclick="togglePerPageDropdown_<?= $componentId ?>()" style="padding: 0.4rem 0.6rem; border: 1px solid #dee2e6; border-radius: 4px; background: white; cursor: pointer; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s ease;">
                         <span id="perPageValue_<?= $componentId ?>"><?= $perPage ?></span>
@@ -657,14 +657,14 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                         <div onclick="selectPerPage_<?= $componentId ?>(500)" style="padding: 0.4rem 0.6rem; cursor: pointer; <?= $perPage == 500 ? 'background: #f8f9fa; font-weight: 600;' : '' ?>" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='<?= $perPage == 500 ? '#f8f9fa' : 'white' ?>'">500</div>
                     </div>
                 </div>
-                <span>par page</span>
+                <span><?= __('table.per_page') ?></span>
             </div>
             <?php endif; ?>
         </div>
         
         <!-- Droite : Pagination -->
         <div id="paginationBottom_<?= $componentId ?>" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);">
-            <span id="paginationInfoBottom_<?= $componentId ?>"><?= number_format(($offset ?? 0) + 1) ?>-<?= number_format(min(($offset ?? 0) + $perPage, $totalResults ?? 0)) ?> sur <?= number_format($totalResults ?? 0) ?></span>
+            <span id="paginationInfoBottom_<?= $componentId ?>"><?= __('table.pagination_short', ['start' => number_format(($offset ?? 0) + 1), 'end' => number_format(min(($offset ?? 0) + $perPage, $totalResults ?? 0)), 'total' => number_format($totalResults ?? 0)]) ?></span>
             <button onclick="changePage_<?= $componentId ?>(<?= max(1, $page_num - 1) ?>)" <?= $page_num <= 1 ? 'disabled' : '' ?> style="padding: 0.3rem; border: 1px solid #dee2e6; background: white; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; <?= $page_num <= 1 ? 'opacity: 0.4; cursor: default;' : '' ?>">
                 <span class="material-symbols-outlined" style="font-size: 18px;">chevron_left</span>
             </button>
@@ -876,10 +876,10 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
             
             // Format long pour le top, format court pour le bottom (mode hideTitle)
             if (paginationInfoTop) {
-                paginationInfoTop.textContent = `Affichage de ${start.toLocaleString('fr-FR')} à ${end.toLocaleString('fr-FR')} sur ${totalResults.toLocaleString('fr-FR')} URLs`;
+                paginationInfoTop.textContent = __('table.pagination_info', {start: start.toLocaleString(), end: end.toLocaleString(), total: totalResults.toLocaleString()});
             }
             if (paginationInfoBottom) {
-                paginationInfoBottom.textContent = `${start.toLocaleString('fr-FR')}-${end.toLocaleString('fr-FR')} sur ${totalResults.toLocaleString('fr-FR')}`;
+                paginationInfoBottom.textContent = __('table.pagination_short', {start: start.toLocaleString(), end: end.toLocaleString(), total: totalResults.toLocaleString()});
             }
             
             // Réactiver les boutons puis mettre à jour leur état (disabled si première/dernière page)
@@ -1037,10 +1037,10 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
         });
         
         navigator.clipboard.writeText(text).then(() => {
-            showGlobalStatus('✓ Texte copié', 'success');
+            showGlobalStatus(__('table.text_copied'), 'success');
         }).catch(err => {
-            console.error('Erreur:', err);
-            showGlobalStatus('Erreur lors de la copie', 'error');
+            console.error('Error:', err);
+            showGlobalStatus(__('table.copy_error'), 'error');
         });
     };
 
@@ -1244,12 +1244,12 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                 }
                 
                 // Afficher un message de succès
-                showGlobalStatus('✓ Colonnes mises à jour', 'success');
+                showGlobalStatus(__('table.columns_updated'), 'success');
             }
         })
         .catch(error => {
             console.error('Erreur lors du chargement:', error);
-            alert('Erreur lors de la mise à jour des colonnes');
+            alert(__('table.columns_update_error'));
         });
     };
 
@@ -1356,19 +1356,19 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                         navigator.clipboard.writeText(path).then(() => {
                             // Afficher notification
                             if (typeof showGlobalStatus === 'function') {
-                                showGlobalStatus('Chemin copié : ' + path, 'success');
+                                showGlobalStatus(__('table.path_copied') + ' : ' + path, 'success');
                             } else {
                                 // Fallback notification
                                 const notif = document.createElement('div');
                                 notif.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#2ecc71;color:#fff;padding:10px 20px;border-radius:6px;z-index:10000;font-size:14px;';
-                                notif.textContent = 'Chemin copié : ' + path;
+                                notif.textContent = __('table.path_copied') + ' : ' + path;
                                 document.body.appendChild(notif);
                                 setTimeout(() => notif.remove(), 2000);
                             }
                         }).catch(err => {
                             console.error('Erreur copie:', err);
                             if (typeof showGlobalStatus === 'function') {
-                                showGlobalStatus('Erreur lors de la copie', 'error');
+                                showGlobalStatus(__('table.copy_error'), 'error');
                             }
                         });
                     }

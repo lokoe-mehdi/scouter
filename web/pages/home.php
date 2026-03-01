@@ -72,7 +72,7 @@ foreach ($codeDataRaw as $row) {
             break;
         default:
             $obj->code = 999;
-            $obj->label = 'Autres';
+            $obj->label = __('home.other');
             break;
     }
     $obj->count = $row->count;
@@ -98,7 +98,7 @@ $catData = [];
 foreach ($catDataRaw as $row) {
     $catInfo = $categoriesMap[$row->cat_id] ?? null;
     $obj = new stdClass();
-    $obj->cat = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+    $obj->cat = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     $obj->count = $row->count;
     $catData[] = $obj;
 }
@@ -122,7 +122,7 @@ $prByCategory = [];
 foreach ($prByCategoryRaw as $row) {
     $catInfo = $categoriesMap[$row->cat_id] ?? null;
     $obj = new stdClass();
-    $obj->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+    $obj->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     $obj->total_pr = $row->total_pr;
     $prByCategory[] = $obj;
 }
@@ -155,7 +155,7 @@ $contentStats = $stmt->fetch(PDO::FETCH_OBJ);
  */
 ?>
 
-<h1 class="page-title">Vue d'ensemble</h1>
+<h1 class="page-title"><?= __('home.page_title') ?></h1>
 
 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
 
@@ -167,41 +167,41 @@ $contentStats = $stmt->fetch(PDO::FETCH_OBJ);
         Component::card([
             'color' => 'primary',
             'icon' => 'language',
-            'title' => 'Total URLs',
+            'title' => __('home.card_total_urls'),
             'value' => number_format($globalStats->urls),
-            'desc' => 'URLs découvertes dans le crawl'
+            'desc' => __('home.card_total_urls_desc')
         ]);
 
         Component::card([
             'color' => 'info',
             'icon' => 'check_circle',
-            'title' => 'URLs Crawlées',
+            'title' => __('home.card_crawled'),
             'value' => number_format($globalStats->crawled),
-            'desc' => ($globalStats->urls > 0 ? round(($globalStats->crawled/$globalStats->urls)*100, 2) : 0).'% d\'URLs crawlées'
+            'desc' => ($globalStats->urls > 0 ? round(($globalStats->crawled/$globalStats->urls)*100, 2) : 0).'% '.__('home.card_crawled_desc')
         ]);
         
         Component::card([
             'color' => 'success',
             'icon' => 'verified',
-            'title' => 'URLs Indexables',
+            'title' => __('home.card_compliant'),
             'value' => number_format($globalStats->compliant),
-            'desc' => ($globalStats->crawled > 0 ? round(($globalStats->compliant/$globalStats->crawled)*100, 2) : 0).'% d\'URLs indexables'
+            'desc' => ($globalStats->crawled > 0 ? round(($globalStats->compliant/$globalStats->crawled)*100, 2) : 0).'% '.__('home.card_compliant_desc')
         ]);
         
         Component::card([
             'color' => 'info',
             'icon' => 'speed',
-            'title' => 'TTFB moyen',
+            'title' => __('home.card_ttfb'),
             'value' => round($globalStats->response_time, 2),
-            'desc' => 'Time To First Byte moyen (ms)'
+            'desc' => __('home.card_ttfb_desc')
         ]);
 
         Component::card([
             'color' => 'info',
             'icon' => 'layers',
-            'title' => 'Profondeur',
+            'title' => __('home.card_depth'),
             'value' => $globalStats->depth_max,
-            'desc' => 'Profondeur maximale crawlée'
+            'desc' => __('home.card_depth_desc')
         ]);
         ?>
     </div>
@@ -223,8 +223,8 @@ $contentStats = $stmt->fetch(PDO::FETCH_OBJ);
         
         Component::chart([
             'type' => 'donut',
-            'title' => 'Codes de réponse HTTP',
-            'subtitle' => 'Répartition des codes HTTP',
+            'title' => __('home.chart_http_codes'),
+            'subtitle' => __('home.chart_http_codes_desc'),
             'series' => [
                 [
                     'name' => 'URLs',
@@ -239,8 +239,8 @@ $contentStats = $stmt->fetch(PDO::FETCH_OBJ);
         // Bar chart - Distribution par profondeur
         Component::chart([
             'type' => 'bar',
-            'title' => 'Distribution par profondeur',
-            'subtitle' => 'URLs crawlées par niveau de profondeur',
+            'title' => __('home.chart_depth'),
+            'subtitle' => __('home.chart_depth_desc'),
             'categories' => array_map(function($d) { return 'Niveau ' . $d->depth; }, $depthData),
             'series' => [
                 [
@@ -248,8 +248,8 @@ $contentStats = $stmt->fetch(PDO::FETCH_OBJ);
                     'data' => array_map(function($d) { return (int)$d->count; }, $depthData)
                 ]
             ],
-            'xAxisTitle' => 'Profondeur',
-            'yAxisTitle' => 'Nombre d\'URLs',
+            'xAxisTitle' => __('pagerank.label_depth'),
+            'yAxisTitle' => __('depth.label_url_count'),
             'height' => 300,
             'sqlQuery' => $sqlDepth
         ]);
@@ -264,7 +264,7 @@ $contentStats = $stmt->fetch(PDO::FETCH_OBJ);
         // Donut chart - Distribution par catégorie
         $catChartData = [];
         foreach($catData as $cat) {
-            $categoryName = $cat->cat ?: 'Non catégorisé';
+            $categoryName = $cat->cat ?: __('common.uncategorized');
             $catChartData[] = [
                 'name' => $categoryName,
                 'y' => (int)$cat->count,
@@ -274,8 +274,8 @@ $contentStats = $stmt->fetch(PDO::FETCH_OBJ);
         
         Component::chart([
             'type' => 'donut',
-            'title' => 'Répartition des URLs',
-            'subtitle' => 'Répartition des URLs crawlées par catégorie',
+            'title' => __('home.chart_categories'),
+            'subtitle' => __('home.chart_categories_desc'),
             'series' => [
                 [
                     'name' => 'URLs',
@@ -299,8 +299,8 @@ $contentStats = $stmt->fetch(PDO::FETCH_OBJ);
         
         Component::chart([
             'type' => 'donut',
-            'title' => 'Distribution du PageRank',
-            'subtitle' => 'Pourcentage du PageRank total par catégorie',
+            'title' => __('home.chart_pagerank'),
+            'subtitle' => __('home.chart_pagerank_desc'),
             'series' => [
                 [
                     'name' => 'PageRank (%)',
@@ -322,12 +322,12 @@ $contentStats = $stmt->fetch(PDO::FETCH_OBJ);
         // Bar chart - Unicité des balises sémantiques
         Component::chart([
             'type' => 'bar',
-            'title' => 'Unicité des balises sémantiques',
-            'subtitle' => 'Répartition Unique / Duplicate / Empty pour Title, H1 et Meta Description',
+            'title' => __('home.chart_seo_tags'),
+            'subtitle' => __('home.chart_seo_tags_desc'),
             'categories' => ['Title', 'H1', 'Meta Desc'],
             'series' => [
                 [
-                    'name' => 'Empty',
+                    'name' => __('seo_tags.series_empty'),
                     'data' => [
                         (int)($contentStats->title_empty ?? 0),
                         (int)($contentStats->h1_empty ?? 0),
@@ -336,7 +336,7 @@ $contentStats = $stmt->fetch(PDO::FETCH_OBJ);
                     'color' => '#d86b6bff'
                 ],
                 [
-                    'name' => 'Duplicate',
+                    'name' => __('seo_tags.series_duplicate'),
                     'data' => [
                         (int)($contentStats->title_duplicate ?? 0),
                         (int)($contentStats->h1_duplicate ?? 0),
@@ -345,7 +345,7 @@ $contentStats = $stmt->fetch(PDO::FETCH_OBJ);
                     'color' => '#d8bf6bff'
                 ],
                 [
-                    'name' => 'Unique',
+                    'name' => __('seo_tags.series_unique'),
                     'data' => [
                         (int)($contentStats->title_unique ?? 0),
                         (int)($contentStats->h1_unique ?? 0),
@@ -355,7 +355,7 @@ $contentStats = $stmt->fetch(PDO::FETCH_OBJ);
                 ]
             ],
             'stacking' => 'percent',
-            'yAxisTitle' => 'Pourcentage',
+            'yAxisTitle' => __('common.percentage'),
             'yAxisMax' => 100,
             'height' => 300,
             'sqlQuery' => $sqlContentStats

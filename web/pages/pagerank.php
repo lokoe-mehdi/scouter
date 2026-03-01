@@ -55,7 +55,7 @@ $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 $prByCategory = [];
 foreach ($prByCategoryRaw as $row) {
     $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     $prByCategory[] = $row;
 }
 
@@ -140,15 +140,15 @@ $targetNodes = [];
 
 foreach ($fluxCategoriesRaw as $row) {
     $sourceCatInfo = $categoriesMap[$row->source_cat_id] ?? null;
-    $sourceName = $sourceCatInfo ? $sourceCatInfo['cat'] : 'Non catégorisé';
+    $sourceName = $sourceCatInfo ? $sourceCatInfo['cat'] : __('common.uncategorized');
     
     // Gérer le cas externe
     if ($row->target_cat_id === 'external') {
-        $targetName = 'Externe';
+        $targetName = __('pagerank_leak.series_external');
         $targetColor = '#e74c3c'; // Rouge pour externe
     } else {
         $targetCatInfo = $categoriesMap[$row->target_cat_id] ?? null;
-        $targetName = $targetCatInfo ? $targetCatInfo['cat'] : 'Non catégorisé';
+        $targetName = $targetCatInfo ? $targetCatInfo['cat'] : __('common.uncategorized');
         $targetColor = getCategoryColor($targetName);
     }
     
@@ -199,7 +199,7 @@ usort($sankeyNodes, function($a, $b) use ($linksByCategory) {
  */
 ?>
 
-<h1 class="page-title">Analyse du PageRank</h1>
+<h1 class="page-title"><?= __('pagerank.page_title') ?></h1>
 
 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
 
@@ -211,25 +211,25 @@ usort($sankeyNodes, function($a, $b) use ($linksByCategory) {
         Component::card([
             'color' => 'primary',
             'icon' => 'analytics',
-            'title' => 'PageRank moyen',
+            'title' => __('pagerank.card_avg'),
             'value' => number_format(($prStats->avg_pr ?? 0) * 100, 2) . '%',
-            'desc' => 'Score moyen'
+            'desc' => __('pagerank.card_avg_desc')
         ]);
         
         Component::card([
             'color' => 'success',
             'icon' => 'emoji_events',
-            'title' => 'PageRank maximum',
+            'title' => __('pagerank.card_max'),
             'value' => number_format(($prStats->max_pr ?? 0) * 100, 2) . '%',
-            'desc' => 'Meilleur score'
+            'desc' => __('pagerank.card_max_desc')
         ]);
         
         Component::card([
             'color' => 'info',
             'icon' => 'trending_up',
-            'title' => 'Pages avec PageRank',
+            'title' => __('pagerank.card_pages'),
             'value' => number_format($prStats->pages_with_pr ?? 0),
-            'desc' => 'Pages analysées'
+            'desc' => __('pagerank.card_pages_desc')
         ]);
         ?>
     </div>
@@ -242,17 +242,17 @@ usort($sankeyNodes, function($a, $b) use ($linksByCategory) {
         // Graphique 1: PageRank moyen par profondeur (Line Chart)
         Component::chart([
             'type' => 'line',
-            'title' => 'PageRank moyen par profondeur',
-            'subtitle' => 'Évolution du PageRank selon la profondeur',
-            'categories' => array_map(function($d) { return 'Niveau ' . $d->depth; }, $prByDepth),
+            'title' => __('pagerank.chart_by_depth'),
+            'subtitle' => __('pagerank.chart_by_depth_desc'),
+            'categories' => array_map(function($d) { return __('pagerank.label_depth') . ' ' . $d->depth; }, $prByDepth),
             'series' => [
                 [
-                    'name' => 'PageRank (%)',
+                    'name' => __('pagerank.series_pagerank'),
                     'data' => array_map(function($d) { return round($d->avg_pr * 100, 2); }, $prByDepth)
                 ]
             ],
-            'xAxisTitle' => 'Profondeur',
-            'yAxisTitle' => 'PageRank moyen (%)',
+            'xAxisTitle' => __('pagerank.label_depth'),
+            'yAxisTitle' => __('pagerank.label_avg_pagerank'),
             'height' => 350,
             'sqlQuery' => $sqlPrByDepth
         ]);
@@ -270,12 +270,12 @@ usort($sankeyNodes, function($a, $b) use ($linksByCategory) {
         
         Component::chart([
             'type' => 'donut',
-            'title' => 'Distribution du PageRank par catégorie',
-            'subtitle' => 'Pourcentage du PageRank total',
+            'title' => __('pagerank.chart_distribution'),
+            'subtitle' => __('pagerank.chart_distribution_desc'),
             'categories' => [],
             'series' => [
                 [
-                    'name' => 'PageRank total (%)',
+                    'name' => __('pagerank.series_total'),
                     'data' => $donutData
                 ]
             ],
@@ -290,16 +290,16 @@ usort($sankeyNodes, function($a, $b) use ($linksByCategory) {
     
     Component::chart([
         'type' => 'horizontalBar',
-        'title' => 'PageRank moyen par catégorie',
-        'subtitle' => 'Classement des catégories par PageRank moyen',
+        'title' => __('pagerank.chart_category_avg'),
+        'subtitle' => __('pagerank.chart_category_avg_desc'),
         'categories' => array_map(function($c) { return $c->category; }, $prByCategory),
         'series' => [
             [
-                'name' => 'PageRank moyen (%)',
+                'name' => __('pagerank.series_avg'),
                 'data' => array_map(function($c) { return round($c->avg_pr * 100, 2); }, $prByCategory)
             ]
         ],
-        'yAxisTitle' => 'PageRank moyen (%)',
+        'yAxisTitle' => __('pagerank.label_avg_pagerank'),
         'height' => 400,
         'sqlQuery' => $sqlPrByCategory
     ]);
@@ -308,11 +308,11 @@ usort($sankeyNodes, function($a, $b) use ($linksByCategory) {
     if (!empty($sankeyData)):
     Component::chart([
         'type' => 'sankey',
-        'title' => 'Flux de liens entre catégories',
-        'subtitle' => 'Nombre de liens internes dofollow entre catégories',
+        'title' => __('pagerank.chart_flow'),
+        'subtitle' => __('pagerank.chart_flow_desc'),
         'series' => [
             [
-                'name' => 'Liens',
+                'name' => __('common.links'),
                 'data' => $sankeyData,
                 'nodes' => $sankeyNodes
             ]
@@ -328,7 +328,7 @@ usort($sankeyNodes, function($a, $b) use ($linksByCategory) {
          ======================================== -->
     <?php
     Component::urlTable([
-        'title' => 'Top PageRank',
+        'title' => __('pagerank.table_top'),
         'id' => 'pagerankTable',
         'whereClause' => 'WHERE c.crawled = true',
         'orderBy' => 'ORDER BY c.pri DESC',

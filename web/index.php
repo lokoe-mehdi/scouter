@@ -255,11 +255,11 @@ try {
 }
 ?>
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="<?= I18n::getInstance()->getLang() ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scouter - Mes Projets SEO</title>
+    <title>Scouter - <?= __('index.user_title') ?></title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="assets/style.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/crawl-panel.css?v=<?= time() ?>">
@@ -329,6 +329,8 @@ try {
             max-width: 350px;
         }
     </style>
+    <script src="assets/i18n.js"></script>
+    <script>ScouterI18n.init(<?= I18n::getInstance()->getJsTranslations() ?>, <?= json_encode(I18n::getInstance()->getLang()) ?>);</script>
     <script src="assets/tooltip.js?v=<?= time() ?>"></script>
 </head>
 <body>
@@ -341,15 +343,15 @@ try {
         <!-- Categories Sidebar -->
         <aside class="categories-sidebar">
             <div class="categories-sidebar-header">
-                <h3>Catégories</h3>
-                <button class="btn-icon" onclick="openCategoriesModal()" title="Gérer les catégories" style="cursor:pointer">
+                <h3><?= __('index.categories') ?></h3>
+                <button class="btn-icon" onclick="openCategoriesModal()" title="<?= __('index.manage_categories') ?>" style="cursor:pointer">
                     <span class="material-symbols-outlined">settings</span>
                 </button>
             </div>
             
             <div class="categories-sidebar-filters">
                 <div class="category-filter-item active" onclick="filterByCategory('all')" data-category="all">
-                    <span class="category-filter-name">Tout</span>
+                    <span class="category-filter-name"><?= __('index.filter_all') ?></span>
                     <span class="category-filter-count"><?= $totalProjects ?></span>
                 </div>
                 
@@ -364,14 +366,14 @@ try {
                 <?php endforeach; ?>
                 
                 <div class="category-filter-item" onclick="filterByCategory('uncategorized')" data-category="uncategorized">
-                    <span class="category-filter-name">Sans catégorie</span>
+                    <span class="category-filter-name"><?= __('common.uncategorized') ?></span>
                     <span class="category-filter-count"><?= $categoryStats['uncategorized'] ?? 0 ?></span>
                 </div>
             </div>
             
             <div class="category-add-link">
                 <button class="btn-add-category" onclick="openQuickAddCategoryModal()">
-                    + Ajouter une catégorie
+                    + <?= __('index.add_category') ?>
                 </button>
             </div>
         </aside>
@@ -380,18 +382,18 @@ try {
         <!-- Main Content -->
         <div class="main-content-area">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                <h1 class="page-title"><?= $isViewer ? 'Projets partagés' : 'Mes projets SEO' ?></h1>
+                <h1 class="page-title"><?= $isViewer ? __('index.viewer_title') : __('index.user_title') ?></h1>
                 <div style="display: flex; gap: 1rem;">
                     <?php if(!$hasProjects): ?>
                     <button class="btn btn-secondary" onclick="openCategoriesModal()" style="display: flex; align-items: center; gap: 0.5rem;">
                         <span class="material-symbols-outlined">category</span>
-                        Gérer les catégories
+                        <?= __('index.manage_categories') ?>
                     </button>
                     <?php endif; ?>
                     <?php if($canCreate): ?>
                     <button class="btn btn-primary-action" onclick="openNewProjectModal()" style="display: flex; align-items: center; gap: 0.5rem;cursor:pointer;">
                         <span class="material-symbols-outlined">add_circle</span>
-                        Nouveau projet
+                        <?= __('index.new_project') ?>
                     </button>
                     <?php endif; ?>
                 </div>
@@ -404,7 +406,7 @@ try {
                     <input 
                         type="text" 
                         id="domainSearch" 
-                        placeholder="Rechercher un projet..." 
+                        placeholder="<?= __('index.search_placeholder') ?>" 
                         class="search-input"
                         oninput="filterDomains()"
                         style="width: 100%; padding: 0.75rem 1rem 0.75rem 3rem; border: 2px solid var(--border-color); border-radius: 8px; font-size: 1rem; transition: all 0.3s ease;"
@@ -416,25 +418,25 @@ try {
                 <div class="sort-dropdown-wrapper">
                     <button class="sort-dropdown-btn" onclick="toggleSortDropdown()">
                         <span class="material-symbols-outlined">sort</span>
-                        <span id="currentSortLabel">Du plus récent au plus ancien</span>
+                        <span id="currentSortLabel"><?= __('index.sort_recent') ?></span>
                         <span class="material-symbols-outlined">expand_more</span>
                     </button>
                     <div class="sort-dropdown-menu" id="sortDropdown">
                         <div class="sort-dropdown-item active" data-sort="date-desc" onclick="changeSortOption('date-desc')">
                             <span class="material-symbols-outlined">schedule</span>
-                            Du plus récent au plus ancien
+                            <?= __('index.sort_recent') ?>
                         </div>
                         <div class="sort-dropdown-item" data-sort="date-asc" onclick="changeSortOption('date-asc')">
                             <span class="material-symbols-outlined">history</span>
-                            Du plus ancien au plus récent
+                            <?= __('index.sort_oldest') ?>
                         </div>
                         <div class="sort-dropdown-item" data-sort="alpha-asc" onclick="changeSortOption('alpha-asc')">
                             <span class="material-symbols-outlined">sort_by_alpha</span>
-                            Par ordre alphabétique (A → Z)
+                            <?= __('index.sort_alpha_asc') ?>
                         </div>
                         <div class="sort-dropdown-item" data-sort="alpha-desc" onclick="changeSortOption('alpha-desc')">
                             <span class="material-symbols-outlined">sort_by_alpha</span>
-                            Par ordre alphabétique (Z → A)
+                            <?= __('index.sort_alpha_desc') ?>
                         </div>
                     </div>
                 </div>
@@ -447,14 +449,14 @@ try {
                         <span class="material-symbols-outlined">folder_open</span>
                     </div>
                     <?php if($isViewer): ?>
-                    <h2 class="empty-state-title">Aucun projet partagé</h2>
-                    <p class="empty-state-text">Aucun projet n'a été partagé avec vous pour le moment.</p>
+                    <h2 class="empty-state-title"><?= __('index.empty_viewer_title') ?></h2>
+                    <p class="empty-state-text"><?= __('index.empty_viewer_text') ?></p>
                     <?php else: ?>
-                    <h2 class="empty-state-title">Aucun projet pour le moment</h2>
-                    <p class="empty-state-text">Commencez par créer votre premier projet de crawl pour analyser un site web.</p>
+                    <h2 class="empty-state-title"><?= __('index.empty_user_title') ?></h2>
+                    <p class="empty-state-text"><?= __('index.empty_user_text') ?></p>
                     <button class="btn btn-primary-action" onclick="openNewProjectModal()" style="display: inline-flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
                         <span class="material-symbols-outlined">add_circle</span>
-                        Créer mon premier projet
+                        <?= __('index.create_first_project') ?>
                     </button>
                     <?php endif; ?>
                 </div>
@@ -480,19 +482,19 @@ try {
                     <div class="projects-tabs" style="display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border-color);">
                         <button type="button" class="projects-tab active" onclick="switchProjectsTab('my')" data-tab="my" style="flex: 0 0 auto; padding: 0.75rem 1.5rem; background: none; border: none; cursor: pointer; font-weight: 600; color: var(--primary-color); border-bottom: 2px solid var(--primary-color); margin-bottom: -2px; display: flex; align-items: center; gap: 0.5rem;">
                             <span class="material-symbols-outlined" style="font-size: 18px;">folder</span>
-                            Mes Projets
+                            <?= __('index.tab_my_projects') ?>
                             <span style="background: var(--primary-color); color: white; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.75rem;"><?= count($myProjects) ?></span>
                         </button>
                         <?php if ($isAdmin && !empty($otherProjects)): ?>
                         <button type="button" class="projects-tab" onclick="switchProjectsTab('all')" data-tab="all" style="flex: 0 0 auto; padding: 0.75rem 1.5rem; background: none; border: none; cursor: pointer; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; display: flex; align-items: center; gap: 0.5rem;">
                             <span class="material-symbols-outlined" style="font-size: 18px;">admin_panel_settings</span>
-                            Tous les projets
+                            <?= __('index.tab_all_projects') ?>
                             <span style="background: #9B59B6; color: white; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.75rem;"><?= count($otherProjects) ?></span>
                         </button>
                         <?php elseif (!$isAdmin && !empty($sharedProjects)): ?>
                         <button type="button" class="projects-tab" onclick="switchProjectsTab('shared')" data-tab="shared" style="flex: 0 0 auto; padding: 0.75rem 1.5rem; background: none; border: none; cursor: pointer; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; display: flex; align-items: center; gap: 0.5rem;">
                             <span class="material-symbols-outlined" style="font-size: 18px;">group</span>
-                            Partagés avec moi
+                            <?= __('index.tab_shared') ?>
                             <span style="background: #F39C12; color: white; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.75rem;"><?= count($sharedProjects) ?></span>
                         </button>
                         <?php endif; ?>
@@ -517,11 +519,11 @@ try {
                             <div class="empty-projects-icon">
                                 <span class="material-symbols-outlined">folder_open</span>
                             </div>
-                            <h3>Vous n'avez pas encore de projet</h3>
-                            <p>Créez votre premier projet pour commencer à analyser un site web.</p>
+                            <h3><?= __('index.empty_projects_title') ?></h3>
+                            <p><?= __('index.empty_projects_text') ?></p>
                             <button class="btn btn-primary-action" onclick="openNewProjectModal()" style="margin-top: 1rem;">
                                 <span class="material-symbols-outlined">add_circle</span>
-                                Créer mon premier projet
+                                <?= __('index.create_first_project') ?>
                             </button>
                         </div>
                         <?php endif; ?>
@@ -533,7 +535,7 @@ try {
                         <?php foreach($otherProjectsByOwner as $ownerEmail => $ownerProjects): ?>
                         <div class="owner-section" style="margin-bottom: 1.5rem;">
                             <h3 style="font-size: 0.95rem; color: var(--text-secondary); margin-bottom: 1rem; padding-left: 0.5rem; border-left: 3px solid #9B59B6;">
-                                Projets de <?= htmlspecialchars($ownerEmail) ?>
+                                <?= __('index.owner_section_prefix') ?><?= htmlspecialchars($ownerEmail) ?>
                             </h3>
                             <div class="domains-list">
                             <?php foreach($ownerProjects as $otherProject): 
@@ -583,14 +585,14 @@ try {
                     <div class="hero-header">
                         <div class="hero-title">
                             <span class="material-symbols-outlined">rocket_launch</span>
-                            Nouveau Projet de Crawl
+                            <?= __('index.modal_new_project') ?>
                         </div>
                         <button type="button" class="hero-close" onclick="closeNewProjectModal()">&times;</button>
                     </div>
                     <div class="hero-url-group">
                         <label for="start_url" class="hero-label">
                             <span class="material-symbols-outlined">language</span>
-                            URL de départ
+                            <?= __('index.modal_start_url') ?>
                         </label>
                         <input type="url" id="start_url" name="start_url" 
                                class="hero-input" 
@@ -604,19 +606,19 @@ try {
                 <div class="crawl-tabs">
                     <button type="button" class="crawl-tab active" data-tab="general" onclick="switchCrawlTab('general')">
                         <span class="material-symbols-outlined">tune</span>
-                        Général
+                        <?= __('index.modal_tab_general') ?>
                     </button>
                     <button type="button" class="crawl-tab" data-tab="scope" onclick="switchCrawlTab('scope')">
                         <span class="material-symbols-outlined">rule</span>
-                        Règles & Scope
+                        <?= __('index.modal_tab_scope') ?>
                     </button>
                     <button type="button" class="crawl-tab" data-tab="extraction" onclick="switchCrawlTab('extraction')">
                         <span class="material-symbols-outlined">data_object</span>
-                        Extraction
+                        <?= __('index.modal_tab_extraction') ?>
                     </button>
                     <button type="button" class="crawl-tab" data-tab="advanced" onclick="switchCrawlTab('advanced')">
                         <span class="material-symbols-outlined">settings</span>
-                        Avancé
+                        <?= __('index.modal_tab_advanced') ?>
                     </button>
                 </div>
 
@@ -630,11 +632,11 @@ try {
                             <div class="setting-row">
                                 <div class="setting-row-label">
                                     <span class="material-symbols-outlined">layers</span>
-                                    <h4>Profondeur maximale</h4>
+                                    <h4><?= __('index.modal_max_depth') ?></h4>
                                 </div>
                                 <div class="setting-row-control">
                                     <input type="number" id="depth_max" name="depth_max" value="30" min="1" max="100" required class="setting-input-number">
-                                    <span class="setting-unit">niveaux</span>
+                                    <span class="setting-unit"><?= __('common.levels') ?></span>
                                 </div>
                             </div>
 
@@ -642,7 +644,7 @@ try {
                             <div class="setting-row">
                                 <div class="setting-row-label">
                                     <span class="material-symbols-outlined">speed</span>
-                                    <h4>Vitesse de crawl</h4>
+                                    <h4><?= __('index.modal_crawl_speed') ?></h4>
                                 </div>
                                 <div class="setting-row-control">
                                     <input type="hidden" id="crawl_speed" name="crawl_speed" value="fast">
@@ -651,39 +653,39 @@ try {
                                             <div class="speed-select-value">
                                                 <span class="material-symbols-outlined speed-icon speed-icon-fast">speed</span>
                                                 <div class="speed-select-text">
-                                                    <span class="speed-select-name">Rapide</span>
-                                                    <span class="speed-select-desc">20 URLs/seconde</span>
+                                                    <span class="speed-select-name"><?= __('index.modal_speed_fast') ?></span>
+                                                    <span class="speed-select-desc"><?= __('index.modal_speed_fast_desc') ?></span>
                                                 </div>
                                             </div>
                                             <span class="material-symbols-outlined speed-select-arrow">expand_more</span>
                                         </div>
                                         <div class="speed-select-dropdown" id="speedDropdown">
-                                            <div class="speed-select-option" data-value="very_slow" onclick="selectSpeedOption('very_slow', 'Très lent', '1 URL/seconde', 'hourglass_top')">
+                                            <div class="speed-select-option" data-value="very_slow" onclick="selectSpeedOption('very_slow', __('index.modal_speed_very_slow'), __('index.modal_speed_very_slow_desc'), 'hourglass_top')">
                                                 <span class="material-symbols-outlined speed-icon speed-icon-very_slow">hourglass_top</span>
                                                 <div class="speed-select-text">
-                                                    <span class="speed-select-name">Très lent</span>
-                                                    <span class="speed-select-desc">1 URL/seconde</span>
+                                                    <span class="speed-select-name"><?= __('index.modal_speed_very_slow') ?></span>
+                                                    <span class="speed-select-desc"><?= __('index.modal_speed_very_slow_desc') ?></span>
                                                 </div>
                                             </div>
-                                            <div class="speed-select-option" data-value="slow" onclick="selectSpeedOption('slow', 'Lent', '5 URLs/seconde', 'pace')">
+                                            <div class="speed-select-option" data-value="slow" onclick="selectSpeedOption('slow', __('index.modal_speed_slow'), __('index.modal_speed_slow_desc'), 'pace')">
                                                 <span class="material-symbols-outlined speed-icon speed-icon-slow">pace</span>
                                                 <div class="speed-select-text">
-                                                    <span class="speed-select-name">Lent</span>
-                                                    <span class="speed-select-desc">5 URLs/seconde</span>
+                                                    <span class="speed-select-name"><?= __('index.modal_speed_slow') ?></span>
+                                                    <span class="speed-select-desc"><?= __('index.modal_speed_slow_desc') ?></span>
                                                 </div>
                                             </div>
-                                            <div class="speed-select-option selected" data-value="fast" onclick="selectSpeedOption('fast', 'Rapide', '20 URLs/seconde', 'speed')">
+                                            <div class="speed-select-option selected" data-value="fast" onclick="selectSpeedOption('fast', __('index.modal_speed_fast'), __('index.modal_speed_fast_desc'), 'speed')">
                                                 <span class="material-symbols-outlined speed-icon speed-icon-fast">speed</span>
                                                 <div class="speed-select-text">
-                                                    <span class="speed-select-name">Rapide</span>
-                                                    <span class="speed-select-desc">20 URLs/seconde</span>
+                                                    <span class="speed-select-name"><?= __('index.modal_speed_fast') ?></span>
+                                                    <span class="speed-select-desc"><?= __('index.modal_speed_fast_desc') ?></span>
                                                 </div>
                                             </div>
-                                            <div class="speed-select-option" data-value="unlimited" onclick="selectSpeedOption('unlimited', 'Sans limite', 'Maximum de performance', 'bolt')">
+                                            <div class="speed-select-option" data-value="unlimited" onclick="selectSpeedOption('unlimited', __('index.modal_speed_unlimited'), __('index.modal_speed_unlimited_desc'), 'bolt')">
                                                 <span class="material-symbols-outlined speed-icon speed-icon-unlimited">bolt</span>
                                                 <div class="speed-select-text">
-                                                    <span class="speed-select-name">Sans limite</span>
-                                                    <span class="speed-select-desc">Maximum de performance</span>
+                                                    <span class="speed-select-name"><?= __('index.modal_speed_unlimited') ?></span>
+                                                    <span class="speed-select-desc"><?= __('index.modal_speed_unlimited_desc') ?></span>
                                                 </div>
                                             </div>
                                         </div>
@@ -695,17 +697,17 @@ try {
                             <div class="setting-row">
                                 <div class="setting-row-label">
                                     <span class="material-symbols-outlined">code</span>
-                                    <h4>Mode de crawl</h4>
+                                    <h4><?= __('index.modal_crawl_mode') ?></h4>
                                 </div>
                                 <div class="setting-row-control">
                                     <div class="mode-selector">
                                         <button type="button" class="mode-btn active" data-mode="classic" onclick="selectMode('classic', this)">
                                             <span class="material-symbols-outlined">http</span>
-                                            <span class="mode-label">Classique</span>
+                                            <span class="mode-label"><?= __('index.modal_mode_classic') ?></span>
                                         </button>
                                         <button type="button" class="mode-btn" data-mode="javascript" onclick="selectMode('javascript', this)">
                                             <span class="material-symbols-outlined">javascript</span>
-                                            <span class="mode-label">JavaScript</span>
+                                            <span class="mode-label"><?= __('index.modal_mode_javascript') ?></span>
                                         </button>
                                     </div>
                                     <input type="hidden" id="crawl_mode" name="crawl_mode" value="classic">
@@ -719,15 +721,15 @@ try {
                         <div class="scope-section">
                             <h4 class="scope-section-title">
                                 <span class="material-symbols-outlined">domain</span>
-                                Domaines autorisés
+                                <?= __('index.modal_allowed_domains') ?>
                             </h4>
                             <div class="scope-section-content">
                                 <textarea id="allowed_domains" name="allowed_domains" rows="3" 
-                                          placeholder="Un domaine par ligne..."
+                                          placeholder="<?= __('index.modal_allowed_domains_placeholder') ?>"
                                           class="domains-textarea"></textarea>
                                 <div class="scope-hint">
                                     <span class="material-symbols-outlined">auto_awesome</span>
-                                    Auto-rempli depuis l'URL.
+                                    <?= __('index.modal_allowed_domains_hint') ?>
                                 </div>
                             </div>
                         </div>
@@ -735,15 +737,15 @@ try {
                         <div class="scope-section">
                             <h4 class="scope-section-title">
                                 <span class="material-symbols-outlined">rule</span>
-                                Règles de crawl
+                                <?= __('index.modal_crawl_rules') ?>
                             </h4>
                             <div class="rules-grid">
                                 <label class="rule-toggle">
                                     <input type="checkbox" id="respect_robots" name="respect_robots" checked>
                                     <span class="rule-toggle-slider"></span>
                                     <div class="rule-toggle-content">
-                                        <span class="rule-toggle-label">Respecter robots.txt</span>
-                                        <span class="rule-toggle-hint">Suivre les règles du fichier robots.txt</span>
+                                        <span class="rule-toggle-label"><?= __('index.modal_rule_robots') ?></span>
+                                        <span class="rule-toggle-hint"><?= __('index.modal_rule_robots_hint') ?></span>
                                     </div>
                                 </label>
 
@@ -751,8 +753,8 @@ try {
                                     <input type="checkbox" id="respect_nofollow" name="respect_nofollow" checked>
                                     <span class="rule-toggle-slider"></span>
                                     <div class="rule-toggle-content">
-                                        <span class="rule-toggle-label">Respecter les nofollow</span>
-                                        <span class="rule-toggle-hint">Ignorer les liens avec rel="nofollow"</span>
+                                        <span class="rule-toggle-label"><?= __('index.modal_rule_nofollow') ?></span>
+                                        <span class="rule-toggle-hint"><?= __('index.modal_rule_nofollow_hint') ?></span>
                                     </div>
                                 </label>
 
@@ -760,8 +762,8 @@ try {
                                     <input type="checkbox" id="respect_canonical" name="respect_canonical" checked>
                                     <span class="rule-toggle-slider"></span>
                                     <div class="rule-toggle-content">
-                                        <span class="rule-toggle-label">Respecter les canonicals</span>
-                                        <span class="rule-toggle-hint">Suivre les balises canonical</span>
+                                        <span class="rule-toggle-label"><?= __('index.modal_rule_canonical') ?></span>
+                                        <span class="rule-toggle-hint"><?= __('index.modal_rule_canonical_hint') ?></span>
                                     </div>
                                 </label>
                             </div>
@@ -770,26 +772,26 @@ try {
                         <div class="scope-section">
                             <h4 class="scope-section-title">
                                 <span class="material-symbols-outlined">lock</span>
-                                Authentification HTTP
+                                <?= __('index.modal_http_auth') ?>
                             </h4>
                             <div class="scope-section-content">
                                 <label class="rule-toggle" style="margin-bottom: 1rem;">
                                     <input type="checkbox" id="enable_auth" name="enable_auth" onchange="toggleAuthFields()">
                                     <span class="rule-toggle-slider"></span>
                                     <div class="rule-toggle-content">
-                                        <span class="rule-toggle-label">Activer l'authentification HTTP Basic</span>
-                                        <span class="rule-toggle-hint">Pour les sites protégés par mot de passe</span>
+                                        <span class="rule-toggle-label"><?= __('index.modal_http_auth_enable') ?></span>
+                                        <span class="rule-toggle-hint"><?= __('index.modal_http_auth_hint') ?></span>
                                     </div>
                                 </label>
                                 
                                 <div id="authFields" class="auth-fields" style="display: none;">
                                     <div class="auth-grid">
                                         <div class="form-group">
-                                            <label for="auth_username">Identifiant</label>
-                                            <input type="text" id="auth_username" name="auth_username" placeholder="utilisateur">
+                                            <label for="auth_username"><?= __('index.modal_auth_username') ?></label>
+                                            <input type="text" id="auth_username" name="auth_username" placeholder="<?= __('index.modal_auth_username') ?>">
                                         </div>
                                         <div class="form-group">
-                                            <label for="auth_password">Mot de passe</label>
+                                            <label for="auth_password"><?= __('index.modal_auth_password') ?></label>
                                             <input type="password" id="auth_password" name="auth_password" placeholder="••••••••">
                                         </div>
                                     </div>
@@ -804,7 +806,7 @@ try {
                         <div class="extractors-container">
                             <h4 class="scope-section-title">
                                 <span class="material-symbols-outlined">data_object</span>
-                                Extracteurs personnalisés
+                                <?= __('index.modal_xpath_extractors') ?>
                             </h4>
                             <div id="extractorsList" class="extractors-list">
                                 <!-- Les extracteurs seront ajoutés ici dynamiquement -->
@@ -814,20 +816,20 @@ try {
                                 <div class="extractors-empty-icon">
                                     <span class="material-symbols-outlined">data_object</span>
                                 </div>
-                                <h4>Aucun extracteur configuré</h4>
-                                <p>Récupérez des données spécifiques depuis vos pages<br>(prix, titres, SKU, etc.)</p>
+                                <h4><?= __('index.no_extractors') ?></h4>
+                                <p><?= __('index.no_extractors_desc') ?></p>
                             </div>
                             
                             <button type="button" class="btn-add-extractor" onclick="addExtractor()">
                                 <span class="material-symbols-outlined">add</span>
-                                Ajouter un extracteur
+                                <?= __('index.modal_add_extractor') ?>
                             </button>
                         </div>
 
                         <div class="extraction-help-toggle">
                             <a href="#" onclick="toggleExtractionHelp(event)">
                                 <span class="material-symbols-outlined">help_outline</span>
-                                Voir des exemples d'expressions
+                                <?= __('index.see_examples') ?>
                             </a>
                         </div>
                         <div class="extraction-help" id="extractionHelp" style="display: none;">
@@ -835,17 +837,17 @@ try {
                                 <div class="extraction-example">
                                     <span class="extraction-example-type">XPath</span>
                                     <code>//h2</code>
-                                    <span class="extraction-example-desc">Sélection simple</span>
+                                    <span class="extraction-example-desc"><?= __('index.example_simple_selection') ?></span>
                                 </div>
                                 <div class="extraction-example">
                                     <span class="extraction-example-type">XPath</span>
                                     <code>count(//h2)</code>
-                                    <span class="extraction-example-desc">Fonction XPath</span>
+                                    <span class="extraction-example-desc"><?= __('index.example_xpath_function') ?></span>
                                 </div>
                                 <div class="extraction-example">
                                     <span class="extraction-example-type">Regex</span>
                                     <code>price: (\d+)</code>
-                                    <span class="extraction-example-desc">Extraction de valeur</span>
+                                    <span class="extraction-example-desc"><?= __('index.example_value_extraction') ?></span>
                                 </div>
                             </div>
                         </div>
@@ -866,52 +868,52 @@ try {
                                         <span class="material-symbols-outlined ua-icon ua-icon-scouter">smart_toy</span>
                                         <div class="ua-select-text">
                                             <span class="ua-select-name">Scouter</span>
-                                            <span class="ua-select-desc">User-Agent par défaut</span>
+                                            <span class="ua-select-desc"><?= __('index.ua_default') ?></span>
                                         </div>
                                     </div>
                                     <span class="material-symbols-outlined ua-select-arrow">expand_more</span>
                                 </div>
                                 <div class="ua-select-dropdown" id="uaDropdown">
-                                    <div class="ua-select-option selected" data-value="scouter" onclick="selectUAOption('scouter', 'Scouter', 'User-Agent par défaut', 'smart_toy')">
+                                    <div class="ua-select-option selected" data-value="scouter" onclick="selectUAOption('scouter', 'Scouter', '<?= __('index.ua_default') ?>', 'smart_toy')">
                                         <span class="material-symbols-outlined ua-icon ua-icon-scouter">smart_toy</span>
                                         <div class="ua-select-text">
                                             <span class="ua-select-name">Scouter</span>
-                                            <span class="ua-select-desc">User-Agent par défaut</span>
+                                            <span class="ua-select-desc"><?= __('index.ua_default') ?></span>
                                         </div>
                                     </div>
-                                    <div class="ua-select-option" data-value="googlebot-mobile" onclick="selectUAOption('googlebot-mobile', 'Googlebot Smartphone', 'Bot mobile de Google', 'phone_android')">
+                                    <div class="ua-select-option" data-value="googlebot-mobile" onclick="selectUAOption('googlebot-mobile', 'Googlebot Smartphone', '<?= __('index.ua_googlebot_mobile') ?>', 'phone_android')">
                                         <span class="material-symbols-outlined ua-icon ua-icon-googlebot">phone_android</span>
                                         <div class="ua-select-text">
                                             <span class="ua-select-name">Googlebot Smartphone</span>
-                                            <span class="ua-select-desc">Bot mobile de Google</span>
+                                            <span class="ua-select-desc"><?= __('index.ua_googlebot_mobile') ?></span>
                                         </div>
                                     </div>
-                                    <div class="ua-select-option" data-value="googlebot-desktop" onclick="selectUAOption('googlebot-desktop', 'Googlebot Desktop', 'Bot desktop de Google', 'computer')">
+                                    <div class="ua-select-option" data-value="googlebot-desktop" onclick="selectUAOption('googlebot-desktop', 'Googlebot Desktop', '<?= __('index.ua_googlebot_desktop') ?>', 'computer')">
                                         <span class="material-symbols-outlined ua-icon ua-icon-googlebot">computer</span>
                                         <div class="ua-select-text">
                                             <span class="ua-select-name">Googlebot Desktop</span>
-                                            <span class="ua-select-desc">Bot desktop de Google</span>
+                                            <span class="ua-select-desc"><?= __('index.ua_googlebot_desktop') ?></span>
                                         </div>
                                     </div>
-                                    <div class="ua-select-option" data-value="chrome" onclick="selectUAOption('chrome', 'Chrome Utilisateur', 'Navigateur Chrome standard', 'person')">
+                                    <div class="ua-select-option" data-value="chrome" onclick="selectUAOption('chrome', '<?= __('index.ua_chrome_user') ?>', '<?= __('index.ua_chrome_desc') ?>', 'person')">
                                         <span class="material-symbols-outlined ua-icon ua-icon-chrome">person</span>
                                         <div class="ua-select-text">
-                                            <span class="ua-select-name">Chrome Utilisateur</span>
-                                            <span class="ua-select-desc">Navigateur Chrome standard</span>
+                                            <span class="ua-select-name"><?= __('index.ua_chrome_user') ?></span>
+                                            <span class="ua-select-desc"><?= __('index.ua_chrome_desc') ?></span>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                             <div class="ua-custom-input">
-                                <label>User-Agent personnalisé :</label>
-                                <input type="text" id="custom_ua_input" placeholder="Personnaliser..." onchange="applyCustomUA()">
+                                <label><?= __('index.custom_ua') ?></label>
+                                <input type="text" id="custom_ua_input" placeholder="<?= __('index.customize') ?>" onchange="applyCustomUA()">
                             </div>
                         </div>
 
                         <div class="advanced-section">
                             <h4 class="advanced-section-title">
                                 <span class="material-symbols-outlined">http</span>
-                                Headers HTTP personnalisés
+                                <?= __('index.modal_custom_headers') ?>
                             </h4>
                             <div class="headers-container">
                                 <div id="headersList" class="headers-list">
@@ -919,10 +921,10 @@ try {
                                 </div>
                                 <button type="button" class="btn-add-header" onclick="addHeader()">
                                     <span class="material-symbols-outlined">add</span>
-                                    Ajouter un header
+                                    <?= __('index.modal_add_header') ?>
                                 </button>
                                 <div class="headers-hint">
-                                    <strong>Headers courants :</strong> Authorization, Cookie, X-API-Key
+                                    <strong><?= __('index.common_headers') ?></strong> Authorization, Cookie, X-API-Key
                                 </div>
                             </div>
                         </div>
@@ -932,11 +934,11 @@ try {
                 <!-- Footer avec actions -->
                 <div class="crawl-modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeNewProjectModal()">
-                        Annuler
+                        <?= __('common.cancel') ?>
                     </button>
                     <button type="submit" class="btn btn-launch" id="submitBtn">
                         <span class="material-symbols-outlined">rocket_launch</span>
-                        Lancer le crawl
+                        <?= __('index.btn_launch_crawl') ?>
                     </button>
                 </div>
 
@@ -952,7 +954,7 @@ try {
             <div class="cat-modal-header">
                 <div class="cat-modal-title">
                     <span class="material-symbols-outlined">category</span>
-                    <h2>Gérer les catégories</h2>
+                    <h2><?= __('index.manage_categories') ?></h2>
                 </div>
                 <button class="cat-modal-close" onclick="closeCategoriesModal()">
                     <span class="material-symbols-outlined">close</span>
@@ -964,10 +966,10 @@ try {
                 <!-- Formulaire d'ajout -->
                 <div class="cat-add-form">
                     <input type="color" id="newCategoryColor" value="#4ECDC4" class="cat-color-input">
-                    <input type="text" id="newCategoryName" class="cat-name-input" placeholder="Nom de la catégorie...">
+                    <input type="text" id="newCategoryName" class="cat-name-input" placeholder="<?= __('index.category_name') ?>">
                     <button type="button" class="cat-add-btn" onclick="createCategory()">
                         <span class="material-symbols-outlined">add</span>
-                        Créer
+                        <?= __('index.modal_btn_create') ?>
                     </button>
                 </div>
 
@@ -981,7 +983,7 @@ try {
             <div class="cat-modal-footer">
                 <button type="button" class="btn btn-primary" onclick="closeCategoriesModal()">
                     <span class="material-symbols-outlined">check</span>
-                    Valider
+                    <?= __('common.save') ?>
                 </button>
             </div>
         </div>
@@ -993,7 +995,7 @@ try {
             <div class="cat-modal-header">
                 <div class="cat-modal-title">
                     <span class="material-symbols-outlined">add_circle</span>
-                    <h2>Nouvelle catégorie</h2>
+                    <h2><?= __('index.add_category') ?></h2>
                 </div>
                 <button class="cat-modal-close" onclick="closeQuickAddCategoryModal()">
                     <span class="material-symbols-outlined">close</span>
@@ -1003,15 +1005,15 @@ try {
             <div class="cat-modal-body">
                 <div class="cat-add-form" style="border-bottom: none; padding-bottom: 0; margin-bottom: 0;">
                     <input type="color" id="quickCategoryColor" value="#4ECDC4" class="cat-color-input">
-                    <input type="text" id="quickCategoryName" class="cat-name-input" placeholder="Nom de la catégorie...">
+                    <input type="text" id="quickCategoryName" class="cat-name-input" placeholder="<?= __('index.category_name') ?>">
                 </div>
             </div>
 
             <div class="cat-modal-footer" style="gap: 0.75rem;">
-                <button type="button" class="btn btn-secondary" onclick="closeQuickAddCategoryModal()">Annuler</button>
+                <button type="button" class="btn btn-secondary" onclick="closeQuickAddCategoryModal()"><?= __('common.cancel') ?></button>
                 <button type="button" class="cat-add-btn" onclick="quickCreateCategory()">
                     <span class="material-symbols-outlined">add</span>
-                    Créer
+                    <?= __('index.modal_btn_create') ?>
                 </button>
             </div>
         </div>
@@ -1301,8 +1303,8 @@ try {
             
             headerDiv.innerHTML = `
                 <div class="header-item-row">
-                    <input type="text" class="header-name" placeholder="Clé" oninput="sanitizeHeaderName(this)">
-                    <input type="text" class="header-value" placeholder="Valeur">
+                    <input type="text" class="header-name" placeholder="${__('config.key')}" oninput="sanitizeHeaderName(this)">
+                    <input type="text" class="header-value" placeholder="${__('config.value')}">
                     <button type="button" class="header-item-delete" onclick="removeHeader(${id})">
                         <span class="material-symbols-outlined">close</span>
                     </button>
@@ -1509,7 +1511,7 @@ try {
             const formMessage = document.getElementById('formMessage');
             
             submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span> Création en cours...';
+            submitBtn.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span> ' + __('common.loading');
             formMessage.innerHTML = '';
             
             // Récupérer les domaines autorisés
@@ -1583,10 +1585,10 @@ try {
                 const result = await response.json();
                 
                 if (!response.ok || !result.success) {
-                    throw new Error(result.error || 'Erreur lors de la création du projet');
+                    throw new Error(result.error || __('common.error'));
                 }
                 
-                formMessage.innerHTML = '<div class="alert alert-success">✓ Projet créé avec succès! Lancement du crawl...</div>';
+                formMessage.innerHTML = '<div class="alert alert-success">✓ ' + __('index.msg_project_created') + '</div>';
                 
                 // Start crawl
                 const crawlResponse = await fetch('api/crawls/start', {
@@ -1598,10 +1600,10 @@ try {
                 const crawlResult = await crawlResponse.json();
                 
                 if (!crawlResponse.ok || !crawlResult.success) {
-                    throw new Error(crawlResult.error || 'Erreur lors du lancement du crawl');
+                    throw new Error(crawlResult.error || __('common.error'));
                 }
                 
-                formMessage.innerHTML = '<div class="alert alert-success">✓ Crawl lancé avec succès!</div>';
+                formMessage.innerHTML = '<div class="alert alert-success">✓ ' + __('index.msg_crawl_launched') + '</div>';
                 
                 // Fermer la modal et ouvrir le panel de monitoring
                 closeNewProjectModal();
@@ -1619,7 +1621,7 @@ try {
             } catch (error) {
                 formMessage.innerHTML = `<div class="alert alert-error">✗ ${error.message}</div>`;
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = '<span class="material-symbols-outlined">rocket_launch</span> Créer et lancer le crawl';
+                submitBtn.innerHTML = '<span class="material-symbols-outlined">rocket_launch</span> ' + __('index.modal_btn_create_launch');
             }
         }
 
@@ -1704,10 +1706,10 @@ try {
             
             // Update label
             const labels = {
-                'date-desc': 'Du plus récent au plus ancien',
-                'date-asc': 'Du plus ancien au plus récent',
-                'alpha-asc': 'Par ordre alphabétique (A → Z)',
-                'alpha-desc': 'Par ordre alphabétique (Z → A)'
+                'date-desc': __('index.sort_recent'),
+                'date-asc': __('index.sort_oldest'),
+                'alpha-asc': __('index.sort_alpha_asc'),
+                'alpha-desc': __('index.sort_alpha_desc')
             };
             document.getElementById('currentSortLabel').textContent = labels[option];
             
@@ -1944,10 +1946,10 @@ try {
                     // Reload page to update UI
                     location.reload();
                 } else {
-                    alert('Erreur: ' + (result.error || 'Erreur inconnue'));
+                    alert(__('common.error') + ': ' + (result.error || __('common.error')));
                 }
             } catch (error) {
-                alert('Erreur: ' + error.message);
+                alert(__('common.error') + ': ' + error.message);
             }
         }
 
@@ -2031,7 +2033,7 @@ try {
                 if (!noResultsMsg) {
                     noResultsMsg = document.createElement('div');
                     noResultsMsg.className = 'noResultsMessage loading';
-                    noResultsMsg.innerHTML = '<p>Aucun domaine ne correspond à votre recherche.</p>';
+                    noResultsMsg.innerHTML = '<p>' + __('index.no_domain_match') + '</p>';
                     domainsList.appendChild(noResultsMsg);
                 }
                 noResultsMsg.style.display = 'block';
@@ -2056,16 +2058,16 @@ try {
                         let newClass = 'project-badge';
                         
                         if (data.status === 'running') {
-                            newText = 'En cours';
+                            newText = __('index.running');
                             newClass += ' badge-running';
                         } else if (data.status === 'queued' || data.status === 'pending') {
-                            newText = 'En attente';
+                            newText = __('crawl_panel.status_queued');
                             newClass += ' badge-queued';
                         } else if (data.status === 'failed') {
-                            newText = 'Échoué';
+                            newText = __('index.error');
                             newClass += ' badge-failed';
                         } else if (data.status === 'completed') {
-                            newText = 'Terminé';
+                            newText = __('crawl_panel.status_completed');
                             newClass += ' badge-completed';
                         }
                         
@@ -2115,7 +2117,7 @@ try {
             const color = document.getElementById('quickCategoryColor').value;
             
             if (!name) {
-                alert('Veuillez saisir un nom de catégorie');
+                alert(__('index.category_name'));
                 return;
             }
             
@@ -2132,10 +2134,10 @@ try {
                     closeQuickAddCategoryModal();
                     location.reload();
                 } else {
-                    alert('Erreur: ' + (result.error || 'Erreur inconnue'));
+                    alert(__('common.error') + ': ' + (result.error || __('common.error')));
                 }
             } catch (error) {
-                alert('Erreur: ' + error.message);
+                alert(__('common.error') + ': ' + error.message);
             }
         }
 
@@ -2151,7 +2153,7 @@ try {
                         categoriesList.innerHTML = `
                             <div class="cat-empty">
                                 <span class="material-symbols-outlined">category</span>
-                                <p>Aucune catégorie créée</p>
+                                <p>${__('index.no_categories')}</p>
                             </div>
                         `;
                     } else {
@@ -2160,7 +2162,7 @@ try {
                                 <div class="cat-item-color" style="background: ${cat.color}">
                                     <input type="color" value="${cat.color}" 
                                            onchange="updateCategoryColor(${cat.id}, this.value)"
-                                           title="Changer la couleur">
+                                           title="${__('index.change_color')}">
                                 </div>
                                 <div class="cat-item-info">
                                     <input type="text" 
@@ -2187,7 +2189,7 @@ try {
             const color = document.getElementById('newCategoryColor').value;
             
             if (!name) {
-                alert('Veuillez saisir un nom de catégorie');
+                alert(__('index.category_name'));
                 return;
             }
             
@@ -2208,17 +2210,17 @@ try {
                     // Reload categories list only
                     await loadCategories();
                 } else {
-                    alert('Erreur: ' + (result.error || 'Erreur inconnue'));
+                    alert(__('common.error') + ': ' + (result.error || __('common.error')));
                 }
             } catch (error) {
-                alert('Erreur: ' + error.message);
+                alert(__('common.error') + ': ' + error.message);
             }
         }
 
         async function updateCategoryName(id, newName) {
             const trimmedName = newName.trim();
             if (!trimmedName) {
-                alert('Le nom ne peut pas être vide');
+                alert(__('index.category_name'));
                 await loadCategories();
                 return;
             }
@@ -2233,11 +2235,11 @@ try {
                 const result = await response.json();
                 
                 if (!result.success) {
-                    alert('Erreur: ' + (result.error || 'Erreur inconnue'));
+                    alert(__('common.error') + ': ' + (result.error || __('common.error')));
                     await loadCategories();
                 }
             } catch (error) {
-                alert('Erreur: ' + error.message);
+                alert(__('common.error') + ': ' + error.message);
                 await loadCategories();
             }
         }
@@ -2259,15 +2261,15 @@ try {
                         colorDiv.style.background = newColor;
                     }
                 } else {
-                    alert('Erreur: ' + (result.error || 'Erreur inconnue'));
+                    alert(__('common.error') + ': ' + (result.error || __('common.error')));
                 }
             } catch (error) {
-                alert('Erreur: ' + error.message);
+                alert(__('common.error') + ': ' + error.message);
             }
         }
 
         async function deleteCategory(id, name) {
-            if (!await customConfirm(`Êtes-vous sûr de vouloir supprimer la catégorie "${name}" ?`, 'Supprimer la catégorie', 'Supprimer', 'danger')) {
+            if (!await customConfirm(__('index.confirm_delete_category'), __('index.confirm_delete_category'), __('common.delete'), 'danger')) {
                 return;
             }
             
@@ -2283,24 +2285,24 @@ try {
                 if (result.success) {
                     await loadCategories();
                 } else {
-                    alert('Erreur: ' + (result.error || 'Erreur inconnue'));
+                    alert(__('common.error') + ': ' + (result.error || __('common.error')));
                 }
             } catch (error) {
-                alert('Erreur: ' + error.message);
+                alert(__('common.error') + ': ' + error.message);
             }
         }
 
         // Dupliquer et lancer un nouveau crawl
         // targetUserId: ID du propriétaire du projet (pour admin qui crée un crawl sur le projet d'un autre)
         async function duplicateAndStart(projectDir, targetUserId = null) {
-            if (!await customConfirm('Lancer un nouveau crawl pour ce domaine (la configuration du dernier crawl sera reprise) ?', 'Nouveau crawl', 'Lancer', 'primary')) {
+            if (!await customConfirm(__('index.btn_launch_crawl'), __('index.btn_launch_crawl'), __('index.btn_launch_crawl'), 'primary')) {
                 return;
             }
             
             const button = event.target.closest('button');
             const originalHTML = button.innerHTML;
             button.disabled = true;
-            button.innerHTML = '<span class="material-symbols-outlined" style="font-size: 16px;">hourglass_empty</span> Création...';
+            button.innerHTML = '<span class="material-symbols-outlined" style="font-size: 16px;">hourglass_empty</span> ' + __('common.loading');
             
             try {
                 const payload = { project: projectDir };
@@ -2332,12 +2334,12 @@ try {
                     button.innerHTML = originalHTML;
                     return;
                 } else {
-                    alert('Erreur: ' + (data.error || 'Erreur inconnue'));
+                    alert(__('common.error') + ': ' + (data.error || __('common.error')));
                     button.disabled = false;
                     button.innerHTML = originalHTML;
                 }
             } catch (error) {
-                alert('Erreur: ' + error.message);
+                alert(__('common.error') + ': ' + error.message);
                 button.disabled = false;
                 button.innerHTML = originalHTML;
             }
@@ -2489,7 +2491,7 @@ try {
             <div class="cat-modal-header">
                 <div class="cat-modal-title">
                     <span class="material-symbols-outlined">settings</span>
-                    <h2 id="projectSettingsTitle">Paramètres du projet</h2>
+                    <h2 id="projectSettingsTitle"><?= __('index.share_project_title') ?></h2>
                 </div>
                 <button class="cat-modal-close" onclick="closeProjectSettingsModal()">
                     <span class="material-symbols-outlined">close</span>
@@ -2500,11 +2502,11 @@ try {
             <div class="project-settings-tabs" style="display: flex; border-bottom: 1px solid var(--border-color); padding: 0 1.5rem;">
                 <button type="button" class="project-tab active" onclick="switchProjectTab('share')" data-tab="share" style="flex: 1; padding: 0.75rem; background: none; border: none; cursor: pointer; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -1px;">
                     <span class="material-symbols-outlined" style="font-size: 18px; vertical-align: middle;">group</span>
-                    Partage
+                    <?= __('index.btn_share_project') ?>
                 </button>
                 <button type="button" class="project-tab" onclick="switchProjectTab('danger')" data-tab="danger" style="flex: 1; padding: 0.75rem; background: none; border: none; cursor: pointer; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -1px;">
                     <span class="material-symbols-outlined" style="font-size: 18px; vertical-align: middle;">warning</span>
-                    Zone de danger
+                    <?= __('index.btn_delete_project') ?>
                 </button>
             </div>
             
@@ -2513,14 +2515,14 @@ try {
                 <!-- Onglet Partage -->
                 <div id="projectTab-share" class="project-tab-pane active">
                     <div style="margin-bottom: 1.5rem;">
-                        <h4 style="margin-bottom: 0.75rem; color: var(--text-primary); font-size: 0.9rem;">Ajouter un utilisateur</h4>
+                        <h4 style="margin-bottom: 0.75rem; color: var(--text-primary); font-size: 0.9rem;"><?= __('index.share_select_user') ?></h4>
                         <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
                             <input type="hidden" id="shareUserSelect" value="">
                             <div class="user-dropdown" id="shareUserDropdown" style="flex: 1;">
                                 <div class="user-dropdown-trigger" onclick="toggleUserDropdown()">
                                     <div class="user-dropdown-value">
                                         <span class="material-symbols-outlined" style="color: var(--text-secondary);">person_add</span>
-                                        <span id="shareUserLabel">Sélectionner un utilisateur</span>
+                                        <span id="shareUserLabel"><?= __('index.share_select_user') ?></span>
                                     </div>
                                     <span class="material-symbols-outlined">expand_more</span>
                                 </div>
@@ -2530,13 +2532,13 @@ try {
                             </div>
                             <button type="button" class="cat-add-btn" onclick="shareProjectWithUser()" style="white-space: nowrap;">
                                 <span class="material-symbols-outlined">person_add</span>
-                                Partager
+                                <?= __('index.btn_share_project') ?>
                             </button>
                         </div>
                     </div>
                     
                     <div>
-                        <h4 style="margin-bottom: 0.75rem; color: var(--text-primary); font-size: 0.9rem;">Utilisateurs ayant accès</h4>
+                        <h4 style="margin-bottom: 0.75rem; color: var(--text-primary); font-size: 0.9rem;"><?= __('index.share_current_shares') ?></h4>
                         <div id="projectSharesList" style="max-height: 200px; overflow-y: auto;">
                             <!-- Liste des utilisateurs partagés -->
                         </div>
@@ -2549,14 +2551,14 @@ try {
                     <div style="background: #FEF2F2; border: 1px solid #FECACA; border-radius: 8px; padding: 1.25rem;">
                         <h4 style="color: #DC2626; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem;">
                             <span class="material-symbols-outlined">warning</span>
-                            Supprimer ce projet
+                            <?= __('index.confirm_delete_project_title') ?>
                         </h4>
                         <p style="color: #7F1D1D; margin-bottom: 1rem; font-size: 0.85rem;">
-                            Cette action est irréversible. Tous les crawls associés seront supprimés.
+                            <?= __('index.confirm_delete_project') ?>
                         </p>
                         <button type="button" class="btn" onclick="deleteProject()" style="background: #DC2626; color: white; border: none; cursor: pointer;">
                             <span class="material-symbols-outlined">delete_forever</span>
-                            Supprimer le projet
+                            <?= __('index.confirm_delete_project_title') ?>
                         </button>
                     </div>
                 </div>
@@ -2564,7 +2566,7 @@ try {
             
             <!-- Footer -->
             <div class="cat-modal-footer" style="gap: 0.75rem;">
-                <button type="button" class="btn btn-secondary" onclick="closeProjectSettingsModal()">Fermer</button>
+                <button type="button" class="btn btn-secondary" onclick="closeProjectSettingsModal()"><?= __('common.close') ?></button>
             </div>
         </div>
     </div>
@@ -2611,9 +2613,9 @@ try {
         // Confirmation de suppression de projet (depuis menu kebab)
         async function confirmDeleteProject(projectId, projectName) {
             const confirmed = await customConfirm(
-                `Êtes-vous sûr de vouloir supprimer le projet "${projectName}" ? Cette action est irréversible et supprimera tous les crawls associés.`,
-                'Supprimer le projet',
-                'Supprimer',
+                __('index.confirm_delete_project'),
+                __('index.confirm_delete_project_title'),
+                __('common.delete'),
                 'danger'
             );
             if (confirmed) {
@@ -2634,10 +2636,10 @@ try {
                 if (result.success) {
                     location.reload();
                 } else {
-                    alert('Erreur: ' + (result.error || 'Erreur lors de la suppression'));
+                    alert(__('common.error') + ': ' + (result.error || __('common.error')));
                 }
             } catch (error) {
-                alert('Erreur: ' + error.message);
+                alert(__('common.error') + ': ' + error.message);
             }
         }
         
@@ -2680,7 +2682,7 @@ try {
                     // Remplir le dropdown stylisé
                     const optionsContainer = document.getElementById('shareUserOptions');
                     if (availableUsers.length === 0) {
-                        optionsContainer.innerHTML = '<div class="user-dropdown-empty">Aucun utilisateur disponible</div>';
+                        optionsContainer.innerHTML = '<div class="user-dropdown-empty">' + __('common.no_results') + '</div>';
                     } else {
                         optionsContainer.innerHTML = availableUsers.map(user => `
                             <div class="user-dropdown-option" data-user-id="${user.id}" data-user-email="${user.email}" onclick="selectUser(${user.id}, '${user.email.replace(/'/g, "\\'")}')">
@@ -2695,12 +2697,12 @@ try {
                     
                     // Réinitialiser la sélection
                     document.getElementById('shareUserSelect').value = '';
-                    document.getElementById('shareUserLabel').textContent = 'Sélectionner un utilisateur';
+                    document.getElementById('shareUserLabel').textContent = __('index.share_select_user');
                     
                     // Afficher la liste des partages
                     const sharesList = document.getElementById('projectSharesList');
                     if (result.shares.length === 0) {
-                        sharesList.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 1rem;">Aucun partage pour ce projet</p>';
+                        sharesList.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 1rem;">' + __('index.share_no_shares') + '</p>';
                     } else {
                         sharesList.innerHTML = result.shares.map(share => `
                             <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--bg-secondary); border-radius: 6px; margin-bottom: 0.5rem;">
@@ -2713,7 +2715,7 @@ try {
                                         <div style="font-size: 0.8rem; color: var(--text-secondary);">${share.role || 'user'}</div>
                                     </div>
                                 </div>
-                                <button class="btn btn-sm btn-danger-light" onclick="removeShare(${share.id})" title="Retirer l'accès">
+                                <button class="btn btn-sm btn-danger-light" onclick="removeShare(${share.id})" title="${__('index.share_remove')}">
                                     <span class="material-symbols-outlined" style="font-size: 16px;">person_remove</span>
                                 </button>
                             </div>
@@ -2783,7 +2785,7 @@ try {
         async function shareProjectWithUser() {
             const userId = document.getElementById('shareUserSelect').value;
             if (!userId) {
-                showProjectMessage('projectShareMessage', 'Sélectionnez un utilisateur', 'error');
+                showProjectMessage('projectShareMessage', __('index.share_select_user'), 'error');
                 return;
             }
             
@@ -2800,18 +2802,18 @@ try {
                 
                 const result = await response.json();
                 if (result.success) {
-                    showProjectMessage('projectShareMessage', 'Projet partagé avec succès', 'success');
+                    showProjectMessage('projectShareMessage', __('index.msg_project_shared'), 'success');
                     loadProjectShares(currentProjectId);
                 } else {
-                    showProjectMessage('projectShareMessage', result.error || 'Erreur', 'error');
+                    showProjectMessage('projectShareMessage', result.error || __('common.error'), 'error');
                 }
             } catch (error) {
-                showProjectMessage('projectShareMessage', 'Erreur de connexion', 'error');
+                showProjectMessage('projectShareMessage', __('common.error'), 'error');
             }
         }
         
         async function removeShare(userId) {
-            if (!confirm('Êtes-vous sûr de vouloir retirer l\'accès à cet utilisateur ?')) return;
+            if (!confirm(__('index.share_remove'))) return;
             
             try {
                 const formData = new FormData();
@@ -2826,21 +2828,21 @@ try {
                 
                 const result = await response.json();
                 if (result.success) {
-                    showProjectMessage('projectShareMessage', 'Partage retiré', 'success');
+                    showProjectMessage('projectShareMessage', __('index.msg_share_removed'), 'success');
                     loadProjectShares(currentProjectId);
                 } else {
-                    showProjectMessage('projectShareMessage', result.error || 'Erreur', 'error');
+                    showProjectMessage('projectShareMessage', result.error || __('common.error'), 'error');
                 }
             } catch (error) {
-                showProjectMessage('projectShareMessage', 'Erreur de connexion', 'error');
+                showProjectMessage('projectShareMessage', __('common.error'), 'error');
             }
         }
         
         async function deleteProject() {
             const confirmed = await customConfirm(
-                `Êtes-vous sûr de vouloir supprimer le projet "${currentProjectName}" ? Cette action est irréversible et supprimera tous les crawls associés.`,
-                'Supprimer le projet',
-                'Supprimer',
+                __('index.confirm_delete_project'),
+                __('index.confirm_delete_project_title'),
+                __('common.delete'),
                 'danger'
             );
             
@@ -2856,10 +2858,10 @@ try {
                     closeProjectSettingsModal();
                     location.reload();
                 } else {
-                    alert('Erreur: ' + (result.error || 'Impossible de supprimer le projet'));
+                    alert(__('common.error') + ': ' + (result.error || __('common.error')));
                 }
             } catch (error) {
-                alert('Erreur de connexion au serveur');
+                alert(__('common.error'));
             }
         }
         

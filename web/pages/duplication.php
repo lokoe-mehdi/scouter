@@ -98,13 +98,13 @@ foreach ($allClustersRaw as $cluster) {
     // Répartition par catégorie
     foreach ($clusterPages as $page) {
         $catId = $page['cat_id'] ?? null;
-        $catName = 'Non catégorisé';
+        $catName = __('common.uncategorized');
         $catColor = '#95a5a6';
         if ($catId && isset($categoriesMap[$catId])) {
             $catName = $categoriesMap[$catId]['cat'];
             $catColor = $categoriesMap[$catId]['color'];
         }
-        
+
         if (!isset($dupByCategoryMap[$catName])) {
             $dupByCategoryMap[$catName] = ['count' => 0, 'color' => $catColor];
         }
@@ -137,7 +137,7 @@ usort($dupByCategory, function($a, $b) {
  */
 ?>
 
-<h1 class="page-title">Analyse de la duplication</h1>
+<h1 class="page-title"><?= __('duplication.page_title') ?></h1>
 
 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
 
@@ -149,33 +149,33 @@ usort($dupByCategory, function($a, $b) {
         Component::card([
             'color' => 'primary',
             'icon' => 'verified',
-            'title' => 'URLs indexables',
+            'title' => __('duplication.card_indexable'),
             'value' => number_format($indexablePages),
-            'desc' => 'Analyse de duplication limitée aux pages indexables'
+            'desc' => __('duplication.card_indexable_desc')
         ]);
 
         Component::card([
             'color' => 'warning',
             'icon' => 'percent',
-            'title' => 'Taux de duplication',
+            'title' => __('duplication.card_rate'),
             'value' => $dupRate . '%',
-            'desc' => 'Pages dupliquées / Pages indexables'
+            'desc' => __('duplication.card_rate_desc')
         ]);
         
         Component::card([
             'color' => 'info',
             'icon' => 'workspaces',
-            'title' => 'Clusters',
+            'title' => __('duplication.card_clusters'),
             'value' => number_format($totalClusters),
-            'desc' => 'Nombre de clusters de duplication identifiés'
+            'desc' => __('duplication.card_clusters_desc')
         ]);
 
         Component::card([
             'color' => 'danger',
             'icon' => 'content_copy',
-            'title' => 'Pages dupliquées',
+            'title' => __('duplication.card_duplicated'),
             'value' => number_format($totalDuplicatedPages),
-            'desc' => 'Pages flaggées comme dupliquées'
+            'desc' => __('duplication.card_duplicated_desc')
         ]);
         ?>
     </div>
@@ -188,15 +188,15 @@ usort($dupByCategory, function($a, $b) {
         // Donut 1 - Répartition unique vs duplicates
         $pagesUniques = max(0, $pagesWithSimhash - $pagesInNearDup - $pagesInExactDup);
         $pieData = [
-            ['name' => 'Contenus uniques', 'y' => $pagesUniques, 'color' => '#6bd899'],
-            ['name' => 'Near-duplicates', 'y' => $pagesInNearDup, 'color' => '#60a5fa'],
-            ['name' => 'Duplicates exacts', 'y' => $pagesInExactDup, 'color' => '#f87171'],
+            ['name' => __('duplication.series_unique'), 'y' => $pagesUniques, 'color' => '#6bd899'],
+            ['name' => __('duplication.series_near'), 'y' => $pagesInNearDup, 'color' => '#60a5fa'],
+            ['name' => __('duplication.series_exact'), 'y' => $pagesInExactDup, 'color' => '#f87171'],
         ];
         
         Component::chart([
             'type' => 'donut',
-            'title' => 'Répartition du contenu',
-            'subtitle' => 'Pages uniques vs duplicates',
+            'title' => __('duplication.chart_distribution'),
+            'subtitle' => __('duplication.chart_distribution_desc'),
             'series' => [
                 [
                     'name' => 'Pages',
@@ -218,13 +218,13 @@ usort($dupByCategory, function($a, $b) {
         }
         
         if (empty($catPieData)) {
-            $catPieData[] = ['name' => 'Aucun duplicate', 'y' => 1, 'color' => '#e5e7eb'];
+            $catPieData[] = ['name' => __('duplication.no_duplicates'), 'y' => 1, 'color' => '#e5e7eb'];
         }
         
         Component::chart([
             'type' => 'donut',
-            'title' => 'Duplication par catégorie',
-            'subtitle' => 'Nombre de pages dupliquées par catégorie',
+            'title' => __('duplication.chart_category'),
+            'subtitle' => __('duplication.chart_category_desc'),
             'series' => [
                 [
                     'name' => 'Pages',
@@ -290,21 +290,21 @@ usort($dupByCategory, function($a, $b) {
         
         if (empty($treemapData)) {
             $treemapData[] = [
-                'name' => 'Aucun duplicate détecté',
+                'name' => __('duplication.no_duplicates_found'),
                 'value' => 1,
                 'color' => '#e5e7eb'
             ];
         }
         
         // Titre conditionnel selon le nombre de clusters
-        $treemapTitle = $totalClusters > 20 
-            ? 'Top 20 clusters de duplication (sur ' . $totalClusters . ')'
-            : $totalClusters . ' cluster' . ($totalClusters > 1 ? 's' : '') . ' de duplication identifié' . ($totalClusters > 1 ? 's' : '');
+        $treemapTitle = $totalClusters > 20
+            ? __('duplication.chart_top20') . ' ' . $totalClusters . ')'
+            : $totalClusters . ' ' . ($totalClusters > 1 ? __('duplication.unit_clusters') : __('duplication.unit_cluster')) . ' de duplication identifié' . ($totalClusters > 1 ? 's' : '');
         
         Component::chart([
             'type' => 'treemap',
             'title' => $treemapTitle,
-            'subtitle' => 'Taille proportionnelle au nombre de pages',
+            'subtitle' => __('duplication.chart_top20_desc'),
             'series' => [
                 [
                     'data' => $treemapData,
@@ -342,9 +342,9 @@ usort($dupByCategory, function($a, $b) {
     <div class="card" style="background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color);">
             <div>
-                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Clusters de duplication</h3>
+                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;"><?= __('duplication.section_clusters') ?></h3>
                 <p style="margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--text-secondary);">
-                    Pages avec un contenu identique ou très similaire (seuil : <?= $minSimilarityPercent ?>% minimum)
+                    <?= __('duplication.section_clusters_desc') ?> <?= $minSimilarityPercent ?>% minimum)
                 </p>
             </div>
             <div style="display: flex; align-items: center; gap: 0.75rem;">
@@ -353,9 +353,9 @@ usort($dupByCategory, function($a, $b) {
                         style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; border: 1px solid var(--border-color); background: white; border-radius: 6px; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;" 
                         onmouseover="this.style.background='var(--background)'; this.style.borderColor='var(--primary-color)';" 
                         onmouseout="this.style.background='white'; this.style.borderColor='var(--border-color)';" 
-                        title="Copier tous les clusters">
+                        title="<?= __('duplication.copy_all_clusters') ?>">
                     <span class="material-symbols-outlined" style="font-size: 18px;">content_copy</span>
-                    Copier
+                    <?= __('common.copy') ?>
                 </button>
                 <span class="badge" style="background: #f87171; color: white; padding: 0.25rem 0.75rem; border-radius: 12px;"><?= $totalAllClusters ?> clusters</span>
             </div>
@@ -364,7 +364,7 @@ usort($dupByCategory, function($a, $b) {
             <?php if (empty($allClusters)): ?>
                 <div style="padding: 2rem; text-align: center; color: var(--text-secondary);">
                     <span class="material-symbols-outlined" style="font-size: 3rem; opacity: 0.5;">check_circle</span>
-                    <p style="margin-top: 1rem;">Aucun contenu dupliqué détecté</p>
+                    <p style="margin-top: 1rem;"><?= __('duplication.no_duplicates_found') ?></p>
                 </div>
             <?php else: ?>
                 <div class="clusters-list" style="max-height: 600px; overflow-y: auto;">
@@ -380,7 +380,7 @@ usort($dupByCategory, function($a, $b) {
                             <div style="display: flex; align-items: center; gap: 1rem;">
                                 <span class="material-symbols-outlined cluster-toggle" id="toggle-<?= $clusterId ?>">expand_more</span>
                                 <div>
-                                    <strong style="font-size: 0.9rem;">Cluster #<?= $index + 1 ?></strong>
+                                    <strong style="font-size: 0.9rem;"><?= __('duplication.cluster_label') ?><?= $index + 1 ?></strong>
                                     <span style="margin-left: 0.5rem; background: #94a3b8; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem;">
                                         <?= $cluster->page_count ?> pages
                                     </span>
@@ -393,7 +393,7 @@ usort($dupByCategory, function($a, $b) {
                                     else $simColor = '#fde047'; // jaune pastel
                                     ?>
                                     <span style="margin-left: 0.25rem; background: <?= $simColor ?>; color: #1f2937; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 500;">
-                                        <?= $cluster->similarity ?>% similaire
+                                        <?= $cluster->similarity ?>% <?= __('duplication.similar') ?>
                                     </span>
                                 </div>
                             </div>
@@ -415,7 +415,7 @@ usort($dupByCategory, function($a, $b) {
                                     <?php foreach ($pages as $page): 
                                         // Récupérer la catégorie et sa couleur
                                         $catId = $page['cat_id'] ?? null;
-                                        $catName = 'Non catégorisé';
+                                        $catName = __('common.uncategorized');
                                         $catColor = '#95a5a6';
                                         if ($catId && isset($categoriesMap[$catId])) {
                                             $catName = $categoriesMap[$catId]['cat'];
@@ -432,7 +432,7 @@ usort($dupByCategory, function($a, $b) {
                                                     <?= htmlspecialchars($page['url']) ?>
                                                 </span>
                                                 <a href="<?= htmlspecialchars($page['url']) ?>" target="_blank" rel="noopener noreferrer" 
-                                                   title="Ouvrir dans un nouvel onglet" 
+                                                   title="<?= __('common.open_new_tab') ?>" 
                                                    style="display: inline-flex; align-items: center; color: var(--text-secondary); text-decoration: none; margin-left: 0.5rem; flex-shrink: 0;">
                                                     <span class="material-symbols-outlined" style="font-size: 16px;">open_in_new</span>
                                                 </a>
@@ -521,7 +521,7 @@ function copyClustersToClipboard() {
         const categoriesMap = <?= json_encode($categoriesMap) ?>;
         
         // Créer le contenu tab-separated (pour Excel/Sheets)
-        let content = 'Cluster\tCatégorie\tURL\tTitle\tInlinks\n';
+        let content = 'Cluster\t<?= __('common.category') ?>\tURL\tTitle\tInlinks\n';
         
         allClusters.forEach((cluster, index) => {
             const clusterNum = index + 1;
@@ -530,7 +530,7 @@ function copyClustersToClipboard() {
             pages.forEach(page => {
                 // Récupérer la catégorie
                 const catId = page.cat_id;
-                let catName = 'Non catégorisé';
+                let catName = '<?= __('common.uncategorized') ?>';
                 if (catId && categoriesMap[catId]) {
                     catName = categoriesMap[catId].cat;
                 }
@@ -548,22 +548,22 @@ function copyClustersToClipboard() {
         navigator.clipboard.writeText(content).then(() => {
             // Utiliser showGlobalStatus pour afficher la notification
             if (typeof showGlobalStatus === 'function') {
-                showGlobalStatus('✓ Texte copié', 'success');
+                showGlobalStatus(__('table.text_copied'), 'success');
             }
         }).catch(err => {
             console.error('Erreur copie:', err);
             if (typeof showGlobalStatus === 'function') {
-                showGlobalStatus('Erreur lors de la copie', 'error');
+                showGlobalStatus(__('table.copy_error'), 'error');
             } else {
-                alert('Impossible de copier dans le presse-papier');
+                alert(__('table.copy_error'));
             }
         });
     } catch (error) {
         console.error('Erreur:', error);
         if (typeof showGlobalStatus === 'function') {
-            showGlobalStatus('Erreur lors de la préparation des données', 'error');
+            showGlobalStatus(__('duplication.data_prep_error'), 'error');
         } else {
-            alert('Erreur lors de la préparation des données');
+            alert(__('duplication.data_prep_error'));
         }
     }
 }

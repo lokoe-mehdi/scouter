@@ -91,21 +91,21 @@ function substituteParamsInSql($sql, $params) {
 function getAvailableColumns($customExtractColumns = []) {
     $columns = [
         'url' => 'URL',
-        'depth' => 'Profondeur',
-        'code' => 'Code HTTP',
-        'category' => 'Catégorie',
-        'inlinks' => 'Liens entrants',
-        'outlinks' => 'Liens sortants',
+        'depth' => __('columns.depth'),
+        'code' => __('columns.http_code'),
+        'category' => __('columns.category'),
+        'inlinks' => __('columns.inlinks'),
+        'outlinks' => __('columns.outlinks'),
         'response_time' => 'TTFB (ms)',
-        'schemas' => 'Données structurées',
-        'compliant' => 'Indexable',
+        'schemas' => __('columns.structured_data'),
+        'compliant' => __('columns.indexable'),
         'canonical' => 'Canonical',
-        'canonical_value' => 'URL Canonical',
+        'canonical_value' => __('columns.canonical_url'),
         'noindex' => 'Noindex',
         'nofollow' => 'Nofollow',
-        'blocked' => 'Bloqué',
-        'redirect_to' => 'Redirige vers',
-        'content_type' => 'Type de contenu',
+        'blocked' => __('columns.blocked'),
+        'redirect_to' => __('columns.redirect_to'),
+        'content_type' => __('columns.content_type'),
         'pri' => 'PageRank',
         'title_status' => 'Title Status',
         'title' => 'Title',
@@ -113,15 +113,15 @@ function getAvailableColumns($customExtractColumns = []) {
         'h1' => 'H1',
         'metadesc_status' => 'Meta Desc Status',
         'metadesc' => 'Meta Description',
-        'h1_multiple' => 'H1 Multiples',
-        'headings_missing' => 'Mauvaise structure hn',
-        'word_count' => 'Nb mots'
+        'h1_multiple' => __('columns.h1_multiple'),
+        'headings_missing' => __('columns.bad_heading_structure'),
+        'word_count' => __('columns.word_count')
     ];
     
     // Ajout des colonnes d'extracteurs JSONB
     foreach ($customExtractColumns as $columnName) {
         $label = ucwords(str_replace('_', ' ', $columnName));
-        $columns['extract_' . $columnName] = 'Extracteur : ' . $label;
+        $columns['extract_' . $columnName] = __('columns.extractor') . ' : ' . $label;
     }
     
     return $columns;
@@ -134,10 +134,10 @@ function getAvailableColumns($customExtractColumns = []) {
  */
 function getLinkSpecificColumns() {
     return [
-        'anchor' => 'Anchor',
-        'external' => 'Externe',
+        'anchor' => __('modal.anchor'),
+        'external' => __('columns.external'),
         'nofollow' => 'Follow',
-        'type' => 'Type de lien'
+        'type' => __('columns.link_type')
     ];
 }
 
@@ -327,7 +327,7 @@ function renderUrlCell($url, $copyUrl = false) {
     
     if ($copyUrl) {
         $path = parse_url($url, PHP_URL_PATH) ?: '/';
-        $html .= '<span class="copy-path-btn" data-path="' . htmlspecialchars($path) . '" title="Copier le chemin" style="cursor: pointer; color: var(--text-secondary); margin-right: 0.4rem; flex-shrink: 0;" onclick="event.preventDefault(); event.stopPropagation(); navigator.clipboard.writeText(this.dataset.path).then(() => { if(typeof showGlobalStatus === \'function\') showGlobalStatus(\'Chemin copié\', \'success\'); })">';
+        $html .= '<span class="copy-path-btn" data-path="' . htmlspecialchars($path) . '" title="' . __('table.copy_path') . '" style="cursor: pointer; color: var(--text-secondary); margin-right: 0.4rem; flex-shrink: 0;" onclick="event.preventDefault(); event.stopPropagation(); navigator.clipboard.writeText(this.dataset.path).then(() => { if(typeof showGlobalStatus === \'function\') showGlobalStatus(\'' . __('table.path_copied') . '\', \'success\'); })">';
         $html .= '<span class="material-symbols-outlined" style="font-size: 16px;">content_copy</span>';
         $html .= '</span>';
     }
@@ -336,7 +336,7 @@ function renderUrlCell($url, $copyUrl = false) {
     $html .= htmlspecialchars($url);
     $html .= '</span>';
     
-    $html .= '<a href="' . htmlspecialchars($url) . '" target="_blank" rel="noopener noreferrer" title="Ouvrir l\'URL dans un nouvel onglet" style="display: inline-flex; align-items: center; color: var(--text-secondary); text-decoration: none; margin-left: 0.5rem; flex-shrink: 0;">';
+    $html .= '<a href="' . htmlspecialchars($url) . '" target="_blank" rel="noopener noreferrer" title="' . __('common.open_new_tab') . '" style="display: inline-flex; align-items: center; color: var(--text-secondary); text-decoration: none; margin-left: 0.5rem; flex-shrink: 0;">';
     $html .= '<span class="material-symbols-outlined" style="font-size: 16px;">open_in_new</span>';
     $html .= '</a>';
     

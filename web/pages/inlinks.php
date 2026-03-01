@@ -64,7 +64,7 @@ try {
     $inlinksByCategory = [];
     foreach ($inlinksByCategoryRaw as $row) {
         $catInfo = $categoriesMap[$row->cat_id] ?? null;
-        $row->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+        $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
         $inlinksByCategory[] = $row;
     }
     
@@ -101,11 +101,11 @@ try {
     // Ajouter le nom de catégorie
     foreach ($lowInlinksUrls as $row) {
         $catInfo = $categoriesMap[$row->cat_id] ?? null;
-        $row->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+        $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     }
     
 } catch(PDOException $e) {
-    echo "<div class='alert alert-error'>Erreur SQL: " . htmlspecialchars($e->getMessage()) . "</div>";
+    echo "<div class='alert alert-error'>" . __('common.sql_error') . ": " . htmlspecialchars($e->getMessage()) . "</div>";
     $inlinksDistribution = [];
     $inlinksByCategory = [];
     $cumulativeData = [];
@@ -199,7 +199,7 @@ try {
 
 </style>
 
-<h1 class="page-title">Analyse des Inlinks</h1>
+<h1 class="page-title"><?= __('inlinks.page_title') ?></h1>
 
 <div class="inlinks-layout">
     <!-- Statistiques globales -->
@@ -209,33 +209,33 @@ try {
         Component::card([
             'color' => 'primary',
             'icon' => 'language',
-            'title' => 'Total d\'URLs',
+            'title' => __('inlinks.card_total'),
             'value' => number_format($inlinksStats->total_urls),
-            'desc' => 'URLs analysées'
+            'desc' => __('inlinks.card_total_desc')
         ]);
         
         Component::card([
             'color' => 'info',
             'icon' => 'link',
-            'title' => 'Moyenne d\'inlinks',
+            'title' => __('inlinks.card_avg'),
             'value' => $inlinksStats->avg_inlinks,
-            'desc' => 'Liens entrants moyens'
+            'desc' => __('inlinks.card_avg_desc')
         ]);
         
         Component::card([
             'color' => 'success',
             'icon' => 'trending_up',
-            'title' => 'Min / Max',
+            'title' => __('inlinks.card_minmax'),
             'value' => $inlinksStats->min_inlinks . ' / ' . $inlinksStats->max_inlinks,
-            'desc' => 'Intervalle d\'inlinks'
+            'desc' => __('inlinks.card_minmax_desc')
         ]);
         
         Component::card([
             'color' => 'warning',
             'icon' => 'hub',
-            'title' => 'Total d\'inlinks',
+            'title' => __('inlinks.card_total_inlinks'),
             'value' => number_format($inlinksStats->total_inlinks),
-            'desc' => 'Liens entrants totaux'
+            'desc' => __('inlinks.card_total_inlinks_desc')
         ]);
         ?>
     </div>
@@ -251,24 +251,23 @@ try {
         
         Component::chart([
             'type' => 'area',
-            'title' => 'Distribution cumulative des inlinks',
-            'subtitle' => 'Ce graphique montre le nombre d\'inlinks (axe Y) pour un pourcentage donné d\'URLs (axe X). 
-            Par exemple, si à 80% on a 5 inlinks, cela signifie que 80% des URLs ont 5 inlinks ou moins.',
+            'title' => __('inlinks.chart_distribution'),
+            'subtitle' => __('inlinks.chart_distribution_desc'),
             'categories' => [],
             'series' => [
                 [
-                    'name' => 'Inlinks',
+                    'name' => __('inlinks.series_inlinks'),
                     'data' => $chartData,
                     'color' => '#4ECDC4'
                 ]
             ],
-            'xAxisTitle' => 'Pourcentage d\'URLs (%)',
-            'yAxisTitle' => 'Nombre d\'inlinks (échelle logarithmique)',
+            'xAxisTitle' => __('inlinks.label_pct_urls'),
+            'yAxisTitle' => __('inlinks.label_inlinks_log'),
             'logarithmic' => true,
             'xAxisMin' => 0,
             'xAxisMax' => 100,
             'height' => 400,
-            'tooltipFormat' => '<b>{x}%</b> des URLs ont <b>{y} inlinks</b> ou moins.',
+            'tooltipFormat' => __('inlinks.tooltip'),
             'sqlQuery' => $sqlInlinksDistribution
         ]); ?>
     </div>
@@ -288,15 +287,15 @@ try {
     }
 
     Component::simpleTable([
-        'title' => 'Inlinks moyens par catégorie',
-        'subtitle' => 'Statistiques des liens entrants par type de page',
+        'title' => __('inlinks.table_category'),
+        'subtitle' => __('inlinks.table_category_desc'),
         'columns' => [
-            ['key' => 'category', 'label' => 'Catégorie', 'type' => 'badge-color'],
-            ['key' => 'url_count', 'label' => 'Nombre d\'URLs', 'type' => 'default'],
-            ['key' => 'avg_inlinks', 'label' => 'Moyenne', 'type' => 'bold'],
-            ['key' => 'min_inlinks', 'label' => 'Min', 'type' => 'default'],
-            ['key' => 'max_inlinks', 'label' => 'Max', 'type' => 'default'],
-            ['key' => 'total_inlinks', 'label' => 'Total', 'type' => 'default']
+            ['key' => 'category', 'label' => __('common.category'), 'type' => 'badge-color'],
+            ['key' => 'url_count', 'label' => __('inlinks.col_url_count'), 'type' => 'default'],
+            ['key' => 'avg_inlinks', 'label' => __('common.average'), 'type' => 'bold'],
+            ['key' => 'min_inlinks', 'label' => __('common.min'), 'type' => 'default'],
+            ['key' => 'max_inlinks', 'label' => __('common.max'), 'type' => 'default'],
+            ['key' => 'total_inlinks', 'label' => __('common.total'), 'type' => 'default']
         ],
         'data' => $inlinksTableData
     ]);
@@ -305,7 +304,7 @@ try {
     <!-- Liste des URLs -->
     <?php
     Component::urlTable([
-        'title' => 'URLs avec 5 inlinks ou moins',
+        'title' => __('inlinks.table_low'),
         'id' => 'inlinkstable',
         'whereClause' => 'WHERE c.compliant = true AND c.inlinks <= 5',
         'orderBy' => 'ORDER BY c.inlinks ASC, c.pri ASC',

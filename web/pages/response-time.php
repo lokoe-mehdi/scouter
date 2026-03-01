@@ -50,12 +50,12 @@ try {
     $categoryStats = [];
     foreach ($categoryStatsRaw as $row) {
         $catInfo = $categoriesMap[$row->cat_id] ?? null;
-        $row->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+        $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
         $categoryStats[] = $row;
     }
     
 } catch(PDOException $e) {
-    echo "<div class='alert alert-error'>Erreur SQL: " . htmlspecialchars($e->getMessage()) . "</div>";
+    echo "<div class='alert alert-error'>" . __('common.sql_error') . ": " . htmlspecialchars($e->getMessage()) . "</div>";
     $responseStats = null;
     $categoryStats = [];
 }
@@ -328,7 +328,7 @@ try {
 }
 </style>
 
-<h1 class="page-title" title="Time To First Byte">Analyse du TTFB</h1>
+<h1 class="page-title" title="Time To First Byte"><?= __('response_time.page_title') ?></h1>
 
 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
 <!-- Statistiques globales -->
@@ -338,33 +338,33 @@ try {
         Component::card([
             'color' => 'primary',
             'icon' => 'language',
-            'title' => 'Total d\'URLs',
+            'title' => __('response_time.card_total'),
             'value' => number_format($responseStats->total_urls ?? 0),
-            'desc' => 'URLs avec code 200'
+            'desc' => __('response_time.card_total_desc')
         ]);
         
         Component::card([
             'color' => 'info',
             'icon' => 'speed',
-            'title' => 'TTFB moyen',
+            'title' => __('response_time.card_avg'),
             'value' => number_format($responseStats->avg_time ?? 0, 0, '.', ' ') . ' ms',
-            'desc' => 'Time To First Byte moyen'
+            'desc' => __('response_time.card_avg_desc')
         ]);
         
         Component::card([
             'color' => 'success',
             'icon' => 'timer',
-            'title' => 'TTFB médian',
+            'title' => __('response_time.card_median'),
             'value' => number_format($responseStats->median_time ?? 0, 0, '.', ' ') . ' ms',
-            'desc' => 'Time To First Byte médian'
+            'desc' => __('response_time.card_median_desc')
         ]);
         
         Component::card([
             'color' => 'warning',
             'icon' => 'trending_up',
-            'title' => 'TTFB maximum',
+            'title' => __('response_time.card_max'),
             'value' => number_format($responseStats->max_time ?? 0, 0, '.', ' ') . ' ms',
-            'desc' => 'Time To First Byte le plus lent'
+            'desc' => __('response_time.card_max_desc')
         ]);
         ?>
 </div>
@@ -388,27 +388,27 @@ try {
 
     Component::chart([
         'type' => 'horizontalBar',
-        'title' => 'Performance par catégorie',
-        'subtitle' => 'Répartition du TTFB par catégorie',
+        'title' => __('response_time.chart_title'),
+        'subtitle' => __('response_time.chart_subtitle'),
         'categories' => $categories,
         'series' => [
             [
-                'name' => 'Lent (> 600ms)',
+                'name' => __('response_time.series_slow'),
                 'data' => $slowData,
                 'color' => '#d86b6bff'  // Rouge
             ],
             [
-                'name' => 'Correct (200-600ms)',
+                'name' => __('response_time.series_medium'),
                 'data' => $mediumData,
                 'color' => '#d8bf6bff'  // Orange
             ],
             [
-                'name' => 'Rapide (< 200ms)',
+                'name' => __('response_time.series_fast'),
                 'data' => $fastData,
                 'color' => '#6bd899ff'  // Vert
             ]
         ],
-        'yAxisTitle' => 'Pourcentage',
+        'yAxisTitle' => __('common.percentage'),
         'yAxisMax' => 100,
         'stacking' => 'percent',
         'height' => 400,
@@ -420,7 +420,7 @@ try {
 <!-- Tableau des URLs lentes -->
 <?php
 Component::urlTable([
-    'title' => 'URLs lentes - TTFB > 600ms',
+    'title' => __('response_time.table_title'),
     'id' => 'responsetimetable',
     'whereClause' => 'WHERE c.response_time >= 600 AND (code=200 OR code=304) AND c.is_html = true',
     'orderBy' => 'ORDER BY c.response_time DESC',

@@ -2,13 +2,13 @@
 
 // Fonction utilitaire pour formater les nombres
 function formatNumber(num) {
-    return new Intl.NumberFormat('fr-FR').format(num);
+    return new Intl.NumberFormat(typeof ScouterI18n !== 'undefined' ? ScouterI18n.getLocale() : 'fr-FR').format(num);
 }
 
 // Fonction pour copier du texte dans le presse-papier
 function copyToClipboard(text) {
     navigator.clipboard.writeText(text).then(() => {
-        showNotification('Copié dans le presse-papier !', 'success');
+        showNotification(__('common.copied'), 'success');
     }).catch(err => {
         console.error('Erreur lors de la copie:', err);
     });
@@ -73,7 +73,7 @@ document.head.appendChild(style);
 function exportTableToCSV(tableId, filename) {
     const table = document.querySelector(`#${tableId} table`) || document.querySelector('.data-table');
     if (!table) {
-        showNotification('Tableau non trouvé', 'error');
+        showNotification(__('common.table_not_found'), 'error');
         return;
     }
     
@@ -101,7 +101,7 @@ function exportTableToCSV(tableId, filename) {
     link.click();
     document.body.removeChild(link);
     
-    showNotification('Export CSV réussi !', 'success');
+    showNotification(__('common.csv_export_success'), 'success');
 }
 
 // Fonction pour trier un tableau

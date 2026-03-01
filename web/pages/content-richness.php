@@ -96,7 +96,7 @@ $byCategory = $stmt->fetchAll(PDO::FETCH_OBJ);
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 foreach ($byCategory as $row) {
     $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     $row->color = $catInfo ? $catInfo['color'] : '#95a5a6';
 }
 
@@ -114,7 +114,7 @@ $premiumPercent = round(($globalStats->premium_pages / max(1, $totalPages)) * 10
  */
 ?>
 
-<h1 class="page-title">Richesse de contenu</h1>
+<h1 class="page-title"><?= __('content_richness.page_title') ?></h1>
 
 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
 
@@ -126,23 +126,23 @@ $premiumPercent = round(($globalStats->premium_pages / max(1, $totalPages)) * 10
     Component::card([
         'color' => 'primary',
         'icon' => 'article',
-        'title' => 'Pages analysées',
+        'title' => __('content_richness.card_analyzed'),
         'value' => number_format($globalStats->total_pages ?? 0),
-        'desc' => number_format($globalStats->total_words ?? 0) . ' mots sur ' . number_format($globalStats->total_pages ?? 0) . ' pages indexables'
+        'desc' => number_format($globalStats->total_words ?? 0) . ' ' . __('content_richness.words_on') . ' ' . number_format($globalStats->total_pages ?? 0) . ' ' . __('content_richness.indexable_pages')
     ]);
     
     Component::card([
         'color' => 'info',
         'icon' => 'format_size',
-        'title' => 'Médiane',
+        'title' => __('content_richness.card_median'),
         'value' => number_format($globalStats->median_words ?? 0),
-        'desc' => 'Moyenne : ' . number_format($globalStats->avg_words ?? 0) . ' mots'
+        'desc' => __('content_richness.label_average') . ' ' . number_format($globalStats->avg_words ?? 0) . ' ' . __('common.words')
     ]);
     
     Component::card([
         'color' => 'error',
         'icon' => 'warning',
-        'title' => 'Contenu pauvre',
+        'title' => __('content_richness.card_poor'),
         'value' => $pauvrePercent . '%',
         'desc' => number_format($globalStats->pauvre_pages ?? 0) . ' pages (≤250 mots)'
     ]);
@@ -150,7 +150,7 @@ $premiumPercent = round(($globalStats->premium_pages / max(1, $totalPages)) * 10
     Component::card([
         'color' => 'success',
         'icon' => 'trending_up',
-        'title' => 'Contenu riche',
+        'title' => __('content_richness.card_rich'),
         'value' => $richePercent . '%',
         'desc' => number_format($globalStats->riche_pages ?? 0) . ' pages (500-1200 mots)'
     ]);
@@ -158,7 +158,7 @@ $premiumPercent = round(($globalStats->premium_pages / max(1, $totalPages)) * 10
     Component::card([
         'color' => 'success',
         'icon' => 'auto_awesome',
-        'title' => 'Contenu premium',
+        'title' => __('content_richness.card_premium'),
         'value' => $premiumPercent . '%',
         'desc' => number_format($globalStats->premium_pages ?? 0) . ' pages (1200+ mots)'
     ]);
@@ -195,8 +195,8 @@ $premiumPercent = round(($globalStats->premium_pages / max(1, $totalPages)) * 10
             
             Component::chart([
                 'type' => 'bar',
-                'title' => 'Distribution du nombre de mots',
-                'subtitle' => 'Nombre de pages par tranche de mots',
+                'title' => __('content_richness.chart_distribution'),
+                'subtitle' => __('content_richness.chart_distribution_desc'),
                 'categories' => $ranges,
                 'series' => [
                     [
@@ -213,16 +213,16 @@ $premiumPercent = round(($globalStats->premium_pages / max(1, $totalPages)) * 10
         
         // Donut des catégories de contenu
         $donutData = [
-            ['name' => 'Pauvre (≤250)', 'y' => (int)($globalStats->pauvre_pages ?? 0), 'color' => $colorPauvre],
-            ['name' => 'Moyen (250-500)', 'y' => (int)($globalStats->moyen_pages ?? 0), 'color' => $colorMoyen],
-            ['name' => 'Riche (500-1200)', 'y' => (int)($globalStats->riche_pages ?? 0), 'color' => $colorRiche],
-            ['name' => 'Premium (1200+)', 'y' => (int)($globalStats->premium_pages ?? 0), 'color' => $colorPremium]
+            ['name' => __('content_richness.series_poor'), 'y' => (int)($globalStats->pauvre_pages ?? 0), 'color' => $colorPauvre],
+            ['name' => __('content_richness.series_medium'), 'y' => (int)($globalStats->moyen_pages ?? 0), 'color' => $colorMoyen],
+            ['name' => __('content_richness.series_rich'), 'y' => (int)($globalStats->riche_pages ?? 0), 'color' => $colorRiche],
+            ['name' => __('content_richness.series_premium'), 'y' => (int)($globalStats->premium_pages ?? 0), 'color' => $colorPremium]
         ];
         
         Component::chart([
             'type' => 'donut',
-            'title' => 'Richesse du contenu',
-            'subtitle' => 'Répartition par volume de mots',
+            'title' => __('content_richness.chart_quality'),
+            'subtitle' => __('content_richness.chart_quality_desc'),
             'series' => [
                 [
                     'name' => 'Pages',
@@ -258,14 +258,14 @@ $premiumPercent = round(($globalStats->premium_pages / max(1, $totalPages)) * 10
             Component::chart([
                 'type' => 'bar',
                 'stacking' => 'percent',
-                'title' => 'Répartition de la qualité par catégorie',
-                'subtitle' => 'Du contenu premium (bas) au contenu pauvre (haut)',
+                'title' => __('content_richness.chart_category_quality'),
+                'subtitle' => __('content_richness.chart_category_quality_desc'),
                 'categories' => $categories,
                 'series' => [
-                    ['name' => 'Pauvre (≤250)', 'data' => $pauvreData, 'color' => $colorPauvre],
-                    ['name' => 'Moyen (250-500)', 'data' => $moyenData, 'color' => $colorMoyen],
-                    ['name' => 'Riche (500-1200)', 'data' => $richeData, 'color' => $colorRiche],
-                    ['name' => 'Premium (1200+)', 'data' => $premiumData, 'color' => $colorPremium]
+                    ['name' => __('content_richness.series_poor'), 'data' => $pauvreData, 'color' => $colorPauvre],
+                    ['name' => __('content_richness.series_medium'), 'data' => $moyenData, 'color' => $colorMoyen],
+                    ['name' => __('content_richness.series_rich'), 'data' => $richeData, 'color' => $colorRiche],
+                    ['name' => __('content_richness.series_premium'), 'data' => $premiumData, 'color' => $colorPremium]
                 ],
                 'height' => max(300, count($categories) * 45),
                 'sqlQuery' => $sqlByCategory
@@ -290,17 +290,17 @@ $premiumPercent = round(($globalStats->premium_pages / max(1, $totalPages)) * 10
             
             Component::chart([
                 'type' => 'horizontalBar',
-                'title' => 'Médiane et Moyenne de mots par catégorie',
-                'subtitle' => 'Du plus riche au moins riche',
+                'title' => __('content_richness.chart_category_words'),
+                'subtitle' => __('content_richness.chart_category_words_desc'),
                 'categories' => $categories,
                 'series' => [
                     [
-                        'name' => 'Médiane',
+                        'name' => __('content_richness.series_median'),
                         'data' => $medianWords,
                         'color' => '#4ECDC4'
                     ],
                     [
-                        'name' => 'Moyenne',
+                        'name' => __('content_richness.series_average'),
                         'data' => $avgWords,
                         'color' => '#95a5a6'
                     ]
@@ -332,16 +332,16 @@ $premiumPercent = round(($globalStats->premium_pages / max(1, $totalPages)) * 10
     
     if (!empty($categoryTableData)) {
         Component::simpleTable([
-            'title' => 'Statistiques par catégorie',
-            'subtitle' => 'Détail du nombre de mots par segment',
+            'title' => __('content_richness.table_stats'),
+            'subtitle' => __('content_richness.table_stats_desc'),
             'columns' => [
-                ['key' => 'category', 'label' => 'Catégorie', 'type' => 'category'],
-                ['key' => 'total_pages', 'label' => 'Pages', 'type' => 'default'],
-                ['key' => 'median_words', 'label' => 'Médiane', 'type' => 'bold'],
-                ['key' => 'avg_words', 'label' => 'Moyenne', 'type' => 'default'],
-                ['key' => 'min_words', 'label' => 'Min', 'type' => 'default'],
-                ['key' => 'max_words', 'label' => 'Max', 'type' => 'default'],
-                ['key' => 'total_words', 'label' => 'Total mots', 'type' => 'default']
+                ['key' => 'category', 'label' => __('common.category'), 'type' => 'category'],
+                ['key' => 'total_pages', 'label' => __('common.pages'), 'type' => 'default'],
+                ['key' => 'median_words', 'label' => __('common.median'), 'type' => 'bold'],
+                ['key' => 'avg_words', 'label' => __('common.average'), 'type' => 'default'],
+                ['key' => 'min_words', 'label' => __('common.min'), 'type' => 'default'],
+                ['key' => 'max_words', 'label' => __('common.max'), 'type' => 'default'],
+                ['key' => 'total_words', 'label' => __('content_richness.col_total_words'), 'type' => 'default']
             ],
             'data' => $categoryTableData
         ]);
@@ -353,7 +353,7 @@ $premiumPercent = round(($globalStats->premium_pages / max(1, $totalPages)) * 10
          ======================================== -->
     <?php
     Component::urlTable([
-        'title' => 'Contenu pauvre (≤250 mots)',
+        'title' => __('content_richness.table_poor'),
         'id' => 'pauvre_content_pages',
         'whereClause' => 'WHERE c.crawled = true AND c.compliant = true AND c.word_count <= 250',
         'orderBy' => 'ORDER BY c.word_count ASC',
@@ -370,7 +370,7 @@ $premiumPercent = round(($globalStats->premium_pages / max(1, $totalPages)) * 10
          ======================================== -->
     <?php
     Component::urlTable([
-        'title' => 'Contenu le plus riche',
+        'title' => __('content_richness.table_rich'),
         'id' => 'rich_content_pages',
         'whereClause' => 'WHERE c.crawled = true AND c.compliant = true AND c.word_count > 0',
         'orderBy' => 'ORDER BY c.word_count DESC',

@@ -80,7 +80,7 @@ $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 $categoryStatsData = [];
 foreach ($categoryStatsDataRaw as $row) {
     $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     $categoryStatsData[] = $row;
 }
 
@@ -116,7 +116,7 @@ foreach ($categoryStatsData as $cat) {
 }
 ?>
 
-<h1 class="page-title">Balises SEO</h1>
+<h1 class="page-title"><?= __('seo_tags.page_title') ?></h1>
 
 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
 <!-- Scorecards globales -->
@@ -126,34 +126,34 @@ foreach ($categoryStatsData as $cat) {
     Component::card([
         'color' => 'primary',
         'icon' => 'check_circle',
-        'title' => 'Pages analysées',
+        'title' => __('seo_tags.card_analyzed'),
         'value' => number_format($titleStats['total']),
-        'desc' => 'Pages compliant'
+        'desc' => __('seo_tags.card_analyzed_desc')
     ]);
 
 
     Component::card([
         'color' => 'error',
         'icon' => 'title',
-        'title' => 'Title à corriger',
+        'title' => __('seo_tags.card_title_fix'),
         'value' => number_format($titleStats['empty'] + $titleStats['duplicate']),
-        'desc' => round((($titleStats['empty'] + $titleStats['duplicate']) / $titleStats['total']) * 100, 1).'% du total'
+        'desc' => round((($titleStats['empty'] + $titleStats['duplicate']) / $titleStats['total']) * 100, 1).'% '.__('common.of_total')
     ]);
     
     Component::card([
         'color' => 'error',
         'icon' => 'format_h1',
-        'title' => 'H1 à corriger',
+        'title' => __('seo_tags.card_h1_fix'),
         'value' => number_format($h1Stats['empty'] + $h1Stats['duplicate']),
-        'desc' => round((($h1Stats['empty'] + $h1Stats['duplicate']) / $h1Stats['total']) * 100, 1).'% du total'
+        'desc' => round((($h1Stats['empty'] + $h1Stats['duplicate']) / $h1Stats['total']) * 100, 1).'% '.__('common.of_total')
     ]);
     
     Component::card([
         'color' => 'error',
         'icon' => 'description',
-        'title' => 'Meta desc à corriger',
+        'title' => __('seo_tags.card_metadesc_fix'),
         'value' => number_format($metaDescStats['empty'] + $metaDescStats['duplicate']),
-        'desc' => round((($metaDescStats['empty'] + $metaDescStats['duplicate']) / $metaDescStats['total']) * 100, 1).'% du total'
+        'desc' => round((($metaDescStats['empty'] + $metaDescStats['duplicate']) / $metaDescStats['total']) * 100, 1).'% '.__('common.of_total')
     ]);
     
     ?>
@@ -165,15 +165,15 @@ foreach ($categoryStatsData as $cat) {
     // Title Donut
     Component::chart([
         'type' => 'donut',
-        'title' => 'Title',
-        'subtitle' => 'Distribution globale',
+        'title' => __('seo_tags.chart_title'),
+        'subtitle' => __('seo_tags.chart_subtitle'),
         'series' => [
             [
                 'name' => 'Pages',
                 'data' => [
-                    ['name' => 'Unique', 'y' => $titleStats['unique'], 'color' => '#6bd899ff'],
-                    ['name' => 'Duplicate', 'y' => $titleStats['duplicate'], 'color' => '#d8bf6bff'],
-                    ['name' => 'Empty', 'y' => $titleStats['empty'], 'color' => '#d86b6bff']
+                    ['name' => __('seo_tags.series_unique'), 'y' => $titleStats['unique'], 'color' => '#6bd899ff'],
+                    ['name' => __('seo_tags.series_duplicate'), 'y' => $titleStats['duplicate'], 'color' => '#d8bf6bff'],
+                    ['name' => __('seo_tags.series_empty'), 'y' => $titleStats['empty'], 'color' => '#d86b6bff']
                 ]
             ]
         ],
@@ -184,15 +184,15 @@ foreach ($categoryStatsData as $cat) {
     // H1 Donut
     Component::chart([
         'type' => 'donut',
-        'title' => 'H1',
-        'subtitle' => 'Distribution globale',
+        'title' => __('seo_tags.chart_h1'),
+        'subtitle' => __('seo_tags.chart_subtitle'),
         'series' => [
             [
                 'name' => 'Pages',
                 'data' => [
-                    ['name' => 'Unique', 'y' => $h1Stats['unique'], 'color' => '#6bd899ff'],
-                    ['name' => 'Duplicate', 'y' => $h1Stats['duplicate'], 'color' => '#d8bf6bff'],
-                    ['name' => 'Empty', 'y' => $h1Stats['empty'], 'color' => '#d86b6bff']
+                    ['name' => __('seo_tags.series_unique'), 'y' => $h1Stats['unique'], 'color' => '#6bd899ff'],
+                    ['name' => __('seo_tags.series_duplicate'), 'y' => $h1Stats['duplicate'], 'color' => '#d8bf6bff'],
+                    ['name' => __('seo_tags.series_empty'), 'y' => $h1Stats['empty'], 'color' => '#d86b6bff']
                 ]
             ]
         ],
@@ -203,15 +203,15 @@ foreach ($categoryStatsData as $cat) {
     // Meta Description Donut
     Component::chart([
         'type' => 'donut',
-        'title' => 'Meta description',
-        'subtitle' => 'Distribution globale',
+        'title' => __('seo_tags.chart_metadesc'),
+        'subtitle' => __('seo_tags.chart_subtitle'),
         'series' => [
             [
                 'name' => 'Pages',
                 'data' => [
-                    ['name' => 'Unique', 'y' => $metaDescStats['unique'], 'color' => '#6bd899ff'],
-                    ['name' => 'Duplicate', 'y' => $metaDescStats['duplicate'], 'color' => '#d8bf6bff'],
-                    ['name' => 'Empty', 'y' => $metaDescStats['empty'], 'color' => '#d86b6bff']
+                    ['name' => __('seo_tags.series_unique'), 'y' => $metaDescStats['unique'], 'color' => '#6bd899ff'],
+                    ['name' => __('seo_tags.series_duplicate'), 'y' => $metaDescStats['duplicate'], 'color' => '#d8bf6bff'],
+                    ['name' => __('seo_tags.series_empty'), 'y' => $metaDescStats['empty'], 'color' => '#d86b6bff']
                 ]
             ]
         ],
@@ -227,27 +227,27 @@ foreach ($categoryStatsData as $cat) {
     // Title par catégorie
     Component::chart([
         'type' => 'horizontalBar',
-        'title' => 'Title',
-        'subtitle' => 'Par catégorie',
+        'title' => __('seo_tags.chart_title'),
+        'subtitle' => __('seo_tags.chart_category_subtitle'),
         'categories' => array_map(function($cat) { return $cat['category']; }, $titleByCategory),
         'series' => [
             [
-                'name' => 'Unique',
+                'name' => __('seo_tags.series_unique'),
                 'data' => array_map(function($cat) { return $cat['unique']; }, $titleByCategory),
                 'color' => '#6bd899ff'
             ],
             [
-                'name' => 'Empty',
+                'name' => __('seo_tags.series_empty'),
                 'data' => array_map(function($cat) { return $cat['empty']; }, $titleByCategory),
                 'color' => '#d86b6bff'
             ],
             [
-                'name' => 'Duplicate',
+                'name' => __('seo_tags.series_duplicate'),
                 'data' => array_map(function($cat) { return $cat['duplicate']; }, $titleByCategory),
                 'color' => '#d8bf6bff'
             ]
         ],
-        'yAxisTitle' => 'Pourcentage',
+        'yAxisTitle' => __('common.percentage'),
         'stacking' => 'percent',
         'height' => 400,
         'sqlQuery' => $sqlSeoByCategory
@@ -256,27 +256,27 @@ foreach ($categoryStatsData as $cat) {
     // H1 par catégorie
     Component::chart([
         'type' => 'horizontalBar',
-        'title' => 'H1',
-        'subtitle' => 'Par catégorie',
+        'title' => __('seo_tags.chart_h1'),
+        'subtitle' => __('seo_tags.chart_category_subtitle'),
         'categories' => array_map(function($cat) { return $cat['category']; }, $h1ByCategory),
         'series' => [
             [
-                'name' => 'Unique',
+                'name' => __('seo_tags.series_unique'),
                 'data' => array_map(function($cat) { return $cat['unique']; }, $h1ByCategory),
                 'color' => '#6bd899ff'
             ],
             [
-                'name' => 'Empty',
+                'name' => __('seo_tags.series_empty'),
                 'data' => array_map(function($cat) { return $cat['empty']; }, $h1ByCategory),
                 'color' => '#d86b6bff'
             ],
             [
-                'name' => 'Duplicate',
+                'name' => __('seo_tags.series_duplicate'),
                 'data' => array_map(function($cat) { return $cat['duplicate']; }, $h1ByCategory),
                 'color' => '#d8bf6bff'
             ]
         ],
-        'yAxisTitle' => 'Pourcentage',
+        'yAxisTitle' => __('common.percentage'),
         'stacking' => 'percent',
         'height' => 400,
         'sqlQuery' => $sqlSeoByCategory
@@ -285,27 +285,27 @@ foreach ($categoryStatsData as $cat) {
     // Meta Description par catégorie
     Component::chart([
         'type' => 'horizontalBar',
-        'title' => 'Meta description',
-        'subtitle' => 'Par catégorie',
+        'title' => __('seo_tags.chart_metadesc'),
+        'subtitle' => __('seo_tags.chart_category_subtitle'),
         'categories' => array_map(function($cat) { return $cat['category']; }, $metaDescByCategory),
         'series' => [
             [
-                'name' => 'Unique',
+                'name' => __('seo_tags.series_unique'),
                 'data' => array_map(function($cat) { return $cat['unique']; }, $metaDescByCategory),
                 'color' => '#6bd899ff'
             ],
             [
-                'name' => 'Empty',
+                'name' => __('seo_tags.series_empty'),
                 'data' => array_map(function($cat) { return $cat['empty']; }, $metaDescByCategory),
                 'color' => '#d86b6bff'
             ],
             [
-                'name' => 'Duplicate',
+                'name' => __('seo_tags.series_duplicate'),
                 'data' => array_map(function($cat) { return $cat['duplicate']; }, $metaDescByCategory),
                 'color' => '#d8bf6bff'
             ]
         ],
-        'yAxisTitle' => 'Pourcentage',
+        'yAxisTitle' => __('common.percentage'),
         'stacking' => 'percent',
         'height' => 400,
         'sqlQuery' => $sqlSeoByCategory
@@ -316,7 +316,7 @@ foreach ($categoryStatsData as $cat) {
 <!-- Liste des URLs avec composant -->
 <?php
 $urlTableConfig = [
-    'title' => 'Pages avec balises vides ou dupliquées',
+    'title' => __('seo_tags.table_issues'),
     'id' => 'seoTagsTable',
     'whereClause' => "WHERE c.compliant = true AND (c.title_status IN ('empty', 'duplicate') OR c.h1_status IN ('empty', 'duplicate') OR c.metadesc_status IN ('empty', 'duplicate'))",
     'orderBy' => 'ORDER BY c.url ASC',

@@ -15,11 +15,11 @@ $users = $userRepo->getAll();
 
 ?>
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="<?= I18n::getInstance()->getLang() ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Administration - Scouter</title>
+    <title><?= __('admin.page_title') ?> - Scouter</title>
     <link rel="stylesheet" href="../assets/style.css">
     <link rel="stylesheet" href="../assets/crawl-panel.css">
     <link rel="icon" type="image/png" href="/logo.png">
@@ -360,15 +360,15 @@ $users = $userRepo->getAll();
     <div class="container" style="max-width: 1200px; margin: 2rem auto; padding: 0 2rem;">
         <div class="admin-header">
             <div>
-                <h1 class="page-title">Administration des utilisateurs</h1>
+                <h1 class="page-title"><?= __('admin.heading') ?></h1>
                 <p style="color: var(--text-secondary); margin-top: 0.5rem;">
-                    Gérez les comptes utilisateurs de votre application Scouter
+                    <?= __('admin.subtitle') ?>
                 </p>
             </div>
             <div style="display: flex; gap: 1rem;">
                 <button class="btn btn-primary-action" onclick="openAddUserModal()">
                     <span class="material-symbols-outlined">person_add</span>
-                    Ajouter un utilisateur
+                    <?= __('admin.btn_add_user') ?>
                 </button>
             </div>
         </div>
@@ -377,10 +377,10 @@ $users = $userRepo->getAll();
         <table class="users-table">
             <thead>
                 <tr>
-                    <th>Email</th>
-                    <th>Rôle</th>
-                    <th>Créé le</th>
-                    <th style="text-align: center;">Actions</th>
+                    <th><?= __('admin.col_user') ?></th>
+                    <th><?= __('admin.col_role') ?></th>
+                    <th><?= __('admin.col_created') ?></th>
+                    <th style="text-align: center;"><?= __('admin.col_actions') ?></th>
                 </tr>
             </thead>
             <tbody>
@@ -398,7 +398,7 @@ $users = $userRepo->getAll();
                                 <?php if ($user->id == $currentUserId): ?>
                                 <span class="user-badge user-badge-current">
                                     <span class="material-symbols-outlined" style="font-size: 14px;">check_circle</span>
-                                    Vous
+                                    <?= __('admin.you') ?>
                                 </span>
                                 <?php endif; ?>
                             </div>
@@ -408,9 +408,9 @@ $users = $userRepo->getAll();
                         <?php 
                         $role = $user->role ?? 'user';
                         $roleLabels = [
-                            'admin' => ['Admin', 'shield_person', 'role-badge-admin'],
-                            'user' => ['Utilisateur', 'person', 'role-badge-user'],
-                            'viewer' => ['Lecteur', 'visibility', 'role-badge-viewer']
+                            'admin' => [__('admin.role_admin'), 'shield_person', 'role-badge-admin'],
+                            'user' => [__('admin.role_user'), 'person', 'role-badge-user'],
+                            'viewer' => [__('admin.role_viewer'), 'visibility', 'role-badge-viewer']
                         ];
                         $roleInfo = $roleLabels[$role] ?? $roleLabels['user'];
                         ?>
@@ -427,7 +427,7 @@ $users = $userRepo->getAll();
                             <button 
                                 class="btn-icon-edit" 
                                 onclick="openEditUserModal(<?= $user->id ?>, '<?= htmlspecialchars($user->email, ENT_QUOTES) ?>', '<?= $role ?>', <?= $user->id == $currentUserId ? 'true' : 'false' ?>)"
-                                title="Modifier cet utilisateur"
+                                title="<?= __('common.edit') ?>"
                             >
                                 <span class="material-symbols-outlined" style="font-size: 18px;">edit</span>
                             </button>
@@ -435,7 +435,7 @@ $users = $userRepo->getAll();
                                 class="btn-icon-danger" 
                                 onclick="deleteUser(<?= $user->id ?>, '<?= htmlspecialchars($user->email, ENT_QUOTES) ?>')"
                                 <?= $user->id == $currentUserId ? 'disabled' : '' ?>
-                                title="<?= $user->id == $currentUserId ? 'Vous ne pouvez pas vous supprimer vous-même' : 'Supprimer cet utilisateur' ?>"
+                                title="<?= $user->id == $currentUserId ? __('common.cancel') : __('common.delete') ?>"
                             >
                                 <span class="material-symbols-outlined" style="font-size: 18px;">delete</span>
                             </button>
@@ -448,8 +448,8 @@ $users = $userRepo->getAll();
         <?php else: ?>
         <div class="empty-state-admin">
             <span class="material-symbols-outlined" style="font-size: 4rem; color: var(--text-tertiary);">group</span>
-            <h2>Aucun utilisateur</h2>
-            <p>Commencez par ajouter des utilisateurs à votre application.</p>
+            <h2><?= __('common.no_results') ?></h2>
+            <p><?= __('admin.subtitle') ?></p>
         </div>
         <?php endif; ?>
     </div>
@@ -458,28 +458,28 @@ $users = $userRepo->getAll();
     <div id="addUserModal" class="modal">
         <div class="modal-content" style="max-width: 500px;">
             <div class="modal-header">
-                <h2>Ajouter un utilisateur</h2>
+                <h2><?= __('admin.modal_add_title') ?></h2>
                 <span class="modal-close" onclick="closeAddUserModal()">&times;</span>
             </div>
             <form id="addUserForm" onsubmit="return addUser(event)">
                 <div class="form-group">
-                    <label for="newEmail">Email *</label>
+                    <label for="newEmail"><?= __('admin.label_email') ?></label>
                     <input type="email" id="newEmail" name="email" required placeholder="john@example.com">
                 </div>
 
                 <div class="form-group">
-                    <label for="newPassword">Mot de passe *</label>
+                    <label for="newPassword"><?= __('admin.label_password') ?></label>
                     <input type="password" id="newPassword" name="password" required placeholder="••••••••">
-                    <small>Minimum 6 caractères</small>
+                    <small><?= __('admin.helper_min_chars') ?></small>
                 </div>
 
                 <div class="form-group">
-                    <label for="confirmPassword">Confirmer le mot de passe *</label>
+                    <label for="confirmPassword"><?= __('admin.label_confirm_password') ?></label>
                     <input type="password" id="confirmPassword" name="confirm_password" required placeholder="••••••••">
                 </div>
 
                 <div class="form-group">
-                    <label>Rôle *</label>
+                    <label><?= __('admin.label_role') ?></label>
                     <input type="hidden" id="newRole" name="role" value="user">
                     <div class="role-dropdown" id="newRoleDropdown">
                         <div class="role-dropdown-trigger" onclick="toggleRoleDropdown('new')">
@@ -488,8 +488,8 @@ $users = $userRepo->getAll();
                                     <span class="material-symbols-outlined">person</span>
                                 </div>
                                 <div class="role-dropdown-text">
-                                    <span class="role-dropdown-name">Utilisateur</span>
-                                    <span class="role-dropdown-desc">Crée ses projets, voit les partagés</span>
+                                    <span class="role-dropdown-name"><?= __('admin.role_user') ?></span>
+                                    <span class="role-dropdown-desc"><?= __('admin.role_user_desc') ?></span>
                                 </div>
                             </div>
                             <span class="material-symbols-outlined">expand_more</span>
@@ -500,8 +500,8 @@ $users = $userRepo->getAll();
                                     <span class="material-symbols-outlined">shield_person</span>
                                 </div>
                                 <div class="role-dropdown-text">
-                                    <span class="role-dropdown-name">Administrateur</span>
-                                    <span class="role-dropdown-desc">Accès total à l'application</span>
+                                    <span class="role-dropdown-name"><?= __('admin.role_admin') ?></span>
+                                    <span class="role-dropdown-desc"><?= __('admin.role_admin_desc') ?></span>
                                 </div>
                             </div>
                             <div class="role-dropdown-option selected" data-value="user" onclick="selectRole('new', 'user')">
@@ -509,8 +509,8 @@ $users = $userRepo->getAll();
                                     <span class="material-symbols-outlined">person</span>
                                 </div>
                                 <div class="role-dropdown-text">
-                                    <span class="role-dropdown-name">Utilisateur</span>
-                                    <span class="role-dropdown-desc">Crée ses projets, voit les partagés</span>
+                                    <span class="role-dropdown-name"><?= __('admin.role_user') ?></span>
+                                    <span class="role-dropdown-desc"><?= __('admin.role_user_desc') ?></span>
                                 </div>
                             </div>
                             <div class="role-dropdown-option" data-value="viewer" onclick="selectRole('new', 'viewer')">
@@ -518,8 +518,8 @@ $users = $userRepo->getAll();
                                     <span class="material-symbols-outlined">visibility</span>
                                 </div>
                                 <div class="role-dropdown-text">
-                                    <span class="role-dropdown-name">Lecteur</span>
-                                    <span class="role-dropdown-desc">Lecture seule, voit les partagés</span>
+                                    <span class="role-dropdown-name"><?= __('admin.role_viewer') ?></span>
+                                    <span class="role-dropdown-desc"><?= __('admin.role_viewer_desc') ?></span>
                                 </div>
                             </div>
                         </div>
@@ -529,10 +529,10 @@ $users = $userRepo->getAll();
                 <div id="addUserMessage" class="form-message"></div>
 
                 <div class="modal-actions">
-                    <button type="button" class="btn btn-secondary" onclick="closeAddUserModal()">Annuler</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeAddUserModal()"><?= __('common.cancel') ?></button>
                     <button type="submit" class="btn btn-success">
                         <span class="material-symbols-outlined">person_add</span>
-                        Ajouter
+                        <?= __('admin.btn_create_user') ?>
                     </button>
                 </div>
             </form>
@@ -543,19 +543,19 @@ $users = $userRepo->getAll();
     <div id="editUserModal" class="modal">
         <div class="modal-content" style="max-width: 500px;">
             <div class="modal-header">
-                <h2>Modifier l'utilisateur</h2>
+                <h2><?= __('admin.modal_edit_title') ?></h2>
                 <span class="modal-close" onclick="closeEditUserModal()">&times;</span>
             </div>
             <form id="editUserForm" onsubmit="return updateUser(event)">
                 <input type="hidden" id="editUserId" name="id">
                 
                 <div class="form-group">
-                    <label for="editEmail">Email *</label>
+                    <label for="editEmail"><?= __('admin.label_email') ?></label>
                     <input type="email" id="editEmail" name="email" required placeholder="john@example.com">
                 </div>
 
                 <div class="form-group">
-                    <label>Rôle *</label>
+                    <label><?= __('admin.label_role') ?></label>
                     <input type="hidden" id="editRole" name="role" value="user">
                     <div class="role-dropdown" id="editRoleDropdown">
                         <div class="role-dropdown-trigger" onclick="toggleRoleDropdown('edit')">
@@ -564,8 +564,8 @@ $users = $userRepo->getAll();
                                     <span class="material-symbols-outlined">person</span>
                                 </div>
                                 <div class="role-dropdown-text">
-                                    <span class="role-dropdown-name">Utilisateur</span>
-                                    <span class="role-dropdown-desc">Crée ses projets, voit les partagés</span>
+                                    <span class="role-dropdown-name"><?= __('admin.role_user') ?></span>
+                                    <span class="role-dropdown-desc"><?= __('admin.role_user_desc') ?></span>
                                 </div>
                             </div>
                             <span class="material-symbols-outlined">expand_more</span>
@@ -576,8 +576,8 @@ $users = $userRepo->getAll();
                                     <span class="material-symbols-outlined">shield_person</span>
                                 </div>
                                 <div class="role-dropdown-text">
-                                    <span class="role-dropdown-name">Administrateur</span>
-                                    <span class="role-dropdown-desc">Accès total à l'application</span>
+                                    <span class="role-dropdown-name"><?= __('admin.role_admin') ?></span>
+                                    <span class="role-dropdown-desc"><?= __('admin.role_admin_desc') ?></span>
                                 </div>
                             </div>
                             <div class="role-dropdown-option selected" data-value="user" onclick="selectRole('edit', 'user')">
@@ -585,8 +585,8 @@ $users = $userRepo->getAll();
                                     <span class="material-symbols-outlined">person</span>
                                 </div>
                                 <div class="role-dropdown-text">
-                                    <span class="role-dropdown-name">Utilisateur</span>
-                                    <span class="role-dropdown-desc">Crée ses projets, voit les partagés</span>
+                                    <span class="role-dropdown-name"><?= __('admin.role_user') ?></span>
+                                    <span class="role-dropdown-desc"><?= __('admin.role_user_desc') ?></span>
                                 </div>
                             </div>
                             <div class="role-dropdown-option" data-value="viewer" onclick="selectRole('edit', 'viewer')">
@@ -594,8 +594,8 @@ $users = $userRepo->getAll();
                                     <span class="material-symbols-outlined">visibility</span>
                                 </div>
                                 <div class="role-dropdown-text">
-                                    <span class="role-dropdown-name">Lecteur</span>
-                                    <span class="role-dropdown-desc">Lecture seule, voit les partagés</span>
+                                    <span class="role-dropdown-name"><?= __('admin.role_viewer') ?></span>
+                                    <span class="role-dropdown-desc"><?= __('admin.role_viewer_desc') ?></span>
                                 </div>
                             </div>
                         </div>
@@ -603,24 +603,26 @@ $users = $userRepo->getAll();
                 </div>
 
                 <div class="form-group">
-                    <label for="editPassword">Nouveau mot de passe</label>
-                    <input type="password" id="editPassword" name="password" placeholder="Laisser vide pour ne pas changer">
-                    <small>Minimum 6 caractères. Laisser vide pour conserver le mot de passe actuel.</small>
+                    <label for="editPassword"><?= __('admin.label_new_password') ?></label>
+                    <input type="password" id="editPassword" name="password" placeholder="<?= __('admin.label_new_password_hint') ?>">
+                    <small><?= __('admin.helper_min_chars') ?></small>
                 </div>
 
                 <div id="editUserMessage" class="form-message"></div>
 
                 <div class="modal-actions">
-                    <button type="button" class="btn btn-secondary" onclick="closeEditUserModal()">Annuler</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeEditUserModal()"><?= __('common.cancel') ?></button>
                     <button type="submit" class="btn btn-success">
                         <span class="material-symbols-outlined">save</span>
-                        Enregistrer
+                        <?= __('common.save') ?>
                     </button>
                 </div>
             </form>
         </div>
     </div>
 
+    <script src="../assets/i18n.js"></script>
+    <script>ScouterI18n.init(<?= I18n::getInstance()->getJsTranslations() ?>, <?= json_encode(I18n::getInstance()->getLang()) ?>);</script>
     <script src="../assets/confirm-modal.js"></script>
     <script>
         function openAddUserModal() {
@@ -643,12 +645,12 @@ $users = $userRepo->getAll();
             const confirmPassword = formData.get('confirm_password');
             
             if (password !== confirmPassword) {
-                showMessage('addUserMessage', 'Les mots de passe ne correspondent pas', 'error');
+                showMessage('addUserMessage', __('admin.error_password_mismatch'), 'error');
                 return false;
             }
             
             if (password.length < 6) {
-                showMessage('addUserMessage', 'Le mot de passe doit contenir au moins 6 caractères', 'error');
+                showMessage('addUserMessage', __('login.error_password_short'), 'error');
                 return false;
             }
             
@@ -661,15 +663,15 @@ $users = $userRepo->getAll();
                 const result = await response.json();
                 
                 if (result.success) {
-                    showMessage('addUserMessage', 'Utilisateur créé avec succès', 'success');
+                    showMessage('addUserMessage', __('admin.msg_user_created'), 'success');
                     setTimeout(() => {
                         location.reload();
                     }, 1000);
                 } else {
-                    showMessage('addUserMessage', result.error || 'Erreur lors de la création', 'error');
+                    showMessage('addUserMessage', result.error || __('common.error'), 'error');
                 }
             } catch (error) {
-                showMessage('addUserMessage', 'Erreur de connexion au serveur', 'error');
+                showMessage('addUserMessage', __('common.error'), 'error');
             }
             
             return false;
@@ -677,9 +679,9 @@ $users = $userRepo->getAll();
 
         async function deleteUser(userId, email) {
             const confirmed = await customConfirm(
-                `Êtes-vous sûr de vouloir supprimer l'utilisateur ${email} ? Cette action est irréversible.`,
-                'Supprimer l\'utilisateur',
-                'Supprimer',
+                __('admin.confirm_delete'),
+                __('admin.confirm_delete_title'),
+                __('common.delete'),
                 'danger'
             );
             
@@ -695,10 +697,10 @@ $users = $userRepo->getAll();
                 if (result.success) {
                     location.reload();
                 } else {
-                    alert('Erreur: ' + (result.error || 'Impossible de supprimer l\'utilisateur'));
+                    alert(__('common.error') + ': ' + (result.error || __('common.error')));
                 }
             } catch (error) {
-                alert('Erreur de connexion au serveur');
+                alert(__('common.error'));
             }
         }
 
@@ -720,7 +722,7 @@ $users = $userRepo->getAll();
                 roleDropdown.classList.add('disabled');
                 roleDropdown.style.pointerEvents = 'none';
                 roleDropdown.style.opacity = '0.6';
-                roleDropdown.title = 'Vous ne pouvez pas modifier votre propre rôle';
+                roleDropdown.title = __('common.cancel');
             } else {
                 roleDropdown.classList.remove('disabled');
                 roleDropdown.style.pointerEvents = '';
@@ -748,7 +750,7 @@ $users = $userRepo->getAll();
             
             // Validation du mot de passe si fourni
             if (password && password.length < 6) {
-                showMessage('editUserMessage', 'Le mot de passe doit contenir au moins 6 caractères', 'error');
+                showMessage('editUserMessage', __('login.error_password_short'), 'error');
                 return false;
             }
             
@@ -773,15 +775,15 @@ $users = $userRepo->getAll();
                 const result = await response.json();
                 
                 if (result.success) {
-                    showMessage('editUserMessage', 'Utilisateur mis à jour avec succès', 'success');
+                    showMessage('editUserMessage', __('admin.msg_user_updated'), 'success');
                     setTimeout(() => {
                         location.reload();
                     }, 1000);
                 } else {
-                    showMessage('editUserMessage', result.error || 'Erreur lors de la mise à jour', 'error');
+                    showMessage('editUserMessage', result.error || __('common.error'), 'error');
                 }
             } catch (error) {
-                showMessage('editUserMessage', 'Erreur de connexion au serveur', 'error');
+                showMessage('editUserMessage', __('common.error'), 'error');
             }
             
             return false;
@@ -792,9 +794,9 @@ $users = $userRepo->getAll();
         // ============================================
         
         const roleData = {
-            'admin': { name: 'Administrateur', desc: 'Accès total à l\'application', icon: 'shield_person' },
-            'user': { name: 'Utilisateur', desc: 'Crée ses projets, voit les partagés', icon: 'person' },
-            'viewer': { name: 'Lecteur', desc: 'Lecture seule, voit les partagés', icon: 'visibility' }
+            'admin': { name: __('admin.role_admin'), desc: __('admin.role_admin_desc'), icon: 'shield_person' },
+            'user': { name: __('admin.role_user'), desc: __('admin.role_user_desc'), icon: 'person' },
+            'viewer': { name: __('admin.role_viewer'), desc: __('admin.role_viewer_desc'), icon: 'visibility' }
         };
         
         function toggleRoleDropdown(prefix) {

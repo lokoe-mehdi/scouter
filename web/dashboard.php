@@ -40,7 +40,7 @@ function getCodeDisplayValue($code) {
 // Fonction globale pour obtenir la couleur d'une catégorie
 function getCategoryColor($category) {
     $categoryColors = $GLOBALS['categoryColors'] ?? [];
-    if(empty($category) || $category === 'N/A' || $category === 'Non catégorisé') {
+    if(empty($category) || $category === 'N/A' || $category === __('common.uncategorized') || $category === 'Non catégorisé') {
         return '#95a5a6';
     }
     return $categoryColors[$category] ?? '#95a5a6';
@@ -95,7 +95,7 @@ if ($crawlId) {
 }
 
 if (!$crawlRecord) {
-    die('Projet non trouvé');
+    die(__('common.project_not_found'));
 }
 
 // Rediriger vers index si le crawl n'est pas terminé ou arrêté
@@ -216,7 +216,7 @@ function isSectionCollapsed($sectionName) {
 
 ?>
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="<?= I18n::getInstance()->getLang() ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -225,6 +225,8 @@ function isSectionCollapsed($sectionName) {
     <link rel="stylesheet" href="assets/style.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/crawl-panel.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
+    <script src="assets/i18n.js"></script>
+    <script>ScouterI18n.init(<?= I18n::getInstance()->getJsTranslations() ?>, <?= json_encode(I18n::getInstance()->getLang()) ?>);</script>
     <script src="assets/tooltip.js?v=<?= time() ?>"></script>
     <link rel="stylesheet" href="assets/vendor/codemirror/codemirror.min.css">
     <link rel="stylesheet" href="assets/vendor/codemirror/theme/eclipse.min.css">
@@ -295,15 +297,15 @@ function isSectionCollapsed($sectionName) {
                 ?>
                 <div class="empty-crawl-message" style="padding: 3rem; text-align: center; max-width: 600px; margin: 2rem auto;">
                     <div style="font-size: 4rem; margin-bottom: 1rem;">⚠️</div>
-                    <h2 style="margin-bottom: 1rem; color: var(--text-primary);">Aucune page indexable</h2>
+                    <h2 style="margin-bottom: 1rem; color: var(--text-primary);"><?= __('dashboard.no_indexable_pages') ?></h2>
                     <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
-                        Ce crawl n'a trouvé aucune page indexable. Les données de cette section ne sont pas disponibles.
+                        <?= __('dashboard.no_indexable_pages_desc') ?>
                     </p>
                     <p style="color: var(--text-tertiary); font-size: 0.9rem;">
-                        Causes possibles : crawl interrompu, toutes les pages en erreur/redirect, blocage robots.txt, ou URL de départ inaccessible.
+                        <?= __('dashboard.no_indexable_pages_causes') ?>
                     </p>
                     <a href="?crawl=<?= $crawlId ?>&page=home" class="btn btn-primary" style="margin-top: 1.5rem; display: inline-block; padding: 0.75rem 1.5rem; background: var(--primary-color); color: white; border-radius: 8px; text-decoration: none;">
-                        Retour à l'accueil
+                        <?= __('common.back_home') ?>
                     </a>
                 </div>
                 <?php
@@ -367,7 +369,7 @@ function isSectionCollapsed($sectionName) {
                 case 'categorize':
                     // SÉCURITÉ: Vérifier les droits de gestion
                     if (!$canManageCurrentProject) {
-                        echo '<div class="error-page" style="padding: 2rem; text-align: center;"><h1>403 - Accès refusé</h1><p>Vous n\'avez pas les droits de modification sur ce projet.</p></div>';
+                        echo '<div class="error-page" style="padding: 2rem; text-align: center;"><h1>' . __('dashboard.access_denied') . '</h1><p>' . __('dashboard.access_denied_desc') . '</p></div>';
                     } else {
                         include 'pages/categorize.php';
                     }
@@ -375,7 +377,7 @@ function isSectionCollapsed($sectionName) {
                 case 'config':
                     // SÉCURITÉ: Vérifier les droits de gestion
                     if (!$canManageCurrentProject) {
-                        echo '<div class="error-page" style="padding: 2rem; text-align: center;"><h1>403 - Accès refusé</h1><p>Vous n\'avez pas les droits de modification sur ce projet.</p></div>';
+                        echo '<div class="error-page" style="padding: 2rem; text-align: center;"><h1>' . __('dashboard.access_denied') . '</h1><p>' . __('dashboard.access_denied_desc') . '</p></div>';
                     } else {
                         include 'pages/config.php';
                     }

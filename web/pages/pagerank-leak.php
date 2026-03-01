@@ -68,12 +68,12 @@ $stmt->execute([':crawl_id' => $crawlId]);
 $topDomains = $stmt->fetchAll(PDO::FETCH_OBJ);
 
 // Préparer les données pour le graphe des domaines
-$domainNames = array_map(fn($d) => $d->domain ?? 'Inconnu', $topDomains);
+$domainNames = array_map(fn($d) => $d->domain ?? __('common.unknown'), $topDomains);
 $domainPR = array_map(fn($d) => round((float)$d->total_pr * 100, 4), $topDomains);
 
 ?>
 
-<h1 class="page-title">Fuite de PageRank</h1>
+<h1 class="page-title"><?= __('pagerank_leak.page_title') ?></h1>
 
 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
 
@@ -83,33 +83,33 @@ $domainPR = array_map(fn($d) => round((float)$d->total_pr * 100, 4), $topDomains
         Component::card([
             'color' => 'danger',
             'icon' => 'warning',
-            'title' => 'Fuite totale',
+            'title' => __('pagerank_leak.card_total'),
             'value' => round($externalPct + $nonIndexablePct, 1) . '%',
-            'desc' => 'PageRank perdu (externes + non indexables)'
+            'desc' => __('pagerank_leak.card_total_desc')
         ]);
         
         Component::card([
             'color' => 'warning',
             'icon' => 'public_off',
-            'title' => 'Vers externes',
+            'title' => __('pagerank_leak.card_external'),
             'value' => $externalPct . '%',
-            'desc' => number_format($externalPR, 2) . ' PR vers ' . count($topDomains) . '+ domaines'
+            'desc' => __('pagerank_leak.card_external_desc', ['count' => count($topDomains) . '+'])
         ]);
         
         Component::card([
             'color' => 'info',
             'icon' => 'block',
-            'title' => 'Vers non indexables',
+            'title' => __('pagerank_leak.card_non_indexable'),
             'value' => $nonIndexablePct . '%',
-            'desc' => 'PageRank sur URLs internes non indexables'
+            'desc' => __('pagerank_leak.card_non_indexable_desc')
         ]);
         
         Component::card([
             'color' => 'success',
             'icon' => 'check_circle',
-            'title' => 'PageRank utile',
+            'title' => __('pagerank_leak.card_useful'),
             'value' => $indexablePct . '%',
-            'desc' => 'PageRank sur URLs indexables'
+            'desc' => __('pagerank_leak.card_useful_desc')
         ]);
         ?>
     </div>
@@ -128,15 +128,15 @@ WHERE crawl_id = :crawl_id AND (crawled = true OR external = true)";
     
     Component::chart([
         'type' => 'donut',
-        'title' => 'Distribution du PageRank',
-        'subtitle' => 'Répartition du PageRank entre URLs indexables, non-indexables et externes',
+        'title' => __('pagerank_leak.chart_distribution'),
+        'subtitle' => __('pagerank_leak.chart_distribution_desc'),
         'series' => [
             [
                 'name' => 'PageRank',
                 'data' => [
-                    ['name' => 'Indexables', 'y' => $indexablePct, 'color' => '#6bd899ff'],
-                    ['name' => 'Non indexables', 'y' => $nonIndexablePct, 'color' => '#d8bf6bff'],
-                    ['name' => 'Externes', 'y' => $externalPct, 'color' => '#d86b6bff']
+                    ['name' => __('pagerank_leak.series_indexable'), 'y' => $indexablePct, 'color' => '#6bd899ff'],
+                    ['name' => __('pagerank_leak.series_non_indexable'), 'y' => $nonIndexablePct, 'color' => '#d8bf6bff'],
+                    ['name' => __('pagerank_leak.series_external'), 'y' => $externalPct, 'color' => '#d86b6bff']
                 ]
             ]
         ],
@@ -147,11 +147,11 @@ WHERE crawl_id = :crawl_id AND (crawled = true OR external = true)";
     // Graphique 2: Top 10 domaines externes
     Component::chart([
         'type' => 'horizontalBar',
-        'title' => 'Top 10 domaines externes',
-        'subtitle' => 'Domaines externes recevant le plus de PageRank',
+        'title' => __('pagerank_leak.chart_top_domains'),
+        'subtitle' => __('pagerank_leak.chart_top_domains_desc'),
         'categories' => $domainNames,
         'series' => [
-            ['name' => 'PageRank (%)', 'data' => $domainPR, 'color' => '#d86b6bff']
+            ['name' => __('pagerank.series_pagerank'), 'data' => $domainPR, 'color' => '#d86b6bff']
         ],
         'height' => max(250, count($domainNames) * 35),
         'sqlQuery' => $sqlTopDomains
@@ -162,7 +162,7 @@ WHERE crawl_id = :crawl_id AND (crawled = true OR external = true)";
     <!-- Table des URLs qui fuient du PageRank -->
     <?php
     Component::urlTable([
-        'title' => 'URLs vers lesquelles le PageRank fuit',
+        'title' => __('pagerank_leak.table_title'),
         'id' => 'prLeakTable',
         'whereClause' => 'WHERE (c.external = true OR (c.crawled = true AND c.compliant = false))',
         'orderBy' => 'ORDER BY c.pri DESC',

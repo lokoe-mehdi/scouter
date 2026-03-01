@@ -253,7 +253,7 @@ class DataTable {
             if (newDropdown) newDropdown.style.display = 'none';
             
             if (typeof showGlobalStatus === 'function') {
-                showGlobalStatus('✓ Colonnes mises à jour', 'success');
+                showGlobalStatus(__('common.columns_updated'), 'success');
             }
         });
     }
@@ -375,9 +375,9 @@ class DataTable {
                 const icon = cell.querySelector('.material-symbols-outlined');
                 const color = icon.style.color || window.getComputedStyle(icon).color;
                 if (color.includes('107, 216, 153') || color.includes('#6bd899')) {
-                    return 'Oui';
+                    return __('common.yes');
                 } else if (color.includes('149, 165, 166') || color.includes('#95a5a6')) {
-                    return 'Non';
+                    return __('common.no');
                 }
             }
             
@@ -396,12 +396,12 @@ class DataTable {
         
         navigator.clipboard.writeText(text).then(() => {
             if (typeof showGlobalStatus === 'function') {
-                showGlobalStatus('✓ Tableau copié', 'success');
+                showGlobalStatus(__('common.copied_table'), 'success');
             }
         }).catch(err => {
             console.error('Copy error:', err);
             if (typeof showGlobalStatus === 'function') {
-                showGlobalStatus('Erreur lors de la copie', 'error');
+                showGlobalStatus(__('common.copy_error'), 'error');
             }
         });
     }
@@ -502,7 +502,7 @@ class DataTable {
                     if (path) {
                         navigator.clipboard.writeText(path).then(() => {
                             if (typeof showGlobalStatus === 'function') {
-                                showGlobalStatus('Chemin copié : ' + path, 'success');
+                                showGlobalStatus(__('common.path_copied', {path: path}), 'success');
                             }
                         }).catch(err => {
                             console.error('Copy error:', err);

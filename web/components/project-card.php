@@ -34,7 +34,7 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
                 <?php else: ?>
                     <span class="category-badge-simple category-badge-clickable category-badge-none"
                           onclick="event.stopPropagation(); toggleCategoryDropdown('project-<?= $projectId ?>')">
-                        Sans catégorie
+                        <?= __('index.filter_uncategorized') ?>
                     </span>
                 <?php endif; ?>
                 <img src="https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://<?= htmlspecialchars($domainName) ?>&size=16" 
@@ -53,17 +53,17 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
             <div class="domain-meta">
                 <span><?= count($crawls) ?> crawl<?= count($crawls) > 1 ? 's' : '' ?></span>
                 <span>•</span>
-                <span>Dernier: <?= $latestCrawl ? $latestCrawl->date : 'N/A' ?></span>
+                <span><?= __('index.last_crawl') ?>: <?= $latestCrawl ? $latestCrawl->date : 'N/A' ?></span>
             </div>
         </div>
         <div class="domain-actions">
             <!-- Dropdown de catégorie -->
             <div class="category-dropdown-menu" id="cat-dropdown-project-<?= $projectId ?>" onclick="event.stopPropagation()">
                 <div class="category-dropdown-header">
-                    Choisir une catégorie
+                    <?= __('index.choose_category') ?>
                 </div>
                 <div class="category-dropdown-item <?= empty($projectCategories) ? 'active' : '' ?>" onclick="event.stopPropagation(); assignCategory(<?= $projectId ?>, null)">
-                    <span class="category-name">Sans catégorie</span>
+                    <span class="category-name"><?= __('index.filter_uncategorized') ?></span>
                 </div>
                 <?php foreach($categories as $cat): ?>
                     <div class="category-dropdown-item <?= in_array($cat->id, $projectCategoryIds) ? 'active' : '' ?>" onclick="event.stopPropagation(); assignCategory(<?= $projectId ?>, <?= $cat->id ?>)">
@@ -88,12 +88,12 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
             <?php if($lastFinishedCrawl): ?>
                 <a href="dashboard.php?crawl=<?= $lastFinishedCrawl->crawl_id ?>" class="btn btn-sm btn-primary" onclick="event.stopPropagation();">
                     <span class="material-symbols-outlined" style="font-size: 16px;">bar_chart</span>
-                    Dernier crawl
+                    <?= __('index.last_crawl') ?>
                 </a>
             <?php elseif($latestCrawl): ?>
                 <span class="btn btn-sm btn-disabled" style="cursor: default; opacity: 0.5; pointer-events: none;">
                     <span class="material-symbols-outlined" style="font-size: 16px;">bar_chart</span>
-                    Aucun dashboard disponible
+                    <?= __('index.no_dashboard') ?>
                 </span>
             <?php endif; ?>
             <span class="material-symbols-outlined expand-icon">expand_more</span>
@@ -108,22 +108,22 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
                     <?php if($canCreate && $isOwner && $latestCrawl): ?>
                     <div class="kebab-dropdown-item primary" onclick="duplicateAndStart('<?= htmlspecialchars($latestCrawl->dir) ?>', <?= $project->user_id ?>); event.stopPropagation();">
                         <span class="material-symbols-outlined">refresh</span>
-                        <span>Nouveau crawl</span>
+                        <span><?= __('index.new_crawl') ?></span>
                     </div>
                     <?php endif; ?>
                     <?php if($isOwner): ?>
                     <div class="kebab-dropdown-item" onclick="openProjectSettingsModal(<?= $projectId ?>, '<?= htmlspecialchars($domainName, ENT_QUOTES) ?>'); event.stopPropagation();">
                         <span class="material-symbols-outlined">settings</span>
-                        <span>Paramètres</span>
+                        <span><?= __('index.project_settings') ?></span>
                     </div>
                     <div class="kebab-dropdown-item" onclick="openShareModal(<?= $projectId ?>, '<?= htmlspecialchars($domainName, ENT_QUOTES) ?>'); event.stopPropagation();">
                         <span class="material-symbols-outlined">share</span>
-                        <span>Partager</span>
+                        <span><?= __('index.share') ?></span>
                     </div>
                     <div class="kebab-dropdown-separator"></div>
                     <div class="kebab-dropdown-item danger" onclick="confirmDeleteProject(<?= $projectId ?>, '<?= htmlspecialchars($domainName, ENT_QUOTES) ?>'); event.stopPropagation();">
                         <span class="material-symbols-outlined">delete</span>
-                        <span>Supprimer</span>
+                        <span><?= __('common.delete') ?></span>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -137,12 +137,12 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
         <table class="crawls-table crawls-table-modern">
             <thead>
                 <tr>
-                    <th>Date</th>
-                    <th>Statut</th>
+                    <th><?= __('index.col_date') ?></th>
+                    <th><?= __('index.col_status') ?></th>
                     <th>URLs</th>
-                    <th>Crawlées</th>
-                    <th>Indexables</th>
-                    <th>Configuration</th>
+                    <th><?= __('index.col_crawled') ?></th>
+                    <th><?= __('index.col_indexable') ?></th>
+                    <th><?= __('index.col_configuration') ?></th>
                     <?php if($canManage): ?><th style="text-align: center; width: 50px;"></th><?php endif; ?>
                 </tr>
             </thead>
@@ -154,23 +154,23 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
                     
                     // Badge de statut (style subtle)
                     $badgeClass = 'status-badge status-completed';
-                    $badgeText = 'Terminé';
-                    
+                    $badgeText = __('index.status_completed');
+
                     if ($crawl->job_status === 'running') {
                         $badgeClass = 'status-badge status-running';
-                        $badgeText = 'En cours';
+                        $badgeText = __('index.status_running');
                     } elseif (in_array($crawl->job_status, ['queued', 'pending'])) {
                         $badgeClass = 'status-badge status-queued';
-                        $badgeText = 'En attente';
+                        $badgeText = __('index.status_queued');
                     } elseif ($crawl->job_status === 'processing') {
                         $badgeClass = 'status-badge status-processing';
-                        $badgeText = 'Traitement...';
+                        $badgeText = __('index.status_processing');
                     } elseif ($crawl->job_status === 'failed') {
                         $badgeClass = 'status-badge status-failed';
-                        $badgeText = 'Échoué';
+                        $badgeText = __('index.status_failed');
                     } elseif ($crawl->job_status === 'stopped') {
                         $badgeClass = 'status-badge status-stopped';
-                        $badgeText = 'Arrêté';
+                        $badgeText = __('index.status_stopped');
                     }
                 ?>
                     <?php 
@@ -192,16 +192,16 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
                         <td class="crawl-stat"><?= ($crawl->in_progress ?? false) ? '<span class="stat-pending">-</span>' : number_format($crawl->stats['compliant'] ?? 0) ?></td>
                         <td>
                             <div class="config-icons">
-                                <span class="material-symbols-outlined config-icon <?= ($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript' ? 'active' : 'inactive' ?>" title="Mode JavaScript">javascript</span>
-                                <span class="material-symbols-outlined config-icon <?= !empty($crawl->config['advanced']['respect']['robots']) ? 'active' : 'inactive' ?>" title="Respect du robots.txt">smart_toy</span>
-                                <span class="material-symbols-outlined config-icon <?= !empty($crawl->config['advanced']['respect']['canonical']) ? 'active' : 'inactive' ?>" title="Respect des canonicals">content_copy</span>
-                                <span class="material-symbols-outlined config-icon <?= !empty($crawl->config['advanced']['respect']['nofollow']) ? 'active' : 'inactive' ?>" title="Respect du nofollow">link_off</span>
-                                <span class="config-depth-badge" title="Profondeur max"><?= $crawl->config['general']['depthMax'] ?? '-' ?></span>
+                                <span class="material-symbols-outlined config-icon <?= ($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript' ? 'active' : 'inactive' ?>" title="<?= __('index.mode_javascript') ?>">javascript</span>
+                                <span class="material-symbols-outlined config-icon <?= !empty($crawl->config['advanced']['respect']['robots']) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_robots') ?>">smart_toy</span>
+                                <span class="material-symbols-outlined config-icon <?= !empty($crawl->config['advanced']['respect']['canonical']) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_canonical') ?>">content_copy</span>
+                                <span class="material-symbols-outlined config-icon <?= !empty($crawl->config['advanced']['respect']['nofollow']) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_nofollow') ?>">link_off</span>
+                                <span class="config-depth-badge" title="<?= __('index.max_depth') ?>"><?= $crawl->config['general']['depthMax'] ?? '-' ?></span>
                             </div>
                         </td>
                         <?php if($canManage): ?>
                         <td class="crawl-action" onclick="event.stopPropagation();">
-                            <button type="button" class="action-icon" title="<?= $isInProgress ? 'Monitoring' : 'Voir les logs' ?>" style="cursor:pointer; background:none; border:none; padding:0;" onclick="openCrawlPanel('<?= htmlspecialchars($crawl->dir) ?>', '<?= htmlspecialchars($domainName) ?>', <?= $crawl->crawl_id ?>)">
+                            <button type="button" class="action-icon" title="<?= $isInProgress ? __('index.monitoring') : __('index.view_logs') ?>" style="cursor:pointer; background:none; border:none; padding:0;" onclick="openCrawlPanel('<?= htmlspecialchars($crawl->dir) ?>', '<?= htmlspecialchars($domainName) ?>', <?= $crawl->crawl_id ?>)">
                                 <span class="material-symbols-outlined">terminal</span>
                             </button>
                         </td>

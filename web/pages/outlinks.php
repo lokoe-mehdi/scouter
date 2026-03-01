@@ -66,7 +66,7 @@ try {
     $outlinksByCategory = [];
     foreach ($outlinksByCategoryRaw as $row) {
         $catInfo = $categoriesMap[$row->cat_id] ?? null;
-        $row->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+        $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
         $outlinksByCategory[] = $row;
     }
     
@@ -103,11 +103,11 @@ try {
     // Ajouter le nom de catégorie
     foreach ($topOutlinksUrls as $row) {
         $catInfo = $categoriesMap[$row->cat_id] ?? null;
-        $row->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+        $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     }
     
 } catch(PDOException $e) {
-    echo "<div class='alert alert-error'>Erreur SQL: " . htmlspecialchars($e->getMessage()) . "</div>";
+    echo "<div class='alert alert-error'>" . __('common.sql_error') . ": " . htmlspecialchars($e->getMessage()) . "</div>";
     $outlinksDistribution = [];
     $outlinksByCategory = [];
     $cumulativeData = [];
@@ -200,7 +200,7 @@ try {
 
 </style>
 
-<h1 class="page-title">Analyse des Outlinks</h1>
+<h1 class="page-title"><?= __('outlinks.page_title') ?></h1>
 
 <div class="outlinks-layout">
     <!-- Statistiques globales -->
@@ -210,33 +210,33 @@ try {
         Component::card([
             'color' => 'primary',
             'icon' => 'language',
-            'title' => 'Total d\'URLs',
+            'title' => __('outlinks.card_total'),
             'value' => number_format($outlinksStats->total_urls),
-            'desc' => 'URLs analysées'
+            'desc' => __('outlinks.card_total_desc')
         ]);
         
         Component::card([
             'color' => 'info',
             'icon' => 'open_in_new',
-            'title' => 'Moyenne d\'outlinks',
+            'title' => __('outlinks.card_avg'),
             'value' => $outlinksStats->avg_outlinks,
-            'desc' => 'Liens sortants moyens'
+            'desc' => __('outlinks.card_avg_desc')
         ]);
         
         Component::card([
             'color' => 'success',
             'icon' => 'trending_up',
-            'title' => 'Min / Max',
+            'title' => __('outlinks.card_minmax'),
             'value' => $outlinksStats->min_outlinks . ' / ' . $outlinksStats->max_outlinks,
-            'desc' => 'Intervalle d\'outlinks'
+            'desc' => __('outlinks.card_minmax_desc')
         ]);
         
         Component::card([
             'color' => 'warning',
             'icon' => 'hub',
-            'title' => 'Total d\'outlinks',
+            'title' => __('outlinks.card_total_outlinks'),
             'value' => number_format($outlinksStats->total_outlinks),
-            'desc' => 'Liens sortants totaux'
+            'desc' => __('outlinks.card_total_outlinks_desc')
         ]);
         ?>
     </div>
@@ -252,23 +252,23 @@ try {
         
         Component::chart([
             'type' => 'area',
-            'title' => 'Distribution des outlinks',
-            'subtitle' => 'Ce graphique montre le pourcentage d\'URLs (axe Y) ayant au moins X outlinks (axe X), en partant des pages avec le plus d\'outlinks. Permet d\'identifier rapidement les pages avec trop de liens sortants.',
+            'title' => __('outlinks.chart_distribution'),
+            'subtitle' => __('outlinks.chart_distribution_desc'),
             'categories' => [],
             'series' => [
                 [
-                    'name' => 'Outlinks',
+                    'name' => __('outlinks.series_outlinks'),
                     'data' => $chartData,
                     'color' => '#4ECDC4'
                 ]
             ],
-            'xAxisTitle' => 'Pourcentage d\'URLs (%)',
-            'yAxisTitle' => 'Nombre d\'outlinks (échelle logarithmique)',
+            'xAxisTitle' => __('outlinks.label_pct_urls'),
+            'yAxisTitle' => __('outlinks.label_outlinks_log'),
             'logarithmic' => true,
             'xAxisMin' => 0,
             'xAxisMax' => 100,
             'height' => 400,
-            'tooltipFormat' => '<b>{x}%</b> des URLs ont <b>{y} outlinks</b> ou plus.',
+            'tooltipFormat' => __('outlinks.tooltip'),
             'sqlQuery' => $sqlOutlinksDistribution
         ]);
         ?>
@@ -289,15 +289,15 @@ try {
     }
 
     Component::simpleTable([
-        'title' => 'Outlinks moyens par catégorie',
-        'subtitle' => 'Statistiques des liens sortants par type de page',
+        'title' => __('outlinks.table_category'),
+        'subtitle' => __('outlinks.table_category_desc'),
         'columns' => [
-            ['key' => 'category', 'label' => 'Catégorie', 'type' => 'badge-color'],
-            ['key' => 'url_count', 'label' => 'Nombre d\'URLs', 'type' => 'default'],
-            ['key' => 'avg_outlinks', 'label' => 'Moyenne', 'type' => 'bold'],
-            ['key' => 'min_outlinks', 'label' => 'Min', 'type' => 'default'],
-            ['key' => 'max_outlinks', 'label' => 'Max', 'type' => 'default'],
-            ['key' => 'total_outlinks', 'label' => 'Total', 'type' => 'default']
+            ['key' => 'category', 'label' => __('common.category'), 'type' => 'badge-color'],
+            ['key' => 'url_count', 'label' => __('inlinks.col_url_count'), 'type' => 'default'],
+            ['key' => 'avg_outlinks', 'label' => __('common.average'), 'type' => 'bold'],
+            ['key' => 'min_outlinks', 'label' => __('common.min'), 'type' => 'default'],
+            ['key' => 'max_outlinks', 'label' => __('common.max'), 'type' => 'default'],
+            ['key' => 'total_outlinks', 'label' => __('common.total'), 'type' => 'default']
         ],
         'data' => $outlinksTableData
     ]);
@@ -306,7 +306,7 @@ try {
 
 <?php
 Component::urlTable([
-    'title' => 'Top pages avec le plus d\'outlinks',
+    'title' => __('outlinks.table_top'),
     'id' => 'outlinksTable',
     'whereClause' => 'WHERE c.compliant = true',
     'orderBy' => 'ORDER BY c.outlinks DESC',

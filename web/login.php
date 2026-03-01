@@ -1,4 +1,5 @@
 <?php
+require_once(__DIR__ . '/config/i18n.php');
 
 require("../vendor/autoload.php");
 
@@ -25,13 +26,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
     $password = $_POST['password'] ?? '';
     
     if (empty($email) || empty($password)) {
-        $error = 'Veuillez remplir tous les champs';
+        $error = __('login.error_fill_fields');
     } elseif ($auth->login($email, $password)) {
         // Rediriger vers l'URL demandée ou l'accueil
         header('Location: ' . ($redirect ?: 'index.php'));
         exit;
     } else {
-        $error = 'Identifiants incorrects';
+        $error = __('login.error_invalid_credentials');
     }
 }
 
@@ -43,13 +44,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['setup'])) {
         $confirmPassword = $_POST['confirm_password'] ?? '';
         
         if (empty($email) || empty($password)) {
-            $error = 'Veuillez remplir tous les champs obligatoires';
+            $error = __('login.error_fill_fields');
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $error = 'Veuillez entrer un email valide';
+            $error = __('login.error_invalid_email');
         } elseif ($password !== $confirmPassword) {
-            $error = 'Les mots de passe ne correspondent pas';
+            $error = __('login.error_password_mismatch');
         } elseif (strlen($password) < 6) {
-            $error = 'Le mot de passe doit contenir au moins 6 caractères';
+            $error = __('login.error_password_short');
         } else {
             try {
                 $users->create($email, $password, 'admin');
@@ -58,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['setup'])) {
                 header('Location: ' . ($redirect ?: 'index.php'));
                 exit;
             } catch (Exception $e) {
-                $error = 'Erreur lors de la création du compte: ' . $e->getMessage();
+                $error = __('login.error_account_creation', ['message' => $e->getMessage()]);
             }
         }
     }
@@ -68,11 +69,11 @@ $needsSetup = !$auth->hasUsers();
 
 ?>
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="<?= I18n::getInstance()->getLang() ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= $needsSetup ? 'Configuration initiale' : 'Connexion' ?> - Scouter</title>
+    <title><?= $needsSetup ? __('login.page_title_setup') : __('login.page_title_login') ?> - Scouter</title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="assets/style.css">
     <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
@@ -224,10 +225,10 @@ $needsSetup = !$auth->hasUsers();
                     <img src="logo-big.png" alt="Scouter Logo">
                 </div>
                 <h1 class="login-title">
-                    <?= $needsSetup ? 'Configuration initiale' : 'Connexion à Scouter' ?>
+                    <?= $needsSetup ? __('login.title_setup') : __('login.title_login') ?>
                 </h1>
                 <p class="login-subtitle">
-                    <?= $needsSetup ? 'Créez votre premier compte administrateur' : 'Accédez à votre espace de crawl SEO' ?>
+                    <?= $needsSetup ? __('login.subtitle_setup') : __('login.subtitle_login') ?>
                 </p>
             </div>
 
@@ -235,15 +236,15 @@ $needsSetup = !$auth->hasUsers();
                 <div class="setup-alert">
                     <span class="material-symbols-outlined setup-alert-icon">info</span>
                     <div class="setup-alert-content">
-                        <strong>Première utilisation détectée</strong><br>
-                        Créez votre compte administrateur pour sécuriser l'accès à Scouter.
+                        <strong><?= __('login.alert_first_use') ?></strong><br>
+                        <?= __('login.alert_first_use_desc') ?>
                     </div>
                 </div>
             <?php endif; ?>
 
             <?php if ($error): ?>
                 <div class="error-message">
-                    <strong>Erreur:</strong> <?= htmlspecialchars($error) ?>
+                    <strong><?= __('login.error_label') ?></strong> <?= htmlspecialchars($error) ?>
                 </div>
             <?php endif; ?>
 
@@ -252,12 +253,12 @@ $needsSetup = !$auth->hasUsers();
                 <form method="POST" class="login-form">
                     <input type="hidden" name="redirect" value="<?= htmlspecialchars($redirect) ?>">
                     <div class="form-group">
-                        <label for="email" class="form-label">Email *</label>
-                        <input 
-                            type="email" 
-                            id="email" 
-                            name="email" 
-                            class="form-input" 
+                        <label for="email" class="form-label"><?= __('login.label_email_required') ?></label>
+                        <input
+                            type="email"
+                            id="email"
+                            name="email"
+                            class="form-input"
                             placeholder="admin@example.com"
                             required
                             autofocus
@@ -265,20 +266,20 @@ $needsSetup = !$auth->hasUsers();
                     </div>
 
                     <div class="form-group">
-                        <label for="password" class="form-label">Mot de passe *</label>
-                        <input 
-                            type="password" 
-                            id="password" 
-                            name="password" 
-                            class="form-input" 
+                        <label for="password" class="form-label"><?= __('login.label_password_required') ?></label>
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            class="form-input"
                             placeholder="••••••••"
                             required
                         >
-                        <div class="form-helper">Minimum 6 caractères</div>
+                        <div class="form-helper"><?= __('login.helper_min_chars') ?></div>
                     </div>
 
                     <div class="form-group">
-                        <label for="confirm_password" class="form-label">Confirmer le mot de passe *</label>
+                        <label for="confirm_password" class="form-label"><?= __('login.label_confirm_password') ?></label>
                         <input 
                             type="password" 
                             id="confirm_password" 
@@ -291,7 +292,7 @@ $needsSetup = !$auth->hasUsers();
 
                     <button type="submit" name="setup" class="btn-login">
                         <span class="material-symbols-outlined">check_circle</span>
-                        Créer mon compte
+                        <?= __('login.btn_create_account') ?>
                     </button>
                 </form>
             <?php else: ?>
@@ -299,37 +300,45 @@ $needsSetup = !$auth->hasUsers();
                 <form method="POST" class="login-form">
                     <input type="hidden" name="redirect" value="<?= htmlspecialchars($redirect) ?>">
                     <div class="form-group">
-                        <label for="email" class="form-label">Email</label>
-                        <input 
-                            type="email" 
-                            id="email" 
-                            name="email" 
-                            class="form-input" 
-                            placeholder="Entrez votre email"
+                        <label for="email" class="form-label"><?= __('login.label_email') ?></label>
+                        <input
+                            type="email"
+                            id="email"
+                            name="email"
+                            class="form-input"
+                            placeholder="<?= __('login.placeholder_email') ?>"
                             required
                             autofocus
                         >
                     </div>
 
                     <div class="form-group">
-                        <label for="password" class="form-label">Mot de passe</label>
-                        <input 
-                            type="password" 
-                            id="password" 
-                            name="password" 
-                            class="form-input" 
-                            placeholder="Entrez votre mot de passe"
+                        <label for="password" class="form-label"><?= __('login.label_password') ?></label>
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            class="form-input"
+                            placeholder="<?= __('login.placeholder_password') ?>"
                             required
                         >
                     </div>
 
                     <button type="submit" name="login" class="btn-login">
                         <span class="material-symbols-outlined">login</span>
-                        Se connecter
+                        <?= __('login.btn_login') ?>
                     </button>
                 </form>
             <?php endif; ?>
         </div>
     </div>
+<div style="position: fixed; bottom: 1rem; right: 1rem; display: flex; gap: 0.5rem; font-size: 0.85rem;">
+    <?php foreach (I18n::getInstance()->getSupportedLanguages() as $lang): ?>
+        <a href="?lang=<?= $lang ?><?= $redirect ? '&redirect=' . urlencode($redirect) : '' ?>"
+           style="color: <?= $lang === I18n::getInstance()->getLang() ? '#2C3E50' : 'rgba(255,255,255,0.7)' ?>; background: <?= $lang === I18n::getInstance()->getLang() ? 'white' : 'rgba(255,255,255,0.2)' ?>; padding: 0.3rem 0.6rem; border-radius: 4px; text-decoration: none; font-weight: <?= $lang === I18n::getInstance()->getLang() ? '600' : '400' ?>; text-transform: uppercase;">
+            <?= $lang ?>
+        </a>
+    <?php endforeach; ?>
+</div>
 </body>
 </html>

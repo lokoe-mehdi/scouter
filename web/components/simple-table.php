@@ -15,7 +15,7 @@
  *   - int $maxLines (optional): Nombre de lignes visibles par défaut (défaut: 5, 0 = toutes)
  */
 
-$title = $config['title'] ?? 'Tableau';
+$title = $config['title'] ?? __('simple_table.default_title');
 $subtitle = $config['subtitle'] ?? null;
 $columns = $config['columns'] ?? [];
 $data = $config['data'] ?? [];
@@ -164,7 +164,7 @@ endif;
         <div style="display: flex; gap: 0.5rem;">
             <button onclick="copyTableData('<?= $tableId ?>', event)" class="chart-action-btn">
                 <span class="material-symbols-outlined">content_copy</span>
-                <span class="chart-tooltip">Copier les données</span>
+                <span class="chart-tooltip"><?= __('table.copy_data') ?></span>
             </button>
         </div>
     </div>
@@ -281,7 +281,7 @@ endif;
     <?php if ($showExpandButton): ?>
     <div style="text-align: center;">
         <button class="table-expand-btn" onclick="toggleTableRows('<?= $tableId ?>')">
-            <span class="expand-text">Voir toutes les lignes (<?= $totalLines - $maxLines ?> de plus)</span>
+            <span class="expand-text"><?= str_replace('{count}', $totalLines - $maxLines, __('table.show_all_rows')) ?></span>
             <span class="material-symbols-outlined">expand_more</span>
         </button>
     </div>
@@ -339,7 +339,7 @@ if (typeof window.toggleTableRows === 'undefined') {
                 }
             });
             btn.classList.remove('expanded');
-            expandText.textContent = `Voir toutes les lignes (${totalLines - maxLines} de plus)`;
+            expandText.textContent = __('table.show_all_rows', {count: totalLines - maxLines});
             
             // Scroll smooth vers le début du tableau
             table.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -356,7 +356,7 @@ if (typeof window.toggleTableRows === 'undefined') {
                 }, index * 30); // Effet cascade
             });
             btn.classList.add('expanded');
-            expandText.textContent = 'Réduire le tableau';
+            expandText.textContent = __('table.collapse_table');
         }
     };
 }
@@ -382,13 +382,13 @@ if (typeof window.copyTableData === 'undefined') {
         navigator.clipboard.writeText(tsvData).then(() => {
             // Notification globale
             if (typeof showGlobalStatus === 'function') {
-                showGlobalStatus('✓ Données du tableau copiées !', 'success');
+                showGlobalStatus(__('table.data_copied'), 'success');
             }
         }).catch(err => {
             console.error('Erreur lors de la copie:', err);
             // Notification d'erreur
             if (typeof showGlobalStatus === 'function') {
-                showGlobalStatus('Erreur lors de la copie des données', 'error');
+                showGlobalStatus(__('table.copy_error'), 'error');
             }
         });
     };

@@ -130,16 +130,16 @@ $auth->requireAdmin(false);
     <div class="container" style="max-width: 1100px; padding: 2rem;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
             <div>
-                <h1 class="page-title">System Monitor</h1>
-                <p style="color: var(--text-secondary);">État des jobs et crawls en temps réel</p>
+                <h1 class="page-title"><?= __('monitor.page_title') ?></h1>
+                <p style="color: var(--text-secondary);"><?= __('monitor.subtitle') ?></p>
             </div>
             <div style="display: flex; align-items: center; gap: 1rem;">
                 <button id="btn-test-crawls" onclick="launchTestCrawls()" style="background: #8b5cf6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
                     <span class="material-symbols-outlined" style="font-size: 18px;">rocket_launch</span>
-                    Test 5 Crawls
+                    <?= __('monitor.test_crawls') ?>
                 </button>
                 <div style="font-size: 0.85rem; color: var(--text-secondary);">
-                    <span class="refresh-dot"></span>Auto-refresh (5s)
+                    <span class="refresh-dot"></span><?= __('monitor.auto_refresh') ?>
                 </div>
             </div>
         </div>
@@ -152,7 +152,7 @@ $auth->requireAdmin(false);
                 </div>
                 <div class="stat-info">
                     <h3 id="stat-running">-</h3>
-                    <p>Running</p>
+                    <p><?= __('monitor.running') ?></p>
                 </div>
             </div>
             <div class="stat-card">
@@ -161,7 +161,7 @@ $auth->requireAdmin(false);
                 </div>
                 <div class="stat-info">
                     <h3 id="stat-queued">-</h3>
-                    <p>Queued</p>
+                    <p><?= __('monitor.queued') ?></p>
                 </div>
             </div>
             <div class="stat-card">
@@ -170,7 +170,7 @@ $auth->requireAdmin(false);
                 </div>
                 <div class="stat-info">
                     <h3 id="stat-completed">-</h3>
-                    <p>Completed</p>
+                    <p><?= __('monitor.completed') ?></p>
                 </div>
             </div>
             <div class="stat-card">
@@ -179,7 +179,7 @@ $auth->requireAdmin(false);
                 </div>
                 <div class="stat-info">
                     <h3 id="stat-failed">-</h3>
-                    <p>Failed</p>
+                    <p><?= __('monitor.failed') ?></p>
                 </div>
             </div>
             <div class="stat-card">
@@ -188,25 +188,25 @@ $auth->requireAdmin(false);
                 </div>
                 <div class="stat-info">
                     <h3 id="stat-workers">-</h3>
-                    <p>Workers Busy</p>
+                    <p><?= __('monitor.workers_busy') ?></p>
                 </div>
             </div>
         </div>
 
         <!-- Active Jobs -->
-        <h2 style="font-size: 1rem; margin-bottom: 1rem; color: var(--text-primary);">Active Jobs</h2>
+        <h2 style="font-size: 1rem; margin-bottom: 1rem; color: var(--text-primary);"><?= __('monitor.active_jobs') ?></h2>
         <table class="jobs-table">
             <thead>
                 <tr>
-                    <th>ID</th>
-                    <th>Project</th>
-                    <th>Status</th>
-                    <th>URLs Crawled</th>
-                    <th>Duration</th>
+                    <th><?= __('monitor.th_id') ?></th>
+                    <th><?= __('monitor.th_project') ?></th>
+                    <th><?= __('monitor.th_status') ?></th>
+                    <th><?= __('monitor.th_urls_crawled') ?></th>
+                    <th><?= __('monitor.th_duration') ?></th>
                 </tr>
             </thead>
             <tbody id="jobs-body">
-                <tr><td colspan="5" style="text-align:center; padding:2rem; color:#94a3b8;">Chargement...</td></tr>
+                <tr><td colspan="5" style="text-align:center; padding:2rem; color:#94a3b8;"><?= __('common.loading') ?></td></tr>
             </tbody>
         </table>
     </div>
@@ -226,7 +226,7 @@ $auth->requireAdmin(false);
                 
                 const tbody = document.getElementById('jobs-body');
                 if (data.active_jobs.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:2rem; color:#94a3b8;">Aucun job actif</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:2rem; color:#94a3b8;"><?= __('monitor.no_active_jobs') ?></td></tr>';
                 } else {
                     tbody.innerHTML = data.active_jobs.map(j => `
                         <tr>
@@ -250,7 +250,7 @@ $auth->requireAdmin(false);
         async function launchTestCrawls() {
             const btn = document.getElementById('btn-test-crawls');
             btn.disabled = true;
-            btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">hourglass_empty</span> Création...';
+            btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">hourglass_empty</span> <?= __('monitor.creating') ?>';
             
             try {
                 const res = await fetch('../api/monitor/test-crawls', {
@@ -265,19 +265,19 @@ $auth->requireAdmin(false);
                     btn.style.background = '#16a34a';
                     refresh();
                     setTimeout(() => {
-                        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">rocket_launch</span> Test 5 Crawls';
+                        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">rocket_launch</span> <?= __('monitor.test_crawls') ?>';
                         btn.style.background = '#8b5cf6';
                         btn.disabled = false;
                     }, 3000);
                 } else {
-                    throw new Error(data.error || 'Erreur');
+                    throw new Error(data.error || '<?= __('common.error') ?>');
                 }
             } catch(e) {
-                btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">error</span> Erreur';
+                btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">error</span> <?= __('common.error') ?>';
                 btn.style.background = '#dc2626';
                 console.error(e);
                 setTimeout(() => {
-                    btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">rocket_launch</span> Test 5 Crawls';
+                    btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">rocket_launch</span> <?= __('monitor.test_crawls') ?>';
                     btn.style.background = '#8b5cf6';
                     btn.disabled = false;
                 }, 3000);

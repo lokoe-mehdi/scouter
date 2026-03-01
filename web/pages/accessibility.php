@@ -80,7 +80,7 @@ $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 $distributionByCategory = [];
 foreach ($distributionByCategoryRaw as $row) {
     $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     $distributionByCategory[] = $row;
 }
 
@@ -105,7 +105,7 @@ $indexabilityByCategoryRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
 $indexabilityByCategory = [];
 foreach ($indexabilityByCategoryRaw as $row) {
     $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     $indexabilityByCategory[] = $row;
 }
 
@@ -116,7 +116,7 @@ foreach ($indexabilityByCategoryRaw as $row) {
  */
 ?>
 
-<h1 class="page-title">Indexabilité</h1>
+<h1 class="page-title"><?= __('accessibility.page_title') ?></h1>
 
 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
 
@@ -128,33 +128,33 @@ foreach ($indexabilityByCategoryRaw as $row) {
     Component::card([
         'color' => 'primary',
         'icon' => 'language',
-        'title' => 'Total URLs',
+        'title' => __('accessibility.card_total'),
         'value' => number_format($globalStats->urls),
-        'desc' => 'URLs découvertes'
+        'desc' => __('accessibility.card_total_desc')
     ]);
     
     Component::card([
         'color' => 'info',
         'icon' => 'check_circle',
-        'title' => 'URLs Crawlées',
+        'title' => __('accessibility.card_crawled'),
         'value' => number_format($globalStats->crawled),
-        'desc' => round(($globalStats->crawled/$globalStats->urls)*100, 1).'% du total'
+        'desc' => round(($globalStats->crawled/$globalStats->urls)*100, 1).'% '.__('common.of_total')
     ]);
     
     Component::card([
         'color' => 'success',
         'icon' => 'verified',
-        'title' => 'URLs Indexables',
+        'title' => __('accessibility.card_indexable'),
         'value' => number_format($globalStats->compliant),
-        'desc' => round(($globalStats->compliant/$globalStats->crawled)*100, 1).'% des crawlées'
+        'desc' => round(($globalStats->compliant/$globalStats->crawled)*100, 1).'% '.__('accessibility.card_indexable_pct')
     ]);
     
     Component::card([
         'color' => 'warning',
         'icon' => 'content_copy',
-        'title' => 'URLs Dupliquées',
+        'title' => __('accessibility.card_duplicated'),
         'value' => number_format($globalStats->duplicates),
-        'desc' => 'Non canoniques'
+        'desc' => __('accessibility.card_duplicated_desc')
     ]);
         ?>
     </div>
@@ -167,16 +167,16 @@ foreach ($indexabilityByCategoryRaw as $row) {
     // Graphique 1: Distribution des URLs découvertes (HTML + Médias)
     Component::chart([
         'type' => 'donut',
-        'title' => 'Répartition des URLs découvertes',
-        'subtitle' => 'Distribution entre URLs HTML (crawlées, externes, bloquées) et médias',
+        'title' => __('accessibility.chart_discovered'),
+        'subtitle' => __('accessibility.chart_discovered_desc'),
         'series' => [
             [
                 'name' => 'URLs',
                 'data' => [
-                    ['name' => 'HTML Crawlées', 'y' => (int)($urlDistribution->crawled_urls ?? 0), 'color' => '#6bd899ff'],
-                    ['name' => 'HTML Externes', 'y' => (int)($urlDistribution->external_urls ?? 0), 'color' => '#d8bf6bff'],
-                    ['name' => 'HTML Blocage robots.txt', 'y' => (int)($urlDistribution->not_crawled_urls ?? 0), 'color' => '#d86b6bff'],
-                    ['name' => 'Médias', 'y' => (int)($urlDistribution->media_urls ?? 0), 'color' => '#E5E7EB']
+                    ['name' => __('accessibility.series_crawled_html'), 'y' => (int)($urlDistribution->crawled_urls ?? 0), 'color' => '#6bd899ff'],
+                    ['name' => __('accessibility.series_external_html'), 'y' => (int)($urlDistribution->external_urls ?? 0), 'color' => '#d8bf6bff'],
+                    ['name' => __('accessibility.series_blocked_robots'), 'y' => (int)($urlDistribution->not_crawled_urls ?? 0), 'color' => '#d86b6bff'],
+                    ['name' => __('accessibility.series_media'), 'y' => (int)($urlDistribution->media_urls ?? 0), 'color' => '#E5E7EB']
                 ]
             ]
         ],
@@ -188,16 +188,16 @@ foreach ($indexabilityByCategoryRaw as $row) {
     $indexableCount = (int)($globalStats->compliant ?? 0);
     Component::chart([
         'type' => 'donut',
-        'title' => 'Indexabilité des URLs crawlées',
-        'subtitle' => 'Répartition entre URLs indexables et causes de non-indexabilité',
+        'title' => __('accessibility.chart_indexability'),
+        'subtitle' => __('accessibility.chart_indexability_desc'),
         'series' => [
             [
                 'name' => 'URLs',
                 'data' => [
-                    ['name' => 'Indexables', 'y' => $indexableCount, 'color' => '#6bd899ff'],
-                    ['name' => 'Non canonique', 'y' => (int)($nonIndexableReasons->non_canonical ?? 0), 'color' => '#cfd86bff'],
-                    ['name' => 'Noindex', 'y' => (int)($nonIndexableReasons->noindex_urls ?? 0), 'color' => '#d8bf6bff'],
-                    ['name' => 'Code HTTP ≠ 200', 'y' => (int)($nonIndexableReasons->bad_status ?? 0), 'color' => '#d86b6bff']
+                    ['name' => __('accessibility.series_indexable'), 'y' => $indexableCount, 'color' => '#6bd899ff'],
+                    ['name' => __('accessibility.series_non_canonical'), 'y' => (int)($nonIndexableReasons->non_canonical ?? 0), 'color' => '#cfd86bff'],
+                    ['name' => __('accessibility.series_noindex'), 'y' => (int)($nonIndexableReasons->noindex_urls ?? 0), 'color' => '#d8bf6bff'],
+                    ['name' => __('accessibility.series_http_not_200'), 'y' => (int)($nonIndexableReasons->bad_status ?? 0), 'color' => '#d86b6bff']
                 ]
             ]
         ],
@@ -220,13 +220,13 @@ foreach ($indexabilityByCategoryRaw as $row) {
     
     Component::chart([
         'type' => 'horizontalBar',
-        'title' => 'Répartition par catégorie',
-        'subtitle' => 'Distribution des URLs découvertes par catégorie',
+        'title' => __('accessibility.chart_category'),
+        'subtitle' => __('accessibility.chart_category_desc'),
         'categories' => $distCategories,
         'series' => [
-            ['name' => 'Blocage robots.txt', 'data' => $distBlocked, 'color' => '#d86b6bff'],
-            ['name' => 'Externes', 'data' => $distExternal, 'color' => '#d8bf6bff'],
-            ['name' => 'Crawlées', 'data' => $distCrawled, 'color' => '#6bd899ff']
+            ['name' => __('accessibility.series_blocked'), 'data' => $distBlocked, 'color' => '#d86b6bff'],
+            ['name' => __('accessibility.series_external'), 'data' => $distExternal, 'color' => '#d8bf6bff'],
+            ['name' => __('accessibility.series_crawled'), 'data' => $distCrawled, 'color' => '#6bd899ff']
         ],
         'stacking' => 'percent',
         'yAxisMax' => 100,
@@ -243,14 +243,14 @@ foreach ($indexabilityByCategoryRaw as $row) {
     
     Component::chart([
         'type' => 'horizontalBar',
-        'title' => 'Indexabilité par catégorie',
-        'subtitle' => 'Répartition des causes de non-indexabilité par catégorie',
+        'title' => __('accessibility.chart_indexability_category'),
+        'subtitle' => __('accessibility.chart_indexability_category_desc'),
         'categories' => $idxCategories,
         'series' => [
-            ['name' => 'Code HTTP ≠ 200', 'data' => $idxBadStatus, 'color' => '#d86b6bff'],
-            ['name' => 'Noindex', 'data' => $idxNoindex, 'color' => '#d8bf6bff'],
-            ['name' => 'Non canonique', 'data' => $idxNonCanonical, 'color' => '#cfd86bff'],
-            ['name' => 'Indexables', 'data' => $idxIndexable, 'color' => '#6bd899ff']
+            ['name' => __('accessibility.series_http_not_200'), 'data' => $idxBadStatus, 'color' => '#d86b6bff'],
+            ['name' => __('accessibility.series_noindex'), 'data' => $idxNoindex, 'color' => '#d8bf6bff'],
+            ['name' => __('accessibility.series_non_canonical'), 'data' => $idxNonCanonical, 'color' => '#cfd86bff'],
+            ['name' => __('accessibility.series_indexable'), 'data' => $idxIndexable, 'color' => '#6bd899ff']
         ],
         'stacking' => 'percent',
         'yAxisMax' => 100,
@@ -265,7 +265,7 @@ foreach ($indexabilityByCategoryRaw as $row) {
          ======================================== -->
     <?php
     Component::urlTable([
-        'title' => 'URLs non indexables',
+        'title' => __('accessibility.table_non_indexable'),
         'id' => 'nonIndexableTable',
         'whereClause' => 'WHERE c.compliant = false AND c.is_html = true',
         'orderBy' => 'ORDER BY c.code DESC, c.url ASC',

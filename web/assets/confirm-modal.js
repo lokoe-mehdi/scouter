@@ -6,7 +6,7 @@
  * Fonction customConfirm pour remplacer window.confirm()
  * Définie AVANT DOMContentLoaded pour être disponible immédiatement
  */
-window.customConfirm = function(message, title = 'Confirmation', confirmText = 'Confirmer', confirmType = 'primary') {
+window.customConfirm = function(message, title = __('confirm.title'), confirmText = __('confirm.confirm'), confirmType = 'primary') {
     return new Promise((resolve) => {
         // Attendre que le DOM soit prêt si nécessaire
         const executeConfirm = () => {
@@ -89,17 +89,17 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="custom-confirm-content">
                 <div class="custom-confirm-header">
                     <span class="material-symbols-outlined custom-confirm-icon">help_outline</span>
-                    <h3 id="customConfirmTitle" class="custom-confirm-title">Confirmation</h3>
+                    <h3 id="customConfirmTitle" class="custom-confirm-title">${__('confirm.title')}</h3>
                 </div>
                 <div id="customConfirmMessage" class="custom-confirm-message"></div>
                 <div class="custom-confirm-actions">
                     <button id="customConfirmCancel" class="btn btn-secondary">
-                        Annuler
-                        <span class="shortcut-hint">Échap</span>
+                        ${__('confirm.cancel')}
+                        <span class="shortcut-hint">${__('confirm.shortcut_escape')}</span>
                     </button>
                     <button id="customConfirmOk" class="btn btn-primary">
-                        <span id="customConfirmOkText">Confirmer</span>
-                        <span class="shortcut-hint">Ctrl+↵</span>
+                        <span id="customConfirmOkText">${__('confirm.confirm')}</span>
+                        <span class="shortcut-hint">${__('confirm.shortcut_enter')}</span>
                     </button>
                 </div>
             </div>

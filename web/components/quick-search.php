@@ -3,13 +3,13 @@
     <div class="quick-search-container">
         <div class="quick-search-input-wrapper">
             <span class="material-symbols-outlined">search</span>
-            <input type="text" id="quickSearchInput" placeholder="Rechercher une URL..." autocomplete="off">
+            <input type="text" id="quickSearchInput" placeholder="<?= __('quick_search.placeholder') ?>" autocomplete="off">
         </div>
         <div id="quickSearchResults" class="quick-search-results"></div>
         <div class="quick-search-hint">
-            <span><kbd>↑</kbd><kbd>↓</kbd> Naviguer</span>
-            <span><kbd>↵</kbd> Ouvrir</span>
-            <span><kbd>ESC</kbd> Fermer</span>
+            <span><kbd>↑</kbd><kbd>↓</kbd> <?= __('quick_search.navigate') ?></span>
+            <span><kbd>↵</kbd> <?= __('quick_search.open') ?></span>
+            <span><kbd>ESC</kbd> <?= __('quick_search.close') ?></span>
         </div>
     </div>
 </div>
@@ -319,7 +319,7 @@
                     document.getElementById('quickSearchResults').innerHTML = `
                         <div class="quick-search-empty">
                             <span class="material-symbols-outlined">error</span>
-                            <p>Erreur de recherche</p>
+                            <p>${__('quick_search.search_error')}</p>
                         </div>
                     `;
                 }
@@ -329,7 +329,7 @@
                 document.getElementById('quickSearchResults').innerHTML = `
                     <div class="quick-search-empty">
                         <span class="material-symbols-outlined">error</span>
-                        <p>Erreur de connexion</p>
+                        <p>${__('quick_search.connection_error')}</p>
                     </div>
                 `;
             });
@@ -342,7 +342,7 @@
             container.innerHTML = `
                 <div class="quick-search-empty">
                     <span class="material-symbols-outlined">search_off</span>
-                    <p>Aucun résultat pour "${query}"</p>
+                    <p>${__('quick_search.no_results_for', {query: query})}</p>
                 </div>
             `;
             return;
