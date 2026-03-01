@@ -25,7 +25,7 @@
         </div>
         <div class="crawl-panel-header-actions">
             <!-- Sélecteur de crawl (visible si plusieurs crawls) -->
-            <button class="crawl-panel-btn-icon crawl-panel-btn-selector" id="crawlPanelSelectorBtn" onclick="CrawlPanel.toggleCrawlList()" title="Autres crawls en cours" style="display: none;">
+            <button class="crawl-panel-btn-icon crawl-panel-btn-selector" id="crawlPanelSelectorBtn" onclick="CrawlPanel.toggleCrawlList()" title="<?= __('crawl_panel.other_crawls') ?>" style="display: none;">
                 <span class="material-symbols-outlined">swap_vert</span>
                 <span class="crawl-panel-selector-badge" id="crawlPanelSelectorBadge">2</span>
             </button>
@@ -52,28 +52,28 @@
             <span class="material-symbols-outlined">link</span>
             <div class="crawl-panel-kpi-data">
                 <span class="crawl-panel-kpi-value" id="crawlPanelUrlsFound">0</span>
-                <span class="crawl-panel-kpi-label">URLs trouvées</span>
+                <span class="crawl-panel-kpi-label"><?= __('crawl_panel.label_urls_found') ?></span>
             </div>
         </div>
         <div class="crawl-panel-kpi">
             <span class="material-symbols-outlined">check_circle</span>
             <div class="crawl-panel-kpi-data">
                 <span class="crawl-panel-kpi-value" id="crawlPanelUrlsCrawled">0</span>
-                <span class="crawl-panel-kpi-label">URLs crawlées</span>
+                <span class="crawl-panel-kpi-label"><?= __('crawl_panel.label_urls_crawled') ?></span>
             </div>
         </div>
         <div class="crawl-panel-kpi">
             <span class="material-symbols-outlined">speed</span>
             <div class="crawl-panel-kpi-data">
                 <span class="crawl-panel-kpi-value" id="crawlPanelSpeed">0</span>
-                <span class="crawl-panel-kpi-label">URLs/sec</span>
+                <span class="crawl-panel-kpi-label"><?= __('crawl_panel.label_speed') ?></span>
             </div>
         </div>
         <div class="crawl-panel-kpi">
             <span class="material-symbols-outlined">percent</span>
             <div class="crawl-panel-kpi-data">
                 <span class="crawl-panel-kpi-value" id="crawlPanelProgress">0%</span>
-                <span class="crawl-panel-kpi-label">Progression</span>
+                <span class="crawl-panel-kpi-label"><?= __('crawl_panel.label_progress') ?></span>
             </div>
         </div>
     </div>
@@ -86,7 +86,7 @@
     <!-- Zone Terminal / Logs -->
     <div class="crawl-panel-terminal" id="crawlPanelTerminal">
         <div class="crawl-panel-log-line crawl-panel-log-system">
-            En attente du démarrage du crawl...
+            <?= __('crawl_panel.waiting_start') ?>
         </div>
     </div>
 
@@ -99,15 +99,15 @@
     <div class="crawl-panel-footer">
         <button class="crawl-panel-btn-stop" id="crawlPanelStopBtn" onclick="CrawlPanel.stopCrawl()">
             <span class="material-symbols-outlined">stop_circle</span>
-            Arrêter
+            <?= __('crawl_panel.btn_stop') ?>
         </button>
         <button class="crawl-panel-btn-resume" id="crawlPanelResumeBtn" onclick="CrawlPanel.resumeCrawl()" style="display: none;">
             <span class="material-symbols-outlined">play_arrow</span>
-            Reprendre
+            <?= __('crawl_panel.btn_resume') ?>
         </button>
         <a href="#" class="crawl-panel-btn-dashboard" id="crawlPanelDashboardBtn" style="display: none;">
             <span class="material-symbols-outlined">bar_chart</span>
-            Voir le rapport
+            <?= __('crawl_panel.btn_view_report') ?>
         </a>
     </div>
 </div>
@@ -117,10 +117,10 @@
     <div class="crawl-panel-minimized-content" onclick="CrawlPanel.open()">
         <div class="crawl-panel-minimized-dot"></div>
         <span class="crawl-panel-minimized-count" id="crawlPanelMinimizedCount" style="display: none;">2</span>
-        <span class="crawl-panel-minimized-text" id="crawlPanelMinimizedText">Crawl en cours</span>
+        <span class="crawl-panel-minimized-text" id="crawlPanelMinimizedText"><?= __('crawl_panel.minimized_text') ?></span>
         <span class="crawl-panel-minimized-progress" id="crawlPanelMinimizedProgress">0%</span>
     </div>
-    <button class="crawl-panel-minimized-close" onclick="CrawlPanel.hideNotification(event)" title="Masquer cette notification">
+    <button class="crawl-panel-minimized-close" onclick="CrawlPanel.hideNotification(event)" title="<?= __('crawl_panel.hide_notification') ?>">
         <span class="material-symbols-outlined">close</span>
     </button>
 </div>

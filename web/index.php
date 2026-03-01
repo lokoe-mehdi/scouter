@@ -2170,7 +2170,7 @@ try {
                                            value="${cat.name}" 
                                            onblur="updateCategoryName(${cat.id}, this.value)"
                                            onkeypress="if(event.key==='Enter') this.blur()">
-                                    <div class="cat-item-count">${cat.project_count || 0} domaine${(cat.project_count || 0) > 1 ? 's' : ''}</div>
+                                    <div class="cat-item-count">${(cat.project_count || 0) > 1 ? __('index.domain_count_plural', {count: cat.project_count || 0}) : __('index.domain_count_singular', {count: cat.project_count || 0})}</div>
                                 </div>
                                 <button class="cat-item-delete" onclick="deleteCategory(${cat.id}, '${cat.name.replace(/'/g, "\\'")}')">
                                     <span class="material-symbols-outlined">delete</span>
