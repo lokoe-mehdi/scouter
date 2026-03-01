@@ -25,10 +25,12 @@ CREATE TABLE projects (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
+    categorization_config TEXT DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_projects_user_id ON projects(user_id);
+CREATE INDEX idx_projects_has_config ON projects(id) WHERE categorization_config IS NOT NULL;
 
 -- Table des partages de projets (lecture seule)
 CREATE TABLE project_shares (
