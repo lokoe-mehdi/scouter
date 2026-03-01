@@ -25,7 +25,10 @@ use App\Analysis\PostProcessor;
 class CrawlDatabase
 {
     use DeadlockRetry;
-    
+
+    /** Limite max d'une URL pour éviter l'erreur PostgreSQL B-tree index (max 8191 bytes) */
+    private const MAX_URL_LENGTH = 2083;
+
     private PDO $db;
     private int $crawlId;
     private array $config;
@@ -125,7 +128,7 @@ class CrawlDatabase
             ':crawl_id' => $this->crawlId,
             ':id' => $data['id'],
             ':domain' => $data['domain'] ?? '',
-            ':url' => $data['url'],
+            ':url' => mb_substr($data['url'], 0, self::MAX_URL_LENGTH),
             ':depth' => (int)($data['depth'] ?? 0),
             ':code' => (int)($data['code'] ?? 0),
             ':crawled' => $this->toBool($data['crawled'] ?? false),
@@ -160,12 +163,17 @@ class CrawlDatabase
                    'title', 'h1', 'metadesc', 'title_status', 'h1_status', 'metadesc_status',
                    'simhash', 'is_html', 'h1_multiple', 'headings_missing', 'word_count'];
         
+        // Champs URL/texte indexés à tronquer pour éviter l'erreur B-tree index (max 8191 bytes)
+        $urlFields = ['canonical_value', 'redirect_to'];
+
         foreach ($fields as $field) {
             if (array_key_exists($field, $data)) {
                 $sets[] = "$field = :$field";
                 // Convertir les booleans
                 if (in_array($field, $boolFields)) {
                     $params[":$field"] = $this->toBool($data[$field]);
+                } elseif (in_array($field, $urlFields) && is_string($data[$field])) {
+                    $params[":$field"] = mb_substr($data[$field], 0, self::MAX_URL_LENGTH);
                 } else {
                     $params[":$field"] = $data[$field];
                 }
@@ -327,7 +335,7 @@ class CrawlDatabase
                 $params[":crawl_id{$i}"] = $this->crawlId;
                 $params[":id{$i}"] = $page['id'];
                 $params[":domain{$i}"] = $page['domain'] ?? '';
-                $params[":url{$i}"] = $page['url'];
+                $params[":url{$i}"] = mb_substr($page['url'], 0, self::MAX_URL_LENGTH);
                 $params[":depth{$i}"] = (int)($page['depth'] ?? 0);
                 $params[":code{$i}"] = (int)($page['code'] ?? 0);
                 $params[":crawled{$i}"] = $this->toBool($page['crawled'] ?? false);
