@@ -769,7 +769,7 @@ try {
 
                     <!-- Onglet Règles & Scope -->
                     <div class="crawl-tab-pane" id="tab-scope">
-                        <div class="scope-section">
+                        <div class="scope-section" id="allowedDomainsSection">
                             <h4 class="scope-section-title">
                                 <span class="material-symbols-outlined">domain</span>
                                 <?= __('index.modal_allowed_domains') ?>
@@ -1279,29 +1279,39 @@ try {
             const urlListGroup = document.getElementById('urlListGroup');
             const depthMaxRow = document.getElementById('depthMaxRow');
             const startUrlInput = document.getElementById('start_url');
+            const allowedDomainsSection = document.getElementById('allowedDomainsSection');
 
             if (type === 'list') {
                 startUrlGroup.style.display = 'none';
                 urlListGroup.style.display = 'block';
-                depthMaxRow.style.display = 'none';
+                depthMaxRow.style.display = '';
                 startUrlInput.removeAttribute('required');
+                if (allowedDomainsSection) allowedDomainsSection.style.display = 'none';
                 updateUrlCounter();
             } else {
                 startUrlGroup.style.display = 'block';
                 urlListGroup.style.display = 'none';
                 depthMaxRow.style.display = '';
                 startUrlInput.setAttribute('required', '');
+                if (allowedDomainsSection) allowedDomainsSection.style.display = '';
             }
         }
 
-        // URL Counter - counts non-empty lines in textarea
+        // Stores file content without injecting into textarea
+        let uploadedFileContent = null;
+
+        // URL Counter - counts valid, deduplicated URLs (http/https)
         function updateUrlCounter() {
             const textarea = document.getElementById('url_list');
             const counter = document.getElementById('urlCounter');
             if (!textarea || !counter) return;
-            const lines = textarea.value.trim().split('\n').filter(line => line.trim().length > 0);
-            const count = lines.length;
-            counter.textContent = __('index.modal_urls_detected', { count: count });
+            const source = uploadedFileContent !== null ? uploadedFileContent : textarea.value;
+            const urls = new Set(
+                source.trim().split('\n')
+                    .map(line => line.trim())
+                    .filter(line => line.startsWith('http://') || line.startsWith('https://'))
+            );
+            counter.textContent = __('index.modal_urls_detected', { count: urls.size });
         }
 
         // File Upload handling
@@ -1311,8 +1321,8 @@ try {
 
             const reader = new FileReader();
             reader.onload = function(e) {
-                const content = e.target.result.trim();
-                document.getElementById('url_list').value = content;
+                uploadedFileContent = e.target.result.trim();
+                document.getElementById('url_list').style.display = 'none';
                 updateUrlCounter();
 
                 // Show file info, hide upload button
@@ -1331,6 +1341,9 @@ try {
             if (label) label.style.display = 'flex';
             const info = document.getElementById('fileUploadInfo');
             if (info) info.style.display = 'none';
+            uploadedFileContent = null;
+            document.getElementById('url_list').style.display = 'block';
+            updateUrlCounter();
         }
 
         // Attach URL counter to textarea input event
@@ -1725,8 +1738,8 @@ try {
             };
 
             if (crawlType === 'list') {
-                formData.url_list = document.getElementById('url_list').value;
-                formData.depth_max = 0;
+                formData.url_list = uploadedFileContent !== null ? uploadedFileContent : document.getElementById('url_list').value;
+                formData.depth_max = document.getElementById('depth_max').value;
             } else {
                 formData.start_url = document.getElementById('start_url').value;
                 formData.depth_max = document.getElementById('depth_max').value;

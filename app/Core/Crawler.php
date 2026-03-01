@@ -174,7 +174,7 @@ class Crawler
     {
         $urls = [$this->start];
         $respectRobots = $this->config['respect']['robots'] ?? true;
-        
+
         try {
             for ($i = 0; $i <= $this->depthMax; $i++) {
                 if ($this->newCrawl == false) {
@@ -185,15 +185,15 @@ class Crawler
                 }
 
                 echo "\r\n";
-                
+
                 // Récupérer les URLs AVANT de vérifier si la liste est vide
                 $crawl = new DepthCrawler($this->crawlDb, $this->pattern, $this->config);
                 $urls = $crawl->getNextUrls();
-                
+
                 if (count($urls) === 0) {
                     break;
                 }
-                
+
                 $crawl->run([
                     "depth" => $i,
                     "urls" => $urls

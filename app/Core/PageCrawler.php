@@ -165,7 +165,14 @@ class PageCrawler
     private function storeRedirect($url, $external)
     {
         $followRedirects = $this->config['follow_redirects'] ?? true;
+        $isListMode = ($this->config['crawl_type'] ?? 'spider') === 'list';
         $id = hash('crc32', $url, FALSE);
+
+        // En mode liste, les redirections ne sont jamais externes
+        // (pas de filtrage par domaine puisque l'utilisateur fournit la liste)
+        if ($isListMode) {
+            $external = 0;
+        }
 
         // Toujours enregistrer le lien de redirection (pour le rapport)
         $this->crawlDb->insertLink([

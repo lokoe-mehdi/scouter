@@ -180,7 +180,7 @@ class ProjectController extends Controller
             $allDomains = array_values(array_unique($allDomains));
 
             $startUrl = $urls[0];
-            $depthMax = 0;
+            $depthMax = (int)$request->get('depth_max', 30);
             $allowedDomains = $allDomains;
         } else {
             // Mode Spider : comportement existant
@@ -573,6 +573,10 @@ class ProjectController extends Controller
         // Récupérer ou créer le projet pour ce domaine (pour l'utilisateur actuel)
         $projectId = $this->projects->getOrCreate($this->userId, $domain);
         
+        // Synchroniser depthMax dans le config JSON avec la colonne DB
+        $depthMax = $sourceCrawl->depth_max ?? 30;
+        $sourceConfig['general']['depthMax'] = $depthMax;
+
         // Créer le nouveau crawl avec la même configuration
         $crawlRepo = new CrawlRepository();
         $crawlId = $crawlRepo->insert([
@@ -580,7 +584,7 @@ class ProjectController extends Controller
             'path' => $newProjectDir,
             'status' => 'queued',
             'config' => $sourceConfig,
-            'depth_max' => $sourceCrawl->depth_max ?? 30,
+            'depth_max' => $depthMax,
             'crawl_type' => $sourceCrawl->crawl_type ?? 'spider',
             'in_progress' => 1,
             'project_id' => $projectId

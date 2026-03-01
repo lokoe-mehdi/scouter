@@ -130,7 +130,7 @@ class Cmder
     
     $crawl = new Crawler([
         "crawl_id" => $crawlRecord->id,
-        "depthMax" => $data['general']['depthMax'] ?? 5,
+        "depthMax" => (int)($crawlRecord->depth_max ?? $data['general']['depthMax'] ?? 5),
         "start" => $data['general']['start'],
         "pattern" => $data['general']['domains'] ?? [],
         "config" => $config,
