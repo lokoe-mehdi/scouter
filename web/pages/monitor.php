@@ -10,7 +10,7 @@ $auth->requireAdmin(false);
     <title>System Monitor - Scouter</title>
     <link rel="stylesheet" href="../assets/style.css">
     <link rel="icon" type="image/png" href="/logo.png">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <link rel="stylesheet" href="../assets/vendor/material-symbols/material-symbols.css" />
     <style>
         .monitor-grid {
             display: grid;

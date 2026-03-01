@@ -224,35 +224,35 @@ function isSectionCollapsed($sectionName) {
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="assets/style.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/crawl-panel.css?v=<?= time() ?>">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
     <script src="assets/tooltip.js?v=<?= time() ?>"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/eclipse.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/material-darker.min.css">
-    <script src="https://code.highcharts.com/highcharts.js"></script>
-    <script src="https://code.highcharts.com/modules/treemap.js"></script>
-    <script src="https://code.highcharts.com/modules/sankey.js"></script>
-    <script src="https://code.highcharts.com/modules/exporting.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/yaml/yaml.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/sql/sql.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/xml/xml.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/css/css.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/htmlmixed/htmlmixed.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.9/beautify-html.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/matchbrackets.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/closebrackets.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/search/searchcursor.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/search/search.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/search/jump-to-line.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/search/match-highlighter.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/dialog/dialog.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/dialog/dialog.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/hint/show-hint.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/hint/sql-hint.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/hint/show-hint.min.css">
+    <link rel="stylesheet" href="assets/vendor/codemirror/codemirror.min.css">
+    <link rel="stylesheet" href="assets/vendor/codemirror/theme/eclipse.min.css">
+    <link rel="stylesheet" href="assets/vendor/codemirror/theme/material-darker.min.css">
+    <script src="assets/highcharts.js"></script>
+    <script src="assets/treemap.js"></script>
+    <script src="assets/sankey.js"></script>
+    <script src="assets/exporting.js"></script>
+    <script src="assets/vendor/chartjs/chart.umd.min.js"></script>
+    <script src="assets/vendor/codemirror/codemirror.min.js"></script>
+    <script src="assets/vendor/codemirror/mode/yaml.min.js"></script>
+    <script src="assets/vendor/codemirror/mode/sql.min.js"></script>
+    <script src="assets/vendor/codemirror/mode/xml.min.js"></script>
+    <script src="assets/vendor/codemirror/mode/javascript.min.js"></script>
+    <script src="assets/vendor/codemirror/mode/css.min.js"></script>
+    <script src="assets/vendor/codemirror/mode/htmlmixed.min.js"></script>
+    <script src="assets/vendor/js-beautify/beautify-html.min.js"></script>
+    <script src="assets/vendor/codemirror/addon/matchbrackets.min.js"></script>
+    <script src="assets/vendor/codemirror/addon/closebrackets.min.js"></script>
+    <script src="assets/vendor/codemirror/addon/searchcursor.min.js"></script>
+    <script src="assets/vendor/codemirror/addon/search.min.js"></script>
+    <script src="assets/vendor/codemirror/addon/jump-to-line.min.js"></script>
+    <script src="assets/vendor/codemirror/addon/match-highlighter.min.js"></script>
+    <script src="assets/vendor/codemirror/addon/dialog.min.js"></script>
+    <link rel="stylesheet" href="assets/vendor/codemirror/addon/dialog.min.css">
+    <script src="assets/vendor/codemirror/addon/show-hint.min.js"></script>
+    <script src="assets/vendor/codemirror/addon/sql-hint.min.js"></script>
+    <link rel="stylesheet" href="assets/vendor/codemirror/addon/show-hint.min.css">
 </head>
 <body>
     <!-- Header -->
