@@ -12,7 +12,7 @@
 class I18n {
     private static ?I18n $instance = null;
 
-    private const SUPPORTED = ['en', 'fr'];
+    private const SUPPORTED = ['en', 'fr', 'es', 'de', 'it', 'pt'];
     private const DEFAULT_LANG = 'en';
     private const COOKIE_NAME = 'scouter_lang';
     private const COOKIE_DURATION = 365 * 24 * 60 * 60; // 1 year
@@ -168,6 +168,10 @@ class I18n {
     public function getLocale(): string {
         return match($this->lang) {
             'fr' => 'fr-FR',
+            'es' => 'es-ES',
+            'de' => 'de-DE',
+            'it' => 'it-IT',
+            'pt' => 'pt-PT',
             default => 'en-US',
         };
     }

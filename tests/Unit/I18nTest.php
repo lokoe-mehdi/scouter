@@ -49,9 +49,34 @@ describe('Language detection', function () {
         expect(I18n::getInstance()->getLang())->toBe('fr');
     });
 
-    it('falls back to en when Accept-Language has no supported lang first', function () {
+    it('detects de from Accept-Language header', function () {
         $_SERVER['HTTP_ACCEPT_LANGUAGE'] = 'de,en;q=0.5';
+        expect(I18n::getInstance()->getLang())->toBe('de');
+    });
+
+    it('falls back to en when Accept-Language has no supported lang', function () {
+        $_SERVER['HTTP_ACCEPT_LANGUAGE'] = 'ja,zh;q=0.5';
         expect(I18n::getInstance()->getLang())->toBe('en');
+    });
+
+    it('detects es from ?lang=es', function () {
+        $_GET['lang'] = 'es';
+        expect(I18n::getInstance()->getLang())->toBe('es');
+    });
+
+    it('detects de from ?lang=de', function () {
+        $_GET['lang'] = 'de';
+        expect(I18n::getInstance()->getLang())->toBe('de');
+    });
+
+    it('detects it from ?lang=it', function () {
+        $_GET['lang'] = 'it';
+        expect(I18n::getInstance()->getLang())->toBe('it');
+    });
+
+    it('detects pt from ?lang=pt', function () {
+        $_GET['lang'] = 'pt';
+        expect(I18n::getInstance()->getLang())->toBe('pt');
     });
 
     it('defaults to en when nothing is set', function () {
@@ -244,8 +269,14 @@ describe('Utility methods', function () {
         expect(I18n::getInstance()->getLang())->toBe('fr');
     });
 
-    it('getSupportedLanguages() returns [en, fr]', function () {
-        expect(I18n::getInstance()->getSupportedLanguages())->toBe(['en', 'fr']);
+    it('getSupportedLanguages() returns all 6 languages', function () {
+        expect(I18n::getInstance()->getSupportedLanguages())
+            ->toBe(['en', 'fr', 'es', 'de', 'it', 'pt']);
+    });
+
+    it('getLocale() returns en-US for English', function () {
+        $_GET['lang'] = 'en';
+        expect(I18n::getInstance()->getLocale())->toBe('en-US');
     });
 
     it('getLocale() returns fr-FR for French', function () {
@@ -253,9 +284,24 @@ describe('Utility methods', function () {
         expect(I18n::getInstance()->getLocale())->toBe('fr-FR');
     });
 
-    it('getLocale() returns en-US for English', function () {
-        $_GET['lang'] = 'en';
-        expect(I18n::getInstance()->getLocale())->toBe('en-US');
+    it('getLocale() returns es-ES for Spanish', function () {
+        $_GET['lang'] = 'es';
+        expect(I18n::getInstance()->getLocale())->toBe('es-ES');
+    });
+
+    it('getLocale() returns de-DE for German', function () {
+        $_GET['lang'] = 'de';
+        expect(I18n::getInstance()->getLocale())->toBe('de-DE');
+    });
+
+    it('getLocale() returns it-IT for Italian', function () {
+        $_GET['lang'] = 'it';
+        expect(I18n::getInstance()->getLocale())->toBe('it-IT');
+    });
+
+    it('getLocale() returns pt-PT for Portuguese', function () {
+        $_GET['lang'] = 'pt';
+        expect(I18n::getInstance()->getLocale())->toBe('pt-PT');
     });
 });
 
@@ -265,50 +311,49 @@ describe('Utility methods', function () {
 describe('JSON file parity', function () {
 
     beforeEach(function () {
-        $this->enJson = json_decode(
-            file_get_contents(__DIR__ . '/../../web/lang/en.json'), true
-        );
-        $this->frJson = json_decode(
-            file_get_contents(__DIR__ . '/../../web/lang/fr.json'), true
-        );
+        $langDir = __DIR__ . '/../../web/lang/';
+        $this->langs = [];
+        foreach (['en', 'fr', 'es', 'de', 'it', 'pt'] as $code) {
+            $this->langs[$code] = json_decode(
+                file_get_contents($langDir . $code . '.json'), true
+            );
+        }
     });
 
-    it('en.json is valid JSON', function () {
-        expect($this->enJson)->toBeArray()->not->toBeEmpty();
+    it('all JSON files are valid and non-empty', function () {
+        foreach ($this->langs as $code => $data) {
+            expect($data)->toBeArray()->not->toBeEmpty(
+                "$code.json is empty or invalid"
+            );
+        }
     });
 
-    it('fr.json is valid JSON', function () {
-        expect($this->frJson)->toBeArray()->not->toBeEmpty();
-    });
-
-    it('en.json and fr.json have the same keys', function () {
-        $enKeys = array_keys($this->enJson);
-        $frKeys = array_keys($this->frJson);
+    it('all languages have the same keys as en.json', function () {
+        $enKeys = array_keys($this->langs['en']);
         sort($enKeys);
-        sort($frKeys);
 
-        $missingInFr = array_diff($enKeys, $frKeys);
-        $missingInEn = array_diff($frKeys, $enKeys);
+        foreach (['fr', 'es', 'de', 'it', 'pt'] as $code) {
+            $langKeys = array_keys($this->langs[$code]);
+            sort($langKeys);
 
-        expect($missingInFr)->toBeEmpty(
-            'Keys in en.json missing from fr.json: ' . implode(', ', $missingInFr)
-        );
-        expect($missingInEn)->toBeEmpty(
-            'Keys in fr.json missing from en.json: ' . implode(', ', $missingInEn)
-        );
+            $missingInLang = array_diff($enKeys, $langKeys);
+            $extraInLang = array_diff($langKeys, $enKeys);
+
+            expect($missingInLang)->toBeEmpty(
+                "Keys in en.json missing from $code.json: " . implode(', ', array_slice($missingInLang, 0, 10))
+            );
+            expect($extraInLang)->toBeEmpty(
+                "Keys in $code.json not in en.json: " . implode(', ', array_slice($extraInLang, 0, 10))
+            );
+        }
     });
 
-    it('en.json has no empty values', function () {
-        $empty = array_filter($this->enJson, fn($v) => trim((string) $v) === '');
-        expect($empty)->toBeEmpty(
-            'Empty values in en.json: ' . implode(', ', array_keys($empty))
-        );
-    });
-
-    it('fr.json has no empty values', function () {
-        $empty = array_filter($this->frJson, fn($v) => trim((string) $v) === '');
-        expect($empty)->toBeEmpty(
-            'Empty values in fr.json: ' . implode(', ', array_keys($empty))
-        );
+    it('no language file has empty values', function () {
+        foreach ($this->langs as $code => $data) {
+            $empty = array_filter($data, fn($v) => trim((string) $v) === '');
+            expect($empty)->toBeEmpty(
+                "Empty values in $code.json: " . implode(', ', array_keys($empty))
+            );
+        }
     });
 });
