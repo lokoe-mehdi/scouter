@@ -1683,12 +1683,17 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                 if (!resp.ok) return;
                 const html = await resp.text();
                 container.innerHTML = html;
-                // Réappliquer l'onglet actif et le tri/filtre
+                // Réappliquer l'onglet actif
                 if (typeof switchProjectsTab === 'function') {
                     switchProjectsTab(currentProjectsTab || 'my', false);
                 }
-                if (typeof sortDomains === 'function') {
+                // Réappliquer le tri seulement si l'utilisateur a changé l'option
+                if (typeof currentSortOption !== 'undefined' && currentSortOption !== 'date-desc') {
                     sortDomains();
+                }
+                // Réappliquer le filtre de recherche s'il y en a un
+                if (typeof filterDomains === 'function') {
+                    filterDomains();
                 }
             } catch (e) {
                 // Silencieux — pas grave si le refresh échoue
