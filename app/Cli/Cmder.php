@@ -112,6 +112,10 @@ class Cmder
         $config['max_concurrent_chrome'] = (int)getenv('MAX_CONCURRENT_CHROME');
     }
     
+    // Propager follow_redirects et crawl_type dans la config
+    $config['follow_redirects'] = $data['advanced']['follow_redirects'] ?? true;
+    $config['crawl_type'] = $data['general']['crawl_type'] ?? 'spider';
+
     // Ajouter xPathExtractors et regexExtractors s'ils existent
     if (isset($data['advanced']['xPathExtractors'])) {
         $config['xPathExtractors'] = $data['advanced']['xPathExtractors'];
@@ -129,7 +133,9 @@ class Cmder
         "depthMax" => $data['general']['depthMax'] ?? 5,
         "start" => $data['general']['start'],
         "pattern" => $data['general']['domains'] ?? [],
-        "config" => $config
+        "config" => $config,
+        "crawl_type" => $data['general']['crawl_type'] ?? 'spider',
+        "url_list" => $data['general']['url_list'] ?? []
     ]);
 
     $crawl->run();

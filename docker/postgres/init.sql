@@ -79,6 +79,7 @@ CREATE TABLE crawls (
     duplicates INTEGER DEFAULT 0,
     response_time FLOAT DEFAULT 0,
     depth_max INTEGER DEFAULT 0,
+    crawl_type VARCHAR(10) DEFAULT 'spider' CHECK (crawl_type IN ('spider', 'list')),
     in_progress INTEGER DEFAULT 0,
     compliant_duplicate INTEGER DEFAULT 0,
     clusters_duplicate INTEGER DEFAULT 0

@@ -296,7 +296,7 @@ const CrawlPanel = {
                             };
                             this.state.finishedUnseenCrawls.push(finishedCrawl);
                             finishedIds.push(trackedId);
-                            
+
                             // IMPORTANT: Retirer du tracking pour éviter de le re-détecter
                             const idx = this.state.trackedCrawlIds.indexOf(trackedId);
                             if (idx !== -1) {
@@ -359,23 +359,25 @@ const CrawlPanel = {
                 
                 // Détecter les crawls qui ont disparu (= terminés)
                 // et les ajouter aux non vus s'ils n'y sont pas déjà
+                let crawlsJustFinished = false;
                 oldRunningCrawls.forEach(oldCrawl => {
                     const oldId = parseInt(oldCrawl.crawl_id, 10);
                     const stillRunning = newRunningCrawls.find(c => parseInt(c.crawl_id, 10) === oldId);
                     if (!stillRunning) {
                         // Ce crawl a terminé !
+                        crawlsJustFinished = true;
                         // Préserver le statut existant s'il est déjà terminal (stopped, failed, error)
                         const terminalStatuses = ['stopped', 'failed', 'error', 'completed'];
                         const existingStatus = oldCrawl.status;
                         const finalStatus = terminalStatuses.includes(existingStatus) ? existingStatus : 'completed';
-                        
+
                         const finishedCrawl = {
                             ...oldCrawl,
                             crawl_id: oldId,
                             status: finalStatus,
                             finishedAt: Date.now()
                         };
-                        
+
                         // Si panel ouvert → considéré comme VU (retirer du tracking)
                         if (this.state.isOpen) {
                             const alreadyInSession = this.state.sessionFinishedCrawls.find(
@@ -398,7 +400,12 @@ const CrawlPanel = {
                         }
                     }
                 });
-                
+
+                // If crawls just finished, reload the homepage to refresh project cards
+                if (crawlsJustFinished) {
+                    this.scheduleHomepageReload(1500);
+                }
+
                 // Fusionner les nouvelles données avec le cache des stats max
                 this.state.runningCrawls = newRunningCrawls.map(newCrawl => {
                     const crawlId = parseInt(newCrawl.crawl_id, 10);
@@ -1406,10 +1413,10 @@ const CrawlPanel = {
         this.state.runningCrawls = this.state.runningCrawls.filter(
             c => parseInt(c.crawl_id, 10) !== currentId
         );
-        
+
         this.updateCrawlList();
         this.updateMinimizedBadge();
-        
+
         // Arrêter le polling pour ce crawl
         this.stopPolling();
         
@@ -1417,6 +1424,9 @@ const CrawlPanel = {
         if (!this.state.isOpen && this.state.finishedUnseenCrawls.length > 0) {
             this.showMinimized();
         }
+
+        // Reload the homepage to refresh project cards
+        this.scheduleHomepageReload(1500);
     },
 
     /**
@@ -1580,6 +1590,30 @@ const CrawlPanel = {
             return true;
         });
         this.saveFinishedUnseenCrawls();
+    },
+
+    /**
+     * Check if we are on the index/homepage
+     */
+    isOnIndexPage() {
+        const path = window.location.pathname;
+        return path.endsWith('/index.php') || path.endsWith('/') || path.endsWith('/web/');
+    },
+
+    /**
+     * Reload the homepage to refresh project list after a crawl state change.
+     * Uses a flag to prevent multiple simultaneous reloads.
+     */
+    scheduleHomepageReload(delayMs = 1500) {
+        if (this._homepageReloadScheduled) return;
+        if (!this.isOnIndexPage()) return;
+        // Don't reload if the panel is open (user is looking at logs)
+        if (this.state.isOpen) return;
+
+        this._homepageReloadScheduled = true;
+        setTimeout(() => {
+            window.location.reload();
+        }, delayMs);
     }
 };
 

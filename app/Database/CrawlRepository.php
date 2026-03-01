@@ -41,11 +41,11 @@ class CrawlRepository
         }
         
         $stmt = $this->db->prepare("
-            INSERT INTO crawls (domain, path, status, config, urls, crawled, compliant, duplicates, response_time, depth_max, in_progress, started_at, project_id)
-            VALUES (:domain, :path, :status, :config, :urls, :crawled, :compliant, :duplicates, :response_time, :depth_max, :in_progress, :started_at, :project_id)
+            INSERT INTO crawls (domain, path, status, config, urls, crawled, compliant, duplicates, response_time, depth_max, crawl_type, in_progress, started_at, project_id)
+            VALUES (:domain, :path, :status, :config, :urls, :crawled, :compliant, :duplicates, :response_time, :depth_max, :crawl_type, :in_progress, :started_at, :project_id)
             RETURNING id
         ");
-        
+
         $stmt->execute([
             ':domain' => $data['domain'],
             ':path' => $path,
@@ -57,6 +57,7 @@ class CrawlRepository
             ':duplicates' => $data['duplicates'] ?? 0,
             ':response_time' => $data['response_time'] ?? 0,
             ':depth_max' => $data['depth_max'] ?? 0,
+            ':crawl_type' => $data['crawl_type'] ?? 'spider',
             ':in_progress' => $data['in_progress'] ?? 0,
             ':started_at' => $data['date'] ?? date('Y-m-d H:i:s'),
             ':project_id' => $data['project_id'] ?? null
@@ -74,7 +75,7 @@ class CrawlRepository
         $updates = [];
         $params = [':id' => $crawlId];
 
-        $fields = ['status', 'urls', 'crawled', 'compliant', 'duplicates', 'response_time', 'depth_max', 'in_progress'];
+        $fields = ['status', 'urls', 'crawled', 'compliant', 'duplicates', 'response_time', 'depth_max', 'crawl_type', 'in_progress'];
         foreach ($fields as $field) {
             if (isset($data[$field])) {
                 $updates[] = "$field = :$field";

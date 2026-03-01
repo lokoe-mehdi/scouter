@@ -164,12 +164,28 @@ class PageCrawler
 
     private function storeRedirect($url, $external)
     {
+        $followRedirects = $this->config['follow_redirects'] ?? true;
+        $id = hash('crc32', $url, FALSE);
+
+        // Toujours enregistrer le lien de redirection (pour le rapport)
+        $this->crawlDb->insertLink([
+            'src' => $this->page->id,
+            'target' => $id,
+            'type' => 'redirect',
+            'external' => (bool)$external,
+            'nofollow' => false
+        ]);
+
+        // Ne pas ajouter la cible comme page a crawler si follow_redirects est desactive
+        if (!$followRedirects) {
+            return;
+        }
+
+        // Inserer la page de redirection
         $date = date("Y-m-d H:i:s");
         $depth = $this->depth + 1;
-        $id = hash('crc32', $url, FALSE);
         $blocked = !RobotsTxt::robots_allowed($url);
 
-        // Insérer la page de redirection
         $this->crawlDb->insertPage([
             'id' => $id,
             'domain' => $this->page->domain,
@@ -181,19 +197,15 @@ class PageCrawler
             'blocked' => $blocked,
             'date' => $date
         ]);
-
-        // Insérer le lien de redirection
-        $this->crawlDb->insertLink([
-            'src' => $this->page->id,
-            'target' => $id,
-            'type' => 'redirect',
-            'external' => (bool)$external,
-            'nofollow' => false
-        ]);
     }
 
     private function storeLinks()
     {
+        // En mode liste, pas de découverte de liens
+        if (($this->config['crawl_type'] ?? 'spider') === 'list') {
+            return;
+        }
+
         $src = $this->page->id;
         $depth = $this->depth + 1;
         $date = date("Y-m-d H:i:s");

@@ -34,6 +34,8 @@ class Crawler
     private $depthMax;
     private $config;
     private $newCrawl = false;
+    private string $crawlType;
+    private array $urlList;
 
     /**
      * Constructeur du crawler
@@ -52,6 +54,11 @@ class Crawler
         $this->depthMax = $options['depthMax'];
         $this->pattern = $options['pattern'];
         $this->config = $options['config'];
+        $this->crawlType = $options['crawl_type'] ?? 'spider';
+        $this->urlList = $options['url_list'] ?? [];
+
+        // Injecter crawl_type dans config pour propagation vers PageCrawler
+        $this->config['crawl_type'] = $this->crawlType;
         
         // Utiliser PostgreSQL via CrawlDatabase
         $this->crawlDb = new CrawlDatabase($this->crawlId, $this->config);
@@ -68,13 +75,19 @@ class Crawler
 
     /**
      * Insère l'URL de départ dans la base de données
-     * 
-     * Vérifie le robots.txt et normalise l'URL avant insertion.
-     * 
+     *
+     * En mode spider, insère l'URL de départ unique.
+     * En mode liste, insère toutes les URLs de la liste.
+     *
      * @return void
      */
     private function insertStart()
     {
+        if ($this->crawlType === 'list') {
+            $this->insertUrlList();
+            return;
+        }
+
         // Fix canonical SLASH
         if (!empty($this->start)) {
             if (HtmlParser::regexMatch("#^https?://[^/]+$#", $this->start) == true) {
@@ -103,6 +116,48 @@ class Crawler
             'external' => false,
             'blocked' => $blocked
         ]);
+    }
+
+    /**
+     * Insère toutes les URLs de la liste en mode "liste"
+     *
+     * Chaque URL est normalisée, vérifiée contre robots.txt,
+     * et insérée avec depth=0.
+     *
+     * @return void
+     */
+    private function insertUrlList()
+    {
+        $pages = [];
+        $date = date("Y-m-d H:i:s");
+
+        foreach ($this->urlList as $url) {
+            // Normaliser le slash final pour les domaines nus
+            if (HtmlParser::regexMatch("#^https?://[^/]+$#", $url) == true) {
+                $url = $url . "/";
+            }
+
+            $id = hash('crc32', $url, FALSE);
+            preg_match("#https?:\/\/([^/]+)#i", $url, $dom);
+            $domain = $dom[1] ?? '';
+            $blocked = !RobotsTxt::robots_allowed($url);
+
+            $pages[] = [
+                'id' => $id,
+                'domain' => $domain,
+                'url' => $url,
+                'depth' => 0,
+                'code' => 0,
+                'crawled' => false,
+                'external' => false,
+                'blocked' => $blocked,
+                'date' => $date
+            ];
+        }
+
+        if (!empty($pages)) {
+            $this->crawlDb->insertPages($pages);
+        }
     }
 
     /**
