@@ -1,0 +1,51 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: scouter
+          POSTGRES_USER: scouter
+          POSTGRES_PASSWORD: scouter
+        options: >-
+          --health-cmd "pg_isready -U scouter"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql://scouter:scouter@localhost:5432/scouter
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_pgsql, pcntl, dom, mbstring, zip, curl
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Load database schema
+        run: psql -h localhost -U scouter -d scouter -f docker/postgres/init.sql
+        env:
+          PGPASSWORD: scouter
+
+      - name: Run migrations
+        run: php migrations/migrate.php
+
+      - name: Run tests
+        run: vendor/bin/pest
