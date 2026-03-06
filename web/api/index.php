@@ -90,6 +90,8 @@ try {
     // =============================================================================
     $router->post('/query/execute', [QueryController::class, 'execute'], ['auth' => true]);
     $router->get('/query/url-details', [QueryController::class, 'urlDetails'], ['auth' => true]);
+    $router->get('/query/url-inlinks', [QueryController::class, 'urlInlinks'], ['auth' => true]);
+    $router->get('/query/url-outlinks', [QueryController::class, 'urlOutlinks'], ['auth' => true]);
     $router->get('/query/quick-search', [QueryController::class, 'quickSearch'], ['auth' => true]);
     $router->get('/query/html-source', [QueryController::class, 'htmlSource'], ['auth' => true]);
 

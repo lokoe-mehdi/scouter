@@ -702,6 +702,9 @@ let currentCrawlDate = null;
 let htmlSourceLoaded = false;
 let htmlSourceEditor = null;
 let previewLoaded = false;
+let headingsLoaded = false;
+let inlinksLoaded = false;
+let outlinksLoaded = false;
 let previewFullscreen = false;
 let modalAbortController = null; // Pour annuler les requêtes en cours
 
@@ -776,6 +779,9 @@ function openUrlModal(url, project = null) {
     document.getElementById('previewTabBtn').style.display = 'none';
     htmlSourceLoaded = false;
     previewLoaded = false;
+    headingsLoaded = false;
+    inlinksLoaded = false;
+    outlinksLoaded = false;
     currentUrlId = null;
     currentPageUrl = null;
     currentCrawlDate = null;
@@ -853,12 +859,19 @@ function switchUrlTab(tabName) {
     document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
     document.getElementById(tabName + 'Tab').classList.add('active');
     
-    // Si c'est l'onglet HTML et qu'il n'est pas encore chargé, le charger
+    // Lazy-load tabs on first click
+    if (tabName === 'inlinks' && !inlinksLoaded) {
+        loadInlinks();
+    }
+    if (tabName === 'outlinks' && !outlinksLoaded) {
+        loadOutlinks();
+    }
     if (tabName === 'html' && !htmlSourceLoaded) {
         loadHtmlSource();
     }
-    
-    // Si c'est l'onglet preview et qu'il n'est pas encore chargé, le charger
+    if (tabName === 'headings' && !headingsLoaded) {
+        loadHeadings();
+    }
     if (tabName === 'preview' && !previewLoaded) {
         loadPreview();
     }
@@ -884,9 +897,9 @@ function displayUrlDetails(data) {
     iconSpan.textContent = 'open_in_new';
     linkElement.appendChild(iconSpan);
     
-    // Comptes
-    document.getElementById('inlinksCount').textContent = data.inlinks_count;
-    document.getElementById('outlinksCount').textContent = data.outlinks.length;
+    // Comptes (pré-calculés dans pages, pas de JOIN)
+    document.getElementById('inlinksCount').textContent = data.inlinks_count || 0;
+    document.getElementById('outlinksCount').textContent = data.outlinks_count || 0;
     
     // Stocker l'ID, URL et date pour charger le HTML/Preview
     currentUrlId = url.id;
@@ -902,18 +915,9 @@ function displayUrlDetails(data) {
     
     // Onglet Détails
     displayDetails(data);
-    
-    // Onglet Inlinks
-    displayLinks(data.inlinks, 'inlinksTab', 'inlink');
-    
-    // Onglet Outlinks
-    displayLinks(data.outlinks, 'outlinksTab', 'outlink');
-    
+
     // Onglet Extractions
     displayExtractions(data);
-    
-    // Onglet Headings
-    displayHeadings(data);
 }
 
 function getCodeBadge(code) {
@@ -1556,6 +1560,96 @@ document.addEventListener('keydown', function(e) {
     }
 });
 
+// Charger les inlinks (lazy-loaded)
+function loadInlinks() {
+    if (!currentUrlId) return;
+
+    const container = document.querySelector('#inlinksTab .links-list');
+    container.innerHTML = `<div class="url-loading"><span class="material-symbols-outlined spinning">progress_activity</span> ${__('modal.loading')}</div>`;
+
+    const apiUrl = window.location.pathname.includes('/pages/')
+        ? '../api/query/url-inlinks'
+        : 'api/query/url-inlinks';
+
+    fetch(`${apiUrl}?project=${encodeURIComponent(currentProject)}&id=${encodeURIComponent(currentUrlId)}`, {
+        signal: modalAbortController?.signal
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                displayLinks(data.inlinks || [], 'inlinksTab', 'inlink');
+                inlinksLoaded = true;
+            } else {
+                container.innerHTML = `<div class="empty-state"><span class="material-symbols-outlined">error</span><p>${__('modal.load_error')}</p></div>`;
+            }
+        })
+        .catch(error => {
+            if (error.name === 'AbortError') return;
+            console.error('Fetch Error:', error);
+            container.innerHTML = `<div class="empty-state"><span class="material-symbols-outlined">error</span><p>${__('modal.load_error')}</p></div>`;
+        });
+}
+
+// Charger les outlinks (lazy-loaded)
+function loadOutlinks() {
+    if (!currentUrlId) return;
+
+    const container = document.querySelector('#outlinksTab .links-list');
+    container.innerHTML = `<div class="url-loading"><span class="material-symbols-outlined spinning">progress_activity</span> ${__('modal.loading')}</div>`;
+
+    const apiUrl = window.location.pathname.includes('/pages/')
+        ? '../api/query/url-outlinks'
+        : 'api/query/url-outlinks';
+
+    fetch(`${apiUrl}?project=${encodeURIComponent(currentProject)}&id=${encodeURIComponent(currentUrlId)}`, {
+        signal: modalAbortController?.signal
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                displayLinks(data.outlinks || [], 'outlinksTab', 'outlink');
+                outlinksLoaded = true;
+            } else {
+                container.innerHTML = `<div class="empty-state"><span class="material-symbols-outlined">error</span><p>${__('modal.load_error')}</p></div>`;
+            }
+        })
+        .catch(error => {
+            if (error.name === 'AbortError') return;
+            console.error('Fetch Error:', error);
+            container.innerHTML = `<div class="empty-state"><span class="material-symbols-outlined">error</span><p>${__('modal.load_error')}</p></div>`;
+        });
+}
+
+// Charger les headings (lazy-loaded via html-source endpoint)
+function loadHeadings() {
+    if (!currentUrlId) return;
+
+    const container = document.querySelector('#headingsTab .headings-content');
+    container.innerHTML = `<div class="url-loading"><span class="material-symbols-outlined spinning">progress_activity</span> ${__('modal.loading')}</div>`;
+
+    const apiUrl = window.location.pathname.includes('/pages/')
+        ? '../api/query/html-source'
+        : 'api/query/html-source';
+
+    fetch(`${apiUrl}?project=${encodeURIComponent(currentProject)}&id=${encodeURIComponent(currentUrlId)}`, {
+        signal: modalAbortController?.signal
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                displayHeadings({ headings: data.headings || [] });
+                headingsLoaded = true;
+            } else {
+                container.innerHTML = `<div class="empty-state"><span class="material-symbols-outlined">error</span><p>${__('modal.load_error')}</p></div>`;
+            }
+        })
+        .catch(error => {
+            if (error.name === 'AbortError') return;
+            console.error('Fetch Error:', error);
+            container.innerHTML = `<div class="empty-state"><span class="material-symbols-outlined">error</span><p>${__('modal.load_error')}</p></div>`;
+        });
+}
+
 // Charger le code source HTML
 function loadHtmlSource() {
     if (!currentUrlId) return;
@@ -1596,6 +1690,12 @@ function loadHtmlSource() {
                 htmlSourceEditor.setValue(formattedHtml);
                 htmlSourceEditor.refresh();
                 htmlSourceLoaded = true;
+
+                // Also populate headings from same response (avoid duplicate request)
+                if (!headingsLoaded && data.headings) {
+                    displayHeadings({ headings: data.headings });
+                    headingsLoaded = true;
+                }
             } else {
                 alert(__('modal.load_error') + ': ' + (data.error || __('modal.cannot_load_html')));
             }

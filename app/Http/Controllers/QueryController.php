@@ -159,9 +159,9 @@ class QueryController extends Controller
             $categoryColors[$row['cat']] = $row['color'];
         }
         
-        // Récupérer les détails de l'URL
+        // Récupérer les détails de l'URL (inclut inlinks/outlinks counts pré-calculés)
         $stmt = $this->db->prepare("
-            SELECT id, url, domain, depth, code, crawled, content_type, outlinks, date,
+            SELECT id, url, domain, depth, code, crawled, content_type, inlinks, outlinks, date,
                    nofollow, compliant, noindex, canonical, canonical_value, redirect_to,
                    response_time, blocked, external, title, h1, metadesc, extracts, cat_id,
                    h1_multiple, headings_missing, schemas, word_count
@@ -169,23 +169,108 @@ class QueryController extends Controller
         ");
         $stmt->execute([':crawl_id' => $crawlId, ':url' => $url]);
         $urlData = $stmt->fetch(PDO::FETCH_ASSOC);
-        
+
         if (!$urlData) {
             Response::notFound('URL not found');
         }
-        
+
         $catName = $categoriesMap[$urlData['cat_id']] ?? 'Non catégorisé';
         $urlData['category'] = $catName;
         $urlData['category_color'] = $categoryColors[$catName] ?? '#95a5a6';
-        
-        $urlId = $urlData['id'];
-        
-        // Inlinks count
-        $stmt = $this->db->prepare("SELECT COUNT(*) as count FROM links WHERE crawl_id = :crawl_id AND target = :id");
-        $stmt->execute([':crawl_id' => $crawlId, ':id' => $urlId]);
-        $inlinksCount = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
-        
-        // Inlinks
+
+        $extracts = [
+            'title' => $urlData['title'] ?? '',
+            'h1' => $urlData['h1'] ?? '',
+            'metadesc' => $urlData['metadesc'] ?? ''
+        ];
+
+        $customExtracts = $urlData['extracts'] ? json_decode($urlData['extracts'], true) : [];
+
+        $urlData['response_time'] = (int)($urlData['response_time'] ?? 0);
+        $urlData['depth'] = (int)($urlData['depth'] ?? 0);
+        $urlData['code'] = (int)($urlData['code'] ?? 0);
+
+        $schemas = $urlData['schemas'] ?? '{}';
+        if ($schemas && $schemas !== '{}') {
+            $schemas = trim($schemas, '{}');
+            $urlData['schemas'] = !empty($schemas)
+                ? array_map(fn($s) => trim($s, '"'), explode(',', $schemas))
+                : [];
+        } else {
+            $urlData['schemas'] = [];
+        }
+
+        $this->json([
+            'success' => true,
+            'url' => $urlData,
+            'category' => $urlData['category'],
+            'extracts' => $extracts,
+            'extractions' => $customExtracts,
+            'inlinks_count' => (int)($urlData['inlinks'] ?? 0),
+            'outlinks_count' => (int)($urlData['outlinks'] ?? 0)
+        ]);
+    }
+
+    /**
+     * Helper: resolve crawl + page from request params
+     */
+    private function resolvePageContext(Request $request): array
+    {
+        $projectDir = $request->get('project');
+        $url = $request->get('url');
+        $pageId = $request->get('id');
+
+        if (!$projectDir || (!$url && !$pageId)) {
+            $this->error('Missing parameters');
+        }
+
+        if (is_numeric($projectDir)) {
+            $this->auth->requireCrawlAccessById((int)$projectDir, true);
+            $crawlRecord = CrawlDatabase::getCrawlById((int)$projectDir);
+        } else {
+            $this->auth->requireCrawlAccess($projectDir, true);
+            $crawlRecord = CrawlDatabase::getCrawlByPath($projectDir);
+        }
+
+        if (!$crawlRecord) {
+            Response::notFound('Crawl not found');
+        }
+
+        $crawlId = $crawlRecord->id;
+
+        if ($pageId) {
+            $stmt = $this->db->prepare("SELECT id FROM pages WHERE crawl_id = :crawl_id AND id = :id");
+            $stmt->execute([':crawl_id' => $crawlId, ':id' => $pageId]);
+        } else {
+            $stmt = $this->db->prepare("SELECT id FROM pages WHERE crawl_id = :crawl_id AND url = :url");
+            $stmt->execute([':crawl_id' => $crawlId, ':url' => $url]);
+        }
+        $page = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$page) {
+            Response::notFound('Page not found');
+        }
+
+        return ['crawlId' => $crawlId, 'pageId' => $page['id']];
+    }
+
+    /**
+     * Retourne les inlinks d'une URL (lazy-loaded)
+     */
+    public function urlInlinks(Request $request): void
+    {
+        $ctx = $this->resolvePageContext($request);
+
+        // Charger les catégories
+        $categoriesMap = [];
+        $categoryColors = [];
+        $stmt = $this->db->prepare("SELECT id, cat, color FROM categories WHERE crawl_id = :crawl_id");
+        $stmt->execute([':crawl_id' => $ctx['crawlId']]);
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $categoriesMap[$row['id']] = $row['cat'];
+            $categoryColors[$row['cat']] = $row['color'];
+        }
+
         $stmt = $this->db->prepare("
             SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.pri, c.cat_id
             FROM links l
@@ -193,95 +278,51 @@ class QueryController extends Controller
             WHERE l.crawl_id = :crawl_id2 AND l.target = :id
             ORDER BY c.pri DESC LIMIT 100
         ");
-        $stmt->execute([':crawl_id' => $crawlId, ':crawl_id2' => $crawlId, ':id' => $urlId]);
+        $stmt->execute([':crawl_id' => $ctx['crawlId'], ':crawl_id2' => $ctx['crawlId'], ':id' => $ctx['pageId']]);
         $inlinks = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
+
         foreach ($inlinks as &$link) {
             $catName = $categoriesMap[$link['cat_id']] ?? 'Non catégorisé';
             $link['category'] = $catName;
             $link['category_color'] = $categoryColors[$catName] ?? '#95a5a6';
         }
-        
-        // Outlinks
+
+        $this->success(['inlinks' => $inlinks]);
+    }
+
+    /**
+     * Retourne les outlinks d'une URL (lazy-loaded)
+     */
+    public function urlOutlinks(Request $request): void
+    {
+        $ctx = $this->resolvePageContext($request);
+
+        // Charger les catégories
+        $categoriesMap = [];
+        $categoryColors = [];
+        $stmt = $this->db->prepare("SELECT id, cat, color FROM categories WHERE crawl_id = :crawl_id");
+        $stmt->execute([':crawl_id' => $ctx['crawlId']]);
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $categoriesMap[$row['id']] = $row['cat'];
+            $categoryColors[$row['cat']] = $row['color'];
+        }
+
         $stmt = $this->db->prepare("
             SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.external, c.cat_id
             FROM links l
             JOIN pages c ON l.target = c.id AND c.crawl_id = :crawl_id
             WHERE l.crawl_id = :crawl_id2 AND l.src = :id
         ");
-        $stmt->execute([':crawl_id' => $crawlId, ':crawl_id2' => $crawlId, ':id' => $urlId]);
+        $stmt->execute([':crawl_id' => $ctx['crawlId'], ':crawl_id2' => $ctx['crawlId'], ':id' => $ctx['pageId']]);
         $outlinks = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
+
         foreach ($outlinks as &$link) {
             $catName = $categoriesMap[$link['cat_id']] ?? 'Non catégorisé';
             $link['category'] = $catName;
             $link['category_color'] = $categoryColors[$catName] ?? '#95a5a6';
         }
-        
-        $extracts = [
-            'title' => $urlData['title'] ?? '',
-            'h1' => $urlData['h1'] ?? '',
-            'metadesc' => $urlData['metadesc'] ?? ''
-        ];
-        
-        $customExtracts = $urlData['extracts'] ? json_decode($urlData['extracts'], true) : [];
-        
-        // HTML
-        $htmlContent = null;
-        $headings = [];
-        $stmt = $this->db->prepare("SELECT html FROM html WHERE crawl_id = :crawl_id AND id = :id");
-        $stmt->execute([':crawl_id' => $crawlId, ':id' => $urlData['id']]);
-        $htmlRow = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        if ($htmlRow && $htmlRow['html']) {
-            $htmlContent = $htmlRow['html'];
-            $decoded = base64_decode($htmlContent);
-            if ($decoded !== false) {
-                $decompressed = @gzinflate($decoded);
-                $htmlContent = $decompressed !== false ? $decompressed : $decoded;
-            }
-            
-            if (!empty($htmlContent)) {
-                $dom = new \DOMDocument();
-                @$dom->loadHTML('<?xml encoding="UTF-8">' . $htmlContent);
-                $xpath = new \DOMXPath($dom);
-                
-                $headingNodes = $xpath->query('//h1 | //h2 | //h3 | //h4 | //h5 | //h6');
-                foreach ($headingNodes as $node) {
-                    $headings[] = [
-                        'level' => (int)substr($node->nodeName, 1),
-                        'text' => trim($node->textContent)
-                    ];
-                }
-            }
-        }
-        
-        $urlData['response_time'] = (int)($urlData['response_time'] ?? 0);
-        $urlData['depth'] = (int)($urlData['depth'] ?? 0);
-        $urlData['code'] = (int)($urlData['code'] ?? 0);
-        
-        $schemas = $urlData['schemas'] ?? '{}';
-        if ($schemas && $schemas !== '{}') {
-            $schemas = trim($schemas, '{}');
-            $urlData['schemas'] = !empty($schemas) 
-                ? array_map(fn($s) => trim($s, '"'), explode(',', $schemas)) 
-                : [];
-        } else {
-            $urlData['schemas'] = [];
-        }
-        
-        $this->json([
-            'success' => true,
-            'url' => $urlData,
-            'category' => $urlData['category'],
-            'extracts' => $extracts,
-            'extractions' => $customExtracts,
-            'html' => $htmlContent,
-            'headings' => $headings,
-            'inlinks_count' => $inlinksCount,
-            'inlinks' => $inlinks,
-            'outlinks' => $outlinks
-        ]);
+
+        $this->success(['outlinks' => $outlinks]);
     }
 
     /**
@@ -337,56 +378,37 @@ class QueryController extends Controller
      */
     public function htmlSource(Request $request): void
     {
-        $projectDir = $request->get('project');
-        $url = $request->get('url');
-        $pageId = $request->get('id');
-        
-        if (!$projectDir || (!$url && !$pageId)) {
-            $this->error('Missing parameters');
-        }
-        
-        if (is_numeric($projectDir)) {
-            $this->auth->requireCrawlAccessById((int)$projectDir, true);
-            $crawlRecord = CrawlDatabase::getCrawlById((int)$projectDir);
-        } else {
-            $this->auth->requireCrawlAccess($projectDir, true);
-            $crawlRecord = CrawlDatabase::getCrawlByPath($projectDir);
-        }
-        
-        if (!$crawlRecord) {
-            Response::notFound('Crawl not found');
-        }
-        
-        $crawlId = $crawlRecord->id;
-        
-        // Get page ID (by url or directly)
-        if ($pageId) {
-            $stmt = $this->db->prepare("SELECT id FROM pages WHERE crawl_id = :crawl_id AND id = :id");
-            $stmt->execute([':crawl_id' => $crawlId, ':id' => $pageId]);
-        } else {
-            $stmt = $this->db->prepare("SELECT id FROM pages WHERE crawl_id = :crawl_id AND url = :url");
-            $stmt->execute([':crawl_id' => $crawlId, ':url' => $url]);
-        }
-        $page = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        if (!$page) {
-            Response::notFound('Page not found');
-        }
-        
+        $ctx = $this->resolvePageContext($request);
+
         // Get HTML
         $stmt = $this->db->prepare("SELECT html FROM html WHERE crawl_id = :crawl_id AND id = :id");
-        $stmt->execute([':crawl_id' => $crawlId, ':id' => $page['id']]);
+        $stmt->execute([':crawl_id' => $ctx['crawlId'], ':id' => $ctx['pageId']]);
         $htmlRow = $stmt->fetch(PDO::FETCH_ASSOC);
         
         $htmlContent = null;
+        $headings = [];
         if ($htmlRow && $htmlRow['html']) {
             $decoded = base64_decode($htmlRow['html']);
             if ($decoded !== false) {
                 $decompressed = @gzinflate($decoded);
                 $htmlContent = $decompressed !== false ? $decompressed : $decoded;
             }
+
+            // Extract headings from HTML
+            if (!empty($htmlContent)) {
+                $dom = new \DOMDocument();
+                @$dom->loadHTML('<?xml encoding="UTF-8">' . $htmlContent);
+                $xpath = new \DOMXPath($dom);
+                $headingNodes = $xpath->query('//h1 | //h2 | //h3 | //h4 | //h5 | //h6');
+                foreach ($headingNodes as $node) {
+                    $headings[] = [
+                        'level' => (int)substr($node->nodeName, 1),
+                        'text' => trim($node->textContent)
+                    ];
+                }
+            }
         }
-        
-        $this->success(['html' => $htmlContent]);
+
+        $this->success(['html' => $htmlContent, 'headings' => $headings]);
     }
 }
