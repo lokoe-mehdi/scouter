@@ -1506,6 +1506,11 @@ const CrawlPanel = {
                 throw new Error(result.error || __('crawl_panel.error_resume'));
             }
 
+            // Clear old logs from terminal
+            this.clearTerminal();
+            this.state.lastLogCount = 0;
+            this.state.lastFileLogCount = 0;
+
             // Update status to queued
             this.updateStatus('queued');
             

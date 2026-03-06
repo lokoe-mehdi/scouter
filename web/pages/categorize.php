@@ -1748,7 +1748,7 @@ body {
             'title' => '',
             'id' => 'categorize_table',
             'whereClause' => 'WHERE ' . $catWhereClause,
-            'orderBy' => 'ORDER BY c.cat_id, c.url',
+            'orderBy' => 'ORDER BY c.url',
             'sqlParams' => $catParams,
             'defaultColumns' => ['url', 'code', 'category'],
             'perPage' => 50,
@@ -1757,7 +1757,8 @@ body {
             'projectDir' => $projectDir,
             'light' => true,
             'copyUrl' => true,
-            'hideTitle' => true
+            'hideTitle' => true,
+            'skipExtractDiscovery' => true
         ];
         
         include __DIR__ . '/../components/url-table.php';
