@@ -1,15 +1,18 @@
 <?php
 /**
  * Point d'entrée unique pour l'API REST Scouter
- * 
+ *
  * Toutes les requêtes API sont routées vers ce fichier via .htaccess.
  * Le routeur dispatch ensuite vers le controller approprié.
- * 
+ *
  * @package    Scouter
  * @subpackage Api
  * @author     Mehdi Colin
  * @version    1.0.0
  */
+
+// Buffer all output so PHP warnings/notices don't corrupt JSON responses
+ob_start();
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/../config/i18n.php';
@@ -123,5 +126,11 @@ try {
     $router->dispatch($request);
 
 } catch (\Throwable $e) {
+    // Log the error for debugging (stray output is captured by ob_start above)
+    $strayOutput = ob_get_clean();
+    if ($strayOutput) {
+        error_log("[Scouter API] Stray output captured: " . substr($strayOutput, 0, 500));
+    }
+    error_log("[Scouter API] Error: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
     App\Http\Response::serverError($e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
 }
