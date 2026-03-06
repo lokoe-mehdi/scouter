@@ -107,108 +107,105 @@ class PostProcessor
         $iterations = 30;
         $damping = 0.85;
 
-        // Streamer les liens pour construire le graphe sans tout charger en RAM
-        $stmt = $this->db->prepare("SELECT src, target, nofollow FROM links WHERE crawl_id = :crawl_id");
-        $stmt->execute([':crawl_id' => $this->crawlId]);
+        // Count pages
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :cid");
+        $stmt->execute([':cid' => $this->crawlId]);
+        $pagesCount = (int)$stmt->fetchColumn();
 
-        $pages = [];
-        $backlinks = [];
-        $hasLinks = false;
-
-        while ($link = $stmt->fetch(PDO::FETCH_NUM)) {
-            $hasLinks = true;
-            $src = $link[0];
-            $target = $link[1];
-            $nofollow = $link[2];
-
-            if (!isset($pages[$src])) {
-                $pages[$src] = ['links' => 0, 'PR' => 0];
-            }
-            if (!isset($pages[$target])) {
-                $pages[$target] = ['links' => 0, 'PR' => 0];
-            }
-
-            $pages[$src]['links']++;
-            if (!$nofollow) {
-                $backlinks[$target][] = $src;
-            }
+        if ($pagesCount === 0) {
+            echo "\r \033[32m Pagerank calcul \033[0m : \033[33mno pages\033[0m                             \n";
+            return;
         }
 
-        if (!$hasLinks) {
+        // Check if there are links
+        $stmt = $this->db->prepare("SELECT 1 FROM links WHERE crawl_id = :cid LIMIT 1");
+        $stmt->execute([':cid' => $this->crawlId]);
+        if (!$stmt->fetchColumn()) {
             echo "\r \033[32m Pagerank calcul \033[0m : \033[33mno links\033[0m                             \n";
             return;
         }
 
-        $pagesCount = count($pages);
+        $initPR = 1.0 / $pagesCount;
         $bonus = (1 - $damping) / $pagesCount;
 
-        // Initialiser le PageRank
-        $initPR = 1 / $pagesCount;
-        foreach ($pages as &$page) {
-            $page['PR'] = $initPR;
-        }
-        unset($page);
+        // Increase work_mem for the heavy JOIN operations
+        $this->db->exec("SET LOCAL work_mem = '128MB'");
 
-        // Itérations
+        // Create temp table for PR computation (zero PHP RAM)
+        $this->db->exec("DROP TABLE IF EXISTS tmp_pr");
+        $this->db->exec("CREATE TEMP TABLE tmp_pr (
+            id char(8) PRIMARY KEY,
+            pr float8 NOT NULL,
+            outlinks int NOT NULL DEFAULT 0
+        )");
+
+        // Initialize: all pages with their outlink counts
+        echo "\r \033[32m Pagerank calcul \033[0m : \033[36minitializing...\033[0m                    ";
+        flush();
+
+        $stmt = $this->db->prepare("
+            INSERT INTO tmp_pr (id, pr, outlinks)
+            SELECT p.id, :init_pr, COALESCE(ol.cnt, 0)
+            FROM pages p
+            LEFT JOIN (
+                SELECT src, COUNT(*) as cnt
+                FROM links WHERE crawl_id = :cid
+                GROUP BY src
+            ) ol ON p.id = ol.src
+            WHERE p.crawl_id = :cid2
+        ");
+        $stmt->execute([':init_pr' => $initPR, ':cid' => $this->crawlId, ':cid2' => $this->crawlId]);
+
+        // Iterations — entirely in PostgreSQL, zero PHP RAM
         for ($i = 0; $i < $iterations; $i++) {
             echo "\r \033[32m Pagerank calcul \033[0m : \033[36mIteration " . ($i + 1) . "/$iterations\033[0m                    ";
             flush();
 
-            $deadEndBonus = 0;
-            foreach ($pages as $page) {
-                if ($page['links'] == 0) {
-                    $deadEndBonus += $page['PR'];
-                }
-            }
-            $deadEndBonus = $damping * ($deadEndBonus / $pagesCount);
+            // Dead-end bonus: sum PR of pages with no outgoing links
+            $stmt = $this->db->prepare("SELECT COALESCE(SUM(pr), 0) FROM tmp_pr WHERE outlinks = 0");
+            $stmt->execute();
+            $deadEndPR = (float)$stmt->fetchColumn();
+            $deadEndBonus = $damping * $deadEndPR / $pagesCount;
+            $iterBonus = $bonus + $deadEndBonus;
 
-            $newPR = [];
-            foreach ($pages as $id => $page) {
-                $pr = 0;
-                if (isset($backlinks[$id])) {
-                    foreach ($backlinks[$id] as $bl) {
-                        if ($pages[$bl]['links'] > 0) {
-                            $pr += $pages[$bl]['PR'] / $pages[$bl]['links'];
-                        }
-                    }
-                }
-                $newPR[$id] = $pr * $damping + $bonus + $deadEndBonus;
-            }
-
-            foreach ($newPR as $id => $pr) {
-                $pages[$id]['PR'] = $pr;
-            }
+            // Single UPDATE: new_pr = bonus + damping * sum(backlink_pr / backlink_outlinks)
+            // PostgreSQL evaluates the FROM clause with OLD pr values before writing new ones
+            $stmt = $this->db->prepare("
+                UPDATE tmp_pr t
+                SET pr = :bonus + :damping * COALESCE(inc.incoming_pr, 0)
+                FROM (
+                    SELECT t2.id, i.incoming_pr
+                    FROM tmp_pr t2
+                    LEFT JOIN (
+                        SELECT l.target, SUM(tp.pr / tp.outlinks) as incoming_pr
+                        FROM links l
+                        JOIN tmp_pr tp ON tp.id = l.src AND tp.outlinks > 0
+                        WHERE l.crawl_id = :cid AND l.nofollow = false
+                        GROUP BY l.target
+                    ) i ON t2.id = i.target
+                ) inc
+                WHERE t.id = inc.id
+            ");
+            $stmt->execute([
+                ':bonus' => $iterBonus,
+                ':damping' => $damping,
+                ':cid' => $this->crawlId
+            ]);
         }
 
-        // Sauvegarder par batch via unnest (1 UPDATE pour N pages au lieu de N UPDATEs)
-        $batchSize = 5000;
-        $ids = [];
-        $prs = [];
-        $count = 0;
-        $total = count($pages);
+        // Save results back to pages table (single UPDATE)
+        echo "\r \033[32m Pagerank calcul \033[0m : \033[36msaving...\033[0m                    ";
+        flush();
 
-        foreach ($pages as $id => $page) {
-            $ids[] = $id;
-            $prs[] = round($page['PR'], 8);
-            $count++;
+        $stmt = $this->db->prepare("
+            UPDATE pages p SET pri = t.pr
+            FROM tmp_pr t
+            WHERE p.crawl_id = :cid AND p.id = t.id
+        ");
+        $stmt->execute([':cid' => $this->crawlId]);
 
-            if ($count % $batchSize === 0 || $count === $total) {
-                $stmt = $this->db->prepare("
-                    UPDATE pages p SET pri = data.pr
-                    FROM unnest(:ids::char(8)[], :prs::float8[]) AS data(id, pr)
-                    WHERE p.crawl_id = :crawl_id AND p.id = data.id
-                ");
-                $stmt->execute([
-                    ':ids' => '{' . implode(',', $ids) . '}',
-                    ':prs' => '{' . implode(',', $prs) . '}',
-                    ':crawl_id' => $this->crawlId
-                ]);
-                echo "\r \033[32m Pagerank calcul \033[0m : \033[36msaving $count/$total\033[0m                    ";
-                flush();
-                $ids = [];
-                $prs = [];
-            }
-        }
+        // Cleanup
+        $this->db->exec("DROP TABLE IF EXISTS tmp_pr");
 
         echo "\r \033[32m Pagerank calcul \033[0m : \033[36mdone\033[0m                             \n";
         flush();
