@@ -2428,21 +2428,19 @@ async function saveCategorization() {
     .then(response => response.json())
     .then(data => {
         if(data.success) {
-            const categorizedCount = data.categorized_count || 0;
-            const otherCrawls = data.other_crawls || 0;
-
-            if (otherCrawls > 0) {
-                showGlobalStatus(__('categorize.msg_saved_batch').replace(':count', categorizedCount).replace(':crawls', otherCrawls), 'success');
+            if (data.async) {
+                showGlobalStatus(__('categorize.msg_saved_async') || 'Configuration sauvegardée, catégorisation en cours en arrière-plan...', 'success');
             } else {
+                const categorizedCount = data.categorized_count || 0;
                 showGlobalStatus(__('categorize.msg_saved').replace(':count', categorizedCount), 'success');
             }
 
-            // Rafraîchir le graphique et le tableau en AJAX
-            refreshCategorizationView();
-
-            // Démarrer le polling du job batch si créé
+            // Démarrer le polling du job batch pour suivre la progression
             if (data.batch_job_created && data.job_id) {
                 startBatchPolling(data.job_id);
+            } else {
+                // Rafraîchir le graphique et le tableau en AJAX
+                refreshCategorizationView();
             }
         } else {
             showGlobalStatus(__('common.error') + ': ' + data.error, 'error');

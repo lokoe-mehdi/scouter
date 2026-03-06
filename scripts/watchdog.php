@@ -30,8 +30,14 @@ try {
     }
     $newState = [];
 
-    // 2. Récupérer tous les jobs en cours
-    $stmt = $db->query("SELECT id, project_dir, progress, started_at FROM jobs WHERE status = 'running'");
+    // 2. Récupérer tous les jobs en cours avec le vrai progrès depuis crawls
+    $stmt = $db->query("
+        SELECT j.id, j.project_dir, j.progress, j.started_at,
+               COALESCE(c.crawled, 0) as crawl_progress
+        FROM jobs j
+        LEFT JOIN crawls c ON c.path = j.project_dir
+        WHERE j.status = 'running'
+    ");
     $runningJobs = $stmt->fetchAll(PDO::FETCH_OBJ);
 
     if (count($runningJobs) === 0) {
@@ -43,10 +49,11 @@ try {
 
     foreach ($runningJobs as $job) {
         $jobId = $job->id;
-        $currentProgress = (int)$job->progress;
-        
+        // Use crawl progress (crawls.crawled) as source of truth, fallback to jobs.progress
+        $currentProgress = max((int)$job->progress, (int)$job->crawl_progress);
+
         echo "🔍 Checking Job #{$jobId} ({$job->project_dir})...\n";
-        echo "   Current Progress: $currentProgress URLs\n";
+        echo "   Current Progress: $currentProgress URLs (job: {$job->progress}, crawl: {$job->crawl_progress})\n";
 
         // Si on a déjà vu ce job la dernière fois
         if (isset($previousState[$jobId])) {

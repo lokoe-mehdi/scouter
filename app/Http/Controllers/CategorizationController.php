@@ -84,50 +84,7 @@ class CategorizationController extends Controller
         $projectRepo = new \App\Database\ProjectRepository();
         $projectRepo->setCategorizationConfig($projectId, $yamlContent);
 
-        // PHASE 2: Apply to current crawl (SYNC)
-        $categorizedCount = $this->applyCategorization($crawlId, $yamlContent);
-
-        // PHASE 3: Create batch job for other crawls (ASYNC)
-        $crawlRepo = new \App\Database\CrawlRepository();
-        $allCrawls = $crawlRepo->getByProjectId($projectId);
-        $otherCrawls = array_filter($allCrawls, fn($c) => $c->id !== $crawlId);
-
-        $jobId = null;
-        if (count($otherCrawls) > 0) {
-            $jobManager = new \App\Job\JobManager();
-            $jobId = $jobManager->createJob(
-                $projectDir,
-                "Batch Categorization",
-                "batch-categorize-project:{$projectId}"
-            );
-            $jobManager->updateJobStatus($jobId, 'queued');
-            $jobManager->addLog($jobId,
-                "Queued categorization for " . count($otherCrawls) . " crawl(s)",
-                'info'
-            );
-        }
-
-        $this->success([
-            'categorized_count' => $categorizedCount,
-            'batch_job_created' => count($otherCrawls) > 0,
-            'job_id' => $jobId,
-            'total_crawls' => count($allCrawls),
-            'other_crawls' => count($otherCrawls)
-        ], 'Catégorisation appliquée avec succès');
-    }
-
-    /**
-     * Apply categorization to a single crawl
-     *
-     * Extracted from save() for reuse in batch processing.
-     *
-     * @param int $crawlId Crawl ID
-     * @param string $yamlContent YAML configuration
-     * @return int Number of categorized pages
-     */
-    private function applyCategorization(int $crawlId, string $yamlContent): int
-    {
-        // Save to crawl-level config (backward compatibility)
+        // PHASE 2: Save to crawl-level config (fast, no heavy processing)
         $stmt = $this->db->prepare("
             INSERT INTO categorization_config (crawl_id, config)
             VALUES (:crawl_id, :config)
@@ -139,8 +96,30 @@ class CategorizationController extends Controller
             ':config2' => $yamlContent
         ]);
 
-        $service = new CategorizationService($this->db);
-        return $service->applyCategorization($crawlId, $yamlContent);
+        // PHASE 3: Create async job for ALL crawls (including current)
+        // Never run heavy categorization in the HTTP request
+        $crawlRepo = new \App\Database\CrawlRepository();
+        $allCrawls = $crawlRepo->getByProjectId($projectId);
+
+        $jobManager = new \App\Job\JobManager();
+        $jobId = $jobManager->createJob(
+            $projectDir,
+            "Batch Categorization",
+            "batch-categorize-project:{$projectId}"
+        );
+        $jobManager->updateJobStatus($jobId, 'queued');
+        $jobManager->addLog($jobId,
+            "Queued categorization for " . count($allCrawls) . " crawl(s)",
+            'info'
+        );
+
+        $this->success([
+            'categorized_count' => 0,
+            'batch_job_created' => true,
+            'job_id' => $jobId,
+            'total_crawls' => count($allCrawls),
+            'async' => true
+        ], 'Configuration sauvegardée, catégorisation en cours...');
     }
 
     /**
