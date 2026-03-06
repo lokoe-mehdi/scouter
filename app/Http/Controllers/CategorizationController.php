@@ -7,6 +7,7 @@ use App\Http\Request;
 use App\Http\Response;
 use App\Database\PostgresDatabase;
 use App\Database\CrawlDatabase;
+use App\Analysis\CategorizationService;
 use PDO;
 
 /**
@@ -126,8 +127,6 @@ class CategorizationController extends Controller
      */
     private function applyCategorization(int $crawlId, string $yamlContent): int
     {
-        $categories = \Spyc::YAMLLoadString($yamlContent);
-
         // Save to crawl-level config (backward compatibility)
         $stmt = $this->db->prepare("
             INSERT INTO categorization_config (crawl_id, config)
@@ -140,107 +139,8 @@ class CategorizationController extends Controller
             ':config2' => $yamlContent
         ]);
 
-        $this->db->beginTransaction();
-
-        try {
-            // Reset existing categorization
-            $stmt = $this->db->prepare("UPDATE pages SET cat_id = NULL WHERE crawl_id = :crawl_id");
-            $stmt->execute([':crawl_id' => $crawlId]);
-
-            $stmt = $this->db->prepare("DELETE FROM categories WHERE crawl_id = :crawl_id");
-            $stmt->execute([':crawl_id' => $crawlId]);
-
-            $categorizedCount = 0;
-
-            // Apply each category rule
-            foreach ($categories as $catName => $rules) {
-                if (!is_array($rules) || !isset($rules['dom']) || !isset($rules['include'])) {
-                    continue;
-                }
-
-                $color = trim($rules['color'] ?? '#aaaaaa', '"\'');
-
-                // Create category
-                $stmt = $this->db->prepare("
-                    INSERT INTO categories (crawl_id, cat, color)
-                    VALUES (:crawl_id, :cat, :color)
-                    RETURNING id
-                ");
-                $stmt->execute([':crawl_id' => $crawlId, ':cat' => $catName, ':color' => $color]);
-                $catId = $stmt->fetch(PDO::FETCH_OBJ)->id;
-
-                // Extract rules
-                $domain = $rules['dom'];
-                $includes = is_array($rules['include']) ? $rules['include'] : [$rules['include']];
-                $excludes = isset($rules['exclude']) ?
-                    (is_array($rules['exclude']) ? $rules['exclude'] : [$rules['exclude']]) : [];
-
-                // Get uncategorized URLs
-                $stmt = $this->db->prepare("
-                    SELECT id, url
-                    FROM pages
-                    WHERE crawl_id = :crawl_id
-                      AND cat_id IS NULL
-                      AND crawled = true
-                ");
-                $stmt->execute([':crawl_id' => $crawlId]);
-                $urls = $stmt->fetchAll(PDO::FETCH_OBJ);
-
-                // Match and categorize
-                foreach ($urls as $urlRow) {
-                    $url = $urlRow->url;
-
-                    // Check domain
-                    if (!preg_match('#' . preg_quote($domain, '#') . '#i', $url)) {
-                        continue;
-                    }
-
-                    // Normalize URL path
-                    $domainPattern = '(.*\.)?' . preg_quote($domain, '#');
-                    $urlPath = preg_replace('#^https?://' . $domainPattern . '#i', '', $url);
-
-                    // Check includes
-                    $includeMatch = false;
-                    foreach ($includes as $include) {
-                        if (preg_match('#' . $include . '#i', $urlPath)) {
-                            $includeMatch = true;
-                            break;
-                        }
-                    }
-                    if (!$includeMatch) continue;
-
-                    // Check excludes
-                    $excludeMatch = false;
-                    foreach ($excludes as $exclude) {
-                        if (preg_match('#' . $exclude . '#i', $urlPath)) {
-                            $excludeMatch = true;
-                            break;
-                        }
-                    }
-                    if ($excludeMatch) continue;
-
-                    // Assign category
-                    $updateStmt = $this->db->prepare("
-                        UPDATE pages
-                        SET cat_id = :cat_id
-                        WHERE crawl_id = :crawl_id AND id = :id
-                    ");
-                    $updateStmt->execute([
-                        ':cat_id' => $catId,
-                        ':crawl_id' => $crawlId,
-                        ':id' => $urlRow->id
-                    ]);
-                    $categorizedCount++;
-                }
-            }
-
-            $this->db->commit();
-            return $categorizedCount;
-
-        } catch (\Exception $e) {
-            $this->db->rollBack();
-            throw $e;
-        }
+        $service = new CategorizationService($this->db);
+        return $service->applyCategorization($crawlId, $yamlContent);
     }
 
     /**
@@ -256,147 +156,68 @@ class CategorizationController extends Controller
     {
         $projectDir = $request->get('project');
         $yamlContent = $request->get('yaml');
-        
+
         $this->auth->requireCrawlManagement($projectDir, true);
-        
+
         if (empty($projectDir) || empty($yamlContent)) {
             $this->error('Paramètres manquants');
         }
-        
+
         $categories = \Spyc::YAMLLoadString($yamlContent);
-        
+
         if (!is_array($categories)) {
             $this->error('Format YAML invalide');
         }
-        
+
         $crawlRecord = CrawlDatabase::getCrawlByPath($projectDir);
         if (!$crawlRecord) {
             $this->error('Crawl non trouvé');
         }
-        
+
         $crawlId = $crawlRecord->id;
-        
-        // Récupérer toutes les URLs
-        $stmt = $this->db->prepare("SELECT url, depth, code FROM pages WHERE crawl_id = :crawl_id AND crawled = true ORDER BY url");
-        $stmt->execute([':crawl_id' => $crawlId]);
-        $allUrls = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        // Limiter à 500 pour l'affichage
-        $urls = array_slice($allUrls, 0, 500);
-        
-        // Simuler la catégorisation sur TOUTES les URLs pour les stats
-        $categoryStats = [];
-        $urlCategories = [];
-        
-        foreach ($allUrls as $url) {
-            $urlCategories[$url['url']] = null;
+
+        $service = new CategorizationService($this->db);
+
+        try {
+            $rules = $service->parseRules($categories);
+        } catch (\InvalidArgumentException $e) {
+            $this->error($e->getMessage());
         }
-        
-        // Parcourir les catégories dans l'ordre
-        foreach ($categories as $catName => $rules) {
-            if (!is_array($rules) || !isset($rules['dom']) || !isset($rules['include'])) {
-                continue;
-            }
-            
-            $domain = $rules['dom'];
-            $includes = is_array($rules['include']) ? $rules['include'] : [$rules['include']];
-            $excludes = isset($rules['exclude']) ? (is_array($rules['exclude']) ? $rules['exclude'] : [$rules['exclude']]) : [];
-            
-            foreach ($allUrls as $url) {
-                // Si déjà catégorisé, passer
-                if ($urlCategories[$url['url']] !== null) {
-                    continue;
-                }
-                
-                // Vérifier le domaine
-                if (!preg_match('#' . preg_quote($domain, '#') . '#i', $url['url'])) {
-                    continue;
-                }
-                
-                // Normaliser l'URL
-                $domainPattern = '(.*\.)?' . preg_quote($domain, '#');
-                $urlPath = preg_replace('#^https?://' . $domainPattern . '#i', '', $url['url']);
-                
-                // Vérifier les includes
-                $includeMatch = false;
-                foreach ($includes as $include) {
-                    if (preg_match('#' . $include . '#i', $urlPath)) {
-                        $includeMatch = true;
-                        break;
-                    }
-                }
-                
-                if (!$includeMatch) continue;
-                
-                // Vérifier les excludes
-                $excludeMatch = false;
-                foreach ($excludes as $exclude) {
-                    if (preg_match('#' . $exclude . '#i', $urlPath)) {
-                        $excludeMatch = true;
-                        break;
-                    }
-                }
-                
-                if ($excludeMatch) continue;
-                
-                // URL catégorisée
-                $urlCategories[$url['url']] = $catName;
-                if (!isset($categoryStats[$catName])) {
-                    $categoryStats[$catName] = 0;
-                }
-                $categoryStats[$catName]++;
+
+        $result = $service->testCategorization($crawlId, $rules);
+
+        // Remplacer NULL par le label "Non catégorisé" dans les URLs
+        $uncategorizedLabel = 'Non catégorisé';
+        foreach ($result['urls'] as &$url) {
+            if ($url['category'] === null) {
+                $url['category'] = $uncategorizedLabel;
             }
         }
-        
-        // Compter les non catégorisées
-        $nonCategorized = 0;
-        foreach ($urlCategories as $cat) {
-            if ($cat === null) {
-                $nonCategorized++;
+        unset($url);
+
+        // Remplacer NULL par le label dans les stats
+        foreach ($result['stats'] as &$stat) {
+            if ($stat['category'] === null) {
+                $stat['category'] = $uncategorizedLabel;
             }
         }
-        if ($nonCategorized > 0) {
-            $categoryStats['Non catégorisé'] = $nonCategorized;
-        }
-        
-        // Appliquer la catégorisation sur les 500 URLs pour l'affichage
-        $categorizedUrls = [];
-        foreach ($urls as $url) {
-            $url['category'] = isset($urlCategories[$url['url']]) && $urlCategories[$url['url']] !== null
-                ? $urlCategories[$url['url']]
-                : 'Non catégorisé';
-            $categorizedUrls[] = $url;
-        }
-        
-        // Formater les stats pour le graphique
-        $stats = [];
-        foreach ($categoryStats as $cat => $count) {
-            $stats[] = [
-                'category' => $cat,
-                'count' => $count
-            ];
-        }
-        
-        // Trier par count décroissant
-        usort($stats, function($a, $b) {
-            return $b['count'] - $a['count'];
-        });
-        
-        // Préparer la liste des catégories
+        unset($stat);
+
+        // Préparer la liste des catégories (sans "Non catégorisé")
         $categoryList = [];
-        foreach ($stats as $stat) {
-            if ($stat['category'] !== 'Non catégorisé') {
+        foreach ($result['stats'] as $stat) {
+            if ($stat['category'] !== $uncategorizedLabel) {
                 $categoryList[] = [
                     'name' => $stat['category'],
-                    'count' => $stat['count']
+                    'count' => (int) $stat['count']
                 ];
             }
         }
-        
+
         $this->success([
             'categories_count' => count($categories),
-            'urls' => $categorizedUrls,
-            'stats' => $stats,
+            'urls' => $result['urls'],
+            'stats' => $result['stats'],
             'category_list' => $categoryList
         ]);
     }
@@ -519,7 +340,8 @@ class CategorizationController extends Controller
             'light' => true,
             'copyUrl' => true,
             'hideTitle' => true,
-            'embedMode' => true
+            'embedMode' => true,
+            'skipExtractDiscovery' => true
         ];
         
         include __DIR__ . '/../../../web/components/url-table.php';

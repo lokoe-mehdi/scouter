@@ -4,6 +4,7 @@ namespace App\Analysis;
 
 use PDO;
 use App\Database\PostgresDatabase;
+use App\Analysis\CategorizationService;
 
 /**
  * Post-traitement des données de crawl
@@ -323,7 +324,6 @@ class PostProcessor
         $stmt->execute([':crawl_id' => $this->crawlId]);
         $crawl = $stmt->fetch(PDO::FETCH_OBJ);
         $projectId = $crawl ? $crawl->project_id : null;
-        $domain = $crawl ? $crawl->domain : '';
 
         // Try project-level config FIRST
         if ($projectId) {
@@ -352,129 +352,10 @@ class PostProcessor
             return;
         }
 
-        // Parser le YAML avec Spyc
-        $catConfig = \Spyc::YAMLLoadString($yamlConfig);
-        if (empty($catConfig)) {
-            echo "\r \033[32m Categorisation \033[0m : \033[33mempty config\033[0m                             \n";
-            return;
-        }
-        
-        // Supprimer les catégories existantes pour ce crawl
-        $this->db->prepare("DELETE FROM categories WHERE crawl_id = :crawl_id")
-                 ->execute([':crawl_id' => $this->crawlId]);
-        
-        // Créer les catégories
-        $categories = [];
-        $catOrder = [];
-        $insertCat = $this->db->prepare("INSERT INTO categories (crawl_id, cat, color) VALUES (:crawl_id, :cat, :color) RETURNING id");
-        
-        foreach ($catConfig as $catName => $rules) {
-            $color = isset($rules['color']) ? $rules['color'] : '#aaaaaa';
-            $color = trim($color, '"\'');
-            
-            $insertCat->execute([':crawl_id' => $this->crawlId, ':cat' => $catName, ':color' => $color]);
-            $catId = $insertCat->fetch(PDO::FETCH_OBJ)->id;
-            $categories[$catName] = [
-                'id' => $catId,
-                'rules' => $rules
-            ];
-            $catOrder[] = $catName;
-        }
-        
-        // Récupérer toutes les pages
-        $stmt = $this->db->prepare("SELECT id, url FROM pages WHERE crawl_id = :crawl_id");
-        $stmt->execute([':crawl_id' => $this->crawlId]);
-        $pages = $stmt->fetchAll(PDO::FETCH_OBJ);
-        
-        $updateStmt = $this->db->prepare("UPDATE pages SET cat_id = :cat_id WHERE crawl_id = :crawl_id AND id = :id");
-        
-        $count = 0;
-        $total = count($pages);
-        $batchSize = 100;
-        
-        $this->db->beginTransaction();
-        try {
-            foreach ($pages as $page) {
-                $count++;
-                
-                $url = $page->url;
-                $catId = null;
-                
-                // Normaliser l'URL
-                $urlPath = preg_replace('#^https?://#i', '', $url);
-                $urlPath = preg_replace('#^' . preg_quote($domain, '#') . '#i', '', $urlPath);
-                
-                // Parcourir les catégories dans l'ordre
-                foreach ($catOrder as $catName) {
-                    $cat = $categories[$catName];
-                    $rules = $cat['rules'];
-                    
-                    // Vérifier le domaine
-                    $domRule = $rules['dom'] ?? '.*';
-                    if (is_array($domRule)) {
-                        $domRule = $domain;
-                    }
-                    if (!preg_match('#' . preg_quote($domRule, '#') . '#i', $url)) {
-                        continue;
-                    }
-                    
-                    // Vérifier les patterns include
-                    $included = false;
-                    $includes = $rules['include'] ?? [];
-                    foreach ($includes as $pattern) {
-                        if (is_array($pattern)) continue;
-                        if (preg_match("#$pattern#i", $urlPath)) {
-                            $included = true;
-                            break;
-                        }
-                    }
-                    
-                    if (!$included) {
-                        continue;
-                    }
-                    
-                    // Vérifier les patterns exclude
-                    $excluded = false;
-                    $excludes = $rules['exclude'] ?? [];
-                    foreach ($excludes as $pattern) {
-                        if (is_array($pattern)) continue;
-                        if (preg_match("#$pattern#i", $urlPath)) {
-                            $excluded = true;
-                            break;
-                        }
-                    }
-                    
-                    if ($excluded) {
-                        continue;
-                    }
-                    
-                    $catId = $cat['id'];
-                    break;
-                }
-                
-                if ($catId !== null) {
-                    $updateStmt->execute([
-                        ':cat_id' => $catId,
-                        ':crawl_id' => $this->crawlId,
-                        ':id' => $page->id
-                    ]);
-                }
-                
-                // Commit par batch pour libérer les verrous
-                if ($count % $batchSize === 0) {
-                    $this->db->commit();
-                    $this->db->beginTransaction();
-                    echo "\r \033[32m Categorisation \033[0m : \033[36m$count/$total\033[0m                    ";
-                    flush();
-                }
-            }
-            $this->db->commit();
-        } catch (\Exception $e) {
-            $this->db->rollBack();
-            throw $e;
-        }
-        
-        echo "\r \033[32m Categorisation \033[0m : \033[36mdone\033[0m                             \n";
+        $service = new CategorizationService($this->db);
+        $count = $service->applyCategorization($this->crawlId, $yamlConfig);
+
+        echo "\r \033[32m Categorisation \033[0m : \033[36mdone ($count pages)\033[0m                             \n";
         flush();
     }
 

@@ -36,16 +36,12 @@ try {
     // Ignorer les erreurs
 }
 
-// Récupération des catégories actuelles en base (PostgreSQL) avec couleurs
+// Récupération des catégories actuelles en base (sans LEFT JOIN coûteux)
 try {
-    $stmt = $pdo->prepare("SELECT categories.id, categories.cat, categories.color, COUNT(pages.id) as url_count FROM categories 
-        LEFT JOIN pages ON categories.id = pages.cat_id AND pages.crawl_id = :crawl_id2
-        WHERE categories.crawl_id = :crawl_id
-        GROUP BY categories.id, categories.cat, categories.color 
-        ORDER BY categories.id");
-    $stmt->execute([':crawl_id' => $crawlId, ':crawl_id2' => $crawlId]);
+    $stmt = $pdo->prepare("SELECT id, cat, color FROM categories WHERE crawl_id = :crawl_id ORDER BY id");
+    $stmt->execute([':crawl_id' => $crawlId]);
     $categories = $stmt->fetchAll(PDO::FETCH_OBJ);
-    
+
     // Construire le mapping des couleurs depuis la base
     foreach ($categories as $cat) {
         $categoryColors[$cat->cat] = $cat->color ?? '#aaaaaa';
