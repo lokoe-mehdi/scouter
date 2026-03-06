@@ -2429,7 +2429,7 @@ async function saveCategorization() {
     .then(data => {
         if(data.success) {
             if (data.async) {
-                showGlobalStatus(__('categorize.msg_saved_async') || 'Configuration sauvegardée, catégorisation en cours en arrière-plan...', 'success');
+                showGlobalStatus(__('categorize.msg_saved_async'), 'success');
             } else {
                 const categorizedCount = data.categorized_count || 0;
                 showGlobalStatus(__('categorize.msg_saved').replace(':count', categorizedCount), 'success');

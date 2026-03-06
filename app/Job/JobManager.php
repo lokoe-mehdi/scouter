@@ -111,38 +111,37 @@ class JobManager
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         
-        // SYNC: Toujours mettre à jour le crawl status en même temps
-        // Job status -> Crawl status mapping
-        $crawlStatusMap = [
-            'queued' => 'queued',
-            'running' => 'running',
-            'stopping' => 'stopping',
-            'stopped' => 'stopped',
-            'completed' => 'finished',
-            'failed' => 'error',
-            'pending' => 'pending'
-        ];
-        
-        $crawlStatus = $crawlStatusMap[$status] ?? $status;
-        $inProgress = in_array($status, ['queued', 'running', 'stopping', 'pending']) ? 1 : 0;
-        
-        // Get project_dir from job to find crawl
-        $jobStmt = $this->db->prepare("SELECT project_dir FROM jobs WHERE id = :job_id");
+        // SYNC: Mettre à jour le crawl status pour les jobs de crawl uniquement
+        // Les batch jobs (batch-categorize, etc.) ne doivent PAS toucher au crawl status
+        $jobStmt = $this->db->prepare("SELECT project_dir, command FROM jobs WHERE id = :job_id");
         $jobStmt->execute([':job_id' => $jobId]);
-        $projectDir = $jobStmt->fetchColumn();
-        
-        if ($projectDir) {
+        $jobRow = $jobStmt->fetch(PDO::FETCH_OBJ);
+
+        if ($jobRow && $jobRow->project_dir && strpos($jobRow->command, 'batch-') !== 0) {
+            $crawlStatusMap = [
+                'queued' => 'queued',
+                'running' => 'running',
+                'stopping' => 'stopping',
+                'stopped' => 'stopped',
+                'completed' => 'finished',
+                'failed' => 'error',
+                'pending' => 'pending'
+            ];
+
+            $crawlStatus = $crawlStatusMap[$status] ?? $status;
+            $inProgress = in_array($status, ['queued', 'running', 'stopping', 'pending']) ? 1 : 0;
+
             $crawlSql = "UPDATE crawls SET status = :status, in_progress = :in_progress";
             if (in_array($status, ['completed', 'failed', 'stopped'])) {
                 $crawlSql .= ", finished_at = CURRENT_TIMESTAMP";
             }
             $crawlSql .= " WHERE path = :path";
-            
+
             $crawlStmt = $this->db->prepare($crawlSql);
             $crawlStmt->execute([
                 ':status' => $crawlStatus,
                 ':in_progress' => $inProgress,
-                ':path' => $projectDir
+                ':path' => $jobRow->project_dir
             ]);
         }
     }
@@ -182,10 +181,11 @@ class JobManager
 
     public function getJobByProject($projectDir)
     {
+        // Only return crawl jobs, not batch jobs (batch-categorize, etc.)
         $stmt = $this->db->prepare("
-            SELECT * FROM jobs 
-            WHERE project_dir = :project_dir 
-            ORDER BY created_at DESC 
+            SELECT * FROM jobs
+            WHERE project_dir = :project_dir AND command = 'crawl'
+            ORDER BY created_at DESC
             LIMIT 1
         ");
         $stmt->execute([':project_dir' => $projectDir]);

@@ -183,6 +183,7 @@
     "categorize.mode_visual": "Visuell",
     "categorize.msg_colors_generated": "Farben generiert!",
     "categorize.msg_saved": "Kategorisierung erfolgreich angewendet (:count URLs)!",
+    "categorize.msg_saved_async": "Konfiguration gespeichert, Kategorisierung läuft im Hintergrund...",
     "categorize.msg_saved_batch": "Kategorisierung angewendet (:count URLs). Stapelverarbeitung läuft für :crawls weitere(n) Crawl(s)...",
     "categorize.msg_saving": "Speichern und anwenden...",
     "categorize.msg_test_success": "Test erfolgreich!",

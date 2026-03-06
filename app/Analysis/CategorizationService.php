@@ -152,63 +152,57 @@ class CategorizationService
         $categories = \Spyc::YAMLLoadString($yamlContent);
         $rules = $this->parseRules($categories);
 
-        $this->db->beginTransaction();
-        try {
-            // Reset
-            $this->db->prepare("UPDATE pages SET cat_id = NULL WHERE crawl_id = :crawl_id")
-                ->execute([':crawl_id' => $crawlId]);
-            $this->db->prepare("DELETE FROM categories WHERE crawl_id = :crawl_id")
-                ->execute([':crawl_id' => $crawlId]);
+        // Reset: clear page assignments first, then delete categories
+        // No wrapping transaction to avoid deadlocks on large tables
+        $this->db->prepare("UPDATE pages SET cat_id = NULL WHERE crawl_id = :crawl_id")
+            ->execute([':crawl_id' => $crawlId]);
+        $this->db->prepare("DELETE FROM categories WHERE crawl_id = :crawl_id")
+            ->execute([':crawl_id' => $crawlId]);
 
-            $totalCategorized = 0;
+        $totalCategorized = 0;
 
-            foreach ($rules as $rule) {
-                // Créer la catégorie
-                $stmt = $this->db->prepare("
-                    INSERT INTO categories (crawl_id, cat, color)
-                    VALUES (:crawl_id, :cat, :color)
-                    RETURNING id
-                ");
-                $stmt->execute([':crawl_id' => $crawlId, ':cat' => $rule['name'], ':color' => $rule['color']]);
-                $catId = $stmt->fetch(PDO::FETCH_OBJ)->id;
+        foreach ($rules as $rule) {
+            // Créer la catégorie
+            $stmt = $this->db->prepare("
+                INSERT INTO categories (crawl_id, cat, color)
+                VALUES (:crawl_id, :cat, :color)
+                RETURNING id
+            ");
+            $stmt->execute([':crawl_id' => $crawlId, ':cat' => $rule['name'], ':color' => $rule['color']]);
+            $catId = $stmt->fetch(PDO::FETCH_OBJ)->id;
 
-                // Construire l'UPDATE SQL avec regex PostgreSQL
-                $domainEscaped = preg_quote($rule['domain'], '/');
-                $includePattern = implode('|', $rule['includes']);
+            // Construire l'UPDATE SQL avec regex PostgreSQL
+            // cat_id IS NULL garantit le first-match-wins (chaque UPDATE est atomique)
+            $domainEscaped = preg_quote($rule['domain'], '/');
+            $includePattern = implode('|', $rule['includes']);
 
-                $sql = "
-                    UPDATE pages SET cat_id = :cat_id
-                    WHERE crawl_id = :crawl_id
-                      AND cat_id IS NULL
-                      AND crawled = true
-                      AND url ~* :domain
-                      AND regexp_replace(url, '^https?://[^/]+', '') ~* :include
-                ";
-                $params = [
-                    ':cat_id' => $catId,
-                    ':crawl_id' => $crawlId,
-                    ':domain' => $domainEscaped,
-                    ':include' => $includePattern,
-                ];
+            $sql = "
+                UPDATE pages SET cat_id = :cat_id
+                WHERE crawl_id = :crawl_id
+                  AND cat_id IS NULL
+                  AND crawled = true
+                  AND url ~* :domain
+                  AND regexp_replace(url, '^https?://[^/]+', '') ~* :include
+            ";
+            $params = [
+                ':cat_id' => $catId,
+                ':crawl_id' => $crawlId,
+                ':domain' => $domainEscaped,
+                ':include' => $includePattern,
+            ];
 
-                if (!empty($rule['excludes'])) {
-                    $excludePattern = implode('|', $rule['excludes']);
-                    $sql .= " AND NOT regexp_replace(url, '^https?://[^/]+', '') ~* :exclude";
-                    $params[':exclude'] = $excludePattern;
-                }
-
-                $stmt = $this->db->prepare($sql);
-                $stmt->execute($params);
-                $totalCategorized += $stmt->rowCount();
+            if (!empty($rule['excludes'])) {
+                $excludePattern = implode('|', $rule['excludes']);
+                $sql .= " AND NOT regexp_replace(url, '^https?://[^/]+', '') ~* :exclude";
+                $params[':exclude'] = $excludePattern;
             }
 
-            $this->db->commit();
-            return $totalCategorized;
-
-        } catch (\Exception $e) {
-            $this->db->rollBack();
-            throw $e;
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $totalCategorized += $stmt->rowCount();
         }
+
+        return $totalCategorized;
     }
 
     /**
