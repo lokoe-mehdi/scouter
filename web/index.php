@@ -2544,9 +2544,11 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                     // Démarrer le monitoring dans le panel latéral
                     CrawlPanel.start(data.project_dir, projectName, data.crawl_id);
 
-                    // Reload the page after a short delay so the new crawl appears in the project card
+                    // Soft refresh the project list (no full page reload)
                     setTimeout(() => {
-                        window.location.reload();
+                        if (typeof refreshProjectList === 'function') {
+                            refreshProjectList();
+                        }
                     }, 1500);
 
                     // Restaurer le bouton

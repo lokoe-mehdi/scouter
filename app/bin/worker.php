@@ -218,8 +218,9 @@ while ($running) {
             $logFile = $basePath . "/logs/" . $projectDir . ".log";
             $logsDir = dirname($logFile);
             if (!is_dir($logsDir)) {
-                mkdir($logsDir, 0755, true);
+                mkdir($logsDir, 0777, true);
             }
+            chmod($logsDir, 0777);
 
             // Add start log
             $jobManager = new JobManager();
@@ -237,6 +238,8 @@ while ($running) {
                 $jobManager->addLog($job->id, "Worker $workerId started processing", 'info');
                 file_put_contents($logFile, "\n=== WORKER STARTED CRAWL ===\n", FILE_APPEND);
             }
+            // Make log file writable by all (scouter runs as www-data, worker as root)
+            @chmod($logFile, 0666);
 
             // Build command with proper environment
             $phpBin = '/usr/local/bin/php';
