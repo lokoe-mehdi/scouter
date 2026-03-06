@@ -33,6 +33,8 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=30
+    volumes:
+      - ./logs:/app/logs
     restart: unless-stopped
     depends_on:
       renderer-1:
@@ -63,6 +65,8 @@ services:
       - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=15
+    volumes:
+      - ./logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
