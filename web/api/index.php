@@ -98,6 +98,7 @@ try {
     // =============================================================================
     $router->post('/export/csv', [ExportController::class, 'csv'], ['auth' => true]);
     $router->post('/export/links-csv', [ExportController::class, 'linksCsv'], ['auth' => true]);
+    $router->post('/export/redirect-chains-csv', [ExportController::class, 'redirectChainsCsv'], ['auth' => true]);
 
     // =============================================================================
     // MONITOR

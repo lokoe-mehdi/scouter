@@ -65,7 +65,8 @@ function processCrawlsForProject($project, $crawls, $jobManager) {
             "job_status" => $jobStatus,
             "in_progress" => $crawl->in_progress ?? 0,
             "config" => json_decode($crawl->config ?? '{}', true),
-            "depth_max" => $crawl->depth_max
+            "depth_max" => $crawl->depth_max,
+            "crawl_type" => $crawl->crawl_type ?? 'spider'
         ];
     }
     
@@ -252,6 +253,13 @@ try {
 } catch(Exception $e) {
     error_log("Erreur lors du chargement des projets: " . $e->getMessage());
     $hasProjects = false;
+}
+
+// Mode partiel : renvoyer uniquement le HTML de la liste des projets (AJAX refresh)
+if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
+    header('Content-Type: text/html; charset=utf-8');
+    include(__DIR__ . '/components/project-list-partial.php');
+    exit;
 }
 ?>
 <!DOCTYPE html>
@@ -443,6 +451,7 @@ try {
             </div>
             <?php endif; ?>
 
+            <div id="projectListContainer">
             <?php if(!$hasProjects): ?>
                 <div class="empty-state">
                     <div class="empty-state-icon">
@@ -572,6 +581,7 @@ try {
                 <?php endif; ?>
                 
             <?php endif; ?>
+            </div><!-- /projectListContainer -->
         </div>
     </div>
 
@@ -580,7 +590,7 @@ try {
         <div class="modal-content crawl-modal-redesign">
             <form id="newProjectForm" onsubmit="return createProject(event)">
                 
-                <!-- Header + URL fusionnés -->
+                <!-- Header - Titre + Close uniquement -->
                 <div class="crawl-modal-hero">
                     <div class="hero-header">
                         <div class="hero-title">
@@ -589,17 +599,21 @@ try {
                         </div>
                         <button type="button" class="hero-close" onclick="closeNewProjectModal()">&times;</button>
                     </div>
-                    <div class="hero-url-group">
-                        <label for="start_url" class="hero-label">
-                            <span class="material-symbols-outlined">language</span>
-                            <?= __('index.modal_start_url') ?>
-                        </label>
-                        <input type="url" id="start_url" name="start_url" 
-                               class="hero-input" 
-                               placeholder="https://site-a-crawler.com" 
-                               required
-                               autofocus>
+                </div>
+
+                <!-- Segmented Control Spider / Liste -->
+                <div class="crawl-type-segmented">
+                    <div class="segmented-control">
+                        <button type="button" class="segmented-btn active" data-type="spider" onclick="selectCrawlType('spider', this)">
+                            <span class="material-symbols-outlined">bug_report</span>
+                            <span class="segmented-label"><?= __('index.modal_type_spider') ?></span>
+                        </button>
+                        <button type="button" class="segmented-btn" data-type="list" onclick="selectCrawlType('list', this)">
+                            <span class="material-symbols-outlined">list</span>
+                            <span class="segmented-label"><?= __('index.modal_type_list') ?></span>
+                        </button>
                     </div>
+                    <input type="hidden" id="crawl_type" name="crawl_type" value="spider">
                 </div>
 
                 <!-- Système d'onglets -->
@@ -627,9 +641,55 @@ try {
                     
                     <!-- Onglet Général -->
                     <div class="crawl-tab-pane active" id="tab-general">
+
+                        <!-- Spider mode: URL de départ -->
+                        <div class="body-url-group" id="startUrlGroup">
+                            <label for="start_url" class="body-url-label">
+                                <span class="material-symbols-outlined">language</span>
+                                <?= __('index.modal_start_url') ?>
+                            </label>
+                            <input type="url" id="start_url" name="start_url"
+                                   class="body-url-input"
+                                   placeholder="https://site-a-crawler.com"
+                                   required
+                                   autofocus>
+                        </div>
+
+                        <!-- List mode: Textarea URLs -->
+                        <div class="body-url-group" id="urlListGroup" style="display:none;">
+                            <label for="url_list" class="body-url-label">
+                                <span class="material-symbols-outlined">list</span>
+                                <?= __('index.modal_url_list') ?>
+                            </label>
+                            <textarea id="url_list" name="url_list"
+                                      class="body-url-textarea"
+                                      placeholder="https://example.com/page-1&#10;https://example.com/page-2&#10;https://example.com/page-3"></textarea>
+                            <div class="url-list-footer">
+                                <span class="url-list-hint"><?= __('index.modal_url_list_hint') ?></span>
+                                <span class="url-counter" id="urlCounter"><?= __('index.modal_urls_detected', ['count' => '0']) ?></span>
+                            </div>
+
+                            <!-- File upload zone -->
+                            <div class="file-upload-zone" id="fileUploadZone">
+                                <label class="file-upload-btn" id="fileUploadLabel">
+                                    <span class="material-symbols-outlined">upload_file</span>
+                                    <span><?= __('index.modal_upload_file') ?></span>
+                                    <span class="file-upload-hint"><?= __('index.modal_upload_file_hint') ?></span>
+                                    <input type="file" id="urlFileInput" accept=".txt,.csv" style="display:none;" onchange="handleUrlFileUpload(this)">
+                                </label>
+                                <div class="file-upload-info" id="fileUploadInfo" style="display:none;">
+                                    <span class="material-symbols-outlined">description</span>
+                                    <span class="file-upload-name" id="fileUploadName"></span>
+                                    <button type="button" class="file-upload-remove" onclick="removeUrlFile()" title="Remove">
+                                        <span class="material-symbols-outlined">close</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="settings-grid">
                             <!-- Profondeur maximale -->
-                            <div class="setting-row">
+                            <div class="setting-row" id="depthMaxRow">
                                 <div class="setting-row-label">
                                     <span class="material-symbols-outlined">layers</span>
                                     <h4><?= __('index.modal_max_depth') ?></h4>
@@ -718,7 +778,7 @@ try {
 
                     <!-- Onglet Règles & Scope -->
                     <div class="crawl-tab-pane" id="tab-scope">
-                        <div class="scope-section">
+                        <div class="scope-section" id="allowedDomainsSection">
                             <h4 class="scope-section-title">
                                 <span class="material-symbols-outlined">domain</span>
                                 <?= __('index.modal_allowed_domains') ?>
@@ -764,6 +824,15 @@ try {
                                     <div class="rule-toggle-content">
                                         <span class="rule-toggle-label"><?= __('index.modal_rule_canonical') ?></span>
                                         <span class="rule-toggle-hint"><?= __('index.modal_rule_canonical_hint') ?></span>
+                                    </div>
+                                </label>
+
+                                <label class="rule-toggle">
+                                    <input type="checkbox" id="follow_redirects" name="follow_redirects" checked>
+                                    <span class="rule-toggle-slider"></span>
+                                    <div class="rule-toggle-content">
+                                        <span class="rule-toggle-label"><?= __('index.modal_rule_follow_redirects') ?></span>
+                                        <span class="rule-toggle-hint"><?= __('index.modal_rule_follow_redirects_hint') ?></span>
                                     </div>
                                 </label>
                             </div>
@@ -1063,21 +1132,37 @@ try {
         }
         
         function resetModalDefaults() {
+            // Reset crawl type selector
+            document.querySelectorAll('.segmented-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelector('.segmented-btn[data-type="spider"]')?.classList.add('active');
+            document.getElementById('crawl_type').value = 'spider';
+            document.getElementById('startUrlGroup').style.display = 'block';
+            document.getElementById('urlListGroup').style.display = 'none';
+            document.getElementById('depthMaxRow').style.display = '';
+            document.getElementById('start_url').setAttribute('required', '');
+            document.getElementById('url_list').value = '';
+            // Reset file upload
+            removeUrlFile();
+            updateUrlCounter();
+
             // Reset speed selector
             document.querySelectorAll('.speed-btn').forEach(btn => btn.classList.remove('active'));
             document.querySelector('.speed-btn[data-speed="fast"]')?.classList.add('active');
             document.getElementById('crawl_speed').value = 'fast';
-            
+
             // Reset mode selector
             document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
             document.querySelector('.mode-btn[data-mode="classic"]')?.classList.add('active');
             document.getElementById('crawl_mode').value = 'classic';
-            
+
             // Reset user-agent
             document.querySelectorAll('.user-agent-option').forEach(opt => opt.classList.remove('active'));
             document.querySelector('.user-agent-option[data-ua="scouter"]')?.classList.add('active');
             document.getElementById('user_agent').value = 'Scouter/0.3 (Crawler developed by Lokoé SASU; +https://lokoe.fr/scouter-crawler)';
             document.getElementById('custom_ua_input').value = '';
+
+            // Reset follow_redirects
+            document.getElementById('follow_redirects').checked = true;
         }
 
         // Close modal when clicking outside
@@ -1192,6 +1277,91 @@ try {
             btn.classList.add('active');
             document.getElementById('crawl_mode').value = mode;
         }
+
+        // Crawl Type Selector (Spider / Liste)
+        function selectCrawlType(type, btn) {
+            document.querySelectorAll('.segmented-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('crawl_type').value = type;
+
+            const startUrlGroup = document.getElementById('startUrlGroup');
+            const urlListGroup = document.getElementById('urlListGroup');
+            const depthMaxRow = document.getElementById('depthMaxRow');
+            const startUrlInput = document.getElementById('start_url');
+            const allowedDomainsSection = document.getElementById('allowedDomainsSection');
+
+            if (type === 'list') {
+                startUrlGroup.style.display = 'none';
+                urlListGroup.style.display = 'block';
+                depthMaxRow.style.display = '';
+                startUrlInput.removeAttribute('required');
+                if (allowedDomainsSection) allowedDomainsSection.style.display = 'none';
+                updateUrlCounter();
+            } else {
+                startUrlGroup.style.display = 'block';
+                urlListGroup.style.display = 'none';
+                depthMaxRow.style.display = '';
+                startUrlInput.setAttribute('required', '');
+                if (allowedDomainsSection) allowedDomainsSection.style.display = '';
+            }
+        }
+
+        // Stores file content without injecting into textarea
+        let uploadedFileContent = null;
+
+        // URL Counter - counts valid, deduplicated URLs (http/https)
+        function updateUrlCounter() {
+            const textarea = document.getElementById('url_list');
+            const counter = document.getElementById('urlCounter');
+            if (!textarea || !counter) return;
+            const source = uploadedFileContent !== null ? uploadedFileContent : textarea.value;
+            const urls = new Set(
+                source.trim().split('\n')
+                    .map(line => line.trim())
+                    .filter(line => line.startsWith('http://') || line.startsWith('https://'))
+            );
+            counter.textContent = __('index.modal_urls_detected', { count: urls.size });
+        }
+
+        // File Upload handling
+        function handleUrlFileUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                uploadedFileContent = e.target.result.trim();
+                document.getElementById('url_list').style.display = 'none';
+                updateUrlCounter();
+
+                // Show file info, hide upload button
+                document.getElementById('fileUploadLabel').style.display = 'none';
+                const info = document.getElementById('fileUploadInfo');
+                info.style.display = 'flex';
+                document.getElementById('fileUploadName').textContent = file.name;
+            };
+            reader.readAsText(file);
+        }
+
+        function removeUrlFile() {
+            const fileInput = document.getElementById('urlFileInput');
+            if (fileInput) fileInput.value = '';
+            const label = document.getElementById('fileUploadLabel');
+            if (label) label.style.display = 'flex';
+            const info = document.getElementById('fileUploadInfo');
+            if (info) info.style.display = 'none';
+            uploadedFileContent = null;
+            document.getElementById('url_list').style.display = 'block';
+            updateUrlCounter();
+        }
+
+        // Attach URL counter to textarea input event
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlListTextarea = document.getElementById('url_list');
+            if (urlListTextarea) {
+                urlListTextarea.addEventListener('input', updateUrlCounter);
+            }
+        });
         
         // Custom UA Dropdown
         const uaPresets = {
@@ -1504,6 +1674,32 @@ try {
         });
 
         // Create project
+        // Rafraîchit la liste des projets sans recharger la page
+        async function refreshProjectList() {
+            const container = document.getElementById('projectListContainer');
+            if (!container) return;
+            try {
+                const resp = await fetch(window.location.pathname + '?partial=projects', { credentials: 'same-origin' });
+                if (!resp.ok) return;
+                const html = await resp.text();
+                container.innerHTML = html;
+                // Réappliquer l'onglet actif
+                if (typeof switchProjectsTab === 'function') {
+                    switchProjectsTab(currentProjectsTab || 'my', false);
+                }
+                // Réappliquer le tri seulement si l'utilisateur a changé l'option
+                if (typeof currentSortOption !== 'undefined' && currentSortOption !== 'date-desc') {
+                    sortDomains();
+                }
+                // Réappliquer le filtre de recherche s'il y en a un
+                if (typeof filterDomains === 'function') {
+                    filterDomains();
+                }
+            } catch (e) {
+                // Silencieux — pas grave si le refresh échoue
+            }
+        }
+
         async function createProject(event) {
             event.preventDefault();
             
@@ -1559,9 +1755,10 @@ try {
                 password: document.getElementById('auth_password').value.trim()
             } : null;
             
+            const crawlType = document.getElementById('crawl_type').value;
+
             const formData = {
-                start_url: document.getElementById('start_url').value,
-                depth_max: document.getElementById('depth_max').value,
+                crawl_type: crawlType,
                 user_agent: document.getElementById('user_agent').value,
                 allowed_domains: allowedDomains,
                 custom_headers: customHeaders,
@@ -1570,9 +1767,18 @@ try {
                 respect_robots: document.getElementById('respect_robots').checked,
                 respect_nofollow: document.getElementById('respect_nofollow').checked,
                 respect_canonical: document.getElementById('respect_canonical').checked,
+                follow_redirects: document.getElementById('follow_redirects').checked,
                 crawl_speed: document.getElementById('crawl_speed').value,
                 crawl_mode: document.getElementById('crawl_mode').value
             };
+
+            if (crawlType === 'list') {
+                formData.url_list = uploadedFileContent !== null ? uploadedFileContent : document.getElementById('url_list').value;
+                formData.depth_max = document.getElementById('depth_max').value;
+            } else {
+                formData.start_url = document.getElementById('start_url').value;
+                formData.depth_max = document.getElementById('depth_max').value;
+            }
             
             try {
                 // Create project
@@ -1609,15 +1815,24 @@ try {
                 closeNewProjectModal();
                 
                 // Extraire le nom du domaine depuis l'URL
-                const startUrl = document.getElementById('start_url').value;
                 let projectName = 'Crawl';
                 try {
-                    projectName = new URL(startUrl).hostname;
+                    if (crawlType === 'list') {
+                        const firstUrl = document.getElementById('url_list').value.trim().split('\n')[0]?.trim();
+                        if (firstUrl) projectName = new URL(firstUrl).hostname;
+                    } else {
+                        projectName = new URL(document.getElementById('start_url').value).hostname;
+                    }
                 } catch (e) {}
                 
                 // Démarrer le monitoring dans le panel latéral
                 CrawlPanel.start(result.project_dir, projectName, result.crawl_id);
-                
+
+                // Rafraîchir la liste des projets sans recharger la page
+                setTimeout(() => {
+                    refreshProjectList();
+                }, 1500);
+
             } catch (error) {
                 formMessage.innerHTML = `<div class="alert alert-error">✗ ${error.message}</div>`;
                 submitBtn.disabled = false;
@@ -2328,7 +2543,12 @@ try {
                     
                     // Démarrer le monitoring dans le panel latéral
                     CrawlPanel.start(data.project_dir, projectName, data.crawl_id);
-                    
+
+                    // Reload the page after a short delay so the new crawl appears in the project card
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+
                     // Restaurer le bouton
                     button.disabled = false;
                     button.innerHTML = originalHTML;

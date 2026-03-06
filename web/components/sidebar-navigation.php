@@ -97,10 +97,15 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
                 <span class="material-symbols-outlined">speed</span>
                 <span><?= __('sidebar.response_time') ?></span>
             </a>
-            <a href="?crawl=<?= $crawlId ?>&page=depth" 
+            <a href="?crawl=<?= $crawlId ?>&page=depth"
                class="sidebar-panel-item <?= $page === 'depth' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">layers</span>
                 <span><?= __('sidebar.depth_levels') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=redirect-chains"
+               class="sidebar-panel-item <?= $page === 'redirect-chains' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">redo</span>
+                <span><?= __('sidebar.redirect_chains') ?></span>
             </a>
         </div>
         

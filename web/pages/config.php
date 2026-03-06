@@ -246,6 +246,28 @@ if (!empty($crawlRecord->config)) {
                         </td>
                     </tr>
                     <?php endif; ?>
+
+                    <?php if (isset($crawlRecord->crawl_type)): ?>
+                    <tr>
+                        <td style="width: 200px; font-weight: 600; color: var(--text-secondary);"><?= __('config.crawl_type') ?></td>
+                        <td>
+                            <?php
+                            $crawlType = $crawlRecord->crawl_type;
+                            $typeLabels = [
+                                'spider' => ['label' => __('config.type_spider'), 'icon' => 'bug_report', 'color' => 'var(--info)'],
+                                'list' => ['label' => __('config.type_list'), 'icon' => 'list', 'color' => 'var(--warning)']
+                            ];
+                            $typeInfo = $typeLabels[$crawlType] ?? $typeLabels['spider'];
+                            ?>
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <span class="material-symbols-outlined" style="font-size: 20px; color: <?= $typeInfo['color'] ?>;">
+                                    <?= $typeInfo['icon'] ?>
+                                </span>
+                                <div style="font-weight: 600; color: var(--text-primary);"><?= $typeInfo['label'] ?></div>
+                            </div>
+                        </td>
+                    </tr>
+                    <?php endif; ?>
                 </tbody>
             </table>
         </div>
@@ -300,6 +322,20 @@ if (!empty($crawlRecord->config)) {
                                     <?= $configData['advanced']['respect']['canonical'] ? 'check_circle' : 'cancel' ?>
                                 </span>
                                 <?= $configData['advanced']['respect']['canonical'] ? __('common.yes') : __('common.no') ?>
+                            </span>
+                        </td>
+                    </tr>
+                    <?php endif; ?>
+
+                    <?php if (isset($configData['advanced']['follow_redirects'])): ?>
+                    <tr>
+                        <td style="width: 300px;"><?= __('config.follow_redirects') ?></td>
+                        <td>
+                            <span class="config-value boolean <?= $configData['advanced']['follow_redirects'] ? 'true' : 'false' ?>">
+                                <span class="material-symbols-outlined">
+                                    <?= $configData['advanced']['follow_redirects'] ? 'check_circle' : 'cancel' ?>
+                                </span>
+                                <?= $configData['advanced']['follow_redirects'] ? __('common.yes') : __('common.no') ?>
                             </span>
                         </td>
                     </tr>

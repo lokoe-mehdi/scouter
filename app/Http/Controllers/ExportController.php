@@ -188,6 +188,63 @@ class ExportController extends Controller
     }
 
     /**
+     * Exporte les chaînes de redirection au format CSV
+     *
+     * @param Request $request Requête HTTP (project, crawl_id, columns)
+     *
+     * @return void
+     */
+    public function redirectChainsCsv(Request $request): void
+    {
+        $projectDir = $request->get('project');
+
+        if (empty($projectDir)) {
+            $this->error('Projet non spécifié');
+        }
+
+        if (is_numeric($projectDir)) {
+            $this->auth->requireCrawlAccessById((int)$projectDir, false);
+            $crawlRecord = CrawlDatabase::getCrawlById((int)$projectDir);
+        } else {
+            $this->auth->requireCrawlAccess($projectDir, false);
+            $crawlRecord = CrawlDatabase::getCrawlByPath($projectDir);
+        }
+
+        if (!$crawlRecord) {
+            Response::notFound('Projet non trouvé');
+        }
+
+        $crawlId = $crawlRecord->id;
+
+        $query = "
+            SELECT source_url, hops, is_loop, final_url, final_code, final_compliant
+            FROM redirect_chains
+            WHERE crawl_id = :crawl_id
+            ORDER BY is_loop DESC, hops DESC
+        ";
+
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([':crawl_id' => $crawlId]);
+
+        $filename = $crawlRecord->domain . '_redirect_chains_' . date('Y-m-d') . '.csv';
+
+        Response::csv($filename, function($output) use ($stmt) {
+            fputcsv($output, ['source_url', 'hops', 'is_loop', 'final_url', 'final_code', 'indexable'], ';');
+
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                fputcsv($output, [
+                    $row['source_url'] ?? '',
+                    $row['is_loop'] ? 'loop' : (int)$row['hops'],
+                    $row['is_loop'] ? 'yes' : 'no',
+                    $row['is_loop'] ? '' : ($row['final_url'] ?? ''),
+                    $row['is_loop'] ? '' : ($row['final_code'] ?? ''),
+                    $row['is_loop'] ? 'no' : ($row['final_compliant'] ? 'yes' : 'no')
+                ], ';');
+            }
+        });
+    }
+
+    /**
      * Construit les conditions SQL à partir des filtres
      * 
      * Supporte les opérateurs: contains, not_contains, starts_with, ends_with,

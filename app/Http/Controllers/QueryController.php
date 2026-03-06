@@ -207,7 +207,7 @@ class QueryController extends Controller
             SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.external, c.cat_id
             FROM links l
             JOIN pages c ON l.target = c.id AND c.crawl_id = :crawl_id
-            WHERE l.crawl_id = :crawl_id2 AND l.src = :id LIMIT 100
+            WHERE l.crawl_id = :crawl_id2 AND l.src = :id
         ");
         $stmt->execute([':crawl_id' => $crawlId, ':crawl_id2' => $crawlId, ':id' => $urlId]);
         $outlinks = $stmt->fetchAll(PDO::FETCH_ASSOC);

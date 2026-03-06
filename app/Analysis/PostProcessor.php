@@ -44,7 +44,8 @@ class PostProcessor
         $this->semanticAnalysis();
         $this->categorize();
         $this->duplicateAnalysis();
-        
+        $this->redirectChainAnalysis();
+
         echo "\n\033[32m✓ Post-traitement terminé\033[0m\n\n";
         flush();
     }
@@ -660,5 +661,260 @@ class PostProcessor
         
         echo "\r \033[32m Duplicate analysis \033[0m : \033[36m$totalClusters clusters, $totalDuplicatedPages pages\033[0m                    \n";
         flush();
+    }
+
+    /**
+     * Analyse des chaînes de redirection
+     *
+     * Construit les chaînes de redirection à partir des liens de type 'redirect',
+     * détecte les boucles et stocke le résultat dans redirect_chains.
+     */
+    public function redirectChainAnalysis(): void
+    {
+        echo "\r \033[32m Redirect chains \033[0m : \033[36mprocessing...\033[0m                    ";
+        flush();
+
+        // Créer la partition si elle n'existe pas
+        $this->db->exec("SELECT create_crawl_partitions({$this->crawlId})");
+
+        // Supprimer les anciennes chaînes
+        $stmt = $this->db->prepare("DELETE FROM redirect_chains WHERE crawl_id = :crawl_id");
+        $stmt->execute([':crawl_id' => $this->crawlId]);
+
+        // 1. Charger tous les liens redirect du crawl → map src → target
+        $stmt = $this->db->prepare("
+            SELECT src, target FROM links
+            WHERE crawl_id = :crawl_id AND type = 'redirect'
+        ");
+        $stmt->execute([':crawl_id' => $this->crawlId]);
+        $redirectLinks = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($redirectLinks)) {
+            $this->updateRedirectStats(0, 0, 0);
+            echo "\r \033[32m Redirect chains \033[0m : \033[33mno redirects\033[0m                             \n";
+            flush();
+            return;
+        }
+
+        $redirectMap = []; // src → target
+        $isTarget = [];    // set of IDs that are targets
+
+        foreach ($redirectLinks as $link) {
+            $src = trim($link['src']);
+            $target = trim($link['target']);
+            $redirectMap[$src] = $target;
+            $isTarget[$target] = true;
+        }
+
+        // 2. Chain starters = IDs that appear as src but NOT in isTarget
+        $chainStarters = [];
+        foreach ($redirectMap as $src => $target) {
+            if (!isset($isTarget[$src])) {
+                $chainStarters[] = $src;
+            }
+        }
+
+        // 2b. Detect closed loops (all nodes are both src and target, so no chain starter exists)
+        // Find nodes that are src but not yet covered by any chain starter's traversal
+        $coveredByStarters = [];
+        foreach ($chainStarters as $startId) {
+            $current = $startId;
+            $visited = [];
+            while (true) {
+                if (isset($visited[$current])) break;
+                $visited[$current] = true;
+                $coveredByStarters[$current] = true;
+                if (!isset($redirectMap[$current])) break;
+                $current = $redirectMap[$current];
+            }
+        }
+
+        // Any src node not covered is part of a closed loop - pick one per loop as starter
+        $loopVisited = [];
+        foreach ($redirectMap as $src => $target) {
+            if (!isset($coveredByStarters[$src]) && !isset($loopVisited[$src])) {
+                $chainStarters[] = $src;
+                // Mark all nodes in this loop as visited to avoid duplicates
+                $current = $src;
+                while (true) {
+                    if (isset($loopVisited[$current])) break;
+                    $loopVisited[$current] = true;
+                    if (!isset($redirectMap[$current])) break;
+                    $current = $redirectMap[$current];
+                }
+            }
+        }
+
+        // 3. Collect all involved page IDs for batch loading
+        $allIds = array_unique(array_merge(array_keys($redirectMap), array_values($redirectMap)));
+
+        // 4. Batch load page info (url, code, compliant)
+        $pagesMap = [];
+        if (!empty($allIds)) {
+            $placeholders = implode(',', array_map(function($id) {
+                return $this->db->quote($id);
+            }, $allIds));
+
+            $stmt = $this->db->query("
+                SELECT id, url, code, compliant
+                FROM pages
+                WHERE crawl_id = {$this->crawlId} AND id IN ($placeholders)
+            ");
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $pagesMap[trim($row['id'])] = $row;
+            }
+        }
+
+        // 5. Build chains
+        $chains = [];
+        foreach ($chainStarters as $startId) {
+            $visited = [];
+            $chainIds = [];
+            $current = $startId;
+            $isLoop = false;
+
+            while (true) {
+                if (in_array($current, $visited)) {
+                    $isLoop = true;
+                    break;
+                }
+                $visited[] = $current;
+                $chainIds[] = $current;
+
+                if (!isset($redirectMap[$current])) {
+                    // End of chain - current is the final page
+                    break;
+                }
+                $current = $redirectMap[$current];
+            }
+
+            // If it's not a loop, add the final page to chain if it's not already there
+            if (!$isLoop && !empty($chainIds)) {
+                $lastInChain = end($chainIds);
+                if (isset($redirectMap[$lastInChain])) {
+                    // Should not happen since we break when no redirect exists
+                    $chainIds[] = $redirectMap[$lastInChain];
+                }
+            }
+
+            $sourceId = $chainIds[0];
+            $sourcePage = $pagesMap[$sourceId] ?? null;
+            $sourceUrl = $sourcePage['url'] ?? null;
+
+            if ($isLoop) {
+                $finalId = null;
+                $finalUrl = null;
+                $finalCode = null;
+                $finalCompliant = false;
+                $hops = count($chainIds); // loop: all are hops
+            } else {
+                $finalId = end($chainIds);
+                $finalPage = $pagesMap[$finalId] ?? null;
+                $finalUrl = $finalPage['url'] ?? null;
+                $finalCode = $finalPage ? (int)$finalPage['code'] : null;
+                $finalCompliant = $finalPage ? (bool)$finalPage['compliant'] : false;
+                $hops = count($chainIds) - 1;
+            }
+
+            // Only store chains with actual redirects (hops > 0)
+            if ($hops > 0 || $isLoop) {
+                $chains[] = [
+                    'source_id' => $sourceId,
+                    'source_url' => $sourceUrl,
+                    'final_id' => $finalId,
+                    'final_url' => $finalUrl,
+                    'final_code' => $finalCode,
+                    'final_compliant' => $finalCompliant,
+                    'hops' => $hops,
+                    'is_loop' => $isLoop,
+                    'chain_ids' => $chainIds
+                ];
+            }
+        }
+
+        // 6. Insert chains into redirect_chains
+        $insertStmt = $this->db->prepare("
+            INSERT INTO redirect_chains (crawl_id, source_id, source_url, final_id, final_url, final_code, final_compliant, hops, is_loop, chain_ids)
+            VALUES (:crawl_id, :source_id, :source_url, :final_id, :final_url, :final_code, :final_compliant, :hops, :is_loop, :chain_ids)
+        ");
+
+        $count = 0;
+        $total = count($chains);
+        $batchSize = 100;
+
+        $this->db->beginTransaction();
+        try {
+            foreach ($chains as $chain) {
+                $chainIdsFormatted = '{' . implode(',', array_map(function($id) {
+                    return '"' . trim($id) . '"';
+                }, $chain['chain_ids'])) . '}';
+
+                $insertStmt->execute([
+                    ':crawl_id' => $this->crawlId,
+                    ':source_id' => $chain['source_id'],
+                    ':source_url' => $chain['source_url'],
+                    ':final_id' => $chain['final_id'],
+                    ':final_url' => $chain['final_url'],
+                    ':final_code' => $chain['final_code'],
+                    ':final_compliant' => $chain['final_compliant'] ? 'true' : 'false',
+                    ':hops' => $chain['hops'],
+                    ':is_loop' => $chain['is_loop'] ? 'true' : 'false',
+                    ':chain_ids' => $chainIdsFormatted
+                ]);
+
+                $count++;
+                if ($count % $batchSize === 0) {
+                    $this->db->commit();
+                    $this->db->beginTransaction();
+                    echo "\r \033[32m Redirect chains \033[0m : \033[36m$count/$total\033[0m                    ";
+                    flush();
+                }
+            }
+            $this->db->commit();
+        } catch (\Exception $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+
+        // 7. Compute metrics
+        // redirect_total = number of pages with 3xx code
+        $stmt = $this->db->prepare("
+            SELECT COUNT(*) FROM pages
+            WHERE crawl_id = :crawl_id AND code >= 300 AND code < 400
+        ");
+        $stmt->execute([':crawl_id' => $this->crawlId]);
+        $redirectTotal = (int)$stmt->fetchColumn();
+
+        $chainsCount = count($chains);
+        $chainsErrors = 0;
+        foreach ($chains as $chain) {
+            if ($chain['is_loop'] || ($chain['final_code'] !== null && $chain['final_code'] !== 200)) {
+                $chainsErrors++;
+            }
+        }
+
+        // 8. Update crawl stats
+        $this->updateRedirectStats($redirectTotal, $chainsCount, $chainsErrors);
+
+        echo "\r \033[32m Redirect chains \033[0m : \033[36m$chainsCount chains, $chainsErrors errors\033[0m                    \n";
+        flush();
+    }
+
+    /**
+     * Met à jour les stats de redirection dans la table crawls
+     */
+    private function updateRedirectStats(int $total, int $chains, int $errors): void
+    {
+        $stmt = $this->db->prepare("
+            UPDATE crawls
+            SET redirect_total = :total, redirect_chains_count = :chains, redirect_chains_errors = :errors
+            WHERE id = :id
+        ");
+        $stmt->execute([
+            ':total' => $total,
+            ':chains' => $chains,
+            ':errors' => $errors,
+            ':id' => $this->crawlId
+        ]);
     }
 }
