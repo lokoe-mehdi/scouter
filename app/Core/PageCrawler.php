@@ -102,6 +102,12 @@ class PageCrawler
         $nofollow = (bool)$this->page->config['nofollow'];
         $noindex = (bool)$this->page->config['noindex'];
         $isCanonical = (bool)($this->page->config['canonical'] == 1);
+
+        // Non-canonical + respect_canonical : seul le lien canonical sera stocké
+        if (!$isCanonical && ($this->config['respect']['canonical'] ?? true)) {
+            $canonicalUrl = $this->page->extracts['canonical'] ?? '';
+            $countLinks = !empty($canonicalUrl) ? 1 : 0;
+        }
         $canonicalValue = $this->page->extracts['canonical'] ?? null;
         $compliant = false;
         $blocked = !RobotsTxt::robots_allowed($this->page->url);

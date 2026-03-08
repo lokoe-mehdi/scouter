@@ -1269,6 +1269,8 @@ const CrawlPanel = {
                 postLogs['Categorisation'] = log;
             } else if (msg.includes('Duplicate analysis')) {
                 postLogs['Duplicate'] = log;
+            } else if (msg.includes('Redirect chains')) {
+                postLogs['Redirect'] = log;
             } else if (msg.includes('Post-traitement terminé') || msg.includes('POST-ANALYSIS COMPLETED')) {
                 postFinish = log;
             } else if (msg.trim()) {
@@ -1289,6 +1291,7 @@ const CrawlPanel = {
             ...(postLogs['Semantic'] ? [postLogs['Semantic']] : []),
             ...(postLogs['Categorisation'] ? [postLogs['Categorisation']] : []),
             ...(postLogs['Duplicate'] ? [postLogs['Duplicate']] : []),
+            ...(postLogs['Redirect'] ? [postLogs['Redirect']] : []),
             ...(postFinish ? [postFinish] : []),
             ...otherLogs
         ];
@@ -1320,9 +1323,9 @@ const CrawlPanel = {
                 line.classList.add('crawl-panel-log-success');
                 const text = msg.replace(/[✓]/g, '').trim();
                 line.innerHTML = `<span class="material-symbols-outlined">check_circle</span>${text}`;
-            } else if (msg.match(/(Inlinks calcul|Pagerank calcul|Semantic analysis|Categorisation|Duplicate analysis)\s*:\s*(.+)/)) {
+            } else if (msg.match(/(Inlinks calcul|Pagerank calcul|Semantic analysis|Categorisation|Duplicate analysis|Redirect chains)\s*:\s*(.+)/)) {
                 line.classList.add('crawl-panel-log-progress');
-                const match = msg.match(/(Inlinks calcul|Pagerank calcul|Semantic analysis|Categorisation|Duplicate analysis)\s*:\s*(.+)/);
+                const match = msg.match(/(Inlinks calcul|Pagerank calcul|Semantic analysis|Categorisation|Duplicate analysis|Redirect chains)\s*:\s*(.+)/);
                 if (match) {
                     line.innerHTML = `<span class="crawl-panel-log-depth">${match[1]}</span> : <span class="crawl-panel-log-count">${match[2].trim()}</span>`;
                 } else {

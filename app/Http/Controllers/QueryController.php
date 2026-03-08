@@ -200,6 +200,11 @@ class QueryController extends Controller
             $urlData['schemas'] = [];
         }
 
+        // Vrai count depuis la table links (pages.outlinks peut être faux pour les non-canoniques)
+        $stmtOut = $this->db->prepare("SELECT COUNT(*) FROM links WHERE crawl_id = :crawl_id AND src = :id");
+        $stmtOut->execute([':crawl_id' => $crawlId, ':id' => $urlData['id']]);
+        $realOutlinks = (int)$stmtOut->fetchColumn();
+
         $this->json([
             'success' => true,
             'url' => $urlData,
@@ -207,7 +212,7 @@ class QueryController extends Controller
             'extracts' => $extracts,
             'extractions' => $customExtracts,
             'inlinks_count' => (int)($urlData['inlinks'] ?? 0),
-            'outlinks_count' => (int)($urlData['outlinks'] ?? 0)
+            'outlinks_count' => $realOutlinks
         ]);
     }
 

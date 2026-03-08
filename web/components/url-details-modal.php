@@ -430,7 +430,7 @@
     vertical-align: middle;
 }
 
-.detail-label-cell {
+.detail-label-cell div {
     display: flex;
     align-items: center;
     gap: 0.6rem;
@@ -943,13 +943,14 @@ function getCodeBadge(code) {
     return `<span style="display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 0.85rem; font-weight: 600; background: ${bgColor}; color: ${textColor};">${code}</span>`;
 }
 
-function getBooleanBadge(value, trueLabel = null, falseLabel = null) {
+function getBooleanBadge(value, trueLabel = null, falseLabel = null, inverted = false) {
     trueLabel = trueLabel || __('modal.yes');
     falseLabel = falseLabel || __('modal.no');
-    if (value) {
-        return `<span style="display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 0.85rem; font-weight: 600; background: #D4EDDA; color: #155724;">${trueLabel}</span>`;
+    const isPositive = inverted ? !value : value;
+    if (isPositive) {
+        return `<span style="display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 0.85rem; font-weight: 600; background: #D4EDDA; color: #155724;">${value ? trueLabel : falseLabel}</span>`;
     } else {
-        return `<span style="display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 0.85rem; font-weight: 600; background: #F8D7DA; color: #721C24;">${falseLabel}</span>`;
+        return `<span style="display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 0.85rem; font-weight: 600; background: #F8D7DA; color: #721C24;">${value ? trueLabel : falseLabel}</span>`;
     }
 }
 
@@ -983,10 +984,10 @@ function displayDetails(data) {
         { label: 'Inlinks', value: data.inlinks_count },
         { label: 'Outlinks', value: url.outlinks || 0 },
         { label: 'TTFB', value: url.response_time ? url.response_time.toFixed(0) + ' ms' : 'N/A', tooltip: 'Time To First Byte' },
-        { label: 'Noindex', value: getBooleanBadge(url.noindex), isHtml: true },
-        { label: 'Nofollow', value: getBooleanBadge(url.nofollow), isHtml: true },
+        { label: 'Noindex', value: getBooleanBadge(url.noindex, null, null, true), isHtml: true },
+        { label: 'Nofollow', value: getBooleanBadge(url.nofollow, null, null, true), isHtml: true },
         { label: __('modal.canonical'), value: getBooleanBadge(url.canonical), isHtml: true },
-        { label: __('modal.blocked_robots'), value: getBooleanBadge(url.blocked), isHtml: true },
+        { label: __('modal.blocked_robots'), value: getBooleanBadge(url.blocked, null, null, true), isHtml: true },
         { label: __('modal.crawled'), value: getBooleanBadge(url.crawled), isHtml: true },
     ];
 
@@ -1028,8 +1029,10 @@ function displayDetails(data) {
                     return `
                     <tr>
                         <td class="detail-label-cell" ${tooltipAttr}>
-                            <span class="material-symbols-outlined" style="font-size: 18px; color: var(--primary-color); opacity: 0.6;">${icon}</span>
-                            <span style="font-weight: 600; color: #4a5568;">${detail.label}</span>
+                            <div>
+                                <span class="material-symbols-outlined" style="font-size: 18px; color: var(--primary-color); opacity: 0.6;">${icon}</span>
+                                <span style="font-weight: 600; color: #4a5568;">${detail.label}</span>
+                            </div>
                         </td>
                         <td class="${detail.class || ''}">${detail.value}</td>
                     </tr>
@@ -1327,9 +1330,14 @@ function displayLinks(links, tabId, type) {
                         : '<span class="badge-small" style="background: #D4EDDA; color: #155724;">Dofollow</span>';
                     
                     // Badge pour le type de lien (inlinks)
-                    const linkTypeBadge = link.type === 'redirect' || link.type === 'r'
-                        ? '<span class="badge-small" style="background: #FFF3CD; color: #856404;">Redirect</span>'
-                        : '<span class="badge-small" style="background: #D1ECF1; color: #0C5460;">Ahref</span>';
+                    let linkTypeBadge;
+                    if (link.type === 'redirect' || link.type === 'r') {
+                        linkTypeBadge = '<span class="badge-small" style="background: #FFF3CD; color: #856404;">Redirect</span>';
+                    } else if (link.type === 'canonical') {
+                        linkTypeBadge = '<span class="badge-small" style="background: #E8DAEF; color: #6C3483;">Canonical</span>';
+                    } else {
+                        linkTypeBadge = '<span class="badge-small" style="background: #D1ECF1; color: #0C5460;">Ahref</span>';
+                    }
                     
                     const tagBadge = type === 'outlink'
                         ? (link.external
