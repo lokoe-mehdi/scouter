@@ -168,10 +168,16 @@ class DepthCrawler
         }
     }
 
-    public function getNextUrls()
+    public function getNextUrls(int $limit = 0, int $maxDepth = -1)
     {
         $respectRobots = $this->config['respect']['robots'] ?? true;
-        return $this->crawlDb->getUrlsToCrawl($respectRobots);
+        return $this->crawlDb->getUrlsToCrawl($respectRobots, $limit, $maxDepth);
+    }
+
+    public function countRemainingUrls(int $maxDepth = -1): int
+    {
+        $respectRobots = $this->config['respect']['robots'] ?? true;
+        return $this->crawlDb->countUrlsToCrawl($respectRobots, $maxDepth);
     }
 
     public function run(array $options)

@@ -44,16 +44,33 @@ class PostProcessor
         // (le timeout de 120s par défaut est insuffisant pour les crawls de 1M+ pages)
         $this->db->exec("SET statement_timeout = '0'");
 
+        $steps = [
+            'calculateInlinks',
+            'calculatePagerank',
+            'semanticAnalysis',
+            'categorize',
+            'duplicateAnalysis',
+            'redirectChainAnalysis',
+        ];
+
         try {
-            $this->calculateInlinks();
-            $this->calculatePagerank();
-            $this->semanticAnalysis();
-            $this->categorize();
-            $this->duplicateAnalysis();
-            $this->redirectChainAnalysis();
+            foreach ($steps as $step) {
+                try {
+                    $this->$step();
+                } catch (\Throwable $e) {
+                    echo "\n\033[31m✗ Post-processing error in $step: " . $e->getMessage() . "\033[0m\n";
+                    flush();
+                    // Log to stderr so worker captures it in log file
+                    fwrite(STDERR, "ERROR in PostProcessor::$step(): " . $e->getMessage()
+                        . " in " . $e->getFile() . ":" . $e->getLine() . "\n");
+                    throw $e;
+                }
+            }
         } finally {
             // Réactiver le timeout normal
-            $this->db->exec("SET statement_timeout = '120s'");
+            try {
+                $this->db->exec("SET statement_timeout = '120s'");
+            } catch (\Throwable $ignored) {}
         }
 
         echo "\n\033[32m✓ Post-traitement terminé\033[0m\n\n";

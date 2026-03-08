@@ -393,19 +393,42 @@ class CrawlDatabase
      * Note: FOR UPDATE SKIP LOCKED n'est pas utilisé ici car les URLs sont
      * récupérées en batch avant le crawl parallèle (pas de contention)
      */
-    public function getUrlsToCrawl(bool $respectRobots = true): array
+    public function getUrlsToCrawl(bool $respectRobots = true, int $limit = 0, int $maxDepth = -1): array
     {
         $sql = "SELECT url FROM pages WHERE crawl_id = :crawl_id AND crawled = false AND external = false";
         if ($respectRobots) {
             $sql .= " AND blocked = false";
         }
+        if ($maxDepth >= 0) {
+            $sql .= " AND depth <= " . (int)$maxDepth;
+        }
         // Ordre constant par ID pour éviter les deadlocks sur les verrous croisés
         $sql .= " ORDER BY id";
-        
+        if ($limit > 0) {
+            $sql .= " LIMIT " . (int)$limit;
+        }
+
         $stmt = $this->db->prepare($sql);
         $stmt->execute([':crawl_id' => $this->crawlId]);
-        
+
         return $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+    }
+
+    /**
+     * Compte le nombre d'URLs restantes à crawler
+     */
+    public function countUrlsToCrawl(bool $respectRobots = true, int $maxDepth = -1): int
+    {
+        $sql = "SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id AND crawled = false AND external = false";
+        if ($respectRobots) {
+            $sql .= " AND blocked = false";
+        }
+        if ($maxDepth >= 0) {
+            $sql .= " AND depth <= " . (int)$maxDepth;
+        }
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([':crawl_id' => $this->crawlId]);
+        return (int)$stmt->fetchColumn();
     }
 
     /**

@@ -174,6 +174,7 @@ class Crawler
     {
         $urls = [$this->start];
         $respectRobots = $this->config['respect']['robots'] ?? true;
+        $batchSize = 5000; // Process URLs in batches to avoid OOM on large crawls
 
         try {
             for ($i = 0; $i <= $this->depthMax; $i++) {
@@ -186,18 +187,35 @@ class Crawler
 
                 echo "\r\n";
 
-                // Récupérer les URLs AVANT de vérifier si la liste est vide
-                $crawl = new DepthCrawler($this->crawlDb, $this->pattern, $this->config);
-                $urls = $crawl->getNextUrls();
+                // Process URLs in batches to keep memory bounded
+                // Filter by depth <= $i to avoid pulling in URLs discovered at deeper depths
+                $batchNum = 0;
+                while (true) {
+                    $crawl = new DepthCrawler($this->crawlDb, $this->pattern, $this->config);
+                    $urls = $crawl->getNextUrls($batchSize, $i);
 
-                if (count($urls) === 0) {
-                    break;
+                    if (count($urls) === 0) {
+                        break;
+                    }
+
+                    $batchNum++;
+                    $remaining = $crawl->countRemainingUrls($i);
+                    if ($remaining > $batchSize) {
+                        echo "  \033[90m[batch $batchNum — " . count($urls) . " URLs, $remaining remaining]\033[0m\n";
+                    }
+
+                    $crawl->run([
+                        "depth" => $i,
+                        "urls" => $urls
+                    ]);
+
+                    // Free memory between batches
+                    unset($crawl, $urls);
                 }
 
-                $crawl->run([
-                    "depth" => $i,
-                    "urls" => $urls
-                ]);
+                if ($batchNum === 0) {
+                    break; // No URLs found at this depth
+                }
             }
         } catch (\Exception $e) {
             if ($e->getMessage() === "Crawl stop signal received") {

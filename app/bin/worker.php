@@ -350,11 +350,57 @@ while ($running) {
                 }
                 // If already 'stopped' or 'completed', don't change
             } else {
-                // Failure
+                // Failure - extract real error from log file
                 echo "[Worker $workerId] Job #{$job->id} failed with code $exitCode\n";
                 if ($currentStatus !== 'stopped') {
+                    // Detect known exit codes
+                    $errorDetail = '';
+                    if ($exitCode === 137) {
+                        $errorDetail = 'Process killed (OOM or SIGKILL) - out of memory';
+                    } elseif ($exitCode === 139) {
+                        $errorDetail = 'Segmentation fault (SIGSEGV)';
+                    } elseif ($exitCode === 255) {
+                        $errorDetail = 'PHP fatal error';
+                    }
+
+                    // Read last lines of log file for actual error message
+                    if (file_exists($logFile) && filesize($logFile) > 0) {
+                        $logTail = '';
+                        $fp = fopen($logFile, 'r');
+                        if ($fp) {
+                            // Read last 2KB to find error
+                            $size = filesize($logFile);
+                            $readFrom = max(0, $size - 2048);
+                            fseek($fp, $readFrom);
+                            $logTail = fread($fp, 2048);
+                            fclose($fp);
+                        }
+                        // Look for ERROR/FATAL patterns in log tail
+                        if (preg_match('/(?:FATAL ERROR|ERROR|Fatal error|Uncaught .+?Exception):\s*(.+)/i', $logTail, $m)) {
+                            $errorDetail = trim($m[0]);
+                            // Limit length
+                            if (strlen($errorDetail) > 500) {
+                                $errorDetail = substr($errorDetail, 0, 500) . '...';
+                            }
+                        } elseif (empty($errorDetail)) {
+                            // No pattern found, use last non-empty line
+                            $lines = array_filter(explode("\n", trim($logTail)));
+                            if (!empty($lines)) {
+                                $lastLine = trim(end($lines));
+                                // Clean ANSI codes
+                                $lastLine = preg_replace('/\x1b\[[0-9;]*m/', '', $lastLine);
+                                if (!empty($lastLine) && strlen($lastLine) > 5) {
+                                    $errorDetail = "Last output: $lastLine";
+                                }
+                            }
+                        }
+                    }
+
+                    $errorMsg = $errorDetail ?: "Process exited with code $exitCode";
                     $jobManager->updateJobStatus($job->id, 'failed');
-                    $jobManager->addLog($job->id, "Process exited with error code $exitCode", 'error');
+                    $jobManager->setJobError($job->id, $errorMsg);
+                    $jobManager->addLog($job->id, $errorMsg, 'error');
+                    echo "[Worker $workerId] Error: $errorMsg\n";
                 }
             }
 

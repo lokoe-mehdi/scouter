@@ -1086,7 +1086,7 @@ const CrawlPanel = {
             this.updateKPIs(statsData, logsData);
 
             // Mettre à jour les logs
-            this.updateLogs(logsData);
+            this.updateLogs(logsData, statusData);
 
             // Mettre à jour le badge minimisé
             this.updateMinimizedBadge();
@@ -1229,7 +1229,7 @@ const CrawlPanel = {
     /**
      * Met à jour les logs dans le terminal
      */
-    updateLogs(logsData) {
+    updateLogs(logsData, statusData = null) {
         if (!logsData.file_logs || !this.elements.terminal) return;
 
         const logs = logsData.file_logs;
@@ -1334,6 +1334,15 @@ const CrawlPanel = {
 
             this.elements.terminal.appendChild(line);
         });
+
+        // Display error message from job status if crawl failed
+        if (statusData && statusData.error) {
+            const errorLine = document.createElement('div');
+            errorLine.className = 'crawl-panel-log-line crawl-panel-log-error';
+            errorLine.style.cssText = 'color: #ff4444; font-weight: bold; padding: 4px 0; border-top: 1px solid #ff444440;';
+            errorLine.innerHTML = `<span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle;margin-right:4px;">error</span>${statusData.error}`;
+            this.elements.terminal.appendChild(errorLine);
+        }
 
         if (this.state.isAutoScrolling) {
             this.scrollToBottom();
