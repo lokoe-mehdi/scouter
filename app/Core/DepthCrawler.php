@@ -45,6 +45,8 @@ class DepthCrawler
     private $targetUrlsPerSecond;
     private $curlOptions;
     private $jsRenderer;
+    private int $totalForDepth = 0;
+    private int $processedOffset = 0;
 
     static $timestamp = 0;
     static $vitesse = 0;
@@ -184,6 +186,8 @@ class DepthCrawler
     {
         $this->depth = $options['depth'];
         $this->urls = $options['urls'];
+        $this->totalForDepth = $options['totalForDepth'] ?? count($this->urls);
+        $this->processedOffset = $options['processedOffset'] ?? 0;
 
         // Mode JavaScript : crawl séquentiel avec Puppeteer
         if ($this->crawlMode === 'javascript') {
@@ -241,8 +245,9 @@ class DepthCrawler
                 self::$iterations = 0;
             }
             $this->update++;
+            $globalDone = $this->processedOffset + $this->update;
             if ($this->update % 10 == 0 || $this->update == count($this->urls)) {
-                echo "\r \033[32m Depth ".$this->depth." : \033[0m".self::$vitesse." URLs/sec \033[36m(".$this->update."/".count($this->urls).")\033[0m                             ";
+                echo "\r \033[32m Depth ".$this->depth." : \033[0m".self::$vitesse." URLs/sec \033[36m(".$globalDone."/".$this->totalForDepth.")\033[0m                             ";
                 flush();
                 if (ob_get_level() > 0) {
                     ob_flush();
@@ -310,8 +315,9 @@ class DepthCrawler
                     self::$iterations = 0;
                 }
                 $this->update++;
+                $globalDone = $this->processedOffset + $this->update;
                 if ($this->update % 10 == 0 || $this->update == count($this->urls)) {
-                    echo "\r \033[32m Depth " . $this->depth . " : \033[0m" . self::$vitesse . " URLs/sec \033[36m(" . $this->update . "/" . count($this->urls) . ")\033[0m                             ";
+                    echo "\r \033[32m Depth " . $this->depth . " : \033[0m" . self::$vitesse . " URLs/sec \033[36m(" . $globalDone . "/" . $this->totalForDepth . ")\033[0m                             ";
                     flush();
                     if (ob_get_level() > 0) {
                         ob_flush();
@@ -497,7 +503,8 @@ class DepthCrawler
                     self::$vitesse = round($totalProcessed / $elapsedTime, 2);
                 }
                 
-                echo "\r \033[32m Depth ".$this->depth." : \033[0m".self::$vitesse." URLs/sec \033[36m(".$this->update."/".$totalUrls.")\033[0m                             ";
+                $globalDone = $this->processedOffset + $this->update;
+                echo "\r \033[32m Depth ".$this->depth." : \033[0m".self::$vitesse." URLs/sec \033[36m(".$globalDone."/".$this->totalForDepth.")\033[0m                             ";
                 flush();
                 if (ob_get_level() > 0) {
                     ob_flush();

@@ -187,10 +187,20 @@ class Crawler
 
                 echo "\r\n";
 
-                // Process URLs in batches to keep memory bounded
+                // Count total URLs for this depth BEFORE processing
                 // Filter by depth <= $i to avoid pulling in URLs discovered at deeper depths
+                $tmpCrawl = new DepthCrawler($this->crawlDb, $this->pattern, $this->config);
+                $totalForDepth = $tmpCrawl->countRemainingUrls($i);
+                unset($tmpCrawl);
+
+                if ($totalForDepth === 0) {
+                    break; // No URLs found at this depth
+                }
+
+                // Process URLs in batches to keep memory bounded
+                $processedSoFar = 0;
                 $batchNum = 0;
-                while (true) {
+                while ($processedSoFar < $totalForDepth) {
                     $crawl = new DepthCrawler($this->crawlDb, $this->pattern, $this->config);
                     $urls = $crawl->getNextUrls($batchSize, $i);
 
@@ -199,22 +209,18 @@ class Crawler
                     }
 
                     $batchNum++;
-                    $remaining = $crawl->countRemainingUrls($i);
-                    if ($remaining > $batchSize) {
-                        echo "  \033[90m[batch $batchNum — " . count($urls) . " URLs, $remaining remaining]\033[0m\n";
-                    }
 
                     $crawl->run([
                         "depth" => $i,
-                        "urls" => $urls
+                        "urls" => $urls,
+                        "totalForDepth" => $totalForDepth,
+                        "processedOffset" => $processedSoFar
                     ]);
+
+                    $processedSoFar += count($urls);
 
                     // Free memory between batches
                     unset($crawl, $urls);
-                }
-
-                if ($batchNum === 0) {
-                    break; // No URLs found at this depth
                 }
             }
         } catch (\Exception $e) {
