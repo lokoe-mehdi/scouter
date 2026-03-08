@@ -187,20 +187,30 @@ class Crawler
 
                 echo "\r\n";
 
-                // Count total URLs for this depth BEFORE processing
-                // Filter by depth <= $i to avoid pulling in URLs discovered at deeper depths
+                // Count URLs at EXACT depth $i
                 $tmpCrawl = new DepthCrawler($this->crawlDb, $this->pattern, $this->config);
                 $totalForDepth = $tmpCrawl->countRemainingUrls($i);
                 unset($tmpCrawl);
 
                 if ($totalForDepth === 0) {
-                    break; // No URLs found at this depth
+                    // Verifier s'il reste des URLs non-crawlees a n'importe quel depth
+                    $tmpCheck = new DepthCrawler($this->crawlDb, $this->pattern, $this->config);
+                    $anyRemaining = $tmpCheck->countRemainingUrls(-1);
+                    unset($tmpCheck);
+                    if ($anyRemaining === 0) {
+                        break; // Plus aucune URL a crawler
+                    }
+                    continue; // Ce depth est vide mais d'autres depths ont des URLs
                 }
 
                 // Process URLs in batches to keep memory bounded
+                // Uses exact depth match: only URLs at depth=$i are fetched
+                // Redirect targets appear at the same depth and are picked up
+                // in subsequent passes (ON CONFLICT DO NOTHING prevents cycles)
                 $processedSoFar = 0;
-                $batchNum = 0;
-                while ($processedSoFar < $totalForDepth) {
+                $passes = 0;
+                $maxPasses = 50; // Safety cap against redirect cycles
+                while ($passes < $maxPasses) {
                     $crawl = new DepthCrawler($this->crawlDb, $this->pattern, $this->config);
                     $urls = $crawl->getNextUrls($batchSize, $i);
 
@@ -208,16 +218,15 @@ class Crawler
                         break;
                     }
 
-                    $batchNum++;
-
                     $crawl->run([
                         "depth" => $i,
                         "urls" => $urls,
                         "totalForDepth" => $totalForDepth,
-                        "processedOffset" => $processedSoFar
+                        "processedOffset" => min($processedSoFar, $totalForDepth)
                     ]);
 
                     $processedSoFar += count($urls);
+                    $passes++;
 
                     // Free memory between batches
                     unset($crawl, $urls);
@@ -242,10 +251,14 @@ class Crawler
         $this->crawlDb->runPostProcessing();
         
         // Mettre à jour les stats finales
-        // Si le status est 'stopping', on le passe à 'stopped'
+        // Si le status est 'stopping'/'stopped', on le passe à 'stopped'
+        // Si 'failed' (watchdog), on garde 'failed' mais on met à jour les stats
         // Sinon on le passe à 'finished'
         $currentStatus = $this->crawlDb->getCrawlStatus();
-        if ($currentStatus === 'stopping' || $currentStatus === 'stopped') {
+        if ($currentStatus === 'failed') {
+            // Watchdog a tué le job : garder status 'failed' mais mettre à jour les stats
+            $this->crawlDb->updateCrawlStats();
+        } elseif ($currentStatus === 'stopping' || $currentStatus === 'stopped') {
              // Just update stats but keep/set status to stopped
              $this->crawlDb->updateCrawlStats();
              // Manually set to stopped just in case

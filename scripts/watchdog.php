@@ -31,11 +31,17 @@ try {
     $newState = [];
 
     // 2. Récupérer tous les jobs en cours avec le vrai progrès depuis crawls
+    // On prend le crawl le plus récent (id DESC) pour éviter de matcher un ancien crawl
     $stmt = $db->query("
         SELECT j.id, j.project_dir, j.progress, j.started_at,
-               COALESCE(c.crawled, 0) as crawl_progress
+               COALESCE(c.crawled, 0) as crawl_progress,
+               c.id as crawl_id
         FROM jobs j
-        LEFT JOIN crawls c ON c.path = j.project_dir
+        LEFT JOIN LATERAL (
+            SELECT id, crawled FROM crawls
+            WHERE path = j.project_dir
+            ORDER BY id DESC LIMIT 1
+        ) c ON true
         WHERE j.status = 'running'
     ");
     $runningJobs = $stmt->fetchAll(PDO::FETCH_OBJ);
@@ -73,11 +79,26 @@ try {
                 
                 if (!$dryRun) {
                     echo "   🔪 Killing stuck job...\n";
-                    
+
                     $jobManager->updateJobStatus($job->id, 'failed');
                     $jobManager->setJobError($job->id, "WATCHDOG: Job killed because stuck at $currentProgress URLs for > 1 check cycle");
                     $jobManager->addLog($job->id, "💀 WATCHDOG: Job killed. No progress detected since last check.", 'error');
-                    
+
+                    // Mettre à jour les stats du crawl pour que l'UI affiche les vrais chiffres
+                    $crawlId = $job->crawl_id ?? null;
+                    if ($crawlId) {
+                        $db->prepare("
+                            UPDATE crawls SET
+                                urls = (SELECT COUNT(*) FROM pages WHERE crawl_id = :cid1),
+                                crawled = (SELECT COUNT(*) FROM pages WHERE crawl_id = :cid2 AND crawled = true),
+                                status = 'failed',
+                                finished_at = CURRENT_TIMESTAMP,
+                                in_progress = 0
+                            WHERE id = :cid3
+                        ")->execute([':cid1' => $crawlId, ':cid2' => $crawlId, ':cid3' => $crawlId]);
+                        echo "   📊 Crawl #$crawlId stats updated.\n";
+                    }
+
                     echo "   ✅ Job killed.\n";
                     continue; // Ne pas l'ajouter au newState
                 } else {

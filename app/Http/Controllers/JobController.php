@@ -156,6 +156,7 @@ class JobController extends Controller
         $depthProgress = [];
         $inlinksProgress = null;
         $pagerankIterations = [];
+        $redirectChainsProgress = null;
         $staticLogs = [];
         
         foreach ($lines as $line) {
@@ -172,6 +173,8 @@ class JobController extends Controller
                     $inlinksProgress = $cleanLine;
                 } elseif (preg_match('/Pagerank calcul\s*:\s*Iteration\s+(\d+)/', $cleanLine, $matches)) {
                     $pagerankIterations[$matches[1]] = $cleanLine;
+                } elseif (preg_match('/Redirect chains\s*:/', $cleanLine)) {
+                    $redirectChainsProgress = $cleanLine;
                 } elseif (!in_array($cleanLine, $staticLogs)) {
                     $staticLogs[] = $cleanLine;
                 }
@@ -198,7 +201,11 @@ class JobController extends Controller
             ksort($pagerankIterations);
             $fileLogs[] = ['message' => end($pagerankIterations), 'type' => 'progress', 'created_at' => $now];
         }
-        
+
+        if ($redirectChainsProgress) {
+            $fileLogs[] = ['message' => $redirectChainsProgress, 'type' => 'progress', 'created_at' => $now];
+        }
+
         return $fileLogs;
     }
 

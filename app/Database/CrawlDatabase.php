@@ -400,7 +400,7 @@ class CrawlDatabase
             $sql .= " AND blocked = false";
         }
         if ($maxDepth >= 0) {
-            $sql .= " AND depth <= " . (int)$maxDepth;
+            $sql .= " AND depth = " . (int)$maxDepth;
         }
         // Ordre constant par ID pour éviter les deadlocks sur les verrous croisés
         $sql .= " ORDER BY id";
@@ -424,7 +424,7 @@ class CrawlDatabase
             $sql .= " AND blocked = false";
         }
         if ($maxDepth >= 0) {
-            $sql .= " AND depth <= " . (int)$maxDepth;
+            $sql .= " AND depth = " . (int)$maxDepth;
         }
         $stmt = $this->db->prepare($sql);
         $stmt->execute([':crawl_id' => $this->crawlId]);

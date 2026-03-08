@@ -40,6 +40,19 @@ class PostProcessor
         echo "\n";
         flush();
 
+        // Advisory lock : empêcher deux process de faire le post-traitement
+        // sur le même crawl_id en même temps (évite les deadlocks)
+        $lockId = $this->crawlId + 200000; // Offset pour éviter collision avec d'autres locks
+        $stmt = $this->db->prepare("SELECT pg_try_advisory_lock(:lock_id)");
+        $stmt->execute([':lock_id' => $lockId]);
+        $acquired = (bool)$stmt->fetchColumn();
+
+        if (!$acquired) {
+            echo "\033[33m! Post-processing skipped (another process is already running it)\033[0m\n";
+            flush();
+            return;
+        }
+
         // Désactiver le statement_timeout pour les opérations lourdes de post-processing
         // (le timeout de 120s par défaut est insuffisant pour les crawls de 1M+ pages)
         $this->db->exec("SET statement_timeout = '0'");
@@ -55,6 +68,13 @@ class PostProcessor
 
         try {
             foreach ($steps as $step) {
+                // Vérifier si le crawl a été interrompu entre les étapes
+                if ($this->isCrawlInterrupted()) {
+                    echo "\n\033[33m! Post-processing interrupted (crawl stopped or failed)\033[0m\n";
+                    flush();
+                    break;
+                }
+
                 try {
                     $this->$step();
                 } catch (\Throwable $e) {
@@ -71,10 +91,27 @@ class PostProcessor
             try {
                 $this->db->exec("SET statement_timeout = '120s'");
             } catch (\Throwable $ignored) {}
+            // Toujours libérer le lock
+            try {
+                $this->db->exec("SELECT pg_advisory_unlock($lockId)");
+            } catch (\Throwable $ignored) {}
         }
 
         echo "\n\033[32m✓ Post-traitement terminé\033[0m\n\n";
         flush();
+    }
+
+    /**
+     * Vérifie si le crawl a été tué par le watchdog
+     * On ne bloque PAS sur 'stopping'/'stopped' (arrêt utilisateur) :
+     * l'utilisateur veut que le post-traitement se fasse même après un stop
+     */
+    private function isCrawlInterrupted(): bool
+    {
+        $stmt = $this->db->prepare("SELECT status FROM crawls WHERE id = :id");
+        $stmt->execute([':id' => $this->crawlId]);
+        $status = (string)$stmt->fetchColumn();
+        return $status === 'failed';
     }
 
     /**
@@ -711,7 +748,7 @@ class PostProcessor
                 if ($count % $batchSize === 0) {
                     $this->db->commit();
                     $this->db->beginTransaction();
-                    echo "\r \033[32m Redirect chains \033[0m : \033[36m$count/$total\033[0m                    ";
+                    echo "\r \033[32m Redirect chains \033[0m : \033[36m$count/$total\033[0m                             ";
                     flush();
                 }
             }

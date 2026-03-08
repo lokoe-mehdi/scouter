@@ -189,8 +189,10 @@ class PageCrawler
         }
 
         // Inserer la page de redirection
+        // Les redirections conservent le meme niveau de profondeur que la source
+        // (une redirection = meme contenu logique, pas un niveau supplementaire)
         $date = date("Y-m-d H:i:s");
-        $depth = $this->depth + 1;
+        $depth = $this->depth;
         $blocked = !RobotsTxt::robots_allowed($url);
 
         $this->crawlDb->insertPage([

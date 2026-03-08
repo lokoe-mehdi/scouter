@@ -48,6 +48,11 @@ class DepthCrawler
     private int $totalForDepth = 0;
     private int $processedOffset = 0;
 
+    private const RETRYABLE_CODES = [429, 500, 502, 503, 504];
+    private const MAX_RETRIES = 4;
+    private const BASE_DELAY = 2;
+    private const JITTER_PERCENT = 20;
+
     static $timestamp = 0;
     static $vitesse = 0;
     static $iterations = 0;
@@ -213,10 +218,99 @@ class DepthCrawler
         if ($shouldCheck) {
             $this->lastStopCheck = $now;
             $status = $this->crawlDb->getCrawlStatus();
-            if ($status === 'stopping' || $status === 'stopped') {
+            if ($status === 'stopping' || $status === 'stopped' || $status === 'failed') {
                 throw new \Exception("Crawl stop signal received");
             }
         }
+    }
+
+    /**
+     * Detecte si la reponse HTTP est retryable (429, 5xx, timeout)
+     */
+    private function isRetryableResponse($request): bool
+    {
+        $httpCode = 0;
+        $isTimeout = false;
+
+        if ($request instanceof Request) {
+            $httpCode = (int)($request->getResponseInfo()['http_code'] ?? 0);
+            $isTimeout = ($request->getResponseErrno() == CURLE_OPERATION_TIMEDOUT);
+        } else {
+            $info = $request->getResponseInfo();
+            $httpCode = (int)($info['http_code'] ?? 0);
+            $isTimeout = ($httpCode === 0 && !empty($info['error']));
+        }
+
+        return in_array($httpCode, self::RETRYABLE_CODES) || $isTimeout;
+    }
+
+    /**
+     * Retry les URLs echouees avec backoff exponentiel + jitter per-URL
+     * Tentatives: 2s, 4s, 8s, 16s avec +/- 20% de jitter
+     */
+    private function retryFailedUrls(array $failedUrls): void
+    {
+        if (empty($failedUrls)) return;
+
+        for ($attempt = 1; $attempt <= self::MAX_RETRIES && !empty($failedUrls); $attempt++) {
+            $this->checkStopSignal();
+
+            $baseDelay = self::BASE_DELAY * pow(2, $attempt - 1); // 2, 4, 8, 16
+            $stillFailing = [];
+
+            echo "\n \033[33m ↻ Retry attempt $attempt/" . self::MAX_RETRIES
+                 . " for " . count($failedUrls) . " URLs (~{$baseDelay}s pause)\033[0m";
+            flush();
+            if (ob_get_level() > 0) ob_flush();
+
+            foreach ($failedUrls as $url) {
+                // Jitter per-URL : +/- 20%
+                $jitter = $baseDelay * (mt_rand(-self::JITTER_PERCENT, self::JITTER_PERCENT) / 100);
+                $actualDelay = $baseDelay + $jitter;
+                usleep((int)($actualDelay * 1000000));
+
+                $ch = curl_init($url);
+                curl_setopt_array($ch, $this->curlOptions);
+                $response = curl_exec($ch);
+                $info = curl_getinfo($ch);
+                $errno = curl_errno($ch);
+                $error = curl_error($ch);
+                curl_close($ch);
+
+                $httpCode = (int)($info['http_code'] ?? 0);
+                $isTimeout = ($errno == CURLE_OPERATION_TIMEDOUT);
+                $isRetryable = in_array($httpCode, self::RETRYABLE_CODES) || $isTimeout;
+
+                if ($isRetryable && $attempt < self::MAX_RETRIES) {
+                    $stillFailing[] = $url;
+                } else {
+                    // Succes OU derniere tentative : stocker en base
+                    $request = new RetryRequest($url, $response ?: '', $info, $errno, $error);
+                    $pageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
+                    $pageCrawler->run($request);
+                }
+
+                // Mettre a jour les stats periodiquement pendant les retries
+                // pour que le watchdog voie la progression
+                if (time() - self::$lastStatsUpdate >= 10) {
+                    self::$lastStatsUpdate = time();
+                    $this->crawlDb->updateCrawlStats();
+                }
+            }
+
+            $resolved = count($failedUrls) - count($stillFailing);
+            if ($resolved > 0) {
+                echo "\n \033[32m ✓ $resolved URLs resolved on attempt $attempt\033[0m";
+                flush();
+                if (ob_get_level() > 0) ob_flush();
+            }
+
+            $failedUrls = $stillFailing;
+        }
+
+        echo "\n";
+        flush();
+        if (ob_get_level() > 0) ob_flush();
     }
 
     /**
@@ -225,34 +319,37 @@ class DepthCrawler
     private function runNormal()
     {
         $this->prepare_crawl();
-        
-        $this->crawler->setCallback(function(Request $request,RollingCurl $rollingCurl) {
+        $failedUrls = [];
+
+        $this->crawler->setCallback(function(Request $request,RollingCurl $rollingCurl) use (&$failedUrls) {
             $this->checkStopSignal();
 
-            $PageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
-            $PageCrawler->run($request);
+            if ($this->isRetryableResponse($request)) {
+                $failedUrls[] = $request->getUrl();
+            } else {
+                $PageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
+                $PageCrawler->run($request);
+            }
 
             self::$iterations++;
             if(self::$iterations == 5)
             {
                 $timestamp = microtime(true);
                 $duree = $timestamp - self::$timestamp;
-                // Protéger contre les durées négatives ou nulles (horloge système ajustée)
-                if($duree > 0) { 
+                if($duree > 0) {
                     self::$vitesse = round((5/$duree),2);
                 }
                 self::$timestamp = $timestamp;
                 self::$iterations = 0;
             }
             $this->update++;
-            $globalDone = $this->processedOffset + $this->update;
+            $globalDone = min($this->processedOffset + $this->update, $this->totalForDepth);
             if ($this->update % 10 == 0 || $this->update == count($this->urls)) {
                 echo "\r \033[32m Depth ".$this->depth." : \033[0m".self::$vitesse." URLs/sec \033[36m(".$globalDone."/".$this->totalForDepth.")\033[0m                             ";
                 flush();
                 if (ob_get_level() > 0) {
                     ob_flush();
                 }
-                // Mettre à jour les stats en temps réel (toutes les 10 secondes max)
                 if (time() - self::$lastStatsUpdate >= 10) {
                     self::$lastStatsUpdate = time();
                     $this->crawlDb->updateCrawlStats();
@@ -261,14 +358,21 @@ class DepthCrawler
         })
         ->setSimultaneousLimit($this->simultaneousLimit)
         ->execute();
-        
+
+        // Retry les URLs echouees avec backoff exponentiel
+        $this->retryFailedUrls($failedUrls);
+
+        // Forcer un stats update apres les retries
+        $this->crawlDb->updateCrawlStats();
+        self::$lastStatsUpdate = time();
+
         echo "\n";
         flush();
         if (ob_get_level() > 0) {
             ob_flush();
         }
     }
-    
+
     /**
      * Crawl avec throttling - on crawle par batches avec délai ENTRE les batches
      * Le sleep est HORS du callback, donc n'impacte pas les temps de réponse
@@ -277,17 +381,16 @@ class DepthCrawler
     {
         $batchSize = $this->targetUrlsPerSecond; // 1 batch = 1 seconde de travail
         $batches = array_chunk($this->urls, max(1, $batchSize));
-        
+        $failedUrls = [];
+
         foreach ($batches as $batchIndex => $batchUrls) {
             $this->checkStopSignal();
-            
+
             $batchStartTime = microtime(true);
-            
-            // Créer un nouveau RollingCurl pour ce batch
+
             $batchCrawler = new RollingCurl();
             $batchCrawler->setOptions($this->curlOptions);
-            
-            // Ajouter les URLs du batch
+
             foreach ($batchUrls as $url) {
                 $url = trim($url);
                 if (!empty($url)) {
@@ -297,17 +400,19 @@ class DepthCrawler
                     $batchCrawler->get($url);
                 }
             }
-            
-            // Callback propre sans sleep
-            $batchCrawler->setCallback(function(Request $request, RollingCurl $rollingCurl) {
-                $PageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
-                $PageCrawler->run($request);
+
+            $batchCrawler->setCallback(function(Request $request, RollingCurl $rollingCurl) use (&$failedUrls) {
+                if ($this->isRetryableResponse($request)) {
+                    $failedUrls[] = $request->getUrl();
+                } else {
+                    $PageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
+                    $PageCrawler->run($request);
+                }
 
                 self::$iterations++;
                 if (self::$iterations == 5) {
                     $timestamp = microtime(true);
                     $duree = $timestamp - self::$timestamp;
-                    // Protéger contre les durées négatives ou nulles
                     if ($duree > 0) {
                         self::$vitesse = round((5 / $duree), 2);
                     }
@@ -315,14 +420,13 @@ class DepthCrawler
                     self::$iterations = 0;
                 }
                 $this->update++;
-                $globalDone = $this->processedOffset + $this->update;
+                $globalDone = min($this->processedOffset + $this->update, $this->totalForDepth);
                 if ($this->update % 10 == 0 || $this->update == count($this->urls)) {
                     echo "\r \033[32m Depth " . $this->depth . " : \033[0m" . self::$vitesse . " URLs/sec \033[36m(" . $globalDone . "/" . $this->totalForDepth . ")\033[0m                             ";
                     flush();
                     if (ob_get_level() > 0) {
                         ob_flush();
                     }
-                    // Mettre à jour les stats en temps réel (toutes les 10 secondes max)
                     if (time() - self::$lastStatsUpdate >= 10) {
                         self::$lastStatsUpdate = time();
                         $this->crawlDb->updateCrawlStats();
@@ -331,17 +435,24 @@ class DepthCrawler
             })
             ->setSimultaneousLimit($this->simultaneousLimit)
             ->execute();
-            
-            // THROTTLING : délai ENTRE les batches (pas dans le callback !)
+
+            // THROTTLING : délai ENTRE les batches
             $batchDuration = microtime(true) - $batchStartTime;
-            $targetDuration = 1.0; // 1 seconde par batch
-            
+            $targetDuration = 1.0;
+
             if ($batchDuration < $targetDuration) {
                 $sleepTime = ($targetDuration - $batchDuration) * 1000000;
                 usleep((int)$sleepTime);
             }
         }
-        
+
+        // Retry les URLs echouees avec backoff exponentiel
+        $this->retryFailedUrls($failedUrls);
+
+        // Forcer un stats update apres les retries
+        $this->crawlDb->updateCrawlStats();
+        self::$lastStatsUpdate = time();
+
         echo "\n";
         flush();
         if (ob_get_level() > 0) {
@@ -415,25 +526,24 @@ class DepthCrawler
         
         $totalProcessed = 0;
         $crawlStartTime = microtime(true);
-        
+        $failedUrls = [];
+
         foreach ($megaBatches as $megaBatch) {
             $this->checkStopSignal();
-            
-            // Diviser le mega-batch entre les renderers
+
             $rendererBatches = array_chunk($megaBatch, $batchPerRenderer);
-            
-            // Envoyer en parallèle à chaque renderer
+
             $multiHandle = curl_multi_init();
             $curlHandles = [];
-            
+
             foreach ($rendererBatches as $index => $batchUrls) {
                 $rendererUrl = $rendererUrls[$index % $rendererCount];
-                
+
                 $payload = json_encode([
                     'urls' => $batchUrls,
                     'headers' => $headers
                 ]);
-                
+
                 $ch = curl_init();
                 curl_setopt_array($ch, [
                     CURLOPT_URL => $rendererUrl . '/render-batch',
@@ -441,43 +551,40 @@ class DepthCrawler
                     CURLOPT_POSTFIELDS => $payload,
                     CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
                     CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_TIMEOUT => 60  // Plus long car batch
+                    CURLOPT_TIMEOUT => 60
                 ]);
-                
+
                 curl_multi_add_handle($multiHandle, $ch);
                 $curlHandles[] = $ch;
             }
-            
-            // Exécuter tous les batches en parallèle
+
             $running = null;
             do {
                 curl_multi_exec($multiHandle, $running);
                 curl_multi_select($multiHandle);
             } while ($running > 0);
-            
-            // Traiter les résultats de tous les renderers
+
             foreach ($curlHandles as $ch) {
                 $response = curl_multi_getcontent($ch);
                 curl_multi_remove_handle($multiHandle, $ch);
                 curl_close($ch);
-                
+
                 $data = json_decode($response, true);
-                
+
                 if (!isset($data['results']) || !is_array($data['results'])) {
                     continue;
                 }
-                
-                // Traiter chaque résultat du batch
+
                 foreach ($data['results'] as $result) {
                     $url = $result['url'] ?? '';
                     if (empty($url)) continue;
-                    
+
                     if (isset($result['success']) && $result['success']) {
                         $realHttpCode = (int)($result['httpCode'] ?? 200);
                         $realResponseTime = (float)($result['responseTime'] ?? 0);
                         $finalUrl = $result['finalUrl'] ?? '';
                         $httpRedirectCodes = [301, 302, 303, 307, 308];
-                        
+
                         if (in_array($realHttpCode, $httpRedirectCodes) && !empty($finalUrl)) {
                             $request = new JsRequest($url, $result['html'] ?? '', $realResponseTime, $realHttpCode, '', $finalUrl);
                         } elseif (in_array($realHttpCode, [200, 304]) && !empty($result['jsRedirect']) && !empty($finalUrl)) {
@@ -489,37 +596,47 @@ class DepthCrawler
                         $error = $result['error'] ?? 'Erreur renderer';
                         $request = new JsRequest($url, '', 0, 500, $error);
                     }
-                    
-                    $PageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
-                    $PageCrawler->run($request);
-                    
+
+                    // Verifier si retryable (429, 5xx, timeout)
+                    if ($this->isRetryableResponse($request)) {
+                        $failedUrls[] = $url;
+                    } else {
+                        $PageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
+                        $PageCrawler->run($request);
+                    }
+
                     $this->update++;
                     $totalProcessed++;
                 }
-                
-                // Mise à jour affichage après chaque batch renderer
+
                 $elapsedTime = microtime(true) - $crawlStartTime;
                 if ($elapsedTime > 0.5) {
                     self::$vitesse = round($totalProcessed / $elapsedTime, 2);
                 }
-                
-                $globalDone = $this->processedOffset + $this->update;
+
+                $globalDone = min($this->processedOffset + $this->update, $this->totalForDepth);
                 echo "\r \033[32m Depth ".$this->depth." : \033[0m".self::$vitesse." URLs/sec \033[36m(".$globalDone."/".$this->totalForDepth.")\033[0m                             ";
                 flush();
                 if (ob_get_level() > 0) {
                     ob_flush();
                 }
-                // Mettre à jour les stats en temps réel (toutes les 10 secondes max)
                 if (time() - self::$lastStatsUpdate >= 10) {
                     self::$lastStatsUpdate = time();
                     $this->crawlDb->updateCrawlStats();
                 }
             }
-            
+
             curl_multi_close($multiHandle);
             $this->checkStopSignal();
         }
-        
+
+        // Retry les URLs echouees avec backoff exponentiel (cURL direct, pas renderer)
+        $this->retryFailedUrls($failedUrls);
+
+        // Forcer un stats update apres les retries
+        $this->crawlDb->updateCrawlStats();
+        self::$lastStatsUpdate = time();
+
         echo "\n";
         flush();
         if (ob_get_level() > 0) {
@@ -572,4 +689,43 @@ class JsRequest
             'size_download' => strlen($this->responseText)
         ];
     }
+}
+
+/**
+ * Classe simulant un objet Request pour les retries cURL
+ */
+class RetryRequest
+{
+    private string $url;
+    private string $responseText;
+    private array $info;
+    private int $errno;
+    private string $error;
+
+    public function __construct(string $url, string $responseText, array $info, int $errno = 0, string $error = '')
+    {
+        $this->url = $url;
+        $this->responseText = $responseText;
+        $this->info = $info;
+        $this->errno = $errno;
+        $this->error = $error;
+    }
+
+    public function getUrl(): string { return $this->url; }
+    public function getResponseText(): string { return $this->responseText; }
+    public function getResponseInfo(): array
+    {
+        return [
+            'http_code' => $this->info['http_code'] ?? 0,
+            'total_time' => $this->info['total_time'] ?? 0,
+            'content_type' => $this->info['content_type'] ?? '',
+            'redirect_url' => $this->info['redirect_url'] ?? '',
+            'url' => $this->url,
+            'error' => $this->error,
+            'size_download' => $this->info['size_download'] ?? strlen($this->responseText),
+            'starttransfer_time' => $this->info['starttransfer_time'] ?? 0,
+        ];
+    }
+    public function getResponseErrno(): int { return $this->errno; }
+    public function getResponseError(): string { return $this->error; }
 }
