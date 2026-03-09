@@ -79,9 +79,13 @@ CREATE TABLE crawls (
     duplicates INTEGER DEFAULT 0,
     response_time FLOAT DEFAULT 0,
     depth_max INTEGER DEFAULT 0,
+    crawl_type VARCHAR(10) DEFAULT 'spider' CHECK (crawl_type IN ('spider', 'list')),
     in_progress INTEGER DEFAULT 0,
     compliant_duplicate INTEGER DEFAULT 0,
-    clusters_duplicate INTEGER DEFAULT 0
+    clusters_duplicate INTEGER DEFAULT 0,
+    redirect_total INTEGER DEFAULT 0,
+    redirect_chains_count INTEGER DEFAULT 0,
+    redirect_chains_errors INTEGER DEFAULT 0
 );
 
 CREATE INDEX idx_crawls_path ON crawls(path);
@@ -189,6 +193,23 @@ CREATE TABLE duplicate_clusters (
     PRIMARY KEY (crawl_id, id)
 ) PARTITION BY LIST (crawl_id);
 
+-- Table redirect_chains partitionnée par crawl_id
+-- Stocke les chaînes de redirection pré-calculées
+CREATE TABLE redirect_chains (
+    crawl_id INTEGER NOT NULL REFERENCES crawls(id) ON DELETE CASCADE,
+    id SERIAL,
+    source_id CHAR(8) NOT NULL,
+    source_url TEXT,
+    final_id CHAR(8),
+    final_url TEXT,
+    final_code INTEGER,
+    final_compliant BOOLEAN DEFAULT FALSE,
+    hops INTEGER DEFAULT 0,
+    is_loop BOOLEAN DEFAULT FALSE,
+    chain_ids TEXT[] NOT NULL DEFAULT '{}',
+    PRIMARY KEY (crawl_id, id)
+) PARTITION BY LIST (crawl_id);
+
 -- ============================================
 -- INDEX
 -- ============================================
@@ -275,7 +296,10 @@ BEGIN
         
         -- Partition pour duplicate_clusters
         EXECUTE format('CREATE TABLE IF NOT EXISTS duplicate_clusters_%s PARTITION OF duplicate_clusters FOR VALUES IN (%s)', p_crawl_id, p_crawl_id);
-        
+
+        -- Partition pour redirect_chains
+        EXECUTE format('CREATE TABLE IF NOT EXISTS redirect_chains_%s PARTITION OF redirect_chains FOR VALUES IN (%s)', p_crawl_id, p_crawl_id);
+
     EXCEPTION WHEN OTHERS THEN
         -- Libérer le lock même en cas d'erreur
         PERFORM pg_advisory_unlock(12345);
@@ -300,5 +324,6 @@ BEGIN
     EXECUTE format('DROP TABLE IF EXISTS html_%s', p_crawl_id);
     EXECUTE format('DROP TABLE IF EXISTS page_schemas_%s', p_crawl_id);
     EXECUTE format('DROP TABLE IF EXISTS duplicate_clusters_%s', p_crawl_id);
+    EXECUTE format('DROP TABLE IF EXISTS redirect_chains_%s', p_crawl_id);
 END;
 $$ LANGUAGE plpgsql;

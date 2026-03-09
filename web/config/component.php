@@ -57,6 +57,16 @@ class Component {
     }
     
     /**
+     * Affiche un tableau de chaînes de redirection (wrapper pour redirect-table.php)
+     *
+     * @param array $config Configuration du tableau
+     */
+    public static function redirectTable(array $config) {
+        $redirectTableConfig = $config;
+        include self::$componentsPath . 'redirect-table.php';
+    }
+
+    /**
      * Affiche la modal de détails d'URL
      */
     public static function urlDetailsModal() {

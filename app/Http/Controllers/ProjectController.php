@@ -131,38 +131,89 @@ class ProjectController extends Controller
         if (!$this->auth->canCreate()) {
             Response::forbidden('Vous n\'avez pas le droit de créer des projets');
         }
-        
-        // Récupérer l'URL de départ
-        $startUrl = trim($request->get('start_url', ''));
-        
-        if (empty($startUrl)) {
-            $this->error('L\'URL de départ est obligatoire');
+
+        $crawlType = $request->get('crawl_type', 'spider');
+        if (!in_array($crawlType, ['spider', 'list'])) {
+            $crawlType = 'spider';
         }
-        
-        // Valider et parser l'URL
-        if (!filter_var($startUrl, FILTER_VALIDATE_URL)) {
-            $this->error('URL invalide');
+
+        $followRedirects = $request->get('follow_redirects', true);
+
+        if ($crawlType === 'list') {
+            // Mode Liste : crawler une liste d'URLs fournie
+            $urlListRaw = $request->get('url_list', '');
+
+            if (empty(trim($urlListRaw))) {
+                $this->error('La liste d\'URLs est obligatoire en mode Liste');
+            }
+
+            // Sanitization de la liste
+            $lines = explode("\n", $urlListRaw);
+            $urls = [];
+            foreach ($lines as $line) {
+                $line = trim($line);
+                if (empty($line)) continue;
+                if (strpos($line, 'http://') !== 0 && strpos($line, 'https://') !== 0) continue;
+                $urls[] = mb_substr($line, 0, 2083);
+            }
+            $urls = array_values(array_unique($urls));
+
+            if (empty($urls)) {
+                $this->error('Aucune URL valide dans la liste (http:// ou https:// obligatoire)');
+            }
+
+            // Extraire le domaine de la premiere URL
+            $parsedFirst = parse_url($urls[0]);
+            $domain = $parsedFirst['host'] ?? '';
+            if (empty($domain)) {
+                $this->error('Impossible d\'extraire le domaine de la premiere URL');
+            }
+
+            // Collecter tous les domaines uniques
+            $allDomains = [];
+            foreach ($urls as $u) {
+                $p = parse_url($u);
+                if (!empty($p['host'])) {
+                    $allDomains[] = $p['host'];
+                }
+            }
+            $allDomains = array_values(array_unique($allDomains));
+
+            $startUrl = $urls[0];
+            $depthMax = (int)$request->get('depth_max', 30);
+            $allowedDomains = $allDomains;
+        } else {
+            // Mode Spider : comportement existant
+            $startUrl = trim($request->get('start_url', ''));
+
+            if (empty($startUrl)) {
+                $this->error('L\'URL de départ est obligatoire');
+            }
+
+            if (!filter_var($startUrl, FILTER_VALIDATE_URL)) {
+                $this->error('URL invalide');
+            }
+
+            $parsedUrl = parse_url($startUrl);
+            $domain = $parsedUrl['host'] ?? '';
+
+            if (empty($domain)) {
+                $this->error('Impossible d\'extraire le domaine de l\'URL');
+            }
+
+            $depthMax = (int)$request->get('depth_max', 30);
+            $allowedDomains = $request->get('allowed_domains', []);
+            if (empty($allowedDomains)) {
+                $allowedDomains = [$domain];
+            }
         }
-        
-        $parsedUrl = parse_url($startUrl);
-        $domain = $parsedUrl['host'] ?? '';
-        
-        if (empty($domain)) {
-            $this->error('Impossible d\'extraire le domaine de l\'URL');
-        }
-        
+
         // Créer ou récupérer le projet pour ce domaine
         $projectId = $this->projects->getOrCreate($this->userId, $domain);
-        
+
         // Générer le path unique pour ce crawl
         $projectDir = $domain . '-' . date('Ymd') . '-' . date('His');
-        
-        // Construire les domaines autorisés
-        $allowedDomains = $request->get('allowed_domains', []);
-        if (empty($allowedDomains)) {
-            $allowedDomains = [$domain];
-        }
-        
+
         // Construire les extracteurs dans le format attendu par Cmder
         $extractors = $request->get('extractors', []);
         $xPathExtractors = [];
@@ -174,28 +225,35 @@ class ProjectController extends Controller
                 $regexExtractors[$ext['name']] = $ext['pattern'];
             }
         }
-        
+
         // Construire la configuration dans le format attendu par Cmder.php
         $config = [
             'general' => [
                 'start' => $startUrl,
-                'depthMax' => (int)$request->get('depth_max', 30),
+                'depthMax' => $depthMax,
                 'domains' => $allowedDomains,
                 'crawl_speed' => $request->get('crawl_speed', 'fast'),
                 'crawl_mode' => $request->get('crawl_mode', 'classic'),
+                'crawl_type' => $crawlType,
                 'user-agent' => $request->get('user_agent', 'Scouter/2.0 (Crawler by Lokoé; +https://lokoe.fr)')
             ],
             'advanced' => [
                 'respect_robots' => $request->get('respect_robots', true),
                 'respect_nofollow' => $request->get('respect_nofollow', false),
                 'respect_canonical' => $request->get('respect_canonical', true),
+                'follow_redirects' => $followRedirects,
                 'custom_headers' => $request->get('custom_headers', []),
                 'http_auth' => $request->get('http_auth'),
                 'xPathExtractors' => $xPathExtractors,
                 'regexExtractors' => $regexExtractors
             ]
         ];
-        
+
+        // Ajouter la liste d'URLs en mode liste
+        if ($crawlType === 'list') {
+            $config['general']['url_list'] = $urls;
+        }
+
         // Créer le crawl dans la base de données
         $crawlRepo = new CrawlRepository();
         $crawlId = $crawlRepo->insert([
@@ -203,7 +261,8 @@ class ProjectController extends Controller
             'path' => $projectDir,
             'status' => 'pending',
             'config' => $config,
-            'depth_max' => (int)$request->get('depth_max', 30),
+            'depth_max' => $depthMax,
+            'crawl_type' => $crawlType,
             'in_progress' => 0,
             'project_id' => $projectId
         ]);
@@ -514,6 +573,10 @@ class ProjectController extends Controller
         // Récupérer ou créer le projet pour ce domaine (pour l'utilisateur actuel)
         $projectId = $this->projects->getOrCreate($this->userId, $domain);
         
+        // Synchroniser depthMax dans le config JSON avec la colonne DB
+        $depthMax = $sourceCrawl->depth_max ?? 30;
+        $sourceConfig['general']['depthMax'] = $depthMax;
+
         // Créer le nouveau crawl avec la même configuration
         $crawlRepo = new CrawlRepository();
         $crawlId = $crawlRepo->insert([
@@ -521,7 +584,8 @@ class ProjectController extends Controller
             'path' => $newProjectDir,
             'status' => 'queued',
             'config' => $sourceConfig,
-            'depth_max' => $sourceCrawl->depth_max ?? 30,
+            'depth_max' => $depthMax,
+            'crawl_type' => $sourceCrawl->crawl_type ?? 'spider',
             'in_progress' => 1,
             'project_id' => $projectId
         ]);

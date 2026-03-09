@@ -263,7 +263,7 @@ function isSectionCollapsed($sectionName) {
     <?php
     // Déterminer la section active basée sur la page actuelle
     $activeSection = null; // Pas de défaut, on détermine précisément
-    $reportPages = ['home', 'categories', 'codes', 'response-time', 'depth', 'inlinks', 'outlinks', 'pagerank', 'seo-tags', 'headings', 'duplication', 'extractions', 'structured-data'];
+    $reportPages = ['home', 'categories', 'codes', 'response-time', 'depth', 'redirect-chains', 'inlinks', 'outlinks', 'pagerank', 'seo-tags', 'headings', 'duplication', 'extractions', 'structured-data'];
     $explorerPages = ['url-explorer', 'link-explorer', 'sql-explorer'];
     
     if (in_array($page, $reportPages)) {
@@ -335,6 +335,9 @@ function isSectionCollapsed($sectionName) {
                     break;
                 case 'headings':
                     include 'pages/headings.php';
+                    break;
+                case 'redirect-chains':
+                    include 'pages/redirect-chains.php';
                     break;
                 case 'duplication':
                     include 'pages/duplication.php';

@@ -66,6 +66,18 @@ $tables = [
     'page_schemas' => [
         ['name' => 'page_id', 'type' => 'CHAR(8)'],
         ['name' => 'schema_type', 'type' => 'VARCHAR(100)'],
+    ],
+    'redirect_chains' => [
+        ['name' => 'id', 'type' => 'SERIAL'],
+        ['name' => 'source_id', 'type' => 'CHAR(8)'],
+        ['name' => 'source_url', 'type' => 'TEXT'],
+        ['name' => 'final_id', 'type' => 'CHAR(8)'],
+        ['name' => 'final_url', 'type' => 'TEXT'],
+        ['name' => 'final_code', 'type' => 'INTEGER'],
+        ['name' => 'final_compliant', 'type' => 'BOOLEAN'],
+        ['name' => 'hops', 'type' => 'INTEGER'],
+        ['name' => 'is_loop', 'type' => 'BOOLEAN'],
+        ['name' => 'chain_ids', 'type' => 'TEXT[]'],
     ]
 ];
 
@@ -1269,7 +1281,7 @@ $savedQueries = [
         
         <?php if (!empty($tables)): ?>
             <?php 
-            $tableIcons = ['pages' => 'description', 'links' => 'link', 'categories' => 'folder', 'duplicate_clusters' => 'content_copy', 'page_schemas' => 'data_object'];
+            $tableIcons = ['pages' => 'description', 'links' => 'link', 'categories' => 'folder', 'duplicate_clusters' => 'content_copy', 'page_schemas' => 'data_object', 'redirect_chains' => 'redo'];
             foreach ($tables as $tableName => $columns): 
                 $icon = $tableIcons[$tableName] ?? 'table_chart';
             ?>
@@ -1583,10 +1595,15 @@ duplicate_clusters.page_ids contient des IDs de pages
 -- Données structurées
 page_schemas.page_id → pages.id (schemas d'une page)
 
+-- Chaînes de redirection
+redirect_chains.source_id → pages.id (page source)
+redirect_chains.final_id → pages.id (page finale)
+
 -- Jointures utiles
 LEFT JOIN categories c ON pages.cat_id = c.id
 -- Pour les clusters: WHERE pages.id = ANY(duplicate_clusters.page_ids)
--- Pour les schemas: LEFT JOIN page_schemas ps ON ps.page_id = p.id</code></pre>
+-- Pour les schemas: LEFT JOIN page_schemas ps ON ps.page_id = p.id
+-- Pour les redirections: LEFT JOIN pages p ON p.id = redirect_chains.source_id</code></pre>
             <p>
                 <strong><?= __('sql_explorer.help_notes') ?></strong>
             </p>

@@ -6,6 +6,7 @@ use App\Http\Controller;
 use App\Http\Request;
 use App\Http\Response;
 use App\Job\JobManager;
+use App\Database\CrawlDatabase;
 
 /**
  * Controller pour la gestion des jobs de crawl
@@ -66,9 +67,22 @@ class JobController extends Controller
             return;
         }
         
+        // Cross-check with crawl status: if the crawl is finished/stopped but the job
+        // is stuck in stopping/running (e.g. due to lock errors killing the process),
+        // sync the job status to match the crawl
+        $status = $job->status;
+        if (in_array($status, ['running', 'stopping'])) {
+            $crawl = CrawlDatabase::getCrawlByPath($projectDir);
+            if ($crawl && in_array($crawl->status, ['finished', 'stopped', 'error'])) {
+                $finalStatus = $crawl->status === 'finished' ? 'completed' : $crawl->status;
+                $this->jobManager->updateJobStatus($job->id, $finalStatus);
+                $status = $finalStatus;
+            }
+        }
+
         $this->json([
             'job_id' => $job->id,
-            'status' => $job->status,
+            'status' => $status,
             'progress' => $job->progress,
             'pid' => $job->pid,
             'created_at' => $job->created_at,
@@ -142,6 +156,7 @@ class JobController extends Controller
         $depthProgress = [];
         $inlinksProgress = null;
         $pagerankIterations = [];
+        $redirectChainsProgress = null;
         $staticLogs = [];
         
         foreach ($lines as $line) {
@@ -158,6 +173,8 @@ class JobController extends Controller
                     $inlinksProgress = $cleanLine;
                 } elseif (preg_match('/Pagerank calcul\s*:\s*Iteration\s+(\d+)/', $cleanLine, $matches)) {
                     $pagerankIterations[$matches[1]] = $cleanLine;
+                } elseif (preg_match('/Redirect chains\s*:/', $cleanLine)) {
+                    $redirectChainsProgress = $cleanLine;
                 } elseif (!in_array($cleanLine, $staticLogs)) {
                     $staticLogs[] = $cleanLine;
                 }
@@ -184,7 +201,11 @@ class JobController extends Controller
             ksort($pagerankIterations);
             $fileLogs[] = ['message' => end($pagerankIterations), 'type' => 'progress', 'created_at' => $now];
         }
-        
+
+        if ($redirectChainsProgress) {
+            $fileLogs[] = ['message' => $redirectChainsProgress, 'type' => 'progress', 'created_at' => $now];
+        }
+
         return $fileLogs;
     }
 

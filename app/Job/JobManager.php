@@ -37,41 +37,51 @@ class JobManager
 
     private function ensureTables()
     {
-        // Créer les tables si elles n'existent pas
-        $this->db->exec("
-            CREATE TABLE IF NOT EXISTS jobs (
-                id SERIAL PRIMARY KEY,
-                project_dir TEXT NOT NULL,
-                project_name TEXT NOT NULL,
-                status VARCHAR(20) DEFAULT 'pending',
-                progress INTEGER DEFAULT 0,
-                pid INTEGER DEFAULT NULL,
-                command TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                started_at TIMESTAMP DEFAULT NULL,
-                finished_at TIMESTAMP DEFAULT NULL,
-                error TEXT DEFAULT NULL
-            )
-        ");
-        
-        $this->db->exec("
-            CREATE TABLE IF NOT EXISTS job_logs (
-                id SERIAL PRIMARY KEY,
-                job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-                message TEXT,
-                type VARCHAR(20) DEFAULT 'info',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ");
-        
-        // Index pour les recherches fréquentes
-        $this->db->exec("CREATE INDEX IF NOT EXISTS idx_jobs_project_dir ON jobs(project_dir)");
-        $this->db->exec("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)");
-        $this->db->exec("CREATE INDEX IF NOT EXISTS idx_job_logs_job_id ON job_logs(job_id)");
-        
-        // Index composite pour le polling des workers (status + created_at)
-        // Optimise la requête: SELECT ... WHERE status = 'queued' ORDER BY created_at
-        $this->db->exec("CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at)");
+        // Suppress PostgreSQL NOTICE messages ("relation already exists, skipping")
+        // that pdo_pgsql converts to PHP notices — these corrupt JSON API responses
+        // when display_errors is On
+        $prevLevel = error_reporting();
+        error_reporting($prevLevel & ~E_NOTICE & ~E_WARNING);
+
+        try {
+            // Créer les tables si elles n'existent pas
+            $this->db->exec("
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id SERIAL PRIMARY KEY,
+                    project_dir TEXT NOT NULL,
+                    project_name TEXT NOT NULL,
+                    status VARCHAR(20) DEFAULT 'pending',
+                    progress INTEGER DEFAULT 0,
+                    pid INTEGER DEFAULT NULL,
+                    command TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    started_at TIMESTAMP DEFAULT NULL,
+                    finished_at TIMESTAMP DEFAULT NULL,
+                    error TEXT DEFAULT NULL
+                )
+            ");
+
+            $this->db->exec("
+                CREATE TABLE IF NOT EXISTS job_logs (
+                    id SERIAL PRIMARY KEY,
+                    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                    message TEXT,
+                    type VARCHAR(20) DEFAULT 'info',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ");
+
+            // Index pour les recherches fréquentes
+            $this->db->exec("CREATE INDEX IF NOT EXISTS idx_jobs_project_dir ON jobs(project_dir)");
+            $this->db->exec("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)");
+            $this->db->exec("CREATE INDEX IF NOT EXISTS idx_job_logs_job_id ON job_logs(job_id)");
+
+            // Index composite pour le polling des workers (status + created_at)
+            // Optimise la requête: SELECT ... WHERE status = 'queued' ORDER BY created_at
+            $this->db->exec("CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at)");
+        } finally {
+            error_reporting($prevLevel);
+        }
     }
 
     public function createJob($projectDir, $projectName, $command)
@@ -111,38 +121,37 @@ class JobManager
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         
-        // SYNC: Toujours mettre à jour le crawl status en même temps
-        // Job status -> Crawl status mapping
-        $crawlStatusMap = [
-            'queued' => 'queued',
-            'running' => 'running',
-            'stopping' => 'stopping',
-            'stopped' => 'stopped',
-            'completed' => 'finished',
-            'failed' => 'error',
-            'pending' => 'pending'
-        ];
-        
-        $crawlStatus = $crawlStatusMap[$status] ?? $status;
-        $inProgress = in_array($status, ['queued', 'running', 'stopping', 'pending']) ? 1 : 0;
-        
-        // Get project_dir from job to find crawl
-        $jobStmt = $this->db->prepare("SELECT project_dir FROM jobs WHERE id = :job_id");
+        // SYNC: Mettre à jour le crawl status pour les jobs de crawl uniquement
+        // Les batch jobs (batch-categorize, etc.) ne doivent PAS toucher au crawl status
+        $jobStmt = $this->db->prepare("SELECT project_dir, command FROM jobs WHERE id = :job_id");
         $jobStmt->execute([':job_id' => $jobId]);
-        $projectDir = $jobStmt->fetchColumn();
-        
-        if ($projectDir) {
+        $jobRow = $jobStmt->fetch(PDO::FETCH_OBJ);
+
+        if ($jobRow && $jobRow->project_dir && strpos($jobRow->command, 'batch-') !== 0) {
+            $crawlStatusMap = [
+                'queued' => 'queued',
+                'running' => 'running',
+                'stopping' => 'stopping',
+                'stopped' => 'stopped',
+                'completed' => 'finished',
+                'failed' => 'error',
+                'pending' => 'pending'
+            ];
+
+            $crawlStatus = $crawlStatusMap[$status] ?? $status;
+            $inProgress = in_array($status, ['queued', 'running', 'stopping', 'pending']) ? 1 : 0;
+
             $crawlSql = "UPDATE crawls SET status = :status, in_progress = :in_progress";
             if (in_array($status, ['completed', 'failed', 'stopped'])) {
                 $crawlSql .= ", finished_at = CURRENT_TIMESTAMP";
             }
             $crawlSql .= " WHERE path = :path";
-            
+
             $crawlStmt = $this->db->prepare($crawlSql);
             $crawlStmt->execute([
                 ':status' => $crawlStatus,
                 ':in_progress' => $inProgress,
-                ':path' => $projectDir
+                ':path' => $jobRow->project_dir
             ]);
         }
     }
@@ -182,10 +191,11 @@ class JobManager
 
     public function getJobByProject($projectDir)
     {
+        // Only return crawl jobs, not batch jobs (batch-categorize, etc.)
         $stmt = $this->db->prepare("
-            SELECT * FROM jobs 
-            WHERE project_dir = :project_dir 
-            ORDER BY created_at DESC 
+            SELECT * FROM jobs
+            WHERE project_dir = :project_dir AND command = 'crawl'
+            ORDER BY created_at DESC
             LIMIT 1
         ");
         $stmt->execute([':project_dir' => $projectDir]);

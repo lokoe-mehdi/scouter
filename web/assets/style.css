@@ -2870,9 +2870,9 @@ body {
     min-height: 0;
 }
 
-/* Zone Hero fusionnée (Header + URL) */
+/* Zone Hero - Titre + Close uniquement */
 .crawl-modal-hero {
-    padding: 1rem 1.25rem 1.25rem;
+    padding: 0.75rem 1.25rem;
     background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
     flex-shrink: 0;
 }
@@ -2881,7 +2881,6 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 0.75rem;
 }
 
 .hero-title {
@@ -2912,43 +2911,228 @@ body {
     opacity: 1;
 }
 
-.hero-url-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
+/* Segmented Control (Spider / Liste) */
+.crawl-type-segmented {
+    padding: 0.75rem 1.25rem;
+    background: #f8fafc;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
 }
 
-.hero-label {
+.segmented-control {
+    display: flex;
+    background: #e9ecef;
+    border-radius: 8px;
+    padding: 3px;
+    gap: 2px;
+}
+
+.segmented-btn {
+    flex: 1;
     display: flex;
     align-items: center;
-    gap: 0.35rem;
-    color: rgba(255,255,255,0.9);
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.75rem;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
     font-weight: 500;
+}
+
+.segmented-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.5);
+}
+
+.segmented-btn.active {
+    background: white;
+    color: var(--primary-color);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    font-weight: 600;
+}
+
+.segmented-btn .material-symbols-outlined {
+    font-size: 18px;
+}
+
+.segmented-label {
     font-size: 0.8rem;
 }
 
-.hero-label .material-symbols-outlined {
-    font-size: 16px;
+/* Body URL Groups (inside General tab) */
+.body-url-group {
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #f1f5f9;
 }
 
-.hero-input {
+.body-url-label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 0.8rem;
+    margin-bottom: 0.4rem;
+}
+
+.body-url-label .material-symbols-outlined {
+    font-size: 16px;
+    color: var(--primary-color);
+}
+
+.body-url-input {
     width: 100%;
     padding: 0.65rem 0.875rem;
     font-size: 0.95rem;
-    border: none;
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     background: white;
     color: var(--text-primary);
     transition: all 0.2s ease;
 }
 
-.hero-input:focus {
+.body-url-input:focus {
     outline: none;
-    box-shadow: 0 0 0 3px rgba(255,255,255,0.25);
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(78, 205, 196, 0.15);
 }
 
-.hero-input::placeholder {
+.body-url-input::placeholder {
     color: #94a3b8;
+}
+
+/* URL List textarea (fixed height, scrollable) */
+.body-url-textarea {
+    width: 100%;
+    height: 180px;
+    max-height: 180px;
+    padding: 0.65rem 0.875rem;
+    font-size: 0.85rem;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: white;
+    color: var(--text-primary);
+    resize: none;
+    overflow-y: auto;
+    line-height: 1.5;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.body-url-textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(78, 205, 196, 0.15);
+}
+
+.body-url-textarea::placeholder {
+    color: #94a3b8;
+}
+
+/* URL list footer (hint + counter) */
+.url-list-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.35rem;
+}
+
+.url-list-hint {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+.url-counter {
+    font-size: 0.7rem;
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* File Upload Zone */
+.file-upload-zone {
+    margin-top: 0.6rem;
+}
+
+.file-upload-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.75rem;
+    background: #f8fafc;
+    border: 1px dashed var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.file-upload-btn:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: rgba(78, 205, 196, 0.05);
+}
+
+.file-upload-btn .material-symbols-outlined {
+    font-size: 16px;
+}
+
+.file-upload-hint {
+    color: var(--text-secondary);
+    font-size: 0.65rem;
+    opacity: 0.7;
+    margin-left: 0.2rem;
+}
+
+.file-upload-info {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.6rem;
+    background: rgba(78, 205, 196, 0.08);
+    border: 1px solid rgba(78, 205, 196, 0.25);
+    border-radius: 6px;
+    font-size: 0.75rem;
+    color: var(--text-primary);
+}
+
+.file-upload-info .material-symbols-outlined {
+    font-size: 16px;
+    color: var(--primary-color);
+}
+
+.file-upload-name {
+    font-weight: 500;
+    flex: 1;
+}
+
+.file-upload-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    padding: 2px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+}
+
+.file-upload-remove:hover {
+    color: var(--danger);
+    background: rgba(231, 76, 60, 0.1);
+}
+
+.file-upload-remove .material-symbols-outlined {
+    font-size: 14px;
 }
 
 /* Système d'onglets */
@@ -2997,7 +3181,7 @@ body {
 .crawl-tab-content {
     flex: 1;
     overflow-y: auto;
-    max-height: calc(90vh - 200px);
+    max-height: calc(90vh - 220px);
 }
 
 .crawl-tab-pane {
@@ -4083,6 +4267,15 @@ body {
     .auth-grid {
         grid-template-columns: 1fr;
     }
+
+    .crawl-tab-content {
+        max-height: calc(100vh - 200px);
+    }
+
+    .body-url-textarea {
+        height: 150px;
+        max-height: 150px;
+    }
 }
 
 /* Modern Tooltips */
@@ -4578,4 +4771,21 @@ body {
     height: 1px;
     background: var(--border-color);
     margin: 0.5rem 0;
+}
+
+/* Legacy crawl type toggle styles removed - replaced by .crawl-type-segmented and .segmented-btn */
+
+/* Badge Liste dans la colonne Configuration */
+.config-list-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+    height: 22px;
+    background: rgba(139, 92, 246, 0.12);
+    color: #7c3aed;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
 }

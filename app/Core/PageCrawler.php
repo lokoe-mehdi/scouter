@@ -93,7 +93,7 @@ class PageCrawler
     private function storePageComplete()
     {
         $responseTime = $this->page->headers->response_time * 1000;
-        $contentType = $this->page->headers->content_type ?? '';
+        $contentType = mb_substr($this->page->headers->content_type ?? '', 0, 100);
         $date = date("Y-m-d H:i:s");
         $id = $this->page->id;
         $redirectTo = $this->page->headers->redirect_to ?? '';
@@ -102,6 +102,12 @@ class PageCrawler
         $nofollow = (bool)$this->page->config['nofollow'];
         $noindex = (bool)$this->page->config['noindex'];
         $isCanonical = (bool)($this->page->config['canonical'] == 1);
+
+        // Non-canonical + respect_canonical : seul le lien canonical sera stocké
+        if (!$isCanonical && ($this->config['respect']['canonical'] ?? true)) {
+            $canonicalUrl = $this->page->extracts['canonical'] ?? '';
+            $countLinks = !empty($canonicalUrl) ? 1 : 0;
+        }
         $canonicalValue = $this->page->extracts['canonical'] ?? null;
         $compliant = false;
         $blocked = !RobotsTxt::robots_allowed($this->page->url);
@@ -164,12 +170,37 @@ class PageCrawler
 
     private function storeRedirect($url, $external)
     {
-        $date = date("Y-m-d H:i:s");
-        $depth = $this->depth + 1;
+        $followRedirects = $this->config['follow_redirects'] ?? true;
+        $isListMode = ($this->config['crawl_type'] ?? 'spider') === 'list';
         $id = hash('crc32', $url, FALSE);
+
+        // En mode liste, les redirections ne sont jamais externes
+        // (pas de filtrage par domaine puisque l'utilisateur fournit la liste)
+        if ($isListMode) {
+            $external = 0;
+        }
+
+        // Toujours enregistrer le lien de redirection (pour le rapport)
+        $this->crawlDb->insertLink([
+            'src' => $this->page->id,
+            'target' => $id,
+            'type' => 'redirect',
+            'external' => (bool)$external,
+            'nofollow' => false
+        ]);
+
+        // Ne pas ajouter la cible comme page a crawler si follow_redirects est desactive
+        if (!$followRedirects) {
+            return;
+        }
+
+        // Inserer la page de redirection
+        // Les redirections conservent le meme niveau de profondeur que la source
+        // (une redirection = meme contenu logique, pas un niveau supplementaire)
+        $date = date("Y-m-d H:i:s");
+        $depth = $this->depth;
         $blocked = !RobotsTxt::robots_allowed($url);
 
-        // Insérer la page de redirection
         $this->crawlDb->insertPage([
             'id' => $id,
             'domain' => $this->page->domain,
@@ -181,36 +212,28 @@ class PageCrawler
             'blocked' => $blocked,
             'date' => $date
         ]);
-
-        // Insérer le lien de redirection
-        $this->crawlDb->insertLink([
-            'src' => $this->page->id,
-            'target' => $id,
-            'type' => 'redirect',
-            'external' => (bool)$external,
-            'nofollow' => false
-        ]);
     }
 
     private function storeLinks()
     {
+        $isListMode = ($this->config['crawl_type'] ?? 'spider') === 'list';
         $src = $this->page->id;
         $depth = $this->depth + 1;
         $date = date("Y-m-d H:i:s");
-        
+
         // Si non-canonique et respect_canonical activé, on suit seulement la canonical
         if ($this->page->config['canonical'] === 0 && ($this->config['respect']['canonical'] ?? true)) {
             $this->page->links = [];
-            
+
             $canonicalUrl = $this->page->extracts['canonical'] ?? '';
             if (!empty($canonicalUrl)) {
                 $cible = hash('crc32', trim($canonicalUrl), FALSE);
                 $external = $this->isExternal($canonicalUrl);
                 $blocked = !RobotsTxt::robots_allowed($canonicalUrl);
-                
+
                 preg_match("#https?:\/\/([^/\?]+)#i", $canonicalUrl, $dom);
-                $domain = $dom[1] ?? '';
-                
+                $domain = mb_substr($dom[1] ?? '', 0, 255);
+
                 // Insérer le lien canonical
                 $this->crawlDb->insertLink([
                     'src' => $src,
@@ -220,8 +243,8 @@ class PageCrawler
                     'external' => (bool)$external,
                     'nofollow' => false
                 ]);
-                
-                // Insérer la page canonical
+
+                // Insérer la page canonical (en mode liste, forcer external=true pour ne pas crawler)
                 $this->crawlDb->insertPage([
                     'id' => $cible,
                     'domain' => $domain,
@@ -229,7 +252,7 @@ class PageCrawler
                     'depth' => $depth,
                     'code' => 0,
                     'crawled' => false,
-                    'external' => (bool)$external,
+                    'external' => $isListMode ? true : (bool)$external,
                     'blocked' => $blocked,
                     'date' => $date
                 ]);
@@ -240,7 +263,7 @@ class PageCrawler
         if (count($this->page->links) > 0) {
             $links = [];
             $pages = [];
-            
+
             foreach ($this->page->links as $link) {
                 $links[] = [
                     'src' => $src,
@@ -250,10 +273,10 @@ class PageCrawler
                     'external' => (bool)$link->external,
                     'nofollow' => (bool)$link->nofollow
                 ];
-                
+
                 preg_match("#https?:\/\/([^/\?]+)#i", $link->target, $dom);
-                $domain = $dom[1] ?? '';
-                
+                $domain = mb_substr($dom[1] ?? '', 0, 255);
+
                 $pages[] = [
                     'id' => $link->target_id,
                     'domain' => $domain,
@@ -261,14 +284,18 @@ class PageCrawler
                     'depth' => $depth,
                     'code' => 0,
                     'crawled' => false,
-                    'external' => (bool)$link->external,
+                    // En mode liste, forcer external=true pour ne pas crawler les pages découvertes
+                    // (ON CONFLICT DO NOTHING préserve les pages déjà en base depuis la liste utilisateur)
+                    'external' => $isListMode ? true : (bool)$link->external,
                     'blocked' => (bool)$link->blocked,
                     'date' => $date
                 ];
             }
-            
+
             $this->crawlDb->insertLinks($links);
-            $this->crawlDb->insertPages($pages);
+            if (!empty($pages)) {
+                $this->crawlDb->insertPages($pages);
+            }
         }
     }
 

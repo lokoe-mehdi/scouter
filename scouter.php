@@ -23,25 +23,41 @@ switch($module){
     $dir=(isset($argv[2]))?$argv[2]:"none";
     $jobManager = new \App\Job\JobManager();
     $job = $jobManager->getJobByProject($dir);
-    
+
+    // Register shutdown handler to capture fatal errors (OOM, segfault, etc.)
+    register_shutdown_function(function() use ($dir, &$job, $jobManager) {
+        $error = error_get_last();
+        if ($error && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
+            $errorMsg = "{$error['message']} in {$error['file']}:{$error['line']}";
+            echo "\n\nFATAL ERROR: $errorMsg\n";
+            try {
+                if ($job) {
+                    $jobManager->updateJobStatus($job->id, 'failed');
+                    $jobManager->setJobError($job->id, $errorMsg);
+                    $jobManager->addLog($job->id, "Fatal error: $errorMsg", 'error');
+                }
+            } catch (\Throwable $ignored) {}
+        }
+    });
+
     try {
         // Le crawl inclut maintenant le post-traitement (inlinks, pagerank, semantic, categorization)
         // via CrawlDatabase::runPostProcessing() appelé dans Crawler::depthStarter()
         Cmder::crawl($dir);
-        
+
         // Re-fetch job status (it may have changed during crawl - e.g., stop signal)
         $currentJob = $jobManager->getJobByProject($dir);
         $currentStatus = $currentJob ? $currentJob->status : null;
-        
+
         // Only mark as completed if still running (not stopped/stopping)
         if ($currentJob && $currentStatus === 'running') {
             $jobManager->updateJobStatus($currentJob->id, 'completed');
             $jobManager->addLog($currentJob->id, "Crawl completed successfully", 'success');
         }
         // If status is 'stopping', the worker will handle setting it to 'stopped'
-        
-    } catch (Exception $e) {
-        // Marquer le job comme échoué en cas d'erreur
+
+    } catch (\Throwable $e) {
+        // Marquer le job comme échoué en cas d'erreur (Throwable = Exception + Error)
         if ($job) {
             $jobManager->updateJobStatus($job->id, 'failed');
             $jobManager->setJobError($job->id, $e->getMessage());
@@ -64,7 +80,7 @@ switch($module){
             $jobManager->updateJobStatus($jobId, 'completed');
             $jobManager->addLog($jobId, "Batch categorization completed successfully", 'success');
         }
-    } catch (Exception $e) {
+    } catch (\Throwable $e) {
         // Mark job as failed on error
         $jobId = getenv('JOB_ID');
         if ($jobId) {

@@ -150,13 +150,13 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
                 <?php foreach($crawls as $crawl): 
                     // Tous les crawls vont vers le dashboard
                     $rowUrl = "dashboard.php?crawl=" . $crawl->crawl_id;
-                    $isInProgress = in_array($crawl->job_status, ['running', 'queued', 'pending', 'processing']);
-                    
+                    $isInProgress = in_array($crawl->job_status, ['running', 'queued', 'pending', 'processing', 'stopping']);
+
                     // Badge de statut (style subtle)
                     $badgeClass = 'status-badge status-completed';
                     $badgeText = __('index.status_completed');
 
-                    if ($crawl->job_status === 'running') {
+                    if ($crawl->job_status === 'running' || $crawl->job_status === 'stopping') {
                         $badgeClass = 'status-badge status-running';
                         $badgeText = __('index.status_running');
                     } elseif (in_array($crawl->job_status, ['queued', 'pending'])) {
@@ -192,11 +192,17 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
                         <td class="crawl-stat"><?= ($crawl->in_progress ?? false) ? '<span class="stat-pending">-</span>' : number_format($crawl->stats['compliant'] ?? 0) ?></td>
                         <td>
                             <div class="config-icons">
+                                <?php if (($crawl->crawl_type ?? 'spider') === 'list'): ?>
+                                    <span class="config-list-badge" title="<?= __('index.mode_url_list') ?>"><?= __('index.mode_list_short') ?></span>
+                                <?php endif; ?>
                                 <span class="material-symbols-outlined config-icon <?= ($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript' ? 'active' : 'inactive' ?>" title="<?= __('index.mode_javascript') ?>">javascript</span>
                                 <span class="material-symbols-outlined config-icon <?= !empty($crawl->config['advanced']['respect']['robots']) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_robots') ?>">smart_toy</span>
                                 <span class="material-symbols-outlined config-icon <?= !empty($crawl->config['advanced']['respect']['canonical']) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_canonical') ?>">content_copy</span>
                                 <span class="material-symbols-outlined config-icon <?= !empty($crawl->config['advanced']['respect']['nofollow']) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_nofollow') ?>">link_off</span>
-                                <span class="config-depth-badge" title="<?= __('index.max_depth') ?>"><?= $crawl->config['general']['depthMax'] ?? '-' ?></span>
+                                <span class="material-symbols-outlined config-icon <?= ($crawl->config['advanced']['follow_redirects'] ?? true) ? 'active' : 'inactive' ?>" title="<?= __('index.follow_redirects') ?>">redo</span>
+                                <?php if (($crawl->crawl_type ?? 'spider') !== 'list'): ?>
+                                    <span class="config-depth-badge" title="<?= __('index.max_depth') ?>"><?= $crawl->config['general']['depthMax'] ?? '-' ?></span>
+                                <?php endif; ?>
                             </div>
                         </td>
                         <?php if($canManage): ?>

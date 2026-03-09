@@ -82,6 +82,11 @@ for i in $(seq 1 30); do\n\
     sleep 1\n\
 done\n\
 \n\
+# Fix log permissions so both root (worker) and www-data (scouter) can write\n\
+mkdir -p /app/logs\n\
+chmod 777 /app/logs\n\
+find /app/logs -name "*.log" -exec chmod 666 {} \\; 2>/dev/null || true\n\
+\n\
 # Run migrations\n\
 echo ""\n\
 php /app/migrations/migrate.php\n\

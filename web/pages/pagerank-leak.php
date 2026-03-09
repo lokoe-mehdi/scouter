@@ -166,7 +166,7 @@ WHERE crawl_id = :crawl_id AND (crawled = true OR external = true)";
         'id' => 'prLeakTable',
         'whereClause' => 'WHERE (c.external = true OR (c.crawled = true AND c.compliant = false))',
         'orderBy' => 'ORDER BY c.pri DESC',
-        'defaultColumns' => ['url', 'pri', 'inlinks', 'compliant', 'external'],
+        'defaultColumns' => ['url', 'pri', 'inlinks', 'compliant'],
         'pdo' => $pdo,
         'crawlId' => $crawlId,
         'perPage' => 20,

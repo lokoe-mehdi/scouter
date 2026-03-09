@@ -10,7 +10,7 @@
 // ============================================================================
 // CONFIGURATION - Seuil de similarité minimum (pour information)
 // ============================================================================
-$minSimilarityPercent = 85; // Near-duplicates = 85%+ (distance Hamming <= 9)
+$minSimilarityPercent = 80; // Near-duplicates = 80%+ (distance Hamming <= 12)
 
 // ============================================================================
 // DONNÉES PRÉ-CALCULÉES - Depuis crawls et duplicate_clusters
@@ -26,10 +26,10 @@ $dupRate = $indexablePages > 0 ? round(($totalDuplicatedPages / $indexablePages)
 $stmt = $pdo->prepare("
     SELECT id, similarity, page_count, page_ids
     FROM duplicate_clusters
-    WHERE crawl_id = :crawl_id
+    WHERE crawl_id = :crawl_id AND similarity >= :min_similarity
     ORDER BY page_count DESC
 ");
-$stmt->execute([':crawl_id' => $crawlId]);
+$stmt->execute([':crawl_id' => $crawlId, ':min_similarity' => $minSimilarityPercent]);
 $allClustersRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
 
 // 3. Collecter tous les page_ids pour faire UNE SEULE requête sur pages
