@@ -381,7 +381,7 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
             
             <div class="category-add-link">
                 <button class="btn-add-category" onclick="openQuickAddCategoryModal()">
-                    + <?= __('index.add_category') ?>
+                    <?= __('index.add_category') ?>
                 </button>
             </div>
         </aside>
@@ -2441,10 +2441,10 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
             }
             
             try {
-                const response = await fetch('api/categories', {
+                const response = await fetch(`api/categories/${id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id, name: trimmedName, color: '', icon: 'folder' })
+                    body: JSON.stringify({ name: trimmedName, color: '', icon: 'folder' })
                 });
                 
                 const result = await response.json();
@@ -2461,10 +2461,10 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
 
         async function updateCategoryColor(id, newColor) {
             try {
-                const response = await fetch('api/categories', {
+                const response = await fetch(`api/categories/${id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id, name: '', color: newColor, icon: 'folder' })
+                    body: JSON.stringify({ name: '', color: newColor, icon: 'folder' })
                 });
                 
                 const result = await response.json();
