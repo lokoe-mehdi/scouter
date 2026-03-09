@@ -190,23 +190,6 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
             </button>
         </div>
 
-        <!-- Sélecteur de crawl de comparaison -->
-        <div class="sidebar-panel-group">
-            <div class="sidebar-panel-group-title"><?= __('comparison.select_crawl') ?></div>
-            <div style="padding: 0 0.75rem;">
-                <select id="compareCrawlSelector" class="compare-crawl-select" onchange="changeCompareCrawl(this.value)">
-                    <option value=""><?= __('comparison.select_placeholder') ?></option>
-                    <?php foreach ($domainCrawls as $dc): ?>
-                        <?php if ($dc['crawl_id'] != $crawlId): ?>
-                        <option value="<?= $dc['crawl_id'] ?>" <?= ($compareId == $dc['crawl_id']) ? 'selected' : '' ?>>
-                            <?= date('Y-m-d H:i', $dc['timestamp']) ?> (<?= number_format($dc['stats']['urls']) ?> URLs)
-                        </option>
-                        <?php endif; ?>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-        </div>
-
         <!-- Sous-pages -->
         <div class="sidebar-panel-group">
             <a href="?crawl=<?= $crawlId ?>&page=new-urls<?= $compareId ? '&compare=' . $compareId : '' ?>"
@@ -334,7 +317,6 @@ function changeCompareCrawl(compareId) {
     } else {
         url.searchParams.delete('compare');
     }
-    // Si pas déjà sur une page de comparaison, naviguer vers new-urls
     const currentPage = url.searchParams.get('page');
     if (!['new-urls', 'lost-urls'].includes(currentPage)) {
         url.searchParams.set('page', 'new-urls');

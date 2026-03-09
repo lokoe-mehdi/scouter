@@ -3,6 +3,7 @@
  * Crawl Comparison - New URLs
  *
  * Shows URLs present in the current crawl but absent from the comparison crawl.
+ * Only considers crawled URLs (crawled = true).
  */
 
 if (!$compareId) {
@@ -19,77 +20,76 @@ if (!$compareId) {
 $safeCompareId = intval($compareId);
 $safeCrawlId = intval($crawlId);
 
-// Count new URLs (in current, not in comparison)
+// Count new URLs (in current, not in comparison) — crawled only
 $stmtNew = $pdo->prepare("
     SELECT COUNT(*) FROM pages
-    WHERE crawl_id = :current AND url NOT IN (
-        SELECT url FROM pages WHERE crawl_id = :compare
+    WHERE crawl_id = :current AND crawled = true AND url NOT IN (
+        SELECT url FROM pages WHERE crawl_id = :compare AND crawled = true
     )
 ");
 $stmtNew->execute([':current' => $safeCrawlId, ':compare' => $safeCompareId]);
 $newCount = (int)$stmtNew->fetchColumn();
 
-// Count lost URLs (in comparison, not in current)
+// Count lost URLs (in comparison, not in current) — crawled only
 $stmtLost = $pdo->prepare("
     SELECT COUNT(*) FROM pages
-    WHERE crawl_id = :compare AND url NOT IN (
-        SELECT url FROM pages WHERE crawl_id = :current
+    WHERE crawl_id = :compare AND crawled = true AND url NOT IN (
+        SELECT url FROM pages WHERE crawl_id = :current AND crawled = true
     )
 ");
 $stmtLost->execute([':compare' => $safeCompareId, ':current' => $safeCrawlId]);
 $lostCount = (int)$stmtLost->fetchColumn();
 
-// Count common URLs
+// Count common URLs — crawled only
 $stmtCommon = $pdo->prepare("
     SELECT COUNT(*) FROM pages a
-    JOIN pages b ON a.url = b.url AND b.crawl_id = :compare
-    WHERE a.crawl_id = :current
+    JOIN pages b ON a.url = b.url AND b.crawl_id = :compare AND b.crawled = true
+    WHERE a.crawl_id = :current AND a.crawled = true
 ");
 $stmtCommon->execute([':current' => $safeCrawlId, ':compare' => $safeCompareId]);
 $commonCount = (int)$stmtCommon->fetchColumn();
 
-// Compare crawl date for display
-$compareDate = date('Y-m-d H:i', strtotime($compareRecord->started_at ?? $compareRecord->created_at ?? 'now'));
 ?>
 
-<h1 class="page-title"><?= __('comparison.new_urls_title') ?></h1>
-<p class="page-subtitle" style="color: var(--text-secondary); margin-bottom: 1.5rem;">
-    <?= __('comparison.new_urls_desc') ?> — <?= __('comparison.comparing_with') ?> <?= htmlspecialchars($compareDate) ?>
-</p>
+<?php include __DIR__ . '/../components/comparison-bar.php'; ?>
 
-<div class="cards-grid">
-<?php
-Component::card([
-    'color' => 'success',
-    'icon' => 'add_circle',
-    'title' => __('comparison.card_new'),
-    'value' => number_format($newCount)
-]);
-Component::card([
-    'color' => 'error',
-    'icon' => 'remove_circle',
-    'title' => __('comparison.card_lost'),
-    'value' => number_format($lostCount)
-]);
-Component::card([
-    'color' => 'info',
-    'icon' => 'sync',
-    'title' => __('comparison.card_common'),
-    'value' => number_format($commonCount)
-]);
-?>
+<div style="display: flex; flex-direction: column; gap: 1.5rem;">
+
+    <div class="scorecards">
+    <?php
+    Component::card([
+        'color' => 'success',
+        'icon' => 'add_circle',
+        'title' => __('comparison.card_new'),
+        'value' => number_format($newCount)
+    ]);
+    Component::card([
+        'color' => 'error',
+        'icon' => 'remove_circle',
+        'title' => __('comparison.card_lost'),
+        'value' => number_format($lostCount)
+    ]);
+    Component::card([
+        'color' => 'info',
+        'icon' => 'sync',
+        'title' => __('comparison.card_common'),
+        'value' => number_format($commonCount)
+    ]);
+    ?>
+    </div>
+
+    <?php
+    Component::urlTable([
+        'title' => __('comparison.new_urls_title'),
+        'id' => 'new_urls_table',
+        'whereClause' => "WHERE c.crawled = true AND c.url NOT IN (SELECT url FROM pages_{$safeCompareId} WHERE crawled = true)",
+        'orderBy' => 'ORDER BY c.url ASC',
+        'defaultColumns' => ['url', 'code', 'depth', 'category', 'inlinks'],
+        'pdo' => $pdo,
+        'crawlId' => $safeCrawlId,
+        'perPage' => 100,
+        'projectDir' => $crawlId
+    ]);
+    ?>
+
 </div>
-
-<?php
-Component::urlTable([
-    'title' => __('comparison.new_urls_title'),
-    'id' => 'new_urls_table',
-    'whereClause' => "WHERE c.url NOT IN (SELECT url FROM pages WHERE crawl_id = {$safeCompareId})",
-    'orderBy' => 'ORDER BY c.url ASC',
-    'defaultColumns' => ['url', 'code', 'depth', 'category', 'inlinks'],
-    'pdo' => $pdo,
-    'crawlId' => $safeCrawlId,
-    'perPage' => 100,
-    'projectDir' => $crawlId
-]);
-?>

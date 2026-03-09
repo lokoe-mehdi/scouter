@@ -219,6 +219,22 @@ try {
     $domainCrawls = [];
 }
 
+// Auto-sélectionner le crawl de comparaison (crawl précédent) si non spécifié
+if (!$compareId && !empty($domainCrawls)) {
+    $foundCurrent = false;
+    foreach ($domainCrawls as $dc) {
+        if ($foundCurrent) {
+            // Le crawl suivant dans la liste (triée par date desc) = le crawl précédent
+            $compareId = (int)$dc['crawl_id'];
+            $compareRecord = CrawlDatabase::getCrawlById($compareId);
+            break;
+        }
+        if ($dc['crawl_id'] == $crawlId) {
+            $foundCurrent = true;
+        }
+    }
+}
+
 // Lire l'état des sections depuis les cookies
 function isSectionCollapsed($sectionName) {
     $cookieName = 'sidebar-' . $sectionName;

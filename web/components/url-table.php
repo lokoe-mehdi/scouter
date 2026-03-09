@@ -91,7 +91,10 @@ $cleanedWhere = preg_replace('/\bWHERE\s+crawl_id\s*=\s*\d+\s*$/i', '', $cleaned
 // 3. ORDER BY sans alias
 $cleanedOrderBy = preg_replace('/\bc\./i', '', $orderBy);
 
-// 4. Construire la requête complète
+// 4. Convertir les noms de partition (pages_123) en syntaxe SQL Explorer (pages@123)
+$cleanedWhere = preg_replace('/\b(pages|links|categories|duplicate_clusters|page_schemas|redirect_chains)_(\d+)\b/i', '$1@$2', $cleanedWhere);
+
+// 5. Construire la requête complète
 $tableSqlQuery = "SELECT " . $sqlColumnsStr . "\nFROM pages\n" . $cleanedWhere . "\n" . $cleanedOrderBy;
 
 // 5. Substituer les paramètres par leurs vraies valeurs (fonction dans table-core.php)
@@ -304,7 +307,8 @@ if($componentId === 'main_explorer' && isset($_GET['p'])) {
 $offset = ($page_num - 1) * $perPage;
 
 // Comptage total (extraire la requête COUNT depuis la requête principale)
-$countQuery = preg_replace('/SELECT\s+.*?\s+FROM/is', 'SELECT COUNT(*) as total FROM', $sqlQuery);
+// Limite à 1 pour ne pas remplacer les SELECT dans les sous-requêtes (NOT IN, NOT EXISTS, etc.)
+$countQuery = preg_replace('/SELECT\s+.*?\s+FROM/is', 'SELECT COUNT(*) as total FROM', $sqlQuery, 1);
 $countQuery = preg_replace('/ORDER BY\s+.*/is', '', $countQuery);
 $countQuery = preg_replace('/LIMIT\s+.*/is', '', $countQuery);
 

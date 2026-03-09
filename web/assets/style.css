@@ -165,6 +165,7 @@ body {
     transform: translateY(0) !important;
 }
 
+
 .crawl-dropdown-item {
     display: block;
     padding: 1rem;
@@ -4606,27 +4607,112 @@ body {
     color: var(--primary-color);
 }
 
-/* Sélecteur de crawl de comparaison */
-.compare-crawl-select {
-    width: 100%;
-    padding: 0.5rem;
+/* ========================================
+   Comparison Control Bar
+   ======================================== */
+.comparison-bar {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 1rem 1.5rem;
+    background: #f8f9fb;
     border: 1px solid var(--border-color);
-    border-radius: 6px;
-    font-size: 0.8rem;
-    background: var(--card-bg);
+    border-radius: 10px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    margin-bottom: 2rem;
+}
+
+.comparison-bar-crawl {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.comparison-bar-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.comparison-bar-badge::before {
+    content: '';
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.comparison-bar-badge--ref::before {
+    background: var(--primary-color);
+}
+
+.comparison-bar-badge--base::before {
+    background: #e67e22;
+}
+
+.comparison-bar-date {
+    font-weight: 600;
+    font-size: 0.85rem;
     color: var(--text-primary);
+}
+
+.comparison-bar-icon {
+    font-size: 16px;
+    color: var(--text-tertiary);
     cursor: pointer;
-    transition: border-color 0.2s;
+    padding: 4px;
+    border-radius: 4px;
+    transition: color 0.2s, background 0.2s;
+    text-decoration: none;
 }
 
-.compare-crawl-select:hover {
-    border-color: var(--primary-color);
+.comparison-bar-icon:hover {
+    color: var(--primary-color);
+    background: rgba(78, 205, 196, 0.1);
 }
 
-.compare-crawl-select:focus {
-    outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(var(--primary-color-rgb, 76, 175, 80), 0.2);
+.comparison-bar-selector {
+    margin-left: 0;
+}
+
+.comparison-bar-selector .crawl-selector-btn {
+    background: white;
+    border: 1px solid #c5ccd4;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+
+.comparison-bar-selector .crawl-selector-btn:hover {
+    background: #f0f2f5;
+    border-color: #a0a8b4;
+}
+
+.comparison-bar-selector .crawl-selector-btn .material-symbols-outlined {
+    color: var(--text-secondary);
+}
+
+.comparison-bar-selector .crawl-dropdown {
+    transition: none;
+    transform: none;
+}
+
+.comparison-bar-selector .crawl-dropdown.show {
+    transform: none;
+}
+
+.crawl-dropdown-item.disabled {
+    opacity: 0.4;
+    pointer-events: none;
 }
 
 /* Scrollbar pour le panel - style accent vert */
