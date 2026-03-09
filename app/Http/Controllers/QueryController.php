@@ -58,15 +58,20 @@ class QueryController extends Controller
             $this->error('Requête ou projet manquant');
         }
         
-        $this->auth->requireCrawlAccess($projectDir, true);
-        
-        $crawlRecord = CrawlDatabase::getCrawlByPath($projectDir);
+        if (is_numeric($projectDir)) {
+            $this->auth->requireCrawlAccessById((int)$projectDir, true);
+            $crawlRecord = CrawlDatabase::getCrawlById((int)$projectDir);
+        } else {
+            $this->auth->requireCrawlAccess($projectDir, true);
+            $crawlRecord = CrawlDatabase::getCrawlByPath($projectDir);
+        }
+
         if (!$crawlRecord) {
             Response::notFound('Projet non trouvé');
         }
-        
+
         $crawlId = $crawlRecord->id;
-        
+
         // SÉCURITÉ : Vérifier que SEULES les requêtes SELECT sont autorisées
         $queryUpper = strtoupper(trim($query));
         
@@ -86,8 +91,28 @@ class QueryController extends Controller
             }
         }
         
-        // Transformer les tables virtuelles
-        $transformedQuery = $query;
+        // Transformer les références multi-crawl (syntaxe table@ID)
+        $referencedCrawlIds = [];
+        $transformedQuery = preg_replace_callback(
+            '/\b(pages|links|categories|duplicate_clusters|page_schemas|redirect_chains)@(\d+)\b/i',
+            function($matches) use (&$referencedCrawlIds) {
+                $referencedCrawlIds[] = (int)$matches[2];
+                return $matches[1] . '_' . $matches[2];
+            },
+            $query
+        );
+
+        // Valider que les crawl IDs référencés appartiennent au même projet
+        if (!empty($referencedCrawlIds)) {
+            foreach (array_unique($referencedCrawlIds) as $refId) {
+                $refCrawl = CrawlDatabase::getCrawlById($refId);
+                if (!$refCrawl || $refCrawl->project_id !== $crawlRecord->project_id) {
+                    Response::forbidden("Cannot query crawl {$refId}: not in the same project.");
+                }
+            }
+        }
+
+        // Transformer les tables virtuelles restantes vers le crawl courant
         $transformedQuery = preg_replace('/\bpages\b(?!_\d)/i', "pages_{$crawlId}", $transformedQuery);
         $transformedQuery = preg_replace('/\blinks\b(?!_\d)/i', "links_{$crawlId}", $transformedQuery);
         $transformedQuery = preg_replace('/\bcategories\b(?!_\d)/i', "categories_{$crawlId}", $transformedQuery);

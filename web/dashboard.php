@@ -111,6 +111,17 @@ $projectDir = $crawlRecord->path ?? $crawlRecord->id;
 // ID du crawl pour les requêtes partitionnées
 $crawlId = $crawlRecord->id;
 
+// Paramètre de comparaison de crawl
+$compareId = isset($_GET['compare']) ? (int)$_GET['compare'] : null;
+$compareRecord = null;
+if ($compareId) {
+    $compareRecord = CrawlDatabase::getCrawlById($compareId);
+    if (!$compareRecord || $compareRecord->project_id !== $crawlRecord->project_id) {
+        $compareId = null;
+        $compareRecord = null;
+    }
+}
+
 // ============================================
 // CHARGEMENT CENTRALISÉ DES CATÉGORIES
 // Évite les jointures sur la table categories partout
@@ -265,11 +276,14 @@ function isSectionCollapsed($sectionName) {
     $activeSection = null; // Pas de défaut, on détermine précisément
     $reportPages = ['home', 'categories', 'codes', 'response-time', 'depth', 'redirect-chains', 'inlinks', 'outlinks', 'pagerank', 'seo-tags', 'headings', 'duplication', 'extractions', 'structured-data'];
     $explorerPages = ['url-explorer', 'link-explorer', 'sql-explorer'];
-    
+    $comparisonPages = ['new-urls', 'lost-urls'];
+
     if (in_array($page, $reportPages)) {
         $activeSection = 'report';
     } elseif (in_array($page, $explorerPages)) {
         $activeSection = 'explorer';
+    } elseif (in_array($page, $comparisonPages)) {
+        $activeSection = 'comparison';
     } elseif ($page === 'categorize') {
         $activeSection = 'categorize';
     } elseif ($page === 'config') {
@@ -376,6 +390,12 @@ function isSectionCollapsed($sectionName) {
                     } else {
                         include 'pages/categorize.php';
                     }
+                    break;
+                case 'new-urls':
+                    include 'pages/new-urls.php';
+                    break;
+                case 'lost-urls':
+                    include 'pages/lost-urls.php';
                     break;
                 case 'config':
                     // SÉCURITÉ: Vérifier les droits de gestion

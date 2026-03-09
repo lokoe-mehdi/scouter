@@ -34,6 +34,14 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
             <span class="icon-rail-label"><?= __('sidebar.explorer') ?></span>
         </div>
 
+        <!-- Crawl Comparison -->
+        <div class="icon-rail-item <?= $activeSection === 'comparison' ? 'active' : '' ?>"
+             data-section="comparison"
+             data-tooltip="<?= __('sidebar.crawl_comparison') ?>">
+            <span class="material-symbols-outlined">compare_arrows</span>
+            <span class="icon-rail-label"><?= __('sidebar.comparison') ?></span>
+        </div>
+
         <!-- Categorize (lien direct) -->
         <?php if ($canManageCurrentProject): ?>
         <a href="?crawl=<?= $crawlId ?>&page=categorize" 
@@ -172,6 +180,48 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
         </div>
     </div>
     
+    <!-- Section Crawl Comparison -->
+    <div class="sidebar-panel-section" data-section="comparison" style="<?= $activeSection !== 'comparison' ? 'display: none;' : '' ?>">
+        <div class="sidebar-panel-header">
+            <span class="material-symbols-outlined">compare_arrows</span>
+            <span><?= __('sidebar.crawl_comparison') ?></span>
+            <button class="sidebar-panel-close" onclick="closeSidebarPanel()">
+                <span class="material-symbols-outlined">chevron_left</span>
+            </button>
+        </div>
+
+        <!-- Sélecteur de crawl de comparaison -->
+        <div class="sidebar-panel-group">
+            <div class="sidebar-panel-group-title"><?= __('comparison.select_crawl') ?></div>
+            <div style="padding: 0 0.75rem;">
+                <select id="compareCrawlSelector" class="compare-crawl-select" onchange="changeCompareCrawl(this.value)">
+                    <option value=""><?= __('comparison.select_placeholder') ?></option>
+                    <?php foreach ($domainCrawls as $dc): ?>
+                        <?php if ($dc['crawl_id'] != $crawlId): ?>
+                        <option value="<?= $dc['crawl_id'] ?>" <?= ($compareId == $dc['crawl_id']) ? 'selected' : '' ?>>
+                            <?= date('Y-m-d H:i', $dc['timestamp']) ?> (<?= number_format($dc['stats']['urls']) ?> URLs)
+                        </option>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+        </div>
+
+        <!-- Sous-pages -->
+        <div class="sidebar-panel-group">
+            <a href="?crawl=<?= $crawlId ?>&page=new-urls<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'new-urls' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">add_circle</span>
+                <span><?= __('sidebar.new_urls') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=lost-urls<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'lost-urls' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">remove_circle</span>
+                <span><?= __('sidebar.lost_urls') ?></span>
+            </a>
+        </div>
+    </div>
+
     <!-- Section Data Explorer -->
     <div class="sidebar-panel-section" data-section="explorer" style="<?= $activeSection !== 'explorer' ? 'display: none;' : '' ?>">
         <div class="sidebar-panel-header">
@@ -274,6 +324,22 @@ function openSidebarPanel() {
             sidebarPanel.classList.add('scrollable');
         }
     }, 300);
+}
+
+// Changer le crawl de comparaison
+function changeCompareCrawl(compareId) {
+    const url = new URL(window.location);
+    if (compareId) {
+        url.searchParams.set('compare', compareId);
+    } else {
+        url.searchParams.delete('compare');
+    }
+    // Si pas déjà sur une page de comparaison, naviguer vers new-urls
+    const currentPage = url.searchParams.get('page');
+    if (!['new-urls', 'lost-urls'].includes(currentPage)) {
+        url.searchParams.set('page', 'new-urls');
+    }
+    window.location = url.toString();
 }
 
 // Restaurer l'état au chargement

@@ -4606,6 +4606,29 @@ body {
     color: var(--primary-color);
 }
 
+/* Sélecteur de crawl de comparaison */
+.compare-crawl-select {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.compare-crawl-select:hover {
+    border-color: var(--primary-color);
+}
+
+.compare-crawl-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(var(--primary-color-rgb, 76, 175, 80), 0.2);
+}
+
 /* Scrollbar pour le panel - style accent vert */
 .sidebar-panel::-webkit-scrollbar,
 .sidebar-panel-section::-webkit-scrollbar,
