@@ -350,10 +350,7 @@
     "config.field_start_url": "Start URL",
     "config.field_user_agent": "User-Agent",
     "config.follow_redirects": "Follow redirects",
-<<<<<<< HEAD
     "config.retry_failed_urls": "Retry failed URLs",
-=======
->>>>>>> main
     "config.http_auth": "HTTP Authentication",
     "config.ignored": "Ignored",
     "config.key": "Key",
@@ -729,11 +726,8 @@
     "index.modal_rule_canonical_hint": "Follow canonical tags",
     "index.modal_rule_follow_redirects": "Follow redirects",
     "index.modal_rule_follow_redirects_hint": "Follow HTTP redirections (301, 302...) to their target",
-<<<<<<< HEAD
     "index.modal_rule_retry": "Retry failed URLs",
     "index.modal_rule_retry_hint": "Automatically retry URLs on timeout or server errors (429, 5xx)",
-=======
->>>>>>> main
     "index.modal_rule_nofollow": "Respect nofollow",
     "index.modal_rule_nofollow_hint": "Ignore links with rel=\"nofollow\"",
     "index.modal_rule_robots": "Respect robots.txt",

@@ -350,10 +350,7 @@
     "config.field_start_url": "URL inicial",
     "config.field_user_agent": "User-Agent",
     "config.follow_redirects": "Seguir redirecionamentos",
-<<<<<<< HEAD
     "config.retry_failed_urls": "Retentar URLs com erro",
-=======
->>>>>>> main
     "config.http_auth": "Autenticação HTTP",
     "config.ignored": "Ignorado",
     "config.key": "Chave",
