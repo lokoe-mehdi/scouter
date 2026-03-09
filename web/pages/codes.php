@@ -14,7 +14,7 @@ $search = isset($_GET['search']) ? $_GET['search'] : '';
 $stmt = $pdo->prepare("
     SELECT DISTINCT code 
     FROM pages 
-    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true
+    WHERE crawl_id = :crawl_id AND crawled = true
     ORDER BY code
 ");
 $stmt->execute([':crawl_id' => $crawlId]);
@@ -30,7 +30,7 @@ $stmt = $pdo->prepare("
         SUM(CASE WHEN code >= 400 AND code < 500 THEN 1 ELSE 0 END) as code_4xx,
         SUM(CASE WHEN code >= 500 AND code < 600 THEN 1 ELSE 0 END) as code_5xx
     FROM pages 
-    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true
+    WHERE crawl_id = :crawl_id AND crawled = true
 ");
 $stmt->execute([':crawl_id' => $crawlId]);
 $codeFamilyStats = $stmt->fetch(PDO::FETCH_OBJ);
@@ -44,7 +44,7 @@ $sqlCodeStats = "
         AVG(inlinks) as avg_inlinks,
         AVG(outlinks) as avg_outlinks
     FROM pages 
-    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true
+    WHERE crawl_id = :crawl_id AND crawled = true
     GROUP BY code 
     ORDER BY COUNT(*) DESC
 ";
@@ -59,7 +59,7 @@ $sqlCodeByCategory = "
         p.code,
         COUNT(*) as count
     FROM pages p
-    WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.is_html = true
+    WHERE p.crawl_id = :crawl_id AND p.crawled = true
     GROUP BY p.cat_id, p.code
     ORDER BY count DESC, p.cat_id, p.code
 ";
@@ -328,7 +328,7 @@ foreach ($codeByCategory as $row) {
     Component::urlTable([
         'title' => __('codes.table_non200'),
         'id' => 'codes_urls',
-        'whereClause' => 'WHERE c.code != 200 AND c.crawled = true AND c.is_html = true',
+        'whereClause' => 'WHERE c.code != 200 AND c.crawled = true ',
         'orderBy' => 'ORDER BY c.code DESC, c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'code', 'depth', 'inlinks', 'pri'],
         'pdo' => $pdo,
@@ -345,7 +345,7 @@ foreach ($codeByCategory as $row) {
     Component::linkTable([
         'title' => __('codes.table_links_non200'),
         'id' => 'codes_links',
-        'whereClause' => 'WHERE ct.code != 200 AND ct.crawled = true AND ct.is_html = true',
+        'whereClause' => 'WHERE ct.code != 200 AND ct.crawled = true',
         'orderBy' => 'ORDER BY ct.code DESC, ct.inlinks DESC',
         'defaultColumns' => ['url', 'code', 'type', 'anchor', 'nofollow'],
         'pdo' => $pdo,

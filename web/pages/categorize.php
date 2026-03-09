@@ -36,16 +36,12 @@ try {
     // Ignorer les erreurs
 }
 
-// Récupération des catégories actuelles en base (PostgreSQL) avec couleurs
+// Récupération des catégories actuelles en base (sans LEFT JOIN coûteux)
 try {
-    $stmt = $pdo->prepare("SELECT categories.id, categories.cat, categories.color, COUNT(pages.id) as url_count FROM categories 
-        LEFT JOIN pages ON categories.id = pages.cat_id AND pages.crawl_id = :crawl_id2
-        WHERE categories.crawl_id = :crawl_id
-        GROUP BY categories.id, categories.cat, categories.color 
-        ORDER BY categories.id");
-    $stmt->execute([':crawl_id' => $crawlId, ':crawl_id2' => $crawlId]);
+    $stmt = $pdo->prepare("SELECT id, cat, color FROM categories WHERE crawl_id = :crawl_id ORDER BY id");
+    $stmt->execute([':crawl_id' => $crawlId]);
     $categories = $stmt->fetchAll(PDO::FETCH_OBJ);
-    
+
     // Construire le mapping des couleurs depuis la base
     foreach ($categories as $cat) {
         $categoryColors[$cat->cat] = $cat->color ?? '#aaaaaa';
@@ -1752,7 +1748,7 @@ body {
             'title' => '',
             'id' => 'categorize_table',
             'whereClause' => 'WHERE ' . $catWhereClause,
-            'orderBy' => 'ORDER BY c.cat_id, c.url',
+            'orderBy' => 'ORDER BY c.url',
             'sqlParams' => $catParams,
             'defaultColumns' => ['url', 'code', 'category'],
             'perPage' => 50,
@@ -1761,7 +1757,8 @@ body {
             'projectDir' => $projectDir,
             'light' => true,
             'copyUrl' => true,
-            'hideTitle' => true
+            'hideTitle' => true,
+            'skipExtractDiscovery' => true
         ];
         
         include __DIR__ . '/../components/url-table.php';
@@ -2431,21 +2428,19 @@ async function saveCategorization() {
     .then(response => response.json())
     .then(data => {
         if(data.success) {
-            const categorizedCount = data.categorized_count || 0;
-            const otherCrawls = data.other_crawls || 0;
-
-            if (otherCrawls > 0) {
-                showGlobalStatus(__('categorize.msg_saved_batch').replace(':count', categorizedCount).replace(':crawls', otherCrawls), 'success');
+            if (data.async) {
+                showGlobalStatus(__('categorize.msg_saved_async'), 'success');
             } else {
+                const categorizedCount = data.categorized_count || 0;
                 showGlobalStatus(__('categorize.msg_saved').replace(':count', categorizedCount), 'success');
             }
 
-            // Rafraîchir le graphique et le tableau en AJAX
-            refreshCategorizationView();
-
-            // Démarrer le polling du job batch si créé
+            // Démarrer le polling du job batch pour suivre la progression
             if (data.batch_job_created && data.job_id) {
                 startBatchPolling(data.job_id);
+            } else {
+                // Rafraîchir le graphique et le tableau en AJAX
+                refreshCategorizationView();
             }
         } else {
             showGlobalStatus(__('common.error') + ': ' + data.error, 'error');

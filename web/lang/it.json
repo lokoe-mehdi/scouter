@@ -183,6 +183,7 @@
     "categorize.mode_visual": "Visuale",
     "categorize.msg_colors_generated": "Colori generati!",
     "categorize.msg_saved": "Categorizzazione applicata con successo (:count URL)!",
+    "categorize.msg_saved_async": "Configurazione salvata, categorizzazione in corso in background...",
     "categorize.msg_saved_batch": "Categorizzazione applicata (:count URL). Batch in corso per :crawls altra/e scansione/i...",
     "categorize.msg_saving": "Salvataggio e applicazione...",
     "categorize.msg_test_success": "Test riuscito!",

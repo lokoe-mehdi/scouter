@@ -43,17 +43,20 @@ if(!$crawlId) {
 }
 
 // Récupérer les extracteurs personnalisés depuis JSONB automatiquement
+$skipExtractDiscovery = $urlTableConfig['skipExtractDiscovery'] ?? false;
 $customExtractColumns = [];
-try {
-    $stmt = $pdo->prepare("
-        SELECT DISTINCT jsonb_object_keys(extracts) as key_name 
-        FROM pages 
-        WHERE crawl_id = :crawl_id AND extracts IS NOT NULL AND extracts != '{}'::jsonb
-    ");
-    $stmt->execute([':crawl_id' => $crawlId]);
-    $customExtractColumns = $stmt->fetchAll(PDO::FETCH_COLUMN);
-} catch (Exception $e) {
-    // Ignorer si pas d'extracteurs
+if (!$skipExtractDiscovery) {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT DISTINCT jsonb_object_keys(extracts) as key_name
+            FROM pages
+            WHERE crawl_id = :crawl_id AND extracts IS NOT NULL AND extracts != '{}'::jsonb
+        ");
+        $stmt->execute([':crawl_id' => $crawlId]);
+        $customExtractColumns = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Exception $e) {
+        // Ignorer si pas d'extracteurs
+    }
 }
 
 // Utiliser le tableau centralisé des catégories (chargé dans dashboard.php)

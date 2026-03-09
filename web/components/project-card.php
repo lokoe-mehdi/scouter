@@ -150,13 +150,13 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
                 <?php foreach($crawls as $crawl): 
                     // Tous les crawls vont vers le dashboard
                     $rowUrl = "dashboard.php?crawl=" . $crawl->crawl_id;
-                    $isInProgress = in_array($crawl->job_status, ['running', 'queued', 'pending', 'processing']);
-                    
+                    $isInProgress = in_array($crawl->job_status, ['running', 'queued', 'pending', 'processing', 'stopping']);
+
                     // Badge de statut (style subtle)
                     $badgeClass = 'status-badge status-completed';
                     $badgeText = __('index.status_completed');
 
-                    if ($crawl->job_status === 'running') {
+                    if ($crawl->job_status === 'running' || $crawl->job_status === 'stopping') {
                         $badgeClass = 'status-badge status-running';
                         $badgeText = __('index.status_running');
                     } elseif (in_array($crawl->job_status, ['queued', 'pending'])) {

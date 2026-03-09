@@ -25,6 +25,10 @@ class Response
      */
     public static function json(array $data, int $status = 200): void
     {
+        // Discard any buffered PHP output (warnings/notices) before sending JSON
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
         http_response_code($status);
         header('Content-Type: application/json');
         echo json_encode($data);
@@ -135,6 +139,9 @@ class Response
      */
     public static function csv(string $filename, callable $generator): void
     {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         header('Pragma: no-cache');
@@ -159,6 +166,9 @@ class Response
      */
     public static function html(string $content, int $status = 200): void
     {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
         http_response_code($status);
         header('Content-Type: text/html; charset=utf-8');
         echo $content;

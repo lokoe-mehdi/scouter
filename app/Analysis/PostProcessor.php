@@ -4,6 +4,7 @@ namespace App\Analysis;
 
 use PDO;
 use App\Database\PostgresDatabase;
+use App\Analysis\CategorizationService;
 
 /**
  * Post-traitement des données de crawl
@@ -38,16 +39,79 @@ class PostProcessor
     {
         echo "\n";
         flush();
-        
-        $this->calculateInlinks();
-        $this->calculatePagerank();
-        $this->semanticAnalysis();
-        $this->categorize();
-        $this->duplicateAnalysis();
-        $this->redirectChainAnalysis();
+
+        // Advisory lock : empêcher deux process de faire le post-traitement
+        // sur le même crawl_id en même temps (évite les deadlocks)
+        $lockId = $this->crawlId + 200000; // Offset pour éviter collision avec d'autres locks
+        $stmt = $this->db->prepare("SELECT pg_try_advisory_lock(:lock_id)");
+        $stmt->execute([':lock_id' => $lockId]);
+        $acquired = (bool)$stmt->fetchColumn();
+
+        if (!$acquired) {
+            echo "\033[33m! Post-processing skipped (another process is already running it)\033[0m\n";
+            flush();
+            return;
+        }
+
+        // Désactiver le statement_timeout pour les opérations lourdes de post-processing
+        // (le timeout de 120s par défaut est insuffisant pour les crawls de 1M+ pages)
+        $this->db->exec("SET statement_timeout = '0'");
+
+        $steps = [
+            'calculateInlinks',
+            'calculatePagerank',
+            'semanticAnalysis',
+            'categorize',
+            'duplicateAnalysis',
+            'redirectChainAnalysis',
+        ];
+
+        try {
+            foreach ($steps as $step) {
+                // Vérifier si le crawl a été interrompu entre les étapes
+                if ($this->isCrawlInterrupted()) {
+                    echo "\n\033[33m! Post-processing interrupted (crawl stopped or failed)\033[0m\n";
+                    flush();
+                    break;
+                }
+
+                try {
+                    $this->$step();
+                } catch (\Throwable $e) {
+                    echo "\n\033[31m✗ Post-processing error in $step: " . $e->getMessage() . "\033[0m\n";
+                    flush();
+                    // Log to stderr so worker captures it in log file
+                    fwrite(STDERR, "ERROR in PostProcessor::$step(): " . $e->getMessage()
+                        . " in " . $e->getFile() . ":" . $e->getLine() . "\n");
+                    throw $e;
+                }
+            }
+        } finally {
+            // Réactiver le timeout normal
+            try {
+                $this->db->exec("SET statement_timeout = '120s'");
+            } catch (\Throwable $ignored) {}
+            // Toujours libérer le lock
+            try {
+                $this->db->exec("SELECT pg_advisory_unlock($lockId)");
+            } catch (\Throwable $ignored) {}
+        }
 
         echo "\n\033[32m✓ Post-traitement terminé\033[0m\n\n";
         flush();
+    }
+
+    /**
+     * Vérifie si le crawl a été tué par le watchdog
+     * On ne bloque PAS sur 'stopping'/'stopped' (arrêt utilisateur) :
+     * l'utilisateur veut que le post-traitement se fasse même après un stop
+     */
+    private function isCrawlInterrupted(): bool
+    {
+        $stmt = $this->db->prepare("SELECT status FROM crawls WHERE id = :id");
+        $stmt->execute([':id' => $this->crawlId]);
+        $status = (string)$stmt->fetchColumn();
+        return $status === 'failed';
     }
 
     /**
@@ -57,16 +121,28 @@ class PostProcessor
     {
         echo "\r \033[32m Inlinks calcul \033[0m : \033[36mprocessing...\033[0m                    ";
         flush();
-        
+
+        // Une seule requête atomique : LEFT JOIN pour avoir 0 quand pas de liens
         $stmt = $this->db->prepare("
-            UPDATE pages p SET inlinks = (
-                SELECT COUNT(*) FROM links l 
-                WHERE l.crawl_id = :crawl_id AND l.target = p.id
-            )
-            WHERE p.crawl_id = :crawl_id2
+            UPDATE pages p SET inlinks = COALESCE(sub.cnt, 0)
+            FROM (
+                SELECT p2.id, lc.cnt
+                FROM pages p2
+                LEFT JOIN (
+                    SELECT target, COUNT(*) AS cnt
+                    FROM links WHERE crawl_id = :crawl_id
+                    GROUP BY target
+                ) lc ON p2.id = lc.target
+                WHERE p2.crawl_id = :crawl_id2
+            ) sub
+            WHERE p.crawl_id = :crawl_id3 AND p.id = sub.id
         ");
-        $stmt->execute([':crawl_id' => $this->crawlId, ':crawl_id2' => $this->crawlId]);
-        
+        $stmt->execute([
+            ':crawl_id' => $this->crawlId,
+            ':crawl_id2' => $this->crawlId,
+            ':crawl_id3' => $this->crawlId
+        ]);
+
         echo "\r \033[32m Inlinks calcul \033[0m : \033[36mdone\033[0m                             \n";
         flush();
     }
@@ -81,119 +157,110 @@ class PostProcessor
     {
         echo "\r \033[32m Pagerank calcul \033[0m : \033[36mprocessing...\033[0m                    ";
         flush();
-        
+
         $iterations = 30;
         $damping = 0.85;
-        
-        // Récupérer tous les liens
-        $stmt = $this->db->prepare("SELECT src, target, nofollow FROM links WHERE crawl_id = :crawl_id");
-        $stmt->execute([':crawl_id' => $this->crawlId]);
-        $links = $stmt->fetchAll(PDO::FETCH_OBJ);
-        
-        if (empty($links)) {
-            echo "\r \033[32m Pagerank calcul \033[0m : \033[33mno links\033[0m                             \n";
-            return;
-        }
-        
-        // Construire les structures de données
-        $pages = [];
-        $backlinks = [];
-        
-        foreach ($links as $link) {
-            if (!isset($pages[$link->src])) {
-                $pages[$link->src] = ['links' => 0, 'PR' => 0];
-            }
-            if (!isset($pages[$link->target])) {
-                $pages[$link->target] = ['links' => 0, 'PR' => 0];
-            }
-            if (!isset($backlinks[$link->target])) {
-                $backlinks[$link->target] = [];
-            }
-            
-            $pages[$link->src]['links']++;
-            if (!$link->nofollow) {
-                $backlinks[$link->target][] = $link->src;
-            }
-        }
-        
-        $pagesCount = count($pages);
+
+        // Count pages
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :cid");
+        $stmt->execute([':cid' => $this->crawlId]);
+        $pagesCount = (int)$stmt->fetchColumn();
+
         if ($pagesCount === 0) {
             echo "\r \033[32m Pagerank calcul \033[0m : \033[33mno pages\033[0m                             \n";
             return;
         }
-        
-        $bonus = (1 - $damping) / $pagesCount;
-        
-        // Initialiser le PageRank
-        foreach ($pages as $id => &$page) {
-            $page['PR'] = 1 / $pagesCount;
+
+        // Check if there are links
+        $stmt = $this->db->prepare("SELECT 1 FROM links WHERE crawl_id = :cid LIMIT 1");
+        $stmt->execute([':cid' => $this->crawlId]);
+        if (!$stmt->fetchColumn()) {
+            echo "\r \033[32m Pagerank calcul \033[0m : \033[33mno links\033[0m                             \n";
+            return;
         }
-        unset($page);
-        
-        // Itérations
+
+        $initPR = 1.0 / $pagesCount;
+        $bonus = (1 - $damping) / $pagesCount;
+
+        // Increase work_mem for the heavy JOIN operations
+        $this->db->exec("SET LOCAL work_mem = '128MB'");
+
+        // Create temp table for PR computation (zero PHP RAM)
+        $this->db->exec("DROP TABLE IF EXISTS tmp_pr");
+        $this->db->exec("CREATE TEMP TABLE tmp_pr (
+            id char(8) PRIMARY KEY,
+            pr float8 NOT NULL,
+            outlinks int NOT NULL DEFAULT 0
+        )");
+
+        // Initialize: all pages with their outlink counts
+        echo "\r \033[32m Pagerank calcul \033[0m : \033[36minitializing...\033[0m                    ";
+        flush();
+
+        $stmt = $this->db->prepare("
+            INSERT INTO tmp_pr (id, pr, outlinks)
+            SELECT p.id, :init_pr, COALESCE(ol.cnt, 0)
+            FROM pages p
+            LEFT JOIN (
+                SELECT src, COUNT(*) as cnt
+                FROM links WHERE crawl_id = :cid
+                GROUP BY src
+            ) ol ON p.id = ol.src
+            WHERE p.crawl_id = :cid2
+        ");
+        $stmt->execute([':init_pr' => $initPR, ':cid' => $this->crawlId, ':cid2' => $this->crawlId]);
+
+        // Iterations — entirely in PostgreSQL, zero PHP RAM
         for ($i = 0; $i < $iterations; $i++) {
             echo "\r \033[32m Pagerank calcul \033[0m : \033[36mIteration " . ($i + 1) . "/$iterations\033[0m                    ";
             flush();
-            
-            // Calculer le bonus des pages sans liens sortants
-            $deadEndBonus = 0;
-            foreach ($pages as $page) {
-                if ($page['links'] == 0) {
-                    $deadEndBonus += $page['PR'];
-                }
-            }
-            $deadEndBonus = $damping * ($deadEndBonus / $pagesCount);
-            
-            // Calculer le nouveau PR
-            $newPR = [];
-            foreach ($pages as $id => $page) {
-                $pr = 0;
-                if (isset($backlinks[$id])) {
-                    foreach ($backlinks[$id] as $bl) {
-                        if ($pages[$bl]['links'] > 0) {
-                            $pr += $pages[$bl]['PR'] / $pages[$bl]['links'];
-                        }
-                    }
-                }
-                $newPR[$id] = $pr * $damping + $bonus + $deadEndBonus;
-            }
-            
-            // Mettre à jour
-            foreach ($newPR as $id => $pr) {
-                $pages[$id]['PR'] = $pr;
-            }
+
+            // Dead-end bonus: sum PR of pages with no outgoing links
+            $stmt = $this->db->prepare("SELECT COALESCE(SUM(pr), 0) FROM tmp_pr WHERE outlinks = 0");
+            $stmt->execute();
+            $deadEndPR = (float)$stmt->fetchColumn();
+            $deadEndBonus = $damping * $deadEndPR / $pagesCount;
+            $iterBonus = $bonus + $deadEndBonus;
+
+            // Single UPDATE: new_pr = bonus + damping * sum(backlink_pr / backlink_outlinks)
+            // PostgreSQL evaluates the FROM clause with OLD pr values before writing new ones
+            $stmt = $this->db->prepare("
+                UPDATE tmp_pr t
+                SET pr = :bonus + :damping * COALESCE(inc.incoming_pr, 0)
+                FROM (
+                    SELECT t2.id, i.incoming_pr
+                    FROM tmp_pr t2
+                    LEFT JOIN (
+                        SELECT l.target, SUM(tp.pr / tp.outlinks) as incoming_pr
+                        FROM links l
+                        JOIN tmp_pr tp ON tp.id = l.src AND tp.outlinks > 0
+                        WHERE l.crawl_id = :cid AND l.nofollow = false
+                        GROUP BY l.target
+                    ) i ON t2.id = i.target
+                ) inc
+                WHERE t.id = inc.id
+            ");
+            $stmt->execute([
+                ':bonus' => $iterBonus,
+                ':damping' => $damping,
+                ':cid' => $this->crawlId
+            ]);
         }
-        
-        // Stocker les résultats par batch pour éviter "out of shared memory"
-        $stmt = $this->db->prepare("UPDATE pages SET pri = :pr WHERE crawl_id = :crawl_id AND id = :id");
-        $batchSize = 100;
-        $count = 0;
-        $total = count($pages);
-        
-        $this->db->beginTransaction();
-        try {
-            foreach ($pages as $id => $page) {
-                $stmt->execute([
-                    ':pr' => round($page['PR'], 8),
-                    ':crawl_id' => $this->crawlId,
-                    ':id' => $id
-                ]);
-                $count++;
-                
-                // Commit par batch pour libérer les verrous
-                if ($count % $batchSize === 0) {
-                    $this->db->commit();
-                    $this->db->beginTransaction();
-                    echo "\r \033[32m Pagerank calcul \033[0m : \033[36msaving $count/$total\033[0m                    ";
-                    flush();
-                }
-            }
-            $this->db->commit();
-        } catch (\Exception $e) {
-            $this->db->rollBack();
-            throw $e;
-        }
-        
+
+        // Save results back to pages table (single UPDATE)
+        echo "\r \033[32m Pagerank calcul \033[0m : \033[36msaving...\033[0m                    ";
+        flush();
+
+        $stmt = $this->db->prepare("
+            UPDATE pages p SET pri = t.pr
+            FROM tmp_pr t
+            WHERE p.crawl_id = :cid AND p.id = t.id
+        ");
+        $stmt->execute([':cid' => $this->crawlId]);
+
+        // Cleanup
+        $this->db->exec("DROP TABLE IF EXISTS tmp_pr");
+
         echo "\r \033[32m Pagerank calcul \033[0m : \033[36mdone\033[0m                             \n";
         flush();
     }
@@ -208,102 +275,37 @@ class PostProcessor
     {
         echo "\r \033[32m Semantic analysis \033[0m : \033[36mprocessing...\033[0m                    ";
         flush();
-        
-        // Récupérer uniquement les pages compliant
+
+        // Une seule requête SQL avec window functions (zéro RAM PHP)
         $stmt = $this->db->prepare("
-            SELECT id, title, h1, metadesc 
-            FROM pages 
-            WHERE crawl_id = :crawl_id AND compliant = 'true'
+            UPDATE pages p SET
+                title_status = s.title_st,
+                h1_status = s.h1_st,
+                metadesc_status = s.metadesc_st
+            FROM (
+                SELECT id,
+                    CASE
+                        WHEN title IS NULL OR title = '' THEN 'empty'
+                        WHEN COUNT(*) OVER (PARTITION BY title) > 1 THEN 'duplicate'
+                        ELSE 'unique'
+                    END AS title_st,
+                    CASE
+                        WHEN h1 IS NULL OR h1 = '' THEN 'empty'
+                        WHEN COUNT(*) OVER (PARTITION BY h1) > 1 THEN 'duplicate'
+                        ELSE 'unique'
+                    END AS h1_st,
+                    CASE
+                        WHEN metadesc IS NULL OR metadesc = '' THEN 'empty'
+                        WHEN COUNT(*) OVER (PARTITION BY metadesc) > 1 THEN 'duplicate'
+                        ELSE 'unique'
+                    END AS metadesc_st
+                FROM pages
+                WHERE crawl_id = :crawl_id AND compliant = true
+            ) s
+            WHERE p.crawl_id = :crawl_id2 AND p.id = s.id
         ");
-        $stmt->execute([':crawl_id' => $this->crawlId]);
-        $pages = $stmt->fetchAll(PDO::FETCH_OBJ);
-        
-        // Créer des maps pour détecter les doublons
-        $titles = [];
-        $h1s = [];
-        $metadescs = [];
-        
-        foreach ($pages as $page) {
-            if (!empty($page->title)) {
-                $titles[$page->title][] = $page->id;
-            }
-            if (!empty($page->h1)) {
-                $h1s[$page->h1][] = $page->id;
-            }
-            if (!empty($page->metadesc)) {
-                $metadescs[$page->metadesc][] = $page->id;
-            }
-        }
-        
-        $updateStmt = $this->db->prepare("
-            UPDATE pages SET 
-                title_status = :title_status,
-                h1_status = :h1_status,
-                metadesc_status = :metadesc_status
-            WHERE crawl_id = :crawl_id AND id = :id
-        ");
-        
-        $count = 0;
-        $total = count($pages);
-        $batchSize = 100;
-        
-        $this->db->beginTransaction();
-        try {
-            foreach ($pages as $page) {
-                $count++;
-                
-                // Title status
-                $titleStatus = null;
-                if (empty($page->title)) {
-                    $titleStatus = 'empty';
-                } elseif (isset($titles[$page->title]) && count($titles[$page->title]) > 1) {
-                    $titleStatus = 'duplicate';
-                } else {
-                    $titleStatus = 'unique';
-                }
-                
-                // H1 status
-                $h1Status = null;
-                if (empty($page->h1)) {
-                    $h1Status = 'empty';
-                } elseif (isset($h1s[$page->h1]) && count($h1s[$page->h1]) > 1) {
-                    $h1Status = 'duplicate';
-                } else {
-                    $h1Status = 'unique';
-                }
-                
-                // Metadesc status
-                $metadescStatus = null;
-                if (empty($page->metadesc)) {
-                    $metadescStatus = 'empty';
-                } elseif (isset($metadescs[$page->metadesc]) && count($metadescs[$page->metadesc]) > 1) {
-                    $metadescStatus = 'duplicate';
-                } else {
-                    $metadescStatus = 'unique';
-                }
-                
-                $updateStmt->execute([
-                    ':title_status' => $titleStatus,
-                    ':h1_status' => $h1Status,
-                    ':metadesc_status' => $metadescStatus,
-                    ':crawl_id' => $this->crawlId,
-                    ':id' => $page->id
-                ]);
-                
-                // Commit par batch pour libérer les verrous
-                if ($count % $batchSize === 0) {
-                    $this->db->commit();
-                    $this->db->beginTransaction();
-                    echo "\r \033[32m Semantic analysis \033[0m : \033[36m$count/$total\033[0m                    ";
-                    flush();
-                }
-            }
-            $this->db->commit();
-        } catch (\Exception $e) {
-            $this->db->rollBack();
-            throw $e;
-        }
-        
+        $stmt->execute([':crawl_id' => $this->crawlId, ':crawl_id2' => $this->crawlId]);
+
         echo "\r \033[32m Semantic analysis \033[0m : \033[36mdone\033[0m                             \n";
         flush();
     }
@@ -323,7 +325,6 @@ class PostProcessor
         $stmt->execute([':crawl_id' => $this->crawlId]);
         $crawl = $stmt->fetch(PDO::FETCH_OBJ);
         $projectId = $crawl ? $crawl->project_id : null;
-        $domain = $crawl ? $crawl->domain : '';
 
         // Try project-level config FIRST
         if ($projectId) {
@@ -352,129 +353,10 @@ class PostProcessor
             return;
         }
 
-        // Parser le YAML avec Spyc
-        $catConfig = \Spyc::YAMLLoadString($yamlConfig);
-        if (empty($catConfig)) {
-            echo "\r \033[32m Categorisation \033[0m : \033[33mempty config\033[0m                             \n";
-            return;
-        }
-        
-        // Supprimer les catégories existantes pour ce crawl
-        $this->db->prepare("DELETE FROM categories WHERE crawl_id = :crawl_id")
-                 ->execute([':crawl_id' => $this->crawlId]);
-        
-        // Créer les catégories
-        $categories = [];
-        $catOrder = [];
-        $insertCat = $this->db->prepare("INSERT INTO categories (crawl_id, cat, color) VALUES (:crawl_id, :cat, :color) RETURNING id");
-        
-        foreach ($catConfig as $catName => $rules) {
-            $color = isset($rules['color']) ? $rules['color'] : '#aaaaaa';
-            $color = trim($color, '"\'');
-            
-            $insertCat->execute([':crawl_id' => $this->crawlId, ':cat' => $catName, ':color' => $color]);
-            $catId = $insertCat->fetch(PDO::FETCH_OBJ)->id;
-            $categories[$catName] = [
-                'id' => $catId,
-                'rules' => $rules
-            ];
-            $catOrder[] = $catName;
-        }
-        
-        // Récupérer toutes les pages
-        $stmt = $this->db->prepare("SELECT id, url FROM pages WHERE crawl_id = :crawl_id");
-        $stmt->execute([':crawl_id' => $this->crawlId]);
-        $pages = $stmt->fetchAll(PDO::FETCH_OBJ);
-        
-        $updateStmt = $this->db->prepare("UPDATE pages SET cat_id = :cat_id WHERE crawl_id = :crawl_id AND id = :id");
-        
-        $count = 0;
-        $total = count($pages);
-        $batchSize = 100;
-        
-        $this->db->beginTransaction();
-        try {
-            foreach ($pages as $page) {
-                $count++;
-                
-                $url = $page->url;
-                $catId = null;
-                
-                // Normaliser l'URL
-                $urlPath = preg_replace('#^https?://#i', '', $url);
-                $urlPath = preg_replace('#^' . preg_quote($domain, '#') . '#i', '', $urlPath);
-                
-                // Parcourir les catégories dans l'ordre
-                foreach ($catOrder as $catName) {
-                    $cat = $categories[$catName];
-                    $rules = $cat['rules'];
-                    
-                    // Vérifier le domaine
-                    $domRule = $rules['dom'] ?? '.*';
-                    if (is_array($domRule)) {
-                        $domRule = $domain;
-                    }
-                    if (!preg_match('#' . preg_quote($domRule, '#') . '#i', $url)) {
-                        continue;
-                    }
-                    
-                    // Vérifier les patterns include
-                    $included = false;
-                    $includes = $rules['include'] ?? [];
-                    foreach ($includes as $pattern) {
-                        if (is_array($pattern)) continue;
-                        if (preg_match("#$pattern#i", $urlPath)) {
-                            $included = true;
-                            break;
-                        }
-                    }
-                    
-                    if (!$included) {
-                        continue;
-                    }
-                    
-                    // Vérifier les patterns exclude
-                    $excluded = false;
-                    $excludes = $rules['exclude'] ?? [];
-                    foreach ($excludes as $pattern) {
-                        if (is_array($pattern)) continue;
-                        if (preg_match("#$pattern#i", $urlPath)) {
-                            $excluded = true;
-                            break;
-                        }
-                    }
-                    
-                    if ($excluded) {
-                        continue;
-                    }
-                    
-                    $catId = $cat['id'];
-                    break;
-                }
-                
-                if ($catId !== null) {
-                    $updateStmt->execute([
-                        ':cat_id' => $catId,
-                        ':crawl_id' => $this->crawlId,
-                        ':id' => $page->id
-                    ]);
-                }
-                
-                // Commit par batch pour libérer les verrous
-                if ($count % $batchSize === 0) {
-                    $this->db->commit();
-                    $this->db->beginTransaction();
-                    echo "\r \033[32m Categorisation \033[0m : \033[36m$count/$total\033[0m                    ";
-                    flush();
-                }
-            }
-            $this->db->commit();
-        } catch (\Exception $e) {
-            $this->db->rollBack();
-            throw $e;
-        }
-        
-        echo "\r \033[32m Categorisation \033[0m : \033[36mdone\033[0m                             \n";
+        $service = new CategorizationService($this->db);
+        $count = $service->applyCategorization($this->crawlId, $yamlConfig);
+
+        echo "\r \033[32m Categorisation \033[0m : \033[36mdone ($count pages)\033[0m                             \n";
         flush();
     }
 
@@ -866,7 +748,7 @@ class PostProcessor
                 if ($count % $batchSize === 0) {
                     $this->db->commit();
                     $this->db->beginTransaction();
-                    echo "\r \033[32m Redirect chains \033[0m : \033[36m$count/$total\033[0m                    ";
+                    echo "\r \033[32m Redirect chains \033[0m : \033[36m$count/$total\033[0m                             ";
                     flush();
                 }
             }

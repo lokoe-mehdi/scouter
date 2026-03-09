@@ -222,6 +222,12 @@ class CrawlController extends Controller
             Response::notFound('Crawl not found');
         }
         
+        // Clear old log file so stale errors don't persist
+        $logFile = dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . $projectDir . '.log';
+        if (file_exists($logFile)) {
+            file_put_contents($logFile, '');
+        }
+
         $projectName = preg_replace("#-(\d{8})-(\d{6})$#", "", $projectDir);
         $jobId = $this->jobManager->createJob($projectDir, $projectName, 'crawl');
         
