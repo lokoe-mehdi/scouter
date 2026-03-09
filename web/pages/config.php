@@ -340,8 +340,6 @@ if (!empty($crawlRecord->config)) {
                         </td>
                     </tr>
                     <?php endif; ?>
-<<<<<<< HEAD
-=======
 
                     <?php if (isset($configData['advanced']['retry_failed_urls'])): ?>
                     <tr>
@@ -356,7 +354,6 @@ if (!empty($crawlRecord->config)) {
                         </td>
                     </tr>
                     <?php endif; ?>
->>>>>>> fixretry
                 </tbody>
             </table>
             <?php endif; ?>

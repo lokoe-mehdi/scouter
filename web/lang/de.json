@@ -362,10 +362,7 @@
     "config.field_start_url": "Start-URL",
     "config.field_user_agent": "User-Agent",
     "config.follow_redirects": "Weiterleitungen folgen",
-<<<<<<< HEAD
-=======
     "config.retry_failed_urls": "Fehlgeschlagene URLs erneut versuchen",
->>>>>>> fixretry
     "config.http_auth": "HTTP-Authentifizierung",
     "config.ignored": "Ignoriert",
     "config.key": "Schlüssel",
@@ -741,11 +738,8 @@
     "index.modal_rule_canonical_hint": "Canonical-Tags befolgen",
     "index.modal_rule_follow_redirects": "Weiterleitungen folgen",
     "index.modal_rule_follow_redirects_hint": "HTTP-Weiterleitungen (301, 302...) zu ihrem Ziel folgen",
-<<<<<<< HEAD
-=======
     "index.modal_rule_retry": "Fehlgeschlagene URLs erneut versuchen",
     "index.modal_rule_retry_hint": "URLs bei Timeout oder Serverfehler (429, 5xx) automatisch erneut versuchen",
->>>>>>> fixretry
     "index.modal_rule_nofollow": "Nofollow einhalten",
     "index.modal_rule_nofollow_hint": "Links mit rel=\"nofollow\" ignorieren",
     "index.modal_rule_robots": "robots.txt einhalten",

@@ -245,52 +245,23 @@ class DepthCrawler
     }
 
     /**
-<<<<<<< HEAD
-     * Retry les URLs echouees avec backoff exponentiel + jitter per-URL
-=======
      * Retry les URLs echouees avec backoff exponentiel via curl_multi
      * Un seul sleep avant chaque batch, puis toutes les URLs en parallele
->>>>>>> fixretry
      * Tentatives: 2s, 4s, 8s, 16s avec +/- 20% de jitter
      */
     private function retryFailedUrls(array $failedUrls): void
     {
         if (empty($failedUrls)) return;
 
-<<<<<<< HEAD
-=======
         // Skip retry si désactivé dans la config
         if (!($this->config['retry_failed_urls'] ?? true)) {
             return;
         }
 
->>>>>>> fixretry
         for ($attempt = 1; $attempt <= self::MAX_RETRIES && !empty($failedUrls); $attempt++) {
             $this->checkStopSignal();
 
             $baseDelay = self::BASE_DELAY * pow(2, $attempt - 1); // 2, 4, 8, 16
-<<<<<<< HEAD
-            $stillFailing = [];
-
-            echo "\n \033[33m ↻ Retry attempt $attempt/" . self::MAX_RETRIES
-                 . " for " . count($failedUrls) . " URLs (~{$baseDelay}s pause)\033[0m";
-            flush();
-            if (ob_get_level() > 0) ob_flush();
-
-            foreach ($failedUrls as $url) {
-                // Jitter per-URL : +/- 20%
-                $jitter = $baseDelay * (mt_rand(-self::JITTER_PERCENT, self::JITTER_PERCENT) / 100);
-                $actualDelay = $baseDelay + $jitter;
-                usleep((int)($actualDelay * 1000000));
-
-                $ch = curl_init($url);
-                curl_setopt_array($ch, $this->curlOptions);
-                $response = curl_exec($ch);
-                $info = curl_getinfo($ch);
-                $errno = curl_errno($ch);
-                $error = curl_error($ch);
-                curl_close($ch);
-=======
             // Jitter global : +/- 20%
             $jitter = $baseDelay * (mt_rand(-self::JITTER_PERCENT, self::JITTER_PERCENT) / 100);
             $actualDelay = $baseDelay + $jitter;
@@ -333,7 +304,6 @@ class DepthCrawler
                 $info = curl_getinfo($ch);
                 $errno = curl_errno($ch);
                 $error = curl_error($ch);
->>>>>>> fixretry
 
                 $httpCode = (int)($info['http_code'] ?? 0);
                 $isTimeout = ($errno == CURLE_OPERATION_TIMEDOUT);
@@ -348,16 +318,6 @@ class DepthCrawler
                     $pageCrawler->run($request);
                 }
 
-<<<<<<< HEAD
-                // Mettre a jour les stats periodiquement pendant les retries
-                // pour que le watchdog voie la progression
-                if (time() - self::$lastStatsUpdate >= 10) {
-                    self::$lastStatsUpdate = time();
-                    $this->crawlDb->updateCrawlStats();
-                }
-            }
-
-=======
                 curl_multi_remove_handle($mh, $ch);
                 curl_close($ch);
             }
@@ -367,7 +327,6 @@ class DepthCrawler
             // Mettre a jour les stats apres chaque batch de retry
             $this->crawlDb->updateCrawlStats();
 
->>>>>>> fixretry
             $resolved = count($failedUrls) - count($stillFailing);
             if ($resolved > 0) {
                 echo "\n \033[32m ✓ $resolved URLs resolved on attempt $attempt\033[0m";
@@ -391,18 +350,11 @@ class DepthCrawler
         $this->prepare_crawl();
         $failedUrls = [];
 
-<<<<<<< HEAD
-        $this->crawler->setCallback(function(Request $request,RollingCurl $rollingCurl) use (&$failedUrls) {
-            $this->checkStopSignal();
-
-            if ($this->isRetryableResponse($request)) {
-=======
         $retryEnabled = $this->config['retry_failed_urls'] ?? true;
         $this->crawler->setCallback(function(Request $request,RollingCurl $rollingCurl) use (&$failedUrls, $retryEnabled) {
             $this->checkStopSignal();
 
             if ($retryEnabled && $this->isRetryableResponse($request)) {
->>>>>>> fixretry
                 $failedUrls[] = $request->getUrl();
             } else {
                 $PageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
@@ -479,14 +431,9 @@ class DepthCrawler
                 }
             }
 
-<<<<<<< HEAD
-            $batchCrawler->setCallback(function(Request $request, RollingCurl $rollingCurl) use (&$failedUrls) {
-                if ($this->isRetryableResponse($request)) {
-=======
             $retryEnabled = $this->config['retry_failed_urls'] ?? true;
             $batchCrawler->setCallback(function(Request $request, RollingCurl $rollingCurl) use (&$failedUrls, $retryEnabled) {
                 if ($retryEnabled && $this->isRetryableResponse($request)) {
->>>>>>> fixretry
                     $failedUrls[] = $request->getUrl();
                 } else {
                     $PageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
@@ -682,12 +629,8 @@ class DepthCrawler
                     }
 
                     // Verifier si retryable (429, 5xx, timeout)
-<<<<<<< HEAD
-                    if ($this->isRetryableResponse($request)) {
-=======
                     $retryEnabled = $this->config['retry_failed_urls'] ?? true;
                     if ($retryEnabled && $this->isRetryableResponse($request)) {
->>>>>>> fixretry
                         $failedUrls[] = $url;
                     } else {
                         $PageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
