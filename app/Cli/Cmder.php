@@ -113,6 +113,7 @@ class Cmder
     }
     
 <<<<<<< HEAD
+<<<<<<< HEAD
     // Propager follow_redirects et crawl_type dans la config
     $config['follow_redirects'] = $data['advanced']['follow_redirects'] ?? true;
 =======
@@ -120,6 +121,10 @@ class Cmder
     $config['follow_redirects'] = $data['advanced']['follow_redirects'] ?? true;
     $config['retry_failed_urls'] = $data['advanced']['retry_failed_urls'] ?? true;
 >>>>>>> fixretry
+=======
+    // Propager follow_redirects et crawl_type dans la config
+    $config['follow_redirects'] = $data['advanced']['follow_redirects'] ?? true;
+>>>>>>> main
     $config['crawl_type'] = $data['general']['crawl_type'] ?? 'spider';
 
     // Ajouter xPathExtractors et regexExtractors s'ils existent

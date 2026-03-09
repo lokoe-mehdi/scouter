@@ -836,6 +836,7 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                                     </div>
                                 </label>
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 
                                 <label class="rule-toggle">
@@ -847,6 +848,8 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                                     </div>
                                 </label>
 >>>>>>> fixretry
+=======
+>>>>>>> main
                             </div>
                         </div>
 
@@ -1781,9 +1784,12 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                 respect_canonical: document.getElementById('respect_canonical').checked,
                 follow_redirects: document.getElementById('follow_redirects').checked,
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
                 retry_failed_urls: document.getElementById('retry_failed_urls').checked,
 >>>>>>> fixretry
+=======
+>>>>>>> main
                 crawl_speed: document.getElementById('crawl_speed').value,
                 crawl_mode: document.getElementById('crawl_mode').value
             };
