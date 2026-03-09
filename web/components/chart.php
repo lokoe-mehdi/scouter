@@ -751,8 +751,8 @@ Highcharts.chart('<?= $chartId ?>', {
     tooltip: {
         formatter: function() {
             return '<?= addslashes($tooltipFormat) ?>'
-                .replace('{x}', this.x.toFixed(2))
-                .replace('{y}', this.y);
+                .replace(':x', this.x.toFixed(1))
+                .replace(':y', this.y);
         }
     },
     <?php endif; ?>

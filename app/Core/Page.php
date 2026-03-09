@@ -831,39 +831,66 @@ class Page
         if (empty($this->dom)) {
             return null;
         }
-        
-        // Extraire le contenu principal: <main> > <article> > <body>
+
+        // Extraire le H1 pour le forcer dans le contenu
+        $h1Text = '';
+        if (preg_match('/<h1[^>]*>(.*?)<\/h1>/is', $this->dom, $h1m)) {
+            $h1Text = trim(strip_tags($h1m[1]));
+        }
+
+        // Utiliser Readability pour extraire le contenu principal (sans boilerplate)
         $content = null;
-        
-        // Essayer <main> d'abord
-        if (preg_match('/<main[^>]*>(.*?)<\/main>/is', $this->dom, $m)) {
-            $content = $m[1];
+        $useReadability = false;
+        try {
+            $configuration = new Configuration();
+            $configuration->setFixRelativeURLs(false);
+            $configuration->setSubstituteEntities(false);
+
+            $readability = new Readability($configuration);
+            $readability->parse($this->dom);
+            $readabilityContent = $readability->getContent();
+
+            if (!empty($readabilityContent)) {
+                // Vérifier que Readability a extrait assez de contenu (>= 200 mots)
+                $testText = strip_tags($readabilityContent);
+                $wordCount = str_word_count($testText);
+                if ($wordCount >= 200) {
+                    $content = $readabilityContent;
+                    $useReadability = true;
+                }
+            }
+        } catch (\Exception $e) {
+            $content = null;
         }
-        // Sinon <article>
-        elseif (preg_match('/<article[^>]*>(.*?)<\/article>/is', $this->dom, $m)) {
-            $content = $m[1];
+
+        // Fallback si Readability échoue ou < 200 mots
+        if (!$useReadability) {
+            if (preg_match('/<main[^>]*>(.*?)<\/main>/is', $this->dom, $m)) {
+                $content = $m[1];
+            } elseif (preg_match('/<body[^>]*>(.*?)<\/body>/is', $this->dom, $m)) {
+                $content = $m[1];
+            } else {
+                $content = $this->dom;
+            }
+
+            $cleaned = preg_replace('/<(nav|header|footer|aside|form)[^>]*>.*?<\/\1>/is', '', $content);
+            if ($cleaned !== null) {
+                $content = $cleaned;
+            }
         }
-        // Sinon <body>
-        elseif (preg_match('/<body[^>]*>(.*?)<\/body>/is', $this->dom, $m)) {
-            $content = $m[1];
+
+        $content = $this->extractVisibleText($content);
+
+        // Forcer le H1 en tête du contenu
+        if (!empty($h1Text)) {
+            $content = $h1Text . ' ' . $content;
         }
-        // Fallback: tout le DOM
-        else {
-            $content = $this->dom;
-        }
-        
-        // Supprimer nav, header, footer, aside du contenu
-        // Protection: preg_replace peut retourner null sur gros HTML
-        $cleaned = preg_replace('/<(nav|header|footer|aside)[^>]*>.*?<\/\1>/is', '', $content);
-        if ($cleaned !== null) {
-            $content = $cleaned;
-        }
-        
+
         // Protection contre content null ou vide
         if (empty($content)) {
             return null;
         }
-        
+
         return Simhash::compute($content);
     }
     

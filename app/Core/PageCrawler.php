@@ -93,7 +93,7 @@ class PageCrawler
     private function storePageComplete()
     {
         $responseTime = $this->page->headers->response_time * 1000;
-        $contentType = $this->page->headers->content_type ?? '';
+        $contentType = mb_substr($this->page->headers->content_type ?? '', 0, 100);
         $date = date("Y-m-d H:i:s");
         $id = $this->page->id;
         $redirectTo = $this->page->headers->redirect_to ?? '';
@@ -232,7 +232,7 @@ class PageCrawler
                 $blocked = !RobotsTxt::robots_allowed($canonicalUrl);
 
                 preg_match("#https?:\/\/([^/\?]+)#i", $canonicalUrl, $dom);
-                $domain = $dom[1] ?? '';
+                $domain = mb_substr($dom[1] ?? '', 0, 255);
 
                 // Insérer le lien canonical
                 $this->crawlDb->insertLink([
@@ -275,7 +275,7 @@ class PageCrawler
                 ];
 
                 preg_match("#https?:\/\/([^/\?]+)#i", $link->target, $dom);
-                $domain = $dom[1] ?? '';
+                $domain = mb_substr($dom[1] ?? '', 0, 255);
 
                 $pages[] = [
                     'id' => $link->target_id,
