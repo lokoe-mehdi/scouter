@@ -835,6 +835,18 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                                         <span class="rule-toggle-hint"><?= __('index.modal_rule_follow_redirects_hint') ?></span>
                                     </div>
                                 </label>
+<<<<<<< HEAD
+=======
+
+                                <label class="rule-toggle">
+                                    <input type="checkbox" id="retry_failed_urls" name="retry_failed_urls" checked>
+                                    <span class="rule-toggle-slider"></span>
+                                    <div class="rule-toggle-content">
+                                        <span class="rule-toggle-label"><?= __('index.modal_rule_retry') ?></span>
+                                        <span class="rule-toggle-hint"><?= __('index.modal_rule_retry_hint') ?></span>
+                                    </div>
+                                </label>
+>>>>>>> fixretry
                             </div>
                         </div>
 
@@ -1768,6 +1780,10 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                 respect_nofollow: document.getElementById('respect_nofollow').checked,
                 respect_canonical: document.getElementById('respect_canonical').checked,
                 follow_redirects: document.getElementById('follow_redirects').checked,
+<<<<<<< HEAD
+=======
+                retry_failed_urls: document.getElementById('retry_failed_urls').checked,
+>>>>>>> fixretry
                 crawl_speed: document.getElementById('crawl_speed').value,
                 crawl_mode: document.getElementById('crawl_mode').value
             };

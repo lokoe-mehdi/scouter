@@ -340,6 +340,23 @@ if (!empty($crawlRecord->config)) {
                         </td>
                     </tr>
                     <?php endif; ?>
+<<<<<<< HEAD
+=======
+
+                    <?php if (isset($configData['advanced']['retry_failed_urls'])): ?>
+                    <tr>
+                        <td style="width: 300px;"><?= __('config.retry_failed_urls') ?></td>
+                        <td>
+                            <span class="config-value boolean <?= $configData['advanced']['retry_failed_urls'] ? 'true' : 'false' ?>">
+                                <span class="material-symbols-outlined">
+                                    <?= $configData['advanced']['retry_failed_urls'] ? 'check_circle' : 'cancel' ?>
+                                </span>
+                                <?= $configData['advanced']['retry_failed_urls'] ? __('common.yes') : __('common.no') ?>
+                            </span>
+                        </td>
+                    </tr>
+                    <?php endif; ?>
+>>>>>>> fixretry
                 </tbody>
             </table>
             <?php endif; ?>
