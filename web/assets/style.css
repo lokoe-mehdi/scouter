@@ -4744,6 +4744,7 @@ body {
 /* Sentence builder */
 .sched-sentence {
     margin-top: 0.75rem;
+    font-size: 0.8rem;
     display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
     font-size: 0.85rem; color: var(--text-primary); line-height: 2.2;
 }
@@ -4763,26 +4764,32 @@ body {
 .sched-pill-input::-webkit-inner-spin-button { -webkit-appearance: none; }
 .sched-pill-input:focus { border-bottom-color: var(--primary-dark); }
 
-/* Custom time picker stepper */
-.sched-time-picker {
-    display: inline-flex; align-items: center; gap: 2px;
-    background: rgba(78,205,196,0.06); border-radius: 8px; padding: 2px 4px;
+/* Time picker dropdown */
+.sched-time-custom { position: relative; display: inline-block; }
+.sched-time-trigger {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.2rem 0.4rem; border: none; border-radius: 6px;
+    background: rgba(78,205,196,0.1); color: var(--primary-color);
+    font-size: 0.8rem; font-weight: 700; cursor: pointer;
+    transition: background 0.15s;
 }
-.sched-time-btn {
-    display: flex; align-items: center; justify-content: center;
-    width: 24px; height: 24px; border: none; border-radius: 6px;
-    background: none; color: var(--text-tertiary); cursor: pointer;
-    transition: all 0.1s;
+.sched-time-trigger:hover { background: rgba(78,205,196,0.18); }
+.sched-time-trigger .material-symbols-outlined { font-size: 14px; }
+
+.sched-time-dropdown {
+    display: none; position: absolute; top: 100%; left: 0; margin-top: 4px;
+    width: 90px; max-height: 200px; overflow-y: auto;
+    background: var(--card-bg, #fff); border: 1px solid var(--border-color); border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12); z-index: 300;
 }
-.sched-time-btn:hover { background: var(--primary-color); color: white; }
-.sched-time-btn .material-symbols-outlined { font-size: 14px; }
-.sched-time-display {
-    font-size: 0.9rem; font-weight: 700; color: var(--primary-color);
-    min-width: 22px; text-align: center; user-select: none;
+.sched-time-dropdown.show { display: block; }
+.sched-time-option {
+    padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500;
+    color: var(--text-primary); cursor: pointer; text-align: center;
+    transition: background 0.1s;
 }
-.sched-time-sep {
-    font-weight: 700; color: var(--text-tertiary); margin: 0 2px; user-select: none;
-}
+.sched-time-option:hover { background: rgba(78,205,196,0.08); }
+.sched-time-option--active { color: var(--primary-color); font-weight: 700; background: rgba(78,205,196,0.06); }
 
 /* Day chips */
 .sched-days { display: flex; gap: 4px; margin: 0.75rem 0; }
@@ -4862,9 +4869,16 @@ body {
 .pj-crawl-row--clickable { cursor: pointer; }
 .pj-crawl-row:hover { background: #f9f9f9; }
 
+/* Config icons inside crawl rows — smaller and muted */
+.pj-crawl-config .config-icon { font-size: 14px; transition: opacity 0.1s; }
+.pj-crawl-config .config-icon.inactive { opacity: 0.1; }
+.pj-crawl-config .config-icon.active { opacity: 0.7; color: var(--text-primary); }
+.pj-crawl-config .config-depth-badge { font-size: 0.6rem; }
+.pj-crawl-config .config-depth-badge { font-size: 0.6rem; }
+.pj-crawl-config .config-list-badge { font-size: 0.55rem; }
+
+
 /* Actions hidden by default, visible on hover */
-.pj-crawl-actions--hover { opacity: 0; transition: opacity 0.15s; }
-.pj-crawl-row:hover .pj-crawl-actions--hover { opacity: 1; }
 
 .pj-crawl-type { flex-shrink: 0; }
 .pj-crawl-type .material-symbols-outlined { font-size: 16px; color: var(--text-tertiary); }
@@ -4891,7 +4905,7 @@ body {
 .pj-pill--active { background: rgba(78,205,196,0.12); color: var(--primary-color); }
 
 /* Action icon buttons */
-.pj-crawl-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.pj-crawl-actions { display: flex; gap: 2px; flex-shrink: 0; margin-left: 0.5rem; padding-left: 0.5rem; border-left: 1px solid rgba(0,0,0,0.06); }
 .pj-icon-btn {
     display: inline-flex; align-items: center; justify-content: center;
     width: 28px; height: 28px; border-radius: 6px;

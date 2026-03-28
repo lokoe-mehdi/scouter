@@ -151,9 +151,12 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             }
             echo '</div>';
             echo '<div class="pj-crawl-config">';
-            if (($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript') echo '<span class="pj-pill pj-pill--active" title="' . __('index.mode_javascript') . '">JS</span>';
-            if (!empty($crawl->config['advanced']['respect']['robots'])) echo '<span class="pj-pill pj-pill--active" title="' . __('index.respect_robots') . '">robots</span>';
-            if (($crawl->crawl_type ?? 'spider') !== 'list') echo '<span class="pj-pill" title="' . __('index.max_depth') . '">' . ($crawl->config['general']['depthMax'] ?? '-') . '</span>';
+            echo '<span class="material-symbols-outlined config-icon ' . (($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript' ? 'active' : 'inactive') . '" title="' . __('index.mode_javascript') . '">javascript</span>';
+            echo '<span class="material-symbols-outlined config-icon ' . ((!empty($crawl->config['advanced']['respect']['robots']) || !empty($crawl->config['advanced']['respect_robots'])) ? 'active' : 'inactive') . '" title="' . __('index.respect_robots') . '">smart_toy</span>';
+            echo '<span class="material-symbols-outlined config-icon ' . ((!empty($crawl->config['advanced']['respect']['canonical']) || !empty($crawl->config['advanced']['respect_canonical'])) ? 'active' : 'inactive') . '" title="' . __('index.respect_canonical') . '">content_copy</span>';
+            echo '<span class="material-symbols-outlined config-icon ' . ((!empty($crawl->config['advanced']['respect']['nofollow']) || !empty($crawl->config['advanced']['respect_nofollow'])) ? 'active' : 'inactive') . '" title="' . __('index.respect_nofollow') . '">link_off</span>';
+            echo '<span class="material-symbols-outlined config-icon ' . (($crawl->config['advanced']['follow_redirects'] ?? true) ? 'active' : 'inactive') . '" title="' . __('index.follow_redirects') . '">redo</span>';
+            if (($crawl->crawl_type ?? 'spider') !== 'list') echo '<span class="config-depth-badge" title="' . __('index.max_depth') . '">' . ($crawl->config['general']['depthMax'] ?? '-') . '</span>';
             echo '</div>';
             echo '<div class="pj-crawl-actions" onclick="event.stopPropagation();">';
             if ($isFinished) echo '<a href="dashboard.php?crawl=' . $crawl->crawl_id . '" class="pj-icon-btn" title="' . __('project.view_report') . '"><span class="material-symbols-outlined">bar_chart</span></a>';
@@ -268,14 +271,18 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                         </span>
                         <span id="schedTimeWrap">
                             <?= __('project.sched_at') ?>
-                            <div class="sched-time-picker">
-                                <button type="button" class="sched-time-btn" onclick="adjustTime('hour',-1)"><span class="material-symbols-outlined">remove</span></button>
-                                <span class="sched-time-display" id="schedTimeDisplay">08</span>
-                                <button type="button" class="sched-time-btn" onclick="adjustTime('hour',1)"><span class="material-symbols-outlined">add</span></button>
-                                <span class="sched-time-sep">:</span>
-                                <button type="button" class="sched-time-btn" onclick="adjustTime('min',-15)"><span class="material-symbols-outlined">remove</span></button>
-                                <span class="sched-time-display" id="schedTimeMinDisplay">00</span>
-                                <button type="button" class="sched-time-btn" onclick="adjustTime('min',15)"><span class="material-symbols-outlined">add</span></button>
+                            <div class="sched-time-custom" id="schedTimePicker">
+                                <button type="button" class="sched-time-trigger" onclick="toggleTimePicker(event)">
+                                    <span class="material-symbols-outlined">schedule</span>
+                                    <span id="schedTimeLabel">08:00</span>
+                                </button>
+                                <div class="sched-time-dropdown" id="schedTimeDropdown">
+                                    <?php for ($h = 0; $h < 24; $h++): foreach ([0, 15, 30, 45] as $m): ?>
+                                    <div class="sched-time-option<?= ($h === 8 && $m === 0) ? ' sched-time-option--active' : '' ?>" onclick="selectTime(<?= $h ?>, <?= $m ?>)">
+                                        <?= str_pad($h, 2, '0', STR_PAD_LEFT) ?>:<?= str_pad($m, 2, '0', STR_PAD_LEFT) ?>
+                                    </div>
+                                    <?php endforeach; endfor; ?>
+                                </div>
                             </div>
                             <input type="hidden" id="schedHour" value="8">
                             <input type="hidden" id="schedMinute" value="0">
@@ -435,17 +442,16 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                             <?php endif; ?>
                         </div>
                         <div class="pj-crawl-config">
-                            <?php if (($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript'): ?>
-                            <span class="pj-pill pj-pill--active" title="<?= __('index.mode_javascript') ?>">JS</span>
-                            <?php endif; ?>
-                            <?php if (!empty($crawl->config['advanced']['respect']['robots'])): ?>
-                            <span class="pj-pill pj-pill--active" title="<?= __('index.respect_robots') ?>">robots</span>
-                            <?php endif; ?>
+                            <span class="material-symbols-outlined config-icon <?= ($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript' ? 'active' : 'inactive' ?>" title="<?= __('index.mode_javascript') ?>">javascript</span>
+                            <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['robots']) || !empty($crawl->config['advanced']['respect_robots'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_robots') ?>">smart_toy</span>
+                            <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['canonical']) || !empty($crawl->config['advanced']['respect_canonical'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_canonical') ?>">content_copy</span>
+                            <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['nofollow']) || !empty($crawl->config['advanced']['respect_nofollow'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_nofollow') ?>">link_off</span>
+                            <span class="material-symbols-outlined config-icon <?= ($crawl->config['advanced']['follow_redirects'] ?? true) ? 'active' : 'inactive' ?>" title="<?= __('index.follow_redirects') ?>">redo</span>
                             <?php if (($crawl->crawl_type ?? 'spider') !== 'list'): ?>
-                            <span class="pj-pill" title="<?= __('index.max_depth') ?>"><?= $crawl->config['general']['depthMax'] ?? '-' ?></span>
+                                <span class="config-depth-badge" title="<?= __('index.max_depth') ?>"><?= $crawl->config['general']['depthMax'] ?? '-' ?></span>
                             <?php endif; ?>
                         </div>
-                        <div class="pj-crawl-actions pj-crawl-actions--hover" onclick="event.stopPropagation();">
+                        <div class="pj-crawl-actions" onclick="event.stopPropagation();">
                             <?php if ($isFinished): ?>
                             <a href="dashboard.php?crawl=<?= $crawl->crawl_id ?>" class="pj-icon-btn" title="<?= __('project.view_report') ?>">
                                 <span class="material-symbols-outlined">bar_chart</span>
@@ -549,7 +555,6 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
 
             <?php if ($isOwner || $auth->isAdmin()): ?>
             <div class="pj-card pj-card--danger">
-                <span class="pj-danger-label"><?= __('project.danger_zone') ?></span>
                 <button class="pj-btn-delete" onclick="confirmDeleteProject(<?= $projectId ?>, '<?= htmlspecialchars($domainName, ENT_QUOTES) ?>')">
                     <span class="material-symbols-outlined">delete</span>
                     <?= __('project.delete_project') ?>
@@ -587,18 +592,26 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     }
 
     // Clamp numeric inputs to min/max
-    function adjustTime(part, delta) {
-        const hEl = document.getElementById('schedHour');
-        const mEl = document.getElementById('schedMinute');
-        let h = parseInt(hEl.value) || 0;
-        let m = parseInt(mEl.value) || 0;
-        if (part === 'hour') { h = (h + delta + 24) % 24; }
-        else { m = (m + delta + 60) % 60; }
-        hEl.value = h; mEl.value = m;
-        document.getElementById('schedTimeDisplay').textContent = String(h).padStart(2,'0');
-        document.getElementById('schedTimeMinDisplay').textContent = String(m).padStart(2,'0');
+    function toggleTimePicker(e) {
+        e.stopPropagation();
+        const dd = document.getElementById('schedTimeDropdown');
+        dd.classList.toggle('show');
+        if (dd.classList.contains('show')) {
+            const active = dd.querySelector('.sched-time-option--active');
+            if (active) active.scrollIntoView({ block: 'center' });
+        }
+    }
+    function selectTime(h, m) {
+        document.getElementById('schedHour').value = h;
+        document.getElementById('schedMinute').value = m;
+        document.getElementById('schedTimeLabel').textContent = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+        document.getElementById('schedTimeDropdown').classList.remove('show');
+        document.querySelectorAll('.sched-time-option').forEach(el => el.classList.remove('sched-time-option--active'));
         schedDirty(); updateScheduleSummary();
     }
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('#schedTimePicker')) document.getElementById('schedTimeDropdown')?.classList.remove('show');
+    });
 
     function clampInput(el, min, max) {
         let v = parseInt(el.value);
@@ -782,12 +795,52 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     function toggleExtractionHelp(e) { e.preventDefault(); const h = document.getElementById('extractionHelp'); h.style.display = h.style.display === 'none' ? '' : 'none'; }
     function addExtractor() { addExtractorWithValues('', 'xpath', ''); }
     function addExtractorWithValues(name, type, pattern) {
-        extractorCounter++;
+        const id = extractorCounter++;
         const div = document.createElement('div');
-        div.className = 'extractor-row';
-        div.innerHTML = '<input type="text" class="extractor-name" placeholder="Name" value="'+name+'"><input type="hidden" class="extractor-type-value-hidden" value="'+type+'"><input type="text" class="extractor-pattern" placeholder="'+type+' pattern" value="'+pattern+'"><button type="button" class="btn-remove-extractor" onclick="this.parentElement.remove(); updateExtractorsEmptyState();"><span class="material-symbols-outlined">close</span></button>';
+        div.id = 'extractor-' + id;
+        div.className = 'extractor-item';
+        const isRegex = type === 'regex';
+        div.innerHTML = '<input type="text" class="extractor-name" placeholder="Nom" oninput="sanitizeExtractorName(this)">'
+            + '<div class="extractor-type-dropdown" id="extractorType-'+id+'">'
+            + '<div class="extractor-type-trigger" onclick="toggleExtractorType('+id+')">'
+            + '<span class="extractor-type-value">'+(isRegex?'Regex':'XPath')+'</span>'
+            + '<span class="material-symbols-outlined">expand_more</span></div>'
+            + '<div class="extractor-type-options" id="extractorTypeOptions-'+id+'">'
+            + '<div class="extractor-type-option '+(isRegex?'':'selected')+'" data-value="xpath" onclick="selectExtractorType('+id+',\'xpath\')">XPath</div>'
+            + '<div class="extractor-type-option '+(isRegex?'selected':'')+'" data-value="regex" onclick="selectExtractorType('+id+',\'regex\')">Regex</div>'
+            + '</div></div>'
+            + '<input type="hidden" class="extractor-type-value-hidden" value="'+type+'">'
+            + '<input type="text" class="extractor-pattern" id="extractor-pattern-'+id+'" placeholder="'+(isRegex?'price: (\\\\d+)':'//h2')+'">'
+            + '<button type="button" class="extractor-item-delete" onclick="removeExtractor('+id+')">'
+            + '<span class="material-symbols-outlined">close</span></button>';
         document.getElementById('extractorsList').appendChild(div);
+        if (name) div.querySelector('.extractor-name').value = name;
+        if (pattern) div.querySelector('.extractor-pattern').value = pattern;
         updateExtractorsEmptyState();
+    }
+    function removeExtractor(id) { const el = document.getElementById('extractor-'+id); if (el) el.remove(); updateExtractorsEmptyState(); }
+    function sanitizeExtractorName(el) { el.value = el.value.replace(/[^a-zA-Z0-9_]/g, '_'); }
+    function toggleExtractorType(id) {
+        const dropdown = document.getElementById('extractorType-'+id);
+        const options = document.getElementById('extractorTypeOptions-'+id);
+        const trigger = dropdown.querySelector('.extractor-type-trigger');
+        document.querySelectorAll('.extractor-type-dropdown.open').forEach(d => { if (d.id !== 'extractorType-'+id) d.classList.remove('open'); });
+        if (dropdown.classList.contains('open')) { dropdown.classList.remove('open'); }
+        else {
+            const rect = trigger.getBoundingClientRect();
+            options.style.top = (rect.bottom + 2) + 'px';
+            options.style.left = rect.left + 'px';
+            options.style.minWidth = rect.width + 'px';
+            dropdown.classList.add('open');
+        }
+    }
+    function selectExtractorType(id, type) {
+        document.getElementById('extractorType-'+id).classList.remove('open');
+        const item = document.getElementById('extractor-'+id);
+        item.querySelector('.extractor-type-value').textContent = type === 'regex' ? 'Regex' : 'XPath';
+        item.querySelector('.extractor-type-value-hidden').value = type;
+        item.querySelector('.extractor-pattern').placeholder = type === 'regex' ? 'price: (\\d+)' : '//h2';
+        item.querySelectorAll('.extractor-type-option').forEach(o => o.classList.toggle('selected', o.dataset.value === type));
     }
     function updateExtractorsEmptyState() {
         const list = document.getElementById('extractorsList');
@@ -994,6 +1047,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
 
         document.getElementById('schedHour').value = <?= (int)$schedule->hour ?>;
         document.getElementById('schedMinute').value = <?= (int)$schedule->minute ?>;
+        document.getElementById('schedTimeLabel').textContent = '<?= str_pad((int)$schedule->hour, 2, '0', STR_PAD_LEFT) ?>:<?= str_pad((int)$schedule->minute, 2, '0', STR_PAD_LEFT) ?>';
 
         updateScheduleSummary();
         // Don't show save button on initial load (no changes yet)
