@@ -297,7 +297,6 @@ ORDER BY cat_id";
         'orderBy' => 'ORDER BY c.compliant ASC, c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'compliant', 'code', 'noindex', 'canonical'],
         'compareCrawlId' => $safeCompareId,
-        'compareColumns' => ['compliant', 'code', 'noindex', 'canonical'],
         'pdo' => $pdo,
         'crawlId' => $safeCrawlId,
         'perPage' => 100,

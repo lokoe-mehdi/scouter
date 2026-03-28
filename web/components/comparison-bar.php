@@ -118,7 +118,7 @@ function changeCompareCrawl(compareId) {
     const url = new URL(window.location);
     url.searchParams.set('compare', compareId);
     const currentPage = url.searchParams.get('page');
-    if (!['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison', 'accessibility-comparison'].includes(currentPage)) {
+    if (!['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison', 'accessibility-comparison', 'seo-tags-comparison', 'headings-comparison', 'content-richness-comparison', 'duplication-comparison', 'structured-data-comparison'].includes(currentPage)) {
         url.searchParams.set('page', 'comparison-overview');
     }
     window.location = url.toString();

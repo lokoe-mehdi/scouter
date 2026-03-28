@@ -219,6 +219,14 @@ $premiumPercent = round(($globalStats->premium_pages / max(1, $totalPages)) * 10
             ['name' => __('content_richness.series_premium'), 'y' => (int)($globalStats->premium_pages ?? 0), 'color' => $colorPremium]
         ];
         
+        $sqlQualityDisplay = "SELECT
+    COUNT(CASE WHEN word_count <= 250 THEN 1 END) AS poor,
+    COUNT(CASE WHEN word_count > 250 AND word_count <= 500 THEN 1 END) AS medium,
+    COUNT(CASE WHEN word_count > 500 AND word_count <= 1200 THEN 1 END) AS rich,
+    COUNT(CASE WHEN word_count > 1200 THEN 1 END) AS premium
+FROM pages
+WHERE crawled = true AND compliant = true";
+
         Component::chart([
             'type' => 'donut',
             'title' => __('content_richness.chart_quality'),
@@ -230,7 +238,8 @@ $premiumPercent = round(($globalStats->premium_pages / max(1, $totalPages)) * 10
                 ]
             ],
             'height' => 350,
-            'legendPosition' => 'bottom'
+            'legendPosition' => 'bottom',
+            'sqlQuery' => $sqlQualityDisplay
         ]);
         ?>
     </div>

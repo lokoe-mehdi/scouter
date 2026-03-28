@@ -31,7 +31,8 @@ $defaultColumns = $urlTableConfig['defaultColumns'] ?? ['url', 'depth', 'code', 
 $perPage = $urlTableConfig['perPage'] ?? 100;
 $crawlId = $urlTableConfig['crawlId'] ?? null;
 $compareCrawlId = $urlTableConfig['compareCrawlId'] ?? null;
-$compareColumns = $urlTableConfig['compareColumns'] ?? [];
+$compareColumnsExplicit = $urlTableConfig['compareColumns'] ?? null; // null = auto-detect
+$compareExcludeColumns = ['url', 'category']; // Colonnes jamais dupliquées en mode comparaison
 $lightMode = $urlTableConfig['light'] ?? false;
 $copyUrl = $urlTableConfig['copyUrl'] ?? false;
 $hideTitle = $urlTableConfig['hideTitle'] ?? false;
@@ -97,7 +98,22 @@ $cleanedOrderBy = preg_replace('/\bc\./i', '', $orderBy);
 $cleanedWhere = preg_replace('/\b(pages|links|categories|duplicate_clusters|page_schemas|redirect_chains)_(\d+)\b/i', '$1@$2', $cleanedWhere);
 
 // 5. Construire la requête complète
-$tableSqlQuery = "SELECT " . $sqlColumnsStr . "\nFROM pages\n" . $cleanedWhere . "\n" . $cleanedOrderBy;
+if ($compareCrawlId && !empty($compareColumns)) {
+    // Ajouter les colonnes de comparaison au SQL display
+    $cmpCols = [];
+    foreach ($compareColumns as $col) {
+        $sqlCol = ($col === 'category') ? 'cat_id' : $col;
+        $cmpCols[] = "b." . $sqlCol . " AS base_" . $sqlCol;
+    }
+    $cmpColsStr = ", " . implode(", ", $cmpCols);
+    // Préfixer les colonnes de référence avec a.
+    $refCols = array_map(function($c) { return "a." . $c; }, $sqlColumns);
+    $refColsStr = implode(', ', $refCols);
+    $safeCompareIdForSql = intval($compareCrawlId);
+    $tableSqlQuery = "SELECT " . $refColsStr . $cmpColsStr . "\nFROM pages a\nLEFT JOIN pages@{$safeCompareIdForSql} b ON b.url = a.url\n" . $cleanedWhere . "\n" . $cleanedOrderBy;
+} else {
+    $tableSqlQuery = "SELECT " . $sqlColumnsStr . "\nFROM pages\n" . $cleanedWhere . "\n" . $cleanedOrderBy;
+}
 
 // 5. Substituer les paramètres par leurs vraies valeurs (fonction dans table-core.php)
 $tableSqlQuery = substituteParamsInSql($tableSqlQuery, $sqlParams);
@@ -147,6 +163,20 @@ foreach($customExtractColumns as $columnName) {
     // Créer un label lisible
     $label = ucwords(str_replace('_', ' ', $columnName));
     $availableColumns['extract_' . $columnName] = 'Extracteur : ' . $label;
+}
+
+// Résoudre les colonnes de comparaison : si explicite on prend la liste, sinon toutes les defaultColumns sauf url/category
+if ($compareCrawlId) {
+    if ($compareColumnsExplicit !== null) {
+        $compareColumns = $compareColumnsExplicit;
+    } else {
+        $compareColumns = array_filter($defaultColumns, function($col) use ($compareExcludeColumns) {
+            return !in_array($col, $compareExcludeColumns);
+        });
+        $compareColumns = array_values($compareColumns);
+    }
+} else {
+    $compareColumns = [];
 }
 
 // Ajout des colonnes de comparaison (cmp_<col>) si compareCrawlId est défini

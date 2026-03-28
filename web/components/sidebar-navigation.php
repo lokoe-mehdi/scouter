@@ -228,6 +228,36 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
                 <span><?= __('sidebar.depth_comparison') ?></span>
             </a>
         </div>
+
+        <!-- Contenu -->
+        <div class="sidebar-panel-group">
+            <div class="sidebar-panel-group-title"><?= __('sidebar.content') ?></div>
+            <a href="?crawl=<?= $crawlId ?>&page=seo-tags-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'seo-tags-comparison' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">sell</span>
+                <span><?= __('sidebar.seo_tags') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=headings-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'headings-comparison' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">format_h1</span>
+                <span><?= __('sidebar.heading_hierarchy') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=content-richness-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'content-richness-comparison' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">article</span>
+                <span><?= __('sidebar.content_richness') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=duplication-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'duplication-comparison' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">content_copy</span>
+                <span><?= __('sidebar.duplication') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=structured-data-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'structured-data-comparison' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">data_object</span>
+                <span><?= __('sidebar.structured_data') ?></span>
+            </a>
+        </div>
     </div>
 
     <!-- Section Data Explorer -->

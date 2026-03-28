@@ -250,7 +250,9 @@ $compNewCount = 0;
 $compLostCount = 0;
 $compCommonCount = 0;
 
-if ($compareId && in_array($page ?? '', ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison', 'accessibility-comparison'])) {
+$comparisonPages = ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison', 'accessibility-comparison', 'seo-tags-comparison', 'headings-comparison', 'content-richness-comparison', 'duplication-comparison', 'structured-data-comparison'];
+
+if ($compareId && in_array($page ?? '', $comparisonPages)) {
     $comparisonScorecardsComputed = true;
     $safeCompId = intval($compareId);
     $safeCrId = intval($crawlId);
@@ -340,7 +342,6 @@ function isSectionCollapsed($sectionName) {
     $activeSection = null; // Pas de défaut, on détermine précisément
     $reportPages = ['home', 'categories', 'codes', 'response-time', 'depth', 'redirect-chains', 'inlinks', 'outlinks', 'pagerank', 'seo-tags', 'headings', 'duplication', 'extractions', 'structured-data'];
     $explorerPages = ['url-explorer', 'link-explorer', 'sql-explorer'];
-    $comparisonPages = ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison', 'accessibility-comparison'];
 
     if (in_array($page, $reportPages)) {
         $activeSection = 'report';
@@ -472,6 +473,21 @@ function isSectionCollapsed($sectionName) {
                     break;
                 case 'accessibility-comparison':
                     include 'pages/accessibility-comparison.php';
+                    break;
+                case 'seo-tags-comparison':
+                    include 'pages/seo-tags-comparison.php';
+                    break;
+                case 'headings-comparison':
+                    include 'pages/headings-comparison.php';
+                    break;
+                case 'content-richness-comparison':
+                    include 'pages/content-richness-comparison.php';
+                    break;
+                case 'duplication-comparison':
+                    include 'pages/duplication-comparison.php';
+                    break;
+                case 'structured-data-comparison':
+                    include 'pages/structured-data-comparison.php';
                     break;
                 case 'config':
                     // SÉCURITÉ: Vérifier les droits de gestion

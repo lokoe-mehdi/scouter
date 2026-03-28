@@ -193,6 +193,25 @@ usort($dupByCategory, function($a, $b) {
             ['name' => __('duplication.series_exact'), 'y' => $pagesInExactDup, 'color' => '#f87171'],
         ];
         
+        $sqlDupDistribution = "WITH exact_pages AS (
+    SELECT DISTINCT unnest(page_ids) AS page_id
+    FROM duplicate_clusters WHERE similarity = 100
+),
+near_pages AS (
+    SELECT DISTINCT unnest(page_ids) AS page_id
+    FROM duplicate_clusters WHERE similarity >= {$minSimilarityPercent} AND similarity < 100
+),
+totals AS (
+    SELECT COUNT(*) AS indexable FROM pages WHERE crawled = true AND compliant = true
+)
+SELECT
+    totals.indexable - COALESCE(e.cnt, 0) - COALESCE(n.cnt, 0) AS unique_pages,
+    COALESCE(n.cnt, 0) AS near_duplicate_pages,
+    COALESCE(e.cnt, 0) AS exact_duplicate_pages
+FROM totals,
+    (SELECT COUNT(*) AS cnt FROM near_pages) n,
+    (SELECT COUNT(*) AS cnt FROM exact_pages) e";
+
         Component::chart([
             'type' => 'donut',
             'title' => __('duplication.chart_distribution'),
@@ -204,7 +223,8 @@ usort($dupByCategory, function($a, $b) {
                 ]
             ],
             'height' => 300,
-            'legendPosition' => 'bottom'
+            'legendPosition' => 'bottom',
+            'sqlQuery' => $sqlDupDistribution
         ]);
         
         // Donut 2 - Pages dupliquées par catégorie
@@ -221,6 +241,13 @@ usort($dupByCategory, function($a, $b) {
             $catPieData[] = ['name' => __('duplication.no_duplicates'), 'y' => 1, 'color' => '#e5e7eb'];
         }
         
+        $sqlDupByCategory = "SELECT cat_id, COUNT(*) AS page_count
+FROM pages
+WHERE crawled = true AND compliant = true AND id IN (
+    SELECT unnest(page_ids) FROM duplicate_clusters WHERE similarity >= {$minSimilarityPercent}
+)
+GROUP BY cat_id ORDER BY page_count DESC";
+
         Component::chart([
             'type' => 'donut',
             'title' => __('duplication.chart_category'),
@@ -232,7 +259,8 @@ usort($dupByCategory, function($a, $b) {
                 ]
             ],
             'height' => 300,
-            'legendPosition' => 'bottom'
+            'legendPosition' => 'bottom',
+            'sqlQuery' => $sqlDupByCategory
         ]);
         ?>
     </div>

@@ -285,7 +285,6 @@ ORDER BY COALESCE(r.depth, b.depth), cat_id";
         'orderBy' => 'ORDER BY c.depth ASC, c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'depth', 'compliant', 'code'],
         'compareCrawlId' => $safeCompareId,
-        'compareColumns' => ['depth', 'compliant', 'code'],
         'pdo' => $pdo,
         'crawlId' => $safeCrawlId,
         'perPage' => 100,
