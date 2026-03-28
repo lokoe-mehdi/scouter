@@ -44,7 +44,7 @@ RUN composer update --no-interaction --prefer-dist --optimize-autoloader
 COPY docker/nginx.conf /etc/nginx/sites-available/default
 
 # Setup Cron
-RUN printf "0 * * * * root /usr/local/bin/php /app/scripts/watchdog.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n* * * * * root /usr/local/bin/php /app/app/bin/scheduler.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n" > /etc/cron.d/scouter-cron && \
+RUN printf "0 * * * * root . /etc/environment; /usr/local/bin/php /app/scripts/watchdog.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n* * * * * root . /etc/environment; /usr/local/bin/php /app/app/bin/scheduler.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n" > /etc/cron.d/scouter-cron && \
     chmod 0644 /etc/cron.d/scouter-cron && \
     crontab /etc/cron.d/scouter-cron
 
@@ -90,6 +90,9 @@ find /app/logs -name "*.log" -exec chmod 666 {} \\; 2>/dev/null || true\n\
 # Run migrations\n\
 echo ""\n\
 php /app/migrations/migrate.php\n\
+\n\
+# Export env vars for cron jobs\n\
+printenv | grep -E '^(DATABASE_URL|RENDERER_URL|MAX_|PHP_|APP_)' | sed 's/=\\(.*\\)/=\"\\1\"/' > /etc/environment\n\
 \n\
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf\n\
 ' > /entrypoint.sh && chmod +x /entrypoint.sh

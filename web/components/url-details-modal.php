@@ -760,7 +760,7 @@ function getTextColorForBg(hexColor) {
 }
 
 function openUrlModal(url, project = null) {
-    if (project) currentProject = project;
+    if (project) { currentProject = String(project); }
     
     // Annuler toute requête en cours
     if (modalAbortController) {
