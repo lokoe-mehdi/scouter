@@ -212,6 +212,11 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
                 <span class="material-symbols-outlined">sync_alt</span>
                 <span><?= __('sidebar.response_codes') ?></span>
             </a>
+            <a href="?crawl=<?= $crawlId ?>&page=depth-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'depth-comparison' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">layers</span>
+                <span><?= __('sidebar.depth_comparison') ?></span>
+            </a>
         </div>
     </div>
 

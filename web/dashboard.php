@@ -128,8 +128,8 @@ if ($compareId) {
 // ============================================
 $categoriesMap = [];
 $categoryColors = [];
-$stmt = $pdo->prepare("SELECT id, cat, color FROM categories WHERE crawl_id = :crawl_id");
-$stmt->execute([':crawl_id' => $crawlId]);
+$stmt = $pdo->prepare("SELECT id, cat, color FROM crawl_categories WHERE project_id = :project_id");
+$stmt->execute([':project_id' => $crawlRecord->project_id]);
 while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
     $categoriesMap[$row['id']] = [
         'cat' => $row['cat'],
@@ -219,20 +219,68 @@ try {
     $domainCrawls = [];
 }
 
-// Auto-sélectionner le crawl de comparaison (crawl précédent) si non spécifié
+// Auto-sélectionner le crawl de comparaison si non spécifié
+// Priorité : crawl précédent (plus ancien), sinon crawl suivant (plus récent)
 if (!$compareId && !empty($domainCrawls)) {
-    $foundCurrent = false;
-    foreach ($domainCrawls as $dc) {
-        if ($foundCurrent) {
-            // Le crawl suivant dans la liste (triée par date desc) = le crawl précédent
-            $compareId = (int)$dc['crawl_id'];
-            $compareRecord = CrawlDatabase::getCrawlById($compareId);
+    $currentIndex = null;
+    foreach ($domainCrawls as $i => $dc) {
+        if ($dc['crawl_id'] == $crawlId) {
+            $currentIndex = $i;
             break;
         }
-        if ($dc['crawl_id'] == $crawlId) {
-            $foundCurrent = true;
+    }
+
+    if ($currentIndex !== null) {
+        // Essayer le crawl précédent (index suivant car trié par date desc)
+        if (isset($domainCrawls[$currentIndex + 1])) {
+            $compareId = (int)$domainCrawls[$currentIndex + 1]['crawl_id'];
+            $compareRecord = CrawlDatabase::getCrawlById($compareId);
+        }
+        // Sinon essayer le crawl suivant (index précédent car trié par date desc)
+        elseif (isset($domainCrawls[$currentIndex - 1])) {
+            $compareId = (int)$domainCrawls[$currentIndex - 1]['crawl_id'];
+            $compareRecord = CrawlDatabase::getCrawlById($compareId);
         }
     }
+}
+
+// Pré-calculer les scorecards de comparaison une seule fois (utilisés par toutes les pages comparison)
+$comparisonScorecardsComputed = false;
+$compNewCount = 0;
+$compLostCount = 0;
+$compCommonCount = 0;
+
+if ($compareId && in_array($page ?? '', ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison'])) {
+    $comparisonScorecardsComputed = true;
+    $safeCompId = intval($compareId);
+    $safeCrId = intval($crawlId);
+
+    // New URLs: dans current, pas dans compare (NOT EXISTS est O(n) vs NOT IN qui est O(n²))
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) FROM pages a
+        WHERE a.crawl_id = :current AND a.crawled = true
+        AND NOT EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :compare AND b.crawled = true AND b.url = a.url)
+    ");
+    $stmt->execute([':current' => $safeCrId, ':compare' => $safeCompId]);
+    $compNewCount = (int)$stmt->fetchColumn();
+
+    // Lost URLs: dans compare, pas dans current
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) FROM pages a
+        WHERE a.crawl_id = :compare AND a.crawled = true
+        AND NOT EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :current AND b.crawled = true AND b.url = a.url)
+    ");
+    $stmt->execute([':compare' => $safeCompId, ':current' => $safeCrId]);
+    $compLostCount = (int)$stmt->fetchColumn();
+
+    // Common URLs
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) FROM pages a
+        WHERE a.crawl_id = :current AND a.crawled = true
+        AND EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :compare AND b.crawled = true AND b.url = a.url)
+    ");
+    $stmt->execute([':current' => $safeCrId, ':compare' => $safeCompId]);
+    $compCommonCount = (int)$stmt->fetchColumn();
 }
 
 // Lire l'état des sections depuis les cookies
@@ -292,7 +340,7 @@ function isSectionCollapsed($sectionName) {
     $activeSection = null; // Pas de défaut, on détermine précisément
     $reportPages = ['home', 'categories', 'codes', 'response-time', 'depth', 'redirect-chains', 'inlinks', 'outlinks', 'pagerank', 'seo-tags', 'headings', 'duplication', 'extractions', 'structured-data'];
     $explorerPages = ['url-explorer', 'link-explorer', 'sql-explorer'];
-    $comparisonPages = ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes'];
+    $comparisonPages = ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison'];
 
     if (in_array($page, $reportPages)) {
         $activeSection = 'report';
@@ -418,6 +466,9 @@ function isSectionCollapsed($sectionName) {
                     break;
                 case 'code-changes':
                     include 'pages/code-changes.php';
+                    break;
+                case 'depth-comparison':
+                    include 'pages/depth-comparison.php';
                     break;
                 case 'config':
                     // SÉCURITÉ: Vérifier les droits de gestion

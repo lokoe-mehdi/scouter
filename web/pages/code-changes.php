@@ -10,8 +10,8 @@ if (!$compareId) {
     ?>
     <div style="padding: 3rem; text-align: center; max-width: 600px; margin: 2rem auto;">
         <span class="material-symbols-outlined" style="font-size: 4rem; color: var(--text-tertiary);">compare_arrows</span>
-        <h2 style="margin-top: 1rem; color: var(--text-primary);"><?= __('comparison.no_compare') ?></h2>
-        <p style="color: var(--text-secondary); margin-top: 0.5rem;"><?= __('comparison.no_compare_desc') ?></p>
+        <h2 style="margin-top: 1rem; color: var(--text-primary);"><?= __('comparison.single_crawl') ?></h2>
+        <p style="color: var(--text-secondary); margin-top: 0.5rem;"><?= __('comparison.single_crawl_desc') ?></p>
     </div>
     <?php
     return;
@@ -23,31 +23,10 @@ $safeCrawlId = intval($crawlId);
 // =========================================
 // Scorecards: new / lost / common
 // =========================================
-$stmtNew = $pdo->prepare("
-    SELECT COUNT(*) FROM pages
-    WHERE crawl_id = :current AND crawled = true AND url NOT IN (
-        SELECT url FROM pages WHERE crawl_id = :compare AND crawled = true
-    )
-");
-$stmtNew->execute([':current' => $safeCrawlId, ':compare' => $safeCompareId]);
-$newCount = (int)$stmtNew->fetchColumn();
-
-$stmtLost = $pdo->prepare("
-    SELECT COUNT(*) FROM pages
-    WHERE crawl_id = :compare AND crawled = true AND url NOT IN (
-        SELECT url FROM pages WHERE crawl_id = :current AND crawled = true
-    )
-");
-$stmtLost->execute([':compare' => $safeCompareId, ':current' => $safeCrawlId]);
-$lostCount = (int)$stmtLost->fetchColumn();
-
-$stmtCommon = $pdo->prepare("
-    SELECT COUNT(*) FROM pages a
-    JOIN pages b ON a.url = b.url AND b.crawl_id = :compare AND b.crawled = true
-    WHERE a.crawl_id = :current AND a.crawled = true
-");
-$stmtCommon->execute([':current' => $safeCrawlId, ':compare' => $safeCompareId]);
-$commonCount = (int)$stmtCommon->fetchColumn();
+// Scorecards pré-calculés dans dashboard.php (NOT EXISTS, O(n) au lieu de NOT IN O(n²))
+$newCount = $compNewCount;
+$lostCount = $compLostCount;
+$commonCount = $compCommonCount;
 
 // =========================================
 // Helper: hex to rgba
@@ -124,13 +103,7 @@ $codeCatBase = $stmtCodeCatBase->fetchAll(PDO::FETCH_OBJ);
 
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 
-// Load baseline categories
-$baselineCategoriesMap = [];
-$stmtCat = $pdo->prepare("SELECT id, cat, color FROM categories WHERE crawl_id = :crawl_id");
-$stmtCat->execute([':crawl_id' => $safeCompareId]);
-while ($row = $stmtCat->fetch(PDO::FETCH_ASSOC)) {
-    $baselineCategoriesMap[$row['id']] = ['cat' => $row['cat'], 'color' => $row['color']];
-}
+// Categories are project-level: same IDs across all crawls
 
 // Helper: group code into family
 if (!function_exists('codeFamily')) {
@@ -156,7 +129,7 @@ foreach ($codeCatRef as $r) {
 // Same for base
 $baseCodeCatData = [];
 foreach ($codeCatBase as $r) {
-    $catInfo = $baselineCategoriesMap[$r->cat_id] ?? $categoriesMap[$r->cat_id] ?? null;
+    $catInfo = $categoriesMap[$r->cat_id] ?? null;
     $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     if (!isset($baseCodeCatData[$catName])) $baseCodeCatData[$catName] = ['0xx'=>0,'1xx'=>0,'2xx'=>0,'3xx'=>0,'4xx'=>0,'5xx'=>0];
     $baseCodeCatData[$catName][codeFamily($r->code)] += (int)$r->count;
@@ -219,15 +192,10 @@ FROM (
 GROUP BY cat_id
 ORDER BY cat_id";
 
-// Build cat_id -> name mapping for SQL generation
+// Build cat_name -> id mapping for SQL generation (IDs are stable across crawls)
 $catNameToIds = [];
 foreach ($categoriesMap as $id => $info) {
     $catNameToIds[$info['cat']][] = $id;
-}
-foreach ($baselineCategoriesMap as $id => $info) {
-    if (!isset($catNameToIds[$info['cat']])) {
-        $catNameToIds[$info['cat']][] = $id;
-    }
 }
 
 ?>
@@ -300,10 +268,9 @@ foreach ($baselineCategoriesMap as $id => $info) {
     Component::urlTable([
         'title' => __('comparison.code_changes_table_title'),
         'id' => 'code_changes_table',
-        'whereClause' => "WHERE c.crawled = true AND c.url IN (
-            SELECT a.url FROM pages_{$safeCrawlId} a
-            JOIN pages_{$safeCompareId} b ON a.url = b.url AND b.crawled = true
-            WHERE a.crawled = true AND a.code != b.code
+        'whereClause' => "WHERE c.crawled = true AND EXISTS (
+            SELECT 1 FROM pages_{$safeCompareId} b
+            WHERE b.url = c.url AND b.crawled = true AND b.code != c.code
         )",
         'orderBy' => 'ORDER BY c.code DESC, c.inlinks DESC',
         'defaultColumns' => ['url', 'depth', 'code', 'category', 'inlinks', 'pri'],

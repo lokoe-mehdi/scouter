@@ -104,21 +104,22 @@ CREATE TABLE categorization_config (
 -- TABLES PARTITIONNÉES
 -- ============================================
 
--- Table categories partitionnée par crawl_id
-CREATE TABLE categories (
-    crawl_id INTEGER NOT NULL REFERENCES crawls(id) ON DELETE CASCADE,
-    id SERIAL,
+-- Table catégories au niveau projet (partagée entre tous les crawls d'un projet)
+CREATE TABLE crawl_categories (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     cat VARCHAR(255) NOT NULL,
     color VARCHAR(7) DEFAULT '#aaaaaa',
-    PRIMARY KEY (crawl_id, id)
-) PARTITION BY LIST (crawl_id);
+    UNIQUE(project_id, cat)
+);
+CREATE INDEX idx_crawl_categories_project ON crawl_categories(project_id);
 
 -- Table pages partitionnée par crawl_id
 CREATE TABLE pages (
     crawl_id INTEGER NOT NULL REFERENCES crawls(id) ON DELETE CASCADE,
     id CHAR(8) NOT NULL,
     date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    cat_id INTEGER, -- Référence à categories.id (même crawl_id)
+    cat_id INTEGER, -- Référence à crawl_categories.id
     domain VARCHAR(255),
     url TEXT,
     depth INTEGER DEFAULT 0,
@@ -234,9 +235,6 @@ BEGIN
     PERFORM pg_advisory_lock(12345);
     
     BEGIN
-        -- Partition pour categories
-        EXECUTE format('CREATE TABLE IF NOT EXISTS categories_%s PARTITION OF categories FOR VALUES IN (%s)', p_crawl_id, p_crawl_id);
-        
         -- Partition pour pages
         EXECUTE format('CREATE TABLE IF NOT EXISTS pages_%s PARTITION OF pages FOR VALUES IN (%s)', p_crawl_id, p_crawl_id);
         
@@ -318,7 +316,6 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION drop_crawl_partitions(p_crawl_id INTEGER)
 RETURNS VOID AS $$
 BEGIN
-    EXECUTE format('DROP TABLE IF EXISTS categories_%s', p_crawl_id);
     EXECUTE format('DROP TABLE IF EXISTS pages_%s', p_crawl_id);
     EXECUTE format('DROP TABLE IF EXISTS links_%s', p_crawl_id);
     EXECUTE format('DROP TABLE IF EXISTS html_%s', p_crawl_id);

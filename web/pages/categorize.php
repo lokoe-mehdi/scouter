@@ -38,8 +38,8 @@ try {
 
 // Récupération des catégories actuelles en base (sans LEFT JOIN coûteux)
 try {
-    $stmt = $pdo->prepare("SELECT id, cat, color FROM categories WHERE crawl_id = :crawl_id ORDER BY id");
-    $stmt->execute([':crawl_id' => $crawlId]);
+    $stmt = $pdo->prepare("SELECT id, cat, color FROM crawl_categories WHERE project_id = :project_id ORDER BY id");
+    $stmt->execute([':project_id' => $crawlRecord->project_id]);
     $categories = $stmt->fetchAll(PDO::FETCH_OBJ);
 
     // Construire le mapping des couleurs depuis la base
@@ -2433,6 +2433,13 @@ async function saveCategorization() {
             } else {
                 const categorizedCount = data.categorized_count || 0;
                 showGlobalStatus(__('categorize.msg_saved').replace(':count', categorizedCount), 'success');
+            }
+
+            // Quitter le mode test immédiatement
+            if (isTestMode) {
+                const testNotice = document.getElementById('testModeNotice');
+                if (testNotice) testNotice.style.display = 'none';
+                isTestMode = false;
             }
 
             // Démarrer le polling du job batch pour suivre la progression

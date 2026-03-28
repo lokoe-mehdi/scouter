@@ -10,8 +10,8 @@ if (!$compareId) {
     ?>
     <div style="padding: 3rem; text-align: center; max-width: 600px; margin: 2rem auto;">
         <span class="material-symbols-outlined" style="font-size: 4rem; color: var(--text-tertiary);">compare_arrows</span>
-        <h2 style="margin-top: 1rem; color: var(--text-primary);"><?= __('comparison.no_compare') ?></h2>
-        <p style="color: var(--text-secondary); margin-top: 0.5rem;"><?= __('comparison.no_compare_desc') ?></p>
+        <h2 style="margin-top: 1rem; color: var(--text-primary);"><?= __('comparison.single_crawl') ?></h2>
+        <p style="color: var(--text-secondary); margin-top: 0.5rem;"><?= __('comparison.single_crawl_desc') ?></p>
     </div>
     <?php
     return;
@@ -20,34 +20,10 @@ if (!$compareId) {
 $safeCompareId = intval($compareId);
 $safeCrawlId = intval($crawlId);
 
-// Count new URLs (in current, not in comparison) — crawled only
-$stmtNew = $pdo->prepare("
-    SELECT COUNT(*) FROM pages
-    WHERE crawl_id = :current AND crawled = true AND url NOT IN (
-        SELECT url FROM pages WHERE crawl_id = :compare AND crawled = true
-    )
-");
-$stmtNew->execute([':current' => $safeCrawlId, ':compare' => $safeCompareId]);
-$newCount = (int)$stmtNew->fetchColumn();
-
-// Count lost URLs (in comparison, not in current) — crawled only
-$stmtLost = $pdo->prepare("
-    SELECT COUNT(*) FROM pages
-    WHERE crawl_id = :compare AND crawled = true AND url NOT IN (
-        SELECT url FROM pages WHERE crawl_id = :current AND crawled = true
-    )
-");
-$stmtLost->execute([':compare' => $safeCompareId, ':current' => $safeCrawlId]);
-$lostCount = (int)$stmtLost->fetchColumn();
-
-// Count common URLs — crawled only
-$stmtCommon = $pdo->prepare("
-    SELECT COUNT(*) FROM pages a
-    JOIN pages b ON a.url = b.url AND b.crawl_id = :compare AND b.crawled = true
-    WHERE a.crawl_id = :current AND a.crawled = true
-");
-$stmtCommon->execute([':current' => $safeCrawlId, ':compare' => $safeCompareId]);
-$commonCount = (int)$stmtCommon->fetchColumn();
+// Scorecards pré-calculés dans dashboard.php (NOT EXISTS, O(n) au lieu de NOT IN O(n²))
+$newCount = $compNewCount;
+$lostCount = $compLostCount;
+$commonCount = $compCommonCount;
 
 // =========================================
 // Depth distribution — indexable URLs only
@@ -101,14 +77,7 @@ $stmtCatBase = $pdo->prepare($sqlDepthCat);
 $stmtCatBase->execute([':crawl_id' => $safeCompareId]);
 $depthCatBase = $stmtCatBase->fetchAll(PDO::FETCH_OBJ);
 
-// Load baseline categories
-$baselineCategoriesMap = [];
-$stmtCat = $pdo->prepare("SELECT id, cat, color FROM categories WHERE crawl_id = :crawl_id");
-$stmtCat->execute([':crawl_id' => $safeCompareId]);
-while ($row = $stmtCat->fetch(PDO::FETCH_ASSOC)) {
-    $baselineCategoriesMap[$row['id']] = ['cat' => $row['cat'], 'color' => $row['color']];
-}
-
+// Categories are project-level: same IDs across all crawls
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 
 // Collect all depth levels from both crawls (for category chart)
@@ -129,7 +98,7 @@ foreach ($depthCatRef as $r) {
 }
 $baseCatData = [];
 foreach ($depthCatBase as $r) {
-    $catInfo = $baselineCategoriesMap[$r->cat_id] ?? $categoriesMap[$r->cat_id] ?? null;
+    $catInfo = $categoriesMap[$r->cat_id] ?? null;
     $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     if (!isset($baseCatData[$catName])) $baseCatData[$catName] = [];
     $baseCatData[$catName][$r->depth] = (int)$r->count;
@@ -150,15 +119,10 @@ function hexToRgba($hex, $alpha = 1.0) {
 $allCatNames = array_unique(array_merge(array_keys($refCatData), array_keys($baseCatData)));
 $depthCatSeries = [];
 
-// Build cat_id -> name mapping for SQL generation
+// Build cat_name -> id mapping for SQL generation (IDs are stable across crawls)
 $catNameToIds = [];
 foreach ($categoriesMap as $id => $info) {
     $catNameToIds[$info['cat']][] = $id;
-}
-foreach ($baselineCategoriesMap as $id => $info) {
-    if (!isset($catNameToIds[$info['cat']])) {
-        $catNameToIds[$info['cat']][] = $id;
-    }
 }
 
 foreach ($allCatNames as $catName) {

@@ -30,6 +30,8 @@ $projectDir = $urlTableConfig['projectDir'] ?? '';
 $defaultColumns = $urlTableConfig['defaultColumns'] ?? ['url', 'depth', 'code', 'category'];
 $perPage = $urlTableConfig['perPage'] ?? 100;
 $crawlId = $urlTableConfig['crawlId'] ?? null;
+$compareCrawlId = $urlTableConfig['compareCrawlId'] ?? null;
+$compareColumns = $urlTableConfig['compareColumns'] ?? [];
 $lightMode = $urlTableConfig['light'] ?? false;
 $copyUrl = $urlTableConfig['copyUrl'] ?? false;
 $hideTitle = $urlTableConfig['hideTitle'] ?? false;
@@ -147,6 +149,20 @@ foreach($customExtractColumns as $columnName) {
     $availableColumns['extract_' . $columnName] = 'Extracteur : ' . $label;
 }
 
+// Ajout des colonnes de comparaison (cmp_<col>) si compareCrawlId est défini
+if ($compareCrawlId && !empty($compareColumns)) {
+    foreach ($compareColumns as $col) {
+        $baseLabel = $availableColumns[$col] ?? ucfirst($col);
+        $availableColumns['cmp_' . $col] = $baseLabel . ' (' . __('comparison.badge_baseline') . ')';
+    }
+    // Renommer les colonnes de base pour les distinguer
+    foreach ($compareColumns as $col) {
+        if (isset($availableColumns[$col])) {
+            $availableColumns[$col] = $availableColumns[$col] . ' (' . __('comparison.badge_reference') . ')';
+        }
+    }
+}
+
 // Récupération des colonnes sélectionnées (compatibilité avec anciens paramètres)
 if($componentId === 'main_explorer' && isset($_GET['columns'])) {
     $selectedColumns = explode(',', $_GET['columns']);
@@ -185,6 +201,18 @@ foreach($selectedColumns as $col) {
     }
 }
 $selectedColumns = $orderedColumns;
+
+// Injecter automatiquement les colonnes de comparaison après chaque colonne comparée
+if ($compareCrawlId && !empty($compareColumns)) {
+    $expandedColumns = [];
+    foreach ($selectedColumns as $col) {
+        $expandedColumns[] = $col;
+        if (in_array($col, $compareColumns) && !in_array('cmp_' . $col, $selectedColumns)) {
+            $expandedColumns[] = 'cmp_' . $col;
+        }
+    }
+    $selectedColumns = $expandedColumns;
+}
 
 // Récupération du tri depuis l'URL
 $sortColumn = null;
@@ -233,6 +261,13 @@ foreach($customExtractColumns as $col) {
     $columnMapping[$colAlias] = "c.extracts->>'" . addslashes($col) . "'";
 }
 
+// Ajouter les colonnes de comparaison au mapping pour le tri
+if ($compareCrawlId && !empty($compareColumns)) {
+    foreach ($compareColumns as $col) {
+        $columnMapping['cmp_' . $col] = 'cmp.' . $col;
+    }
+}
+
 // Si un tri est demandé, remplacer l'ORDER BY par défaut
 if($sortColumn && isset($columnMapping[$sortColumn])) {
     $orderBy = 'ORDER BY ' . $columnMapping[$sortColumn] . ' ' . $sortDirection;
@@ -257,8 +292,21 @@ if($useSimplifiedMode) {
         $jsonbColumns .= ", c.extracts->>'" . addslashes($colName) . "' as extract_" . preg_replace('/[^a-z0-9_]/i', '_', $colName);
     }
     
+    // Colonnes de comparaison (LEFT JOIN sur le crawl de comparaison)
+    $compareSelect = '';
+    $compareJoin = '';
+    if ($compareCrawlId && !empty($compareColumns)) {
+        $safeCompareCrawlId = intval($compareCrawlId);
+        $compareCols = [];
+        foreach ($compareColumns as $col) {
+            $compareCols[] = "cmp." . $col . " AS cmp_" . $col;
+        }
+        $compareSelect = ", " . implode(", ", $compareCols);
+        $compareJoin = " LEFT JOIN pages cmp ON cmp.url = c.url AND cmp.crawl_id = " . $safeCompareCrawlId;
+    }
+
     // OPTIMISATION : Plus de jointure sur categories, on utilise le tableau PHP
-    $sqlQuery = "SELECT 
+    $sqlQuery = "SELECT
         c.url,
         c.depth,
         c.code,
@@ -286,7 +334,9 @@ if($useSimplifiedMode) {
         c.headings_missing,
         c.word_count
         $jsonbColumns
+        $compareSelect
         FROM pages c
+        $compareJoin
         $whereClause
         $orderBy";
 }
@@ -480,7 +530,18 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                 <?php foreach($urls as $url): ?>
                 <tr>
                     <?php foreach($selectedColumns as $col): ?>
-                        <?php if($col === 'url'): ?>
+                        <?php
+                        // Pour les colonnes de comparaison (cmp_*), utiliser le même rendu que la colonne de base
+                        $renderCol = $col;
+                        $dataField = $col;
+                        $isCmpCol = false;
+                        if (strpos($col, 'cmp_') === 0) {
+                            $renderCol = substr($col, 4); // ex: cmp_depth -> depth
+                            $dataField = $col;            // ex: cmp_depth
+                            $isCmpCol = true;
+                        }
+                        ?>
+                        <?php if($renderCol === 'url'): ?>
                             <td class="col-url" style="max-width: 400px; position: relative;">
                                 <div style="display: flex; align-items: center; overflow: hidden;">
                                     <?php if($copyUrl): ?>
@@ -496,25 +557,23 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                                     </a>
                                 </div>
                             </td>
-                        <?php elseif($col === 'depth'): ?>
-                            <td class="col-depth"><span class="badge badge-info"><?= $url->depth ?></span></td>
-                        <?php elseif($col === 'code'): ?>
-                            <td class="col-code">
+                        <?php elseif($renderCol === 'depth'): ?>
+                            <td class="col-<?= $col ?>"><span class="badge badge-info"><?= $url->$dataField ?></span></td>
+                        <?php elseif($renderCol === 'code'): ?>
+                            <td class="col-<?= $col ?>">
                                 <?php
-                                $code = (int)$url->code;
+                                $code = (int)($url->$dataField ?? 0);
                                 $textColor = function_exists('getCodeColor') ? getCodeColor($code) : '#95a5a6';
                                 $bgColor = function_exists('getCodeBackgroundColor') ? getCodeBackgroundColor($code, 0.3) : 'rgba(149, 165, 166, 0.3)';
-                                // Utiliser getCodeDisplayValue pour afficher "JS Redirect" au lieu de 311
-                                $displayValue = function_exists('getCodeDisplayValue') ? getCodeDisplayValue($code) : $url->code;
+                                $displayValue = function_exists('getCodeDisplayValue') ? getCodeDisplayValue($code) : $code;
                                 ?>
                                 <span class="badge" style="background: <?= $bgColor ?>; color: <?= $textColor ?>; font-weight: 600;">
                                     <?= htmlspecialchars($displayValue) ?>
                                 </span>
                             </td>
-                        <?php elseif($col === 'category'): ?>
+                        <?php elseif($renderCol === 'category'): ?>
                             <td class="col-category">
                                 <?php
-                                // Utiliser le tableau centralisé au lieu de jointure SQL
                                 $catId = $url->cat_id ?? null;
                                 $catInfo = $categoriesMap[$catId] ?? null;
                                 $category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
@@ -525,37 +584,38 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                                     <?= htmlspecialchars($category) ?>
                                 </span>
                             </td>
-                        <?php elseif($col === 'canonical_value' || $col === 'redirect_to'): ?>
-                            <td class="col-<?= $col ?>" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->$col ?? '') ?>">
-                                <?= htmlspecialchars($url->$col ?? '') ?>
+                        <?php elseif($renderCol === 'canonical_value' || $renderCol === 'redirect_to'): ?>
+                            <td class="col-<?= $col ?>" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->$dataField ?? '') ?>">
+                                <?= htmlspecialchars($url->$dataField ?? '') ?>
                             </td>
-                        <?php elseif($col === 'compliant' || $col === 'canonical' || $col === 'noindex' || $col === 'nofollow' || $col === 'blocked' || $col === 'h1_multiple' || $col === 'headings_missing'): ?>
+                        <?php elseif($renderCol === 'compliant' || $renderCol === 'canonical' || $renderCol === 'noindex' || $renderCol === 'nofollow' || $renderCol === 'blocked' || $renderCol === 'h1_multiple' || $renderCol === 'headings_missing'): ?>
                             <td class="col-<?= $col ?>" style="text-align: center;">
-                                <?= $url->$col ? '<span class="material-symbols-outlined" style="color: #6bd899; font-size: 1.2rem; opacity: 0.8;">check_circle</span>' : '<span class="material-symbols-outlined" style="color: #95a5a6; font-size: 1.2rem; opacity: 0.7;">cancel</span>' ?>
+                                <?= $url->$dataField ? '<span class="material-symbols-outlined" style="color: #6bd899; font-size: 1.2rem; opacity: 0.8;">check_circle</span>' : '<span class="material-symbols-outlined" style="color: #95a5a6; font-size: 1.2rem; opacity: 0.7;">cancel</span>' ?>
                             </td>
-                        <?php elseif($col === 'pri'): ?>
-                            <td class="col-pri"><?= number_format(($url->pri ?? 0) * 100, 4) ?>%</td>
-                        <?php elseif($col === 'response_time'): ?>
-                            <td class="col-response_time"><?= round($url->response_time ?? 0, 2) ?> ms</td>
-                        <?php elseif($col === 'schemas'): ?>
+                        <?php elseif($renderCol === 'pri'): ?>
+                            <td class="col-<?= $col ?>"><?= number_format(($url->$dataField ?? 0) * 100, 4) ?>%</td>
+                        <?php elseif($renderCol === 'response_time'): ?>
+                            <td class="col-<?= $col ?>"><?= round($url->$dataField ?? 0, 2) ?> ms</td>
+                        <?php elseif($renderCol === 'schemas'): ?>
                             <?php
                             $schemasCount = 0;
-                            if (!empty($url->schemas) && $url->schemas !== '{}') {
-                                $schemasStr = trim($url->schemas, '{}');
+                            $schemasVal = $url->$dataField ?? null;
+                            if (!empty($schemasVal) && $schemasVal !== '{}') {
+                                $schemasStr = trim($schemasVal, '{}');
                                 if (!empty($schemasStr)) {
                                     $schemasCount = count(explode(',', $schemasStr));
                                 }
                             }
                             ?>
-                            <td class="col-schemas" style="text-align: center;"><?= $schemasCount ?></td>
-                        <?php elseif($col === 'title' || $col === 'h1' || $col === 'metadesc'): ?>
-                            <td class="col-<?= $col ?>" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->$col ?? '') ?>">
-                                <?= htmlspecialchars($url->$col ?? '') ?>
+                            <td class="col-<?= $col ?>" style="text-align: center;"><?= $schemasCount ?></td>
+                        <?php elseif($renderCol === 'title' || $renderCol === 'h1' || $renderCol === 'metadesc'): ?>
+                            <td class="col-<?= $col ?>" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->$dataField ?? '') ?>">
+                                <?= htmlspecialchars($url->$dataField ?? '') ?>
                             </td>
-                        <?php elseif($col === 'title_status' || $col === 'h1_status' || $col === 'metadesc_status'): ?>
+                        <?php elseif($renderCol === 'title_status' || $renderCol === 'h1_status' || $renderCol === 'metadesc_status'): ?>
                             <td class="col-<?= $col ?>" style="text-align: center;">
                                 <?php
-                                $status = strtolower($url->$col ?? '');
+                                $status = strtolower($url->$dataField ?? '');
                                 if($status === 'unique') {
                                     echo '<span class="badge badge-success">Unique</span>';
                                 } elseif($status === 'duplicate') {
@@ -567,13 +627,9 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                                 }
                                 ?>
                             </td>
-                        <?php elseif($col === 'redirect_to'): ?>
-                            <td class="col-redirect_to" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->redirect_to ?? '') ?>">
-                                <?= htmlspecialchars($url->redirect_to ?? '') ?>
-                            </td>
-                        <?php elseif($col === 'word_count'): ?>
+                        <?php elseif($renderCol === 'word_count'): ?>
                             <?php
-                            $wc = $url->word_count ?? 0;
+                            $wc = $url->$dataField ?? 0;
                             // Couleurs selon tranches: Pauvre <=250, Moyen 250-500, Riche 500-1200, Premium 1200+
                             if ($wc <= 250) {
                                 $wcColor = '#dc3545'; // Rouge - pauvre
@@ -589,17 +645,17 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                                 $wcBg = 'rgba(40, 167, 69, 0.1)';
                             }
                             ?>
-                            <td class="col-word_count" style="text-align: right;">
+                            <td class="col-<?= $col ?>" style="text-align: right;">
                                 <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; color: <?= $wcColor ?>; background: <?= $wcBg ?>; border: 1px solid <?= $wcColor ?>33;">
                                     <?= number_format($wc, 0, ',', ' ') ?>
                                 </span>
                             </td>
                         <?php elseif(strpos($col, 'cstm_') === 0 || strpos($col, 'extract_') === 0): ?>
-                            <td class="col-<?= $col ?>" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->$col ?? '') ?>">
-                                <?= $url->$col ? htmlspecialchars($url->$col) : '<span style="color: #95A5A6;">—</span>' ?>
+                            <td class="col-<?= $col ?>" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->$dataField ?? '') ?>">
+                                <?= isset($url->$dataField) ? htmlspecialchars($url->$dataField) : '<span style="color: #95A5A6;">—</span>' ?>
                             </td>
                         <?php else: ?>
-                            <td class="col-<?= $col ?>"><?= htmlspecialchars($url->$col ?? '') ?></td>
+                            <td class="col-<?= $col ?>"><?= htmlspecialchars($url->$dataField ?? '') ?></td>
                         <?php endif; ?>
                     <?php endforeach; ?>
                 </tr>

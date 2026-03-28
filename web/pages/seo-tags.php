@@ -6,8 +6,8 @@
  */
 
 // Récupération des catégories
-$stmt = $pdo->prepare("SELECT id, cat FROM categories WHERE crawl_id = :crawl_id ORDER BY id");
-$stmt->execute([':crawl_id' => $crawlId]);
+$stmt = $pdo->prepare("SELECT id, cat FROM crawl_categories WHERE project_id = :project_id ORDER BY id");
+$stmt->execute([':project_id' => $crawlRecord->project_id]);
 $categories = $stmt->fetchAll(PDO::FETCH_OBJ);
 
 // Stats globales - colonnes maintenant dans pages

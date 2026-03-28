@@ -147,28 +147,37 @@ class CategorizationService
      * @param string $yamlContent Configuration YAML brute
      * @return int Nombre total de pages catégorisées
      */
-    public function applyCategorization(int $crawlId, string $yamlContent): int
+    public function applyCategorization(int $crawlId, string $yamlContent, ?int $projectId = null): int
     {
         $categories = \Spyc::YAMLLoadString($yamlContent);
         $rules = $this->parseRules($categories);
 
-        // Reset: clear page assignments first, then delete categories
-        // No wrapping transaction to avoid deadlocks on large tables
+        // Resolve projectId if not provided
+        if (!$projectId) {
+            $stmt = $this->db->prepare("SELECT project_id FROM crawls WHERE id = :crawl_id");
+            $stmt->execute([':crawl_id' => $crawlId]);
+            $projectId = (int)$stmt->fetchColumn();
+        }
+
+        if (!$projectId) {
+            throw new \RuntimeException("Cannot categorize crawl $crawlId: no project_id found");
+        }
+
+        // Reset page assignments
         $this->db->prepare("UPDATE pages SET cat_id = NULL WHERE crawl_id = :crawl_id")
-            ->execute([':crawl_id' => $crawlId]);
-        $this->db->prepare("DELETE FROM categories WHERE crawl_id = :crawl_id")
             ->execute([':crawl_id' => $crawlId]);
 
         $totalCategorized = 0;
 
         foreach ($rules as $rule) {
-            // Créer la catégorie
+            // Upsert category at project level (stable IDs across crawls)
             $stmt = $this->db->prepare("
-                INSERT INTO categories (crawl_id, cat, color)
-                VALUES (:crawl_id, :cat, :color)
+                INSERT INTO crawl_categories (project_id, cat, color)
+                VALUES (:project_id, :cat, :color)
+                ON CONFLICT (project_id, cat) DO UPDATE SET color = EXCLUDED.color
                 RETURNING id
             ");
-            $stmt->execute([':crawl_id' => $crawlId, ':cat' => $rule['name'], ':color' => $rule['color']]);
+            $stmt->execute([':project_id' => $projectId, ':cat' => $rule['name'], ':color' => $rule['color']]);
             $catId = $stmt->fetch(PDO::FETCH_OBJ)->id;
 
             // Construire l'UPDATE SQL avec regex PostgreSQL

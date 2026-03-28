@@ -229,12 +229,12 @@ class CategorizationController extends Controller
                 COALESCE(c.color, '#95a5a6') as color,
                 COUNT(p.id) as count
             FROM pages p
-            LEFT JOIN categories c ON p.cat_id = c.id AND c.crawl_id = :crawl_id
+            LEFT JOIN crawl_categories c ON p.cat_id = c.id
             WHERE p.crawl_id = :crawl_id2 AND p.crawled = true
             GROUP BY c.cat, c.color
             ORDER BY count DESC
         ");
-        $stmt->execute([':crawl_id' => $crawlId, ':crawl_id2' => $crawlId]);
+        $stmt->execute([':crawl_id2' => $crawlId]);
         
         $this->success(['stats' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
     }
@@ -259,11 +259,14 @@ class CategorizationController extends Controller
         }
         
         $this->auth->requireCrawlAccess($projectDir, false);
-        
-        // Récupérer le mapping des catégories
+
+        // Récupérer le project_id depuis le crawl
+        $crawlRecord = CrawlDatabase::getCrawlById((int)$crawlId);
+
+        // Récupérer le mapping des catégories (project-level)
         $categoriesMap = [];
-        $stmt = $this->db->prepare("SELECT id, cat, color FROM categories WHERE crawl_id = :crawl_id");
-        $stmt->execute([':crawl_id' => $crawlId]);
+        $stmt = $this->db->prepare("SELECT id, cat, color FROM crawl_categories WHERE project_id = :project_id");
+        $stmt->execute([':project_id' => $crawlRecord->project_id]);
         $cats = $stmt->fetchAll(PDO::FETCH_OBJ);
         foreach ($cats as $cat) {
             $categoriesMap[$cat->id] = ['cat' => $cat->cat, 'color' => $cat->color];

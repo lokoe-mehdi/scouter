@@ -73,10 +73,10 @@ class ExportController extends Controller
         $search = $request->get('search', '');
         $selectedColumns = $request->get('columns') ? json_decode($request->get('columns'), true) : ['url'];
         
-        // Charger les catégories
+        // Charger les catégories (project-level)
         $categoriesMap = [];
-        $stmt = $this->db->prepare("SELECT id, cat FROM categories WHERE crawl_id = :crawl_id");
-        $stmt->execute([':crawl_id' => $crawlId]);
+        $stmt = $this->db->prepare("SELECT id, cat FROM crawl_categories WHERE project_id = :project_id");
+        $stmt->execute([':project_id' => $crawlRecord->project_id]);
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $categoriesMap[$row['id']] = $row['cat'];
         }

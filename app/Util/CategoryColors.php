@@ -32,7 +32,7 @@ class CategoryColors {
         $mapping = [];
         
         // Récupérer toutes les catégories, triées par ordre alphabétique
-        $stmt = $pdo->query("SELECT cat FROM categories ORDER BY cat ASC");
+        $stmt = $pdo->query("SELECT cat FROM crawl_categories ORDER BY cat ASC");
         $categories = $stmt->fetchAll(PDO::FETCH_COLUMN);
         
         // Attribuer une couleur à chaque catégorie
@@ -58,7 +58,7 @@ class CategoryColors {
         $mapping = [];
         
         // Récupérer les catégories avec leurs couleurs définies par l'utilisateur
-        $stmt = $pdo->prepare("SELECT cat, color FROM categories WHERE crawl_id = :crawl_id ORDER BY cat ASC");
+        $stmt = $pdo->prepare("SELECT cat, color FROM crawl_categories WHERE project_id = (SELECT project_id FROM crawls WHERE id = :crawl_id) ORDER BY cat ASC");
         $stmt->execute([':crawl_id' => $crawlId]);
         
         while ($row = $stmt->fetch(PDO::FETCH_OBJ)) {

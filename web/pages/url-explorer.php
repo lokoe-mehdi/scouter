@@ -9,8 +9,8 @@ $filters = isset($_GET['filters']) ? json_decode($_GET['filters'], true) : [];
 $search = isset($_GET['search']) ? $_GET['search'] : '';
 
 // Récupération des catégories disponibles
-$stmt = $pdo->prepare("SELECT id, cat FROM categories WHERE crawl_id = :crawl_id ORDER BY cat");
-$stmt->execute([':crawl_id' => $crawlId]);
+$stmt = $pdo->prepare("SELECT id, cat FROM crawl_categories WHERE project_id = :project_id ORDER BY cat");
+$stmt->execute([':project_id' => $crawlRecord->project_id]);
 $availableCategories = $stmt->fetchAll(PDO::FETCH_OBJ);
 
 // Récupération des types de schemas disponibles

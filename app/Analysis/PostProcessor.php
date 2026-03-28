@@ -354,7 +354,7 @@ class PostProcessor
         }
 
         $service = new CategorizationService($this->db);
-        $count = $service->applyCategorization($this->crawlId, $yamlConfig);
+        $count = $service->applyCategorization($this->crawlId, $yamlConfig, $projectId);
 
         echo "\r \033[32m Categorisation \033[0m : \033[36mdone ($count pages)\033[0m                             \n";
         flush();

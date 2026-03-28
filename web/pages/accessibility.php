@@ -8,8 +8,8 @@
  */
 
 // Catégories disponibles
-$stmt = $pdo->prepare("SELECT id, cat FROM categories WHERE crawl_id = :crawl_id ORDER BY id");
-$stmt->execute([':crawl_id' => $crawlId]);
+$stmt = $pdo->prepare("SELECT id, cat FROM crawl_categories WHERE project_id = :project_id ORDER BY id");
+$stmt->execute([':project_id' => $crawlRecord->project_id]);
 $categories = $stmt->fetchAll(PDO::FETCH_OBJ);
 
 // Stats par catégorie (uniquement celles avec des URLs)
@@ -21,14 +21,14 @@ $stmt = $pdo->prepare("
         SUM(CASE WHEN p.compliant = true THEN 1 ELSE 0 END) as compliant,
         AVG(p.inlinks) as avg_inlinks,
         AVG(p.pri) as avg_pagerank
-    FROM categories c
+    FROM crawl_categories c
     LEFT JOIN pages p ON c.id = p.cat_id AND p.crawl_id = :crawl_id2 AND p.crawled = true AND p.is_html = true
-    WHERE c.crawl_id = :crawl_id
+    WHERE c.project_id = :project_id
     GROUP BY c.id, c.cat
     HAVING COUNT(p.id) > 0
     ORDER BY COUNT(p.id) DESC
 ");
-$stmt->execute([':crawl_id' => $crawlId, ':crawl_id2' => $crawlId]);
+$stmt->execute([':project_id' => $crawlRecord->project_id, ':crawl_id2' => $crawlId]);
 $categoryStats = $stmt->fetchAll(PDO::FETCH_OBJ);
 
 // Distribution des URLs découvertes (external, crawled, non crawlées, médias)
