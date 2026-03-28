@@ -190,7 +190,7 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
             </button>
         </div>
 
-        <!-- Sous-pages -->
+        <!-- Vue d'ensemble -->
         <div class="sidebar-panel-group">
             <a href="?crawl=<?= $crawlId ?>&page=comparison-overview<?= $compareId ? '&compare=' . $compareId : '' ?>"
                class="sidebar-panel-item <?= $page === 'comparison-overview' ? 'active' : '' ?>">
@@ -206,6 +206,16 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
                class="sidebar-panel-item <?= $page === 'lost-urls' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">remove_circle</span>
                 <span><?= __('sidebar.lost_urls') ?></span>
+            </a>
+        </div>
+
+        <!-- Accessibilité & Moteur -->
+        <div class="sidebar-panel-group">
+            <div class="sidebar-panel-group-title"><?= __('sidebar.engine_accessibility') ?></div>
+            <a href="?crawl=<?= $crawlId ?>&page=accessibility-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'accessibility-comparison' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">verified</span>
+                <span><?= __('sidebar.indexability') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=code-changes<?= $compareId ? '&compare=' . $compareId : '' ?>"
                class="sidebar-panel-item <?= $page === 'code-changes' ? 'active' : '' ?>">

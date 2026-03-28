@@ -250,7 +250,7 @@ $compNewCount = 0;
 $compLostCount = 0;
 $compCommonCount = 0;
 
-if ($compareId && in_array($page ?? '', ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison'])) {
+if ($compareId && in_array($page ?? '', ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison', 'accessibility-comparison'])) {
     $comparisonScorecardsComputed = true;
     $safeCompId = intval($compareId);
     $safeCrId = intval($crawlId);
@@ -340,7 +340,7 @@ function isSectionCollapsed($sectionName) {
     $activeSection = null; // Pas de défaut, on détermine précisément
     $reportPages = ['home', 'categories', 'codes', 'response-time', 'depth', 'redirect-chains', 'inlinks', 'outlinks', 'pagerank', 'seo-tags', 'headings', 'duplication', 'extractions', 'structured-data'];
     $explorerPages = ['url-explorer', 'link-explorer', 'sql-explorer'];
-    $comparisonPages = ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison'];
+    $comparisonPages = ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison', 'accessibility-comparison'];
 
     if (in_array($page, $reportPages)) {
         $activeSection = 'report';
@@ -469,6 +469,9 @@ function isSectionCollapsed($sectionName) {
                     break;
                 case 'depth-comparison':
                     include 'pages/depth-comparison.php';
+                    break;
+                case 'accessibility-comparison':
+                    include 'pages/accessibility-comparison.php';
                     break;
                 case 'config':
                     // SÉCURITÉ: Vérifier les droits de gestion
