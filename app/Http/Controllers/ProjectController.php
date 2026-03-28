@@ -571,8 +571,14 @@ class ProjectController extends Controller
         $domain = $sourceCrawl->domain;
         $newProjectDir = $domain . '-' . date('Ymd') . '-' . date('His');
         
-        // Récupérer ou créer le projet pour ce domaine (pour l'utilisateur actuel)
-        $projectId = $this->projects->getOrCreate($this->userId, $domain);
+        // Rattacher le nouveau crawl au même projet que le crawl source.
+        // Important pour les projets partagés : on ne doit pas créer un projet personnel
+        // pour l'utilisateur courant lorsqu'il lance un nouveau crawl.
+        $projectId = (int)($sourceCrawl->project_id ?? 0);
+        if ($projectId <= 0) {
+            // Fallback legacy: anciens crawls sans project_id
+            $projectId = $this->projects->getOrCreate($this->userId, $domain);
+        }
         
         // Synchroniser depthMax dans le config JSON avec la colonne DB
         $depthMax = $sourceCrawl->depth_max ?? 30;

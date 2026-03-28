@@ -588,8 +588,7 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
     <!-- Modal Nouveau Projet -->
     <?php include 'components/crawl-modal.php'; ?>
 
-
-<!-- Modal Gestion des Catégories -->
+    <!-- Modal Gestion des Catégories -->
     <div id="categoriesModal" class="modal category-modal">
         <div class="cat-modal-container">
             <!-- Header -->
