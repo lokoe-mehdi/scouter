@@ -746,7 +746,8 @@ function getCategoryBadge(category, categoryColor) {
     // Calculer la couleur du texte selon la luminosité
     const textColor = getTextColorForBg(bgColor);
     
-    return `<span style="display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; background: ${bgColor}; color: ${textColor};">${category}</span>`;
+    const safeCategory = category.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return `<span style="display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; background: ${bgColor}; color: ${textColor};">${safeCategory}</span>`;
 }
 
 function getTextColorForBg(hexColor) {

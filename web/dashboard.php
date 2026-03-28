@@ -116,7 +116,7 @@ $compareId = isset($_GET['compare']) ? (int)$_GET['compare'] : null;
 $compareRecord = null;
 if ($compareId) {
     $compareRecord = CrawlDatabase::getCrawlById($compareId);
-    if (!$compareRecord || $compareRecord->project_id !== $crawlRecord->project_id) {
+    if (!$compareRecord) {
         $compareId = null;
         $compareRecord = null;
     }

@@ -744,6 +744,7 @@ class ProjectController extends Controller
     public function getSchedule(Request $request): void
     {
         $projectId = (int)$request->param('id');
+        $this->auth->requireProjectAccess($projectId);
 
         $db = \App\Database\PostgresDatabase::getInstance()->getConnection();
         $stmt = $db->prepare("SELECT * FROM crawl_schedules WHERE project_id = :pid");

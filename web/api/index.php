@@ -133,5 +133,5 @@ try {
         error_log("[Scouter API] Stray output captured: " . substr($strayOutput, 0, 500));
     }
     error_log("[Scouter API] Error: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
-    App\Http\Response::serverError($e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
+    App\Http\Response::serverError('An internal error occurred.');
 }

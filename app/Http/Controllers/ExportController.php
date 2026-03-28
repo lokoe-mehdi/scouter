@@ -93,7 +93,8 @@ class ExportController extends Controller
         if (!empty($filters) && isset($filters['items'])) {
             $filterConditions = $this->buildFilterConditions($filters['items'], $params);
             if (!empty($filterConditions)) {
-                $logic = $filters['logic'] ?? 'AND';
+                $logic = strtoupper($filters['logic'] ?? 'AND');
+                if (!in_array($logic, ['AND', 'OR'])) $logic = 'AND';
                 $whereConditions[] = '(' . implode(' ' . $logic . ' ', $filterConditions) . ')';
             }
         }
@@ -264,14 +265,19 @@ class ExportController extends Controller
             if (isset($item['type']) && $item['type'] === 'group') {
                 $subConditions = $this->buildFilterConditions($item['items'], $params);
                 if (!empty($subConditions)) {
-                    $conditions[] = '(' . implode(' ' . $item['logic'] . ' ', $subConditions) . ')';
+                    $groupLogic = strtoupper($item['logic'] ?? 'AND');
+                    if (!in_array($groupLogic, ['AND', 'OR'])) $groupLogic = 'AND';
+                    $conditions[] = '(' . implode(' ' . $groupLogic . ' ', $subConditions) . ')';
                 }
             } else {
                 $field = $item['field'] ?? '';
                 $operator = $item['operator'] ?? '=';
                 $value = $item['value'] ?? '';
-                
+
                 if (empty($field)) continue;
+
+                // Whitelist column names to prevent SQL injection
+                if (!preg_match('/^[a-z_][a-z0-9_]*$/i', $field)) continue;
                 
                 $counter++;
                 $paramName = ':p' . $counter;

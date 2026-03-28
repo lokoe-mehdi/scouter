@@ -111,6 +111,9 @@ class MonitorController extends Controller
             $html = preg_replace('/<body([^>]*)>/i', '<body$1>' . $infoBar, $html);
         }
         
+        // Sandbox the HTML to prevent XSS from crawled content
+        header('Content-Security-Policy: sandbox allow-same-origin; default-src \'none\'; style-src \'unsafe-inline\'; img-src *; font-src *;');
+        header('X-Content-Type-Options: nosniff');
         Response::html($html);
     }
 
