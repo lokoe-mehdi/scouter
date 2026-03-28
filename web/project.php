@@ -199,7 +199,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                 <?php endif; ?>
             </div>
 
-            <!-- Automation -->
+            <!-- Automation (owner or admin only) -->
+            <?php if ($isOwner || $auth->isAdmin()): ?>
             <div class="pj-card pj-card--schedule" style="position: relative;">
                 <!-- Header -->
                 <div class="sched-header">
@@ -292,6 +293,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                     </button>
                 </div>
             </div>
+            <?php endif; ?>
 
             <!-- Crawl History -->
             <div class="pj-card pj-card--history">
