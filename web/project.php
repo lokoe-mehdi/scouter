@@ -58,8 +58,61 @@ $kpiCrawled = $lastFinished ? $lastFinished->stats['crawled'] : 0;
 $kpiCompliant = $lastFinished ? $lastFinished->stats['compliant'] : 0;
 $kpiIndexableRate = $kpiCrawled > 0 ? round(($kpiCompliant / $kpiCrawled) * 100, 1) : 0;
 
-// Load existing schedule
+// Project stats
+$totalCrawls = count($crawls);
+$completedCrawls = count(array_filter($crawls, fn($c) => in_array($c->job_status, ['completed', 'stopped'])));
+$failedCrawls = count(array_filter($crawls, fn($c) => $c->job_status === 'failed'));
+$runningCrawls = count(array_filter($crawls, fn($c) => in_array($c->job_status, ['running', 'queued', 'pending', 'processing'])));
+
+// Project disk size (sum of all partition sizes for this project's crawls)
 $pdo = \App\Database\PostgresDatabase::getInstance()->getConnection();
+$projectSize = '—';
+try {
+    $crawlIds = array_map(fn($c) => (int)$c->crawl_id, $crawls);
+    if (!empty($crawlIds)) {
+        $totalBytes = 0;
+        foreach ($crawlIds as $cid) {
+            $tables = ['pages', 'links', 'html', 'page_schemas', 'duplicate_clusters', 'redirect_chains'];
+            foreach ($tables as $t) {
+                $tname = $t . '_' . $cid;
+                try {
+                    $stmt = $pdo->query("SELECT pg_total_relation_size('{$tname}') AS s");
+                    $row = $stmt->fetch(PDO::FETCH_OBJ);
+                    if ($row) $totalBytes += (int)$row->s;
+                } catch (Exception $e) {
+                    // Partition doesn't exist (failed crawl), skip
+                }
+            }
+        }
+        if ($totalBytes >= 1073741824) $projectSize = round($totalBytes / 1073741824, 2) . ' GB';
+        elseif ($totalBytes >= 1048576) $projectSize = round($totalBytes / 1048576, 1) . ' MB';
+        elseif ($totalBytes >= 1024) $projectSize = round($totalBytes / 1024, 0) . ' KB';
+        else $projectSize = $totalBytes . ' B';
+    }
+} catch (Exception $e) {
+    $projectSize = '—';
+}
+
+// Load shares & admins
+$sharesData = [];
+$adminsData = [];
+$availableUsers = [];
+try {
+    $stmt = $pdo->query("SELECT id, email, role FROM users WHERE role = 'admin' ORDER BY email");
+    $adminsData = $stmt->fetchAll(PDO::FETCH_OBJ);
+
+    $stmt = $pdo->prepare("SELECT u.id, u.email, u.role FROM project_shares ps JOIN users u ON u.id = ps.user_id WHERE ps.project_id = :pid ORDER BY u.email");
+    $stmt->execute([':pid' => $projectId]);
+    $sharesData = $stmt->fetchAll(PDO::FETCH_OBJ);
+
+    $excludeIds = array_merge([$project->user_id], array_map(fn($a) => $a->id, $adminsData), array_map(fn($s) => $s->id, $sharesData));
+    $placeholders = implode(',', array_fill(0, count($excludeIds), '?'));
+    $stmt = $pdo->prepare("SELECT id, email FROM users WHERE id NOT IN ({$placeholders}) ORDER BY email");
+    $stmt->execute(array_values($excludeIds));
+    $availableUsers = $stmt->fetchAll(PDO::FETCH_OBJ);
+} catch (Exception $e) {}
+
+// Load existing schedule
 $schedStmt = $pdo->prepare("SELECT * FROM crawl_schedules WHERE project_id = :pid");
 $schedStmt->execute([':pid' => $projectId]);
 $schedule = $schedStmt->fetch(PDO::FETCH_OBJ) ?: null;
@@ -72,6 +125,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     if (empty($crawls)) {
         echo '<div class="pj-empty"><span class="material-symbols-outlined">search_off</span><p>' . __('project.no_crawl_yet') . '</p></div>';
     } else {
+        $ajaxIdx = 0;
         foreach ($crawls as $crawl) {
             $isInProgress = in_array($crawl->job_status, ['running', 'queued', 'pending', 'processing', 'stopping']);
             $isFinished = in_array($crawl->job_status, ['completed', 'stopped', 'failed']);
@@ -83,7 +137,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             elseif ($crawl->job_status === 'stopped') { $statusClass = 'pj-status--stopped'; $statusText = __('index.status_stopped'); }
             $typeIcon = $crawl->scheduled ? 'schedule' : (($crawl->crawl_type ?? 'spider') === 'list' ? 'list_alt' : 'bolt');
             $typeTitle = $crawl->scheduled ? __('project.scheduled_crawl') : (($crawl->crawl_type ?? 'spider') === 'list' ? __('index.mode_url_list') : 'Spider');
-            echo '<div class="pj-crawl-row ' . ($isFinished ? 'pj-crawl-row--clickable' : '') . '" ' . ($isFinished ? 'onclick="window.location.href=\'dashboard.php?crawl=' . $crawl->crawl_id . '\'"' : '') . '>';
+            echo '<div class="pj-crawl-row ' . ($isFinished ? 'pj-crawl-row--clickable' : '') . '" data-index="' . $ajaxIdx . '" ' . ($isFinished ? 'onclick="window.location.href=\'dashboard.php?crawl=' . $crawl->crawl_id . '\'"' : '') . '>';
+            $ajaxIdx++;
             echo '<span class="pj-crawl-type" title="' . htmlspecialchars($typeTitle) . '"><span class="material-symbols-outlined">' . $typeIcon . '</span></span>';
             echo '<div class="pj-crawl-info"><span class="pj-crawl-date">' . $crawl->date . '</span><span class="pj-status ' . $statusClass . '">' . $statusText . '</span></div>';
             echo '<div class="pj-crawl-kpis">';
@@ -96,9 +151,12 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             }
             echo '</div>';
             echo '<div class="pj-crawl-config">';
-            if (($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript') echo '<span class="pj-pill pj-pill--active" title="' . __('index.mode_javascript') . '">JS</span>';
-            if (!empty($crawl->config['advanced']['respect']['robots'])) echo '<span class="pj-pill pj-pill--active" title="' . __('index.respect_robots') . '">robots</span>';
-            if (($crawl->crawl_type ?? 'spider') !== 'list') echo '<span class="pj-pill" title="' . __('index.max_depth') . '">' . ($crawl->config['general']['depthMax'] ?? '-') . '</span>';
+            echo '<span class="material-symbols-outlined config-icon ' . (($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript' ? 'active' : 'inactive') . '" title="' . __('index.mode_javascript') . '">javascript</span>';
+            echo '<span class="material-symbols-outlined config-icon ' . ((!empty($crawl->config['advanced']['respect']['robots']) || !empty($crawl->config['advanced']['respect_robots'])) ? 'active' : 'inactive') . '" title="' . __('index.respect_robots') . '">smart_toy</span>';
+            echo '<span class="material-symbols-outlined config-icon ' . ((!empty($crawl->config['advanced']['respect']['canonical']) || !empty($crawl->config['advanced']['respect_canonical'])) ? 'active' : 'inactive') . '" title="' . __('index.respect_canonical') . '">content_copy</span>';
+            echo '<span class="material-symbols-outlined config-icon ' . ((!empty($crawl->config['advanced']['respect']['nofollow']) || !empty($crawl->config['advanced']['respect_nofollow'])) ? 'active' : 'inactive') . '" title="' . __('index.respect_nofollow') . '">link_off</span>';
+            echo '<span class="material-symbols-outlined config-icon ' . (($crawl->config['advanced']['follow_redirects'] ?? true) ? 'active' : 'inactive') . '" title="' . __('index.follow_redirects') . '">redo</span>';
+            if (($crawl->crawl_type ?? 'spider') !== 'list') echo '<span class="config-depth-badge" title="' . __('index.max_depth') . '">' . ($crawl->config['general']['depthMax'] ?? '-') . '</span>';
             echo '</div>';
             echo '<div class="pj-crawl-actions" onclick="event.stopPropagation();">';
             if ($isFinished) echo '<a href="dashboard.php?crawl=' . $crawl->crawl_id . '" class="pj-icon-btn" title="' . __('project.view_report') . '"><span class="material-symbols-outlined">bar_chart</span></a>';
@@ -138,9 +196,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         </nav>
 
         <div class="pj-bento">
-
-            <!-- Quick Action -->
-            <div class="pj-card pj-card--action">
+          <div class="pj-col-left">
+            <div class="pj-actions-float">
                 <?php if ($canManage && $canCreate): ?>
                     <?php if ($lastFinished): ?>
                     <button class="pj-btn-launch" onclick="duplicateAndStart('<?= htmlspecialchars($lastFinished->dir) ?>', <?= $project->user_id ?>)" title="<?= __('project.quick_crawl_tooltip') ?>">
@@ -152,50 +209,6 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                         <span class="material-symbols-outlined">add</span>
                         <?= __('project.new_crawl') ?>
                     </button>
-                <?php else: ?>
-                    <div class="pj-btn-launch pj-btn-launch--disabled">
-                        <span class="material-symbols-outlined">bolt</span>
-                        <?= __('project.quick_crawl') ?>
-                    </div>
-                <?php endif; ?>
-            </div>
-
-            <!-- Last Report -->
-            <div class="pj-card pj-card--report">
-                <h2 class="pj-card-title"><?= __('project.last_snapshot') ?></h2>
-                <?php if ($lastFinished): ?>
-                <div class="pj-gauges">
-                    <div class="pj-gauge">
-                        <svg viewBox="0 0 36 36" class="pj-gauge-svg">
-                            <path class="pj-gauge-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                            <path class="pj-gauge-fill pj-gauge-fill--primary" stroke-dasharray="100, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                        </svg>
-                        <div class="pj-gauge-value"><?= number_format($kpiUrls) ?></div>
-                        <div class="pj-gauge-label">URLs</div>
-                    </div>
-                    <div class="pj-gauge">
-                        <svg viewBox="0 0 36 36" class="pj-gauge-svg">
-                            <path class="pj-gauge-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                            <path class="pj-gauge-fill pj-gauge-fill--info" stroke-dasharray="<?= $kpiUrls > 0 ? round(($kpiCrawled/$kpiUrls)*100) : 0 ?>, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                        </svg>
-                        <div class="pj-gauge-value"><?= number_format($kpiCrawled) ?></div>
-                        <div class="pj-gauge-label"><?= __('header.crawled') ?></div>
-                    </div>
-                    <div class="pj-gauge">
-                        <svg viewBox="0 0 36 36" class="pj-gauge-svg">
-                            <path class="pj-gauge-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                            <path class="pj-gauge-fill pj-gauge-fill--success" stroke-dasharray="<?= $kpiIndexableRate ?>, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                        </svg>
-                        <div class="pj-gauge-value"><?= $kpiIndexableRate ?>%</div>
-                        <div class="pj-gauge-label"><?= __('columns.indexable') ?></div>
-                    </div>
-                </div>
-                <a href="dashboard.php?crawl=<?= $lastFinished->crawl_id ?>" class="pj-link-report">
-                    <span><?= __('project.view_report') ?></span>
-                    <span class="material-symbols-outlined">arrow_forward</span>
-                </a>
-                <?php else: ?>
-                <p class="pj-empty-text"><?= __('project.no_crawl_yet') ?></p>
                 <?php endif; ?>
             </div>
 
@@ -258,9 +271,21 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                         </span>
                         <span id="schedTimeWrap">
                             <?= __('project.sched_at') ?>
-                            <input type="number" id="schedHour" class="sched-pill-input" value="8" min="0" max="23" oninput="clampInput(this,0,23)" onchange="schedDirty(); updateScheduleSummary()">
-                            <span style="font-weight: 600;">:</span>
-                            <input type="number" id="schedMinute" class="sched-pill-input" value="0" min="0" max="59" step="15" oninput="clampInput(this,0,59)" onchange="schedDirty(); updateScheduleSummary()">
+                            <div class="sched-time-custom" id="schedTimePicker">
+                                <button type="button" class="sched-time-trigger" onclick="toggleTimePicker(event)">
+                                    <span class="material-symbols-outlined">schedule</span>
+                                    <span id="schedTimeLabel">08:00</span>
+                                </button>
+                                <div class="sched-time-dropdown" id="schedTimeDropdown">
+                                    <?php for ($h = 0; $h < 24; $h++): foreach ([0, 15, 30, 45] as $m): ?>
+                                    <div class="sched-time-option<?= ($h === 8 && $m === 0) ? ' sched-time-option--active' : '' ?>" onclick="selectTime(<?= $h ?>, <?= $m ?>)">
+                                        <?= str_pad($h, 2, '0', STR_PAD_LEFT) ?>:<?= str_pad($m, 2, '0', STR_PAD_LEFT) ?>
+                                    </div>
+                                    <?php endforeach; endfor; ?>
+                                </div>
+                            </div>
+                            <input type="hidden" id="schedHour" value="8">
+                            <input type="hidden" id="schedMinute" value="0">
                         </span>
                     </div>
 
@@ -295,6 +320,79 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             </div>
             <?php endif; ?>
 
+            <!-- Project Info -->
+            <div class="pj-card pj-card--info">
+                <h2 class="pj-card-title" style="margin: 0 0 0.5rem;"><?= __('project.info') ?></h2>
+                <div class="pj-info-list">
+                    <div class="pj-info-row">
+                        <span class="pj-info-dot pj-info-dot--neutral"></span>
+                        <span class="pj-info-label"><?= __('project.info_total') ?></span>
+                        <span class="pj-info-value"><?= $totalCrawls ?></span>
+                    </div>
+                    <div class="pj-info-row">
+                        <span class="pj-info-dot pj-info-dot--success"></span>
+                        <span class="pj-info-label"><?= __('index.status_completed') ?></span>
+                        <span class="pj-info-value"><?= $completedCrawls ?></span>
+                    </div>
+                    <div class="pj-info-row">
+                        <span class="pj-info-dot <?= $failedCrawls > 0 ? 'pj-info-dot--error' : 'pj-info-dot--neutral' ?>"></span>
+                        <span class="pj-info-label"><?= __('index.status_failed') ?></span>
+                        <span class="pj-info-value"><?= $failedCrawls ?></span>
+                    </div>
+                    <div class="pj-info-row">
+                        <span class="pj-info-dot pj-info-dot--running <?= $runningCrawls > 0 ? 'pj-info-dot--pulse' : '' ?>"></span>
+                        <span class="pj-info-label"><?= __('index.status_running') ?></span>
+                        <span class="pj-info-value"><?= $runningCrawls ?></span>
+                    </div>
+                </div>
+                <div class="pj-info-size">
+                    <span class="material-symbols-outlined">database</span>
+                    <span><?= __('project.info_size') ?></span>
+                    <strong><?= $projectSize ?></strong>
+                </div>
+            </div>
+          </div>
+
+          <div class="pj-col-center">
+<!-- Last Report -->
+            <div class="pj-card pj-card--report">
+                <h2 class="pj-card-title"><?= __('project.last_snapshot') ?></h2>
+                <?php if ($lastFinished): ?>
+                <div class="pj-gauges">
+                    <div class="pj-gauge">
+                        <svg viewBox="0 0 36 36" class="pj-gauge-svg">
+                            <path class="pj-gauge-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                            <path class="pj-gauge-fill pj-gauge-fill--primary" stroke-dasharray="100, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                        </svg>
+                        <div class="pj-gauge-value"><?= number_format($kpiUrls) ?></div>
+                        <div class="pj-gauge-label">URLs</div>
+                    </div>
+                    <div class="pj-gauge">
+                        <svg viewBox="0 0 36 36" class="pj-gauge-svg">
+                            <path class="pj-gauge-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                            <path class="pj-gauge-fill pj-gauge-fill--info" stroke-dasharray="<?= $kpiUrls > 0 ? round(($kpiCrawled/$kpiUrls)*100) : 0 ?>, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                        </svg>
+                        <div class="pj-gauge-value"><?= number_format($kpiCrawled) ?></div>
+                        <div class="pj-gauge-label"><?= __('header.crawled') ?></div>
+                    </div>
+                    <div class="pj-gauge">
+                        <svg viewBox="0 0 36 36" class="pj-gauge-svg">
+                            <path class="pj-gauge-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                            <path class="pj-gauge-fill pj-gauge-fill--success" stroke-dasharray="<?= $kpiIndexableRate ?>, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                        </svg>
+                        <div class="pj-gauge-value"><?= $kpiIndexableRate ?>%</div>
+                        <div class="pj-gauge-label"><?= __('columns.indexable') ?></div>
+                    </div>
+                </div>
+                <a href="dashboard.php?crawl=<?= $lastFinished->crawl_id ?>" class="pj-btn-report">
+                    <span><?= __('project.view_report') ?></span>
+                    <span class="material-symbols-outlined">arrow_forward</span>
+                </a>
+                <?php else: ?>
+                <p class="pj-empty-text"><?= __('project.no_crawl_yet') ?></p>
+                <?php endif; ?>
+            </div>
+
             <!-- Crawl History -->
             <div class="pj-card pj-card--history">
                 <div class="pj-card-header">
@@ -309,7 +407,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                 </div>
                 <?php else: ?>
                 <div class="pj-crawl-list" id="pjCrawlList">
-                    <?php foreach ($crawls as $crawl):
+                    <?php foreach ($crawls as $crawlIdx => $crawl):
                         $isInProgress = in_array($crawl->job_status, ['running', 'queued', 'pending', 'processing', 'stopping']);
                         $isFinished = in_array($crawl->job_status, ['completed', 'stopped', 'failed']);
 
@@ -326,7 +424,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                             $statusClass = 'pj-status--stopped'; $statusText = __('index.status_stopped');
                         }
                     ?>
-                    <div class="pj-crawl-row <?= $isFinished ? 'pj-crawl-row--clickable' : '' ?>" <?= $isFinished ? 'onclick="window.location.href=\'dashboard.php?crawl=' . $crawl->crawl_id . '\'"' : '' ?>>
+                    <div class="pj-crawl-row <?= $isFinished ? 'pj-crawl-row--clickable' : '' ?>" data-index="<?= $crawlIdx ?>" <?= $crawlIdx >= 10 ? 'style="display:none;"' : '' ?> <?= $isFinished ? 'onclick="window.location.href=\'dashboard.php?crawl=' . $crawl->crawl_id . '\'"' : '' ?>>
                         <span class="pj-crawl-type" title="<?= $crawl->scheduled ? __('project.scheduled_crawl') : (($crawl->crawl_type ?? 'spider') === 'list' ? __('index.mode_url_list') : 'Spider') ?>">
                             <span class="material-symbols-outlined"><?= $crawl->scheduled ? 'schedule' : (($crawl->crawl_type ?? 'spider') === 'list' ? 'list_alt' : 'bolt') ?></span>
                         </span>
@@ -344,14 +442,13 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                             <?php endif; ?>
                         </div>
                         <div class="pj-crawl-config">
-                            <?php if (($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript'): ?>
-                            <span class="pj-pill pj-pill--active" title="<?= __('index.mode_javascript') ?>">JS</span>
-                            <?php endif; ?>
-                            <?php if (!empty($crawl->config['advanced']['respect']['robots'])): ?>
-                            <span class="pj-pill pj-pill--active" title="<?= __('index.respect_robots') ?>">robots</span>
-                            <?php endif; ?>
+                            <span class="material-symbols-outlined config-icon <?= ($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript' ? 'active' : 'inactive' ?>" title="<?= __('index.mode_javascript') ?>">javascript</span>
+                            <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['robots']) || !empty($crawl->config['advanced']['respect_robots'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_robots') ?>">smart_toy</span>
+                            <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['canonical']) || !empty($crawl->config['advanced']['respect_canonical'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_canonical') ?>">content_copy</span>
+                            <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['nofollow']) || !empty($crawl->config['advanced']['respect_nofollow'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_nofollow') ?>">link_off</span>
+                            <span class="material-symbols-outlined config-icon <?= ($crawl->config['advanced']['follow_redirects'] ?? true) ? 'active' : 'inactive' ?>" title="<?= __('index.follow_redirects') ?>">redo</span>
                             <?php if (($crawl->crawl_type ?? 'spider') !== 'list'): ?>
-                            <span class="pj-pill" title="<?= __('index.max_depth') ?>"><?= $crawl->config['general']['depthMax'] ?? '-' ?></span>
+                                <span class="config-depth-badge" title="<?= __('index.max_depth') ?>"><?= $crawl->config['general']['depthMax'] ?? '-' ?></span>
                             <?php endif; ?>
                         </div>
                         <div class="pj-crawl-actions" onclick="event.stopPropagation();">
@@ -369,11 +466,104 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                     </div>
                     <?php endforeach; ?>
                 </div>
+                <?php if (count($crawls) > 10): ?>
+                <div class="pj-pagination" id="pjPagination">
+                    <button class="pj-page-btn" id="pjPrevBtn" onclick="pjChangePage(-1)" disabled>
+                        <span class="material-symbols-outlined">chevron_left</span>
+                    </button>
+                    <span class="pj-page-info" id="pjPageInfo">1 / <?= ceil(count($crawls) / 10) ?></span>
+                    <button class="pj-page-btn" id="pjNextBtn" onclick="pjChangePage(1)">
+                        <span class="material-symbols-outlined">chevron_right</span>
+                    </button>
+                </div>
+                <?php endif; ?>
                 <?php endif; ?>
             </div>
 
-        </div>
-    </div>
+                      </div>
+
+          <div class="pj-col-right">
+<!-- Share -->
+            <div class="pj-card pj-card--share">
+                <h2 class="pj-card-title" style="margin: 0 0 0.75rem;"><?= __('project.shared_with') ?></h2>
+
+                <div class="pj-share-list" id="pjShareList">
+                    <!-- Owner -->
+                    <?php
+                    $ownerStmt = $pdo->prepare("SELECT email FROM users WHERE id = :id");
+                    $ownerStmt->execute([':id' => $project->user_id]);
+                    $ownerEmail = $ownerStmt->fetchColumn();
+                    ?>
+                    <div class="pj-share-item">
+                        <span class="pj-share-avatar pj-share-avatar--owner"><?= strtoupper(substr($ownerEmail, 0, 1)) ?></span>
+                        <span class="pj-share-email"><?= htmlspecialchars($ownerEmail) ?></span>
+                        <span class="pj-share-role pj-share-role--owner"><?= __('project.role_owner') ?></span>
+                    </div>
+
+                    <!-- Admins (except owner if also admin) -->
+                    <?php foreach ($adminsData as $admin):
+                        if ($admin->id == $project->user_id) continue;
+                    ?>
+                    <div class="pj-share-item">
+                        <span class="pj-share-avatar pj-share-avatar--admin"><?= strtoupper(substr($admin->email, 0, 1)) ?></span>
+                        <span class="pj-share-email"><?= htmlspecialchars($admin->email) ?></span>
+                        <span class="pj-share-role pj-share-role--admin">Admin</span>
+                    </div>
+                    <?php endforeach; ?>
+
+                    <!-- Shared users -->
+                    <?php foreach ($sharesData as $share): ?>
+                    <div class="pj-share-item" id="share-<?= $share->id ?>">
+                        <span class="pj-share-avatar"><?= strtoupper(substr($share->email, 0, 1)) ?></span>
+                        <span class="pj-share-email"><?= htmlspecialchars($share->email) ?></span>
+                        <span class="pj-share-role pj-share-role--shared"><?= __('project.role_shared') ?></span>
+                        <?php if ($isOwner || $auth->isAdmin()): ?>
+                        <button class="pj-share-remove" onclick="removeShare(<?= $share->id ?>)" title="<?= __('project.remove_share') ?>">
+                            <span class="material-symbols-outlined">close</span>
+                        </button>
+                        <?php endif; ?>
+                    </div>
+                    <?php endforeach; ?>
+
+                    <?php if (empty($sharesData) && count($adminsData) <= 1): ?>
+                    <p class="pj-share-empty"><?= __('project.no_shares') ?></p>
+                    <?php endif; ?>
+
+                    <!-- Add user (inline, right after the list) -->
+                    <?php if (($isOwner || $auth->isAdmin()) && !empty($availableUsers)): ?>
+                    <div class="pj-share-add-inline">
+                        <div class="pj-share-picker" id="sharePicker">
+                            <button class="pj-share-picker-btn" onclick="toggleSharePicker(event)">
+                                <span class="material-symbols-outlined">person_add</span>
+                                <span><?= __('project.add_share') ?></span>
+                            </button>
+                            <div class="pj-share-picker-dropdown" id="sharePickerDropdown">
+                                <?php foreach ($availableUsers as $u): ?>
+                                <div class="pj-share-picker-item" onclick="addShare(<?= $u->id ?>)">
+                                    <span class="pj-share-avatar"><?= strtoupper(substr($u->email, 0, 1)) ?></span>
+                                    <span class="pj-share-email"><?= htmlspecialchars($u->email) ?></span>
+                                </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <?php elseif (($isOwner || $auth->isAdmin()) && empty($availableUsers)): ?>
+                    <p class="pj-share-empty"><?= __('project.no_users_available') ?></p>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <?php if ($isOwner || $auth->isAdmin()): ?>
+            <div class="pj-card pj-card--danger">
+                <button class="pj-btn-delete" onclick="confirmDeleteProject(<?= $projectId ?>, '<?= htmlspecialchars($domainName, ENT_QUOTES) ?>')">
+                    <span class="material-symbols-outlined">delete</span>
+                    <?= __('project.delete_project') ?>
+                </button>
+            </div>
+            <?php endif; ?>
+          </div>
+        </div><!-- /pj-bento -->
+    </div><!-- /pj -->
 
     <?php include 'components/crawl-modal.php'; ?>
 
@@ -402,6 +592,27 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     }
 
     // Clamp numeric inputs to min/max
+    function toggleTimePicker(e) {
+        e.stopPropagation();
+        const dd = document.getElementById('schedTimeDropdown');
+        dd.classList.toggle('show');
+        if (dd.classList.contains('show')) {
+            const active = dd.querySelector('.sched-time-option--active');
+            if (active) active.scrollIntoView({ block: 'center' });
+        }
+    }
+    function selectTime(h, m) {
+        document.getElementById('schedHour').value = h;
+        document.getElementById('schedMinute').value = m;
+        document.getElementById('schedTimeLabel').textContent = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+        document.getElementById('schedTimeDropdown').classList.remove('show');
+        document.querySelectorAll('.sched-time-option').forEach(el => el.classList.remove('sched-time-option--active'));
+        schedDirty(); updateScheduleSummary();
+    }
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('#schedTimePicker')) document.getElementById('schedTimeDropdown')?.classList.remove('show');
+    });
+
     function clampInput(el, min, max) {
         let v = parseInt(el.value);
         if (isNaN(v)) return;
@@ -584,12 +795,52 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     function toggleExtractionHelp(e) { e.preventDefault(); const h = document.getElementById('extractionHelp'); h.style.display = h.style.display === 'none' ? '' : 'none'; }
     function addExtractor() { addExtractorWithValues('', 'xpath', ''); }
     function addExtractorWithValues(name, type, pattern) {
-        extractorCounter++;
+        const id = extractorCounter++;
         const div = document.createElement('div');
-        div.className = 'extractor-row';
-        div.innerHTML = '<input type="text" class="extractor-name" placeholder="Name" value="'+name+'"><input type="hidden" class="extractor-type-value-hidden" value="'+type+'"><input type="text" class="extractor-pattern" placeholder="'+type+' pattern" value="'+pattern+'"><button type="button" class="btn-remove-extractor" onclick="this.parentElement.remove(); updateExtractorsEmptyState();"><span class="material-symbols-outlined">close</span></button>';
+        div.id = 'extractor-' + id;
+        div.className = 'extractor-item';
+        const isRegex = type === 'regex';
+        div.innerHTML = '<input type="text" class="extractor-name" placeholder="Nom" oninput="sanitizeExtractorName(this)">'
+            + '<div class="extractor-type-dropdown" id="extractorType-'+id+'">'
+            + '<div class="extractor-type-trigger" onclick="toggleExtractorType('+id+')">'
+            + '<span class="extractor-type-value">'+(isRegex?'Regex':'XPath')+'</span>'
+            + '<span class="material-symbols-outlined">expand_more</span></div>'
+            + '<div class="extractor-type-options" id="extractorTypeOptions-'+id+'">'
+            + '<div class="extractor-type-option '+(isRegex?'':'selected')+'" data-value="xpath" onclick="selectExtractorType('+id+',\'xpath\')">XPath</div>'
+            + '<div class="extractor-type-option '+(isRegex?'selected':'')+'" data-value="regex" onclick="selectExtractorType('+id+',\'regex\')">Regex</div>'
+            + '</div></div>'
+            + '<input type="hidden" class="extractor-type-value-hidden" value="'+type+'">'
+            + '<input type="text" class="extractor-pattern" id="extractor-pattern-'+id+'" placeholder="'+(isRegex?'price: (\\\\d+)':'//h2')+'">'
+            + '<button type="button" class="extractor-item-delete" onclick="removeExtractor('+id+')">'
+            + '<span class="material-symbols-outlined">close</span></button>';
         document.getElementById('extractorsList').appendChild(div);
+        if (name) div.querySelector('.extractor-name').value = name;
+        if (pattern) div.querySelector('.extractor-pattern').value = pattern;
         updateExtractorsEmptyState();
+    }
+    function removeExtractor(id) { const el = document.getElementById('extractor-'+id); if (el) el.remove(); updateExtractorsEmptyState(); }
+    function sanitizeExtractorName(el) { el.value = el.value.replace(/[^a-zA-Z0-9_]/g, '_'); }
+    function toggleExtractorType(id) {
+        const dropdown = document.getElementById('extractorType-'+id);
+        const options = document.getElementById('extractorTypeOptions-'+id);
+        const trigger = dropdown.querySelector('.extractor-type-trigger');
+        document.querySelectorAll('.extractor-type-dropdown.open').forEach(d => { if (d.id !== 'extractorType-'+id) d.classList.remove('open'); });
+        if (dropdown.classList.contains('open')) { dropdown.classList.remove('open'); }
+        else {
+            const rect = trigger.getBoundingClientRect();
+            options.style.top = (rect.bottom + 2) + 'px';
+            options.style.left = rect.left + 'px';
+            options.style.minWidth = rect.width + 'px';
+            dropdown.classList.add('open');
+        }
+    }
+    function selectExtractorType(id, type) {
+        document.getElementById('extractorType-'+id).classList.remove('open');
+        const item = document.getElementById('extractor-'+id);
+        item.querySelector('.extractor-type-value').textContent = type === 'regex' ? 'Regex' : 'XPath';
+        item.querySelector('.extractor-type-value-hidden').value = type;
+        item.querySelector('.extractor-pattern').placeholder = type === 'regex' ? 'price: (\\d+)' : '//h2';
+        item.querySelectorAll('.extractor-type-option').forEach(o => o.classList.toggle('selected', o.dataset.value === type));
     }
     function updateExtractorsEmptyState() {
         const list = document.getElementById('extractorsList');
@@ -678,6 +929,51 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         submitBtn.innerHTML = '<span class="material-symbols-outlined">rocket_launch</span> ' + __('index.btn_launch_crawl');
     }
 
+    // Share management
+    function toggleSharePicker(e) {
+        e.stopPropagation();
+        document.getElementById('sharePickerDropdown').classList.toggle('show');
+    }
+    document.addEventListener('click', function(e) {
+        const dd = document.getElementById('sharePickerDropdown');
+        if (dd && !e.target.closest('#sharePicker')) dd.classList.remove('show');
+    });
+
+    async function addShare(userId) {
+        try {
+            const resp = await fetch('api/projects/<?= $projectId ?>/share', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId })
+            });
+            const data = await resp.json();
+            if (data.success) window.location.reload();
+            else alert(__('common.error') + ': ' + (data.error || ''));
+        } catch (e) { alert(__('common.error') + ': ' + e.message); }
+    }
+
+    async function removeShare(userId) {
+        try {
+            const resp = await fetch('api/projects/<?= $projectId ?>/unshare', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId })
+            });
+            const data = await resp.json();
+            if (data.success) window.location.reload();
+            else alert(__('common.error') + ': ' + (data.error || ''));
+        } catch (e) { alert(__('common.error') + ': ' + e.message); }
+    }
+
+    // Delete project
+    async function confirmDeleteProject(projectId, projectName) {
+        if (!await customConfirm(__('index.confirm_delete_project'), __('index.confirm_delete_project_title'), __('common.delete'), 'danger')) return;
+        try {
+            const resp = await fetch('api/projects', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project_id: projectId }) });
+            const result = await resp.json();
+            if (result.success) { window.location.href = 'index.php'; }
+            else { alert(__('common.error') + ': ' + (result.error || '')); }
+        } catch (e) { alert(__('common.error') + ': ' + e.message); }
+    }
+
     // Close modal on outside click
     document.addEventListener('click', function(e) {
         if (e.target.id === 'newProjectModal') closeNewProjectModal();
@@ -685,13 +981,41 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         const ud = document.getElementById('uaDropdown'); if (ud && !e.target.closest('.custom-ua-select')) ud.classList.remove('show');
     });
 
-    // Auto-refresh crawl history every 20s
+    // Pagination
+    const PJ_PER_PAGE = 10;
+    let pjCurrentPage = 0;
+    const pjTotalPages = <?= ceil(count($crawls) / 10) ?>;
+
+    function pjChangePage(delta) {
+        pjCurrentPage += delta;
+        if (pjCurrentPage < 0) pjCurrentPage = 0;
+        if (pjCurrentPage >= pjTotalPages) pjCurrentPage = pjTotalPages - 1;
+        pjApplyPage();
+    }
+
+    function pjApplyPage() {
+        const rows = document.querySelectorAll('#pjCrawlList .pj-crawl-row');
+        const start = pjCurrentPage * PJ_PER_PAGE;
+        const end = start + PJ_PER_PAGE;
+        rows.forEach(r => {
+            const idx = parseInt(r.dataset.index);
+            r.style.display = (idx >= start && idx < end) ? '' : 'none';
+        });
+        const info = document.getElementById('pjPageInfo');
+        if (info) info.textContent = (pjCurrentPage + 1) + ' / ' + pjTotalPages;
+        const prev = document.getElementById('pjPrevBtn');
+        const next = document.getElementById('pjNextBtn');
+        if (prev) prev.disabled = pjCurrentPage === 0;
+        if (next) next.disabled = pjCurrentPage >= pjTotalPages - 1;
+    }
+
+    // Auto-refresh crawl history every 20s (preserves current page)
     setInterval(() => {
         fetch('project.php?id=<?= $projectId ?>&ajax=history')
             .then(r => r.text())
             .then(html => {
                 const el = document.getElementById('pjCrawlList');
-                if (el) el.innerHTML = html;
+                if (el) { el.innerHTML = html; pjApplyPage(); }
             })
             .catch(() => {});
     }, 20000);
@@ -723,6 +1047,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
 
         document.getElementById('schedHour').value = <?= (int)$schedule->hour ?>;
         document.getElementById('schedMinute').value = <?= (int)$schedule->minute ?>;
+        document.getElementById('schedTimeLabel').textContent = '<?= str_pad((int)$schedule->hour, 2, '0', STR_PAD_LEFT) ?>:<?= str_pad((int)$schedule->minute, 2, '0', STR_PAD_LEFT) ?>';
 
         updateScheduleSummary();
         // Don't show save button on initial load (no changes yet)

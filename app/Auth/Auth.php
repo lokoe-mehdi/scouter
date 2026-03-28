@@ -59,6 +59,11 @@ class Auth
     private function startSession()
     {
         if (!self::$sessionStarted && session_status() === PHP_SESSION_NONE) {
+            session_set_cookie_params([
+                'secure' => isset($_SERVER['HTTPS']),
+                'httponly' => true,
+                'samesite' => 'Strict'
+            ]);
             session_start();
             self::$sessionStarted = true;
         }
@@ -82,7 +87,8 @@ class Auth
             return false;
         }
         
-        // Connexion réussie
+        // Connexion réussie — regenerate session ID to prevent session fixation
+        session_regenerate_id(true);
         $_SESSION['user_id'] = $user->id;
         $_SESSION['email'] = $user->email;
         $_SESSION['role'] = $user->role ?? 'user';

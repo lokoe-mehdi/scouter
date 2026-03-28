@@ -32,7 +32,7 @@ class PostgresDatabase
         $databaseUrl = getenv('DATABASE_URL');
         
         if (!$databaseUrl) {
-            $databaseUrl = 'postgresql://scouter:scouter@postgres:5432/scouter';
+            throw new \RuntimeException('DATABASE_URL environment variable is required. Set it in your Docker configuration.');
         }
 
         $params = parse_url($databaseUrl);
@@ -40,8 +40,11 @@ class PostgresDatabase
         $host = $params['host'] ?? 'postgres';
         $port = $params['port'] ?? 5432;
         $dbname = ltrim($params['path'] ?? '/scouter', '/');
-        $user = $params['user'] ?? 'scouter';
-        $password = $params['pass'] ?? 'scouter';
+        if (empty($params['user']) || empty($params['pass'])) {
+            throw new \RuntimeException('DATABASE_URL must include user and password (e.g. postgresql://user:pass@host/db)');
+        }
+        $user = $params['user'];
+        $password = $params['pass'];
 
         $dsn = "pgsql:host={$host};port={$port};dbname={$dbname}";
         

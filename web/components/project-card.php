@@ -140,7 +140,7 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
                 </tr>
             </thead>
             <tbody>
-                <?php foreach($crawls as $crawl): 
+                <?php foreach(array_slice($crawls, 0, 3) as $crawl):
                     // Tous les crawls vont vers le dashboard
                     $rowUrl = "dashboard.php?crawl=" . $crawl->crawl_id;
                     $isInProgress = in_array($crawl->job_status, ['running', 'queued', 'pending', 'processing', 'stopping']);
@@ -209,6 +209,12 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
                 <?php endforeach; ?>
             </tbody>
         </table>
+        <?php if (count($crawls) > 3): ?>
+        <a href="project.php?id=<?= $projectId ?>" class="crawl-view-all" onclick="event.stopPropagation();">
+            <?= __('index.view_all_crawls', ['count' => count($crawls)]) ?>
+            <span class="material-symbols-outlined" style="font-size: 14px;">arrow_forward</span>
+        </a>
+        <?php endif; ?>
     </div>
     <?php endif; ?>
 </div>

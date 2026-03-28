@@ -116,7 +116,7 @@ $compareId = isset($_GET['compare']) ? (int)$_GET['compare'] : null;
 $compareRecord = null;
 if ($compareId) {
     $compareRecord = CrawlDatabase::getCrawlById($compareId);
-    if (!$compareRecord || $compareRecord->project_id !== $crawlRecord->project_id) {
+    if (!$compareRecord) {
         $compareId = null;
         $compareRecord = null;
     }
@@ -521,7 +521,7 @@ function isSectionCollapsed($sectionName) {
     <script src="assets/confirm-modal.js"></script>
     <script src="assets/crawl-panel.js?v=<?= time() ?>"></script>
     <script src="assets/app.js"></script>
-    <script src="assets/url-modal-handler.js"></script>
+    <script src="assets/url-modal-handler.js?v=<?= time() ?>"></script>
     
     <?php include 'components/url-details-modal.php'; ?>
     <?php include 'components/quick-search.php'; ?>

@@ -43,6 +43,12 @@ try {
         echo "OK\n";
     }
 
+    // Check if old categories table exists (won't exist on fresh installs)
+    $oldCategoriesExist = (bool)$pdo->query("
+        SELECT table_name FROM information_schema.tables
+        WHERE table_name = 'categories'
+    ")->fetch();
+
     // =============================================
     // Step 2: Populate from existing categories (deduplicated)
     // =============================================
@@ -51,6 +57,8 @@ try {
 
     if ($existingCount > 0) {
         echo "   → crawl_categories already has $existingCount rows, skipping population\n";
+    } elseif (!$oldCategoriesExist) {
+        echo "   → No old categories table found (fresh install), skipping population\n";
     } else {
         echo "   → Populating crawl_categories from existing data... ";
 
@@ -73,55 +81,59 @@ try {
     // =============================================
     // Step 3: Remap pages.cat_id to new IDs
     // =============================================
-    echo "   → Remapping pages.cat_id to new crawl_categories IDs...\n";
+    if (!$oldCategoriesExist) {
+        echo "   → No old categories table, skipping remapping\n";
+    } else {
+        echo "   → Remapping pages.cat_id to new crawl_categories IDs...\n";
 
-    // Get all projects that have categories
-    $projects = $pdo->query("
-        SELECT DISTINCT cr.project_id
-        FROM categories c
-        JOIN crawls cr ON cr.id = c.crawl_id
-        WHERE cr.project_id IS NOT NULL
-    ")->fetchAll(PDO::FETCH_COLUMN);
+        // Get all projects that have categories
+        $projects = $pdo->query("
+            SELECT DISTINCT cr.project_id
+            FROM categories c
+            JOIN crawls cr ON cr.id = c.crawl_id
+            WHERE cr.project_id IS NOT NULL
+        ")->fetchAll(PDO::FETCH_COLUMN);
 
-    $totalProjects = count($projects);
-    $processedProjects = 0;
+        $totalProjects = count($projects);
+        $processedProjects = 0;
 
-    foreach ($projects as $projectId) {
-        $processedProjects++;
+        foreach ($projects as $projectId) {
+            $processedProjects++;
 
-        // Get all crawls for this project
-        $stmt = $pdo->prepare("SELECT id FROM crawls WHERE project_id = :project_id");
-        $stmt->execute([':project_id' => $projectId]);
-        $crawlIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            // Get all crawls for this project
+            $stmt = $pdo->prepare("SELECT id FROM crawls WHERE project_id = :project_id");
+            $stmt->execute([':project_id' => $projectId]);
+            $crawlIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
-        foreach ($crawlIds as $crawlId) {
-            // Build mapping: old cat_id -> new cat_id (via category name)
-            $stmt = $pdo->prepare("
-                SELECT old_c.id AS old_id, cc.id AS new_id
-                FROM categories old_c
-                JOIN crawl_categories cc ON cc.project_id = :project_id AND cc.cat = old_c.cat
-                WHERE old_c.crawl_id = :crawl_id
-            ");
-            $stmt->execute([':project_id' => $projectId, ':crawl_id' => $crawlId]);
-            $mappings = $stmt->fetchAll(PDO::FETCH_OBJ);
-
-            foreach ($mappings as $map) {
-                if ((int)$map->old_id === (int)$map->new_id) {
-                    continue; // Already correct
-                }
-                $update = $pdo->prepare("
-                    UPDATE pages SET cat_id = :new_id
-                    WHERE crawl_id = :crawl_id AND cat_id = :old_id
+            foreach ($crawlIds as $crawlId) {
+                // Build mapping: old cat_id -> new cat_id (via category name)
+                $stmt = $pdo->prepare("
+                    SELECT old_c.id AS old_id, cc.id AS new_id
+                    FROM categories old_c
+                    JOIN crawl_categories cc ON cc.project_id = :project_id AND cc.cat = old_c.cat
+                    WHERE old_c.crawl_id = :crawl_id
                 ");
-                $update->execute([
-                    ':new_id' => $map->new_id,
-                    ':crawl_id' => $crawlId,
-                    ':old_id' => $map->old_id
-                ]);
-            }
-        }
+                $stmt->execute([':project_id' => $projectId, ':crawl_id' => $crawlId]);
+                $mappings = $stmt->fetchAll(PDO::FETCH_OBJ);
 
-        echo "   [$processedProjects/$totalProjects] Project #$projectId remapped\n";
+                foreach ($mappings as $map) {
+                    if ((int)$map->old_id === (int)$map->new_id) {
+                        continue; // Already correct
+                    }
+                    $update = $pdo->prepare("
+                        UPDATE pages SET cat_id = :new_id
+                        WHERE crawl_id = :crawl_id AND cat_id = :old_id
+                    ");
+                    $update->execute([
+                        ':new_id' => $map->new_id,
+                        ':crawl_id' => $crawlId,
+                        ':old_id' => $map->old_id
+                    ]);
+                }
+            }
+
+            echo "   [$processedProjects/$totalProjects] Project #$projectId remapped\n";
+        }
     }
 
     // =============================================
@@ -228,22 +240,26 @@ try {
     // =============================================
     // Step 6: Drop old partitioned categories table
     // =============================================
-    echo "   → Dropping old partitioned categories table and partitions... ";
+    if (!$oldCategoriesExist) {
+        echo "   → No old categories table to drop\n";
+    } else {
+        echo "   → Dropping old partitioned categories table and partitions... ";
 
-    // Get all existing category partitions
-    $partitions = $pdo->query("
-        SELECT tablename FROM pg_tables
-        WHERE tablename ~ '^categories_[0-9]+$'
-        ORDER BY tablename
-    ")->fetchAll(PDO::FETCH_COLUMN);
+        // Get all existing category partitions
+        $partitions = $pdo->query("
+            SELECT tablename FROM pg_tables
+            WHERE tablename ~ '^categories_[0-9]+$'
+            ORDER BY tablename
+        ")->fetchAll(PDO::FETCH_COLUMN);
 
-    foreach ($partitions as $partition) {
-        $pdo->exec("DROP TABLE IF EXISTS " . $partition);
+        foreach ($partitions as $partition) {
+            $pdo->exec("DROP TABLE IF EXISTS " . $partition);
+        }
+
+        // Drop the parent partitioned table
+        $pdo->exec("DROP TABLE IF EXISTS categories");
+        echo "OK (" . count($partitions) . " partitions removed)\n";
     }
-
-    // Drop the parent partitioned table
-    $pdo->exec("DROP TABLE IF EXISTS categories");
-    echo "OK (" . count($partitions) . " partitions removed)\n";
 
     echo "   ✓ Migration completed successfully\n";
     return true;

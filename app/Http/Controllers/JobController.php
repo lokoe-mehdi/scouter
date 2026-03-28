@@ -122,7 +122,8 @@ class JobController extends Controller
         $dbLogs = $this->jobManager->getJobLogs($job->id, $limit, $offset);
         
         $basePath = dirname(__DIR__, 3) . DIRECTORY_SEPARATOR;
-        $logFile = $basePath . "logs" . DIRECTORY_SEPARATOR . $projectDir . ".log";
+        $safeDir = basename($projectDir); // Prevent path traversal
+        $logFile = $basePath . "logs" . DIRECTORY_SEPARATOR . $safeDir . ".log";
         
         $fileLogs = [];
         if (file_exists($logFile)) {
@@ -232,6 +233,14 @@ class JobController extends Controller
 
         if (!$job) {
             $this->error('Job not found', 404);
+        }
+
+        // Verify access: resolve project from job's project_dir
+        if ($job->project_dir) {
+            $crawlRecord = \App\Database\CrawlDatabase::getCrawlByPath($job->project_dir);
+            if ($crawlRecord && $crawlRecord->project_id) {
+                $this->auth->requireProjectAccess($crawlRecord->project_id);
+            }
         }
 
         // Get recent logs

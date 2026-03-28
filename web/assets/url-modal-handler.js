@@ -1,40 +1,18 @@
 /**
  * Gestionnaire pour ouvrir la modal de détails d'URL
- * Détecte les éléments avec la classe .url-clickable
+ * Utilise la délégation d'événements pour capturer tous les clics sur .url-clickable
+ * y compris ceux ajoutés dynamiquement (AJAX, pagination, etc.)
  */
+document.addEventListener('click', function(e) {
+    const el = e.target.closest('.url-clickable');
+    if (!el) return;
 
-// Fonction pour activer la modal sur les éléments avec .url-clickable
-function enableUrlModal() {
-    const urlElements = document.querySelectorAll('.url-clickable');
-    
-    urlElements.forEach(element => {
-        const url = element.getAttribute('data-url');
-        
-        if (url) {
-            // Ajouter le cursor pointer
-            element.style.cursor = 'pointer';
-            
-            // Ajouter l'événement click
-            element.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                openUrlModal(url);
-            });
-            
-            // Tooltip
-            element.title = 'Cliquer pour voir les détails de cette URL';
-        }
-    });
-}
+    e.preventDefault();
+    e.stopPropagation();
 
-// Auto-activer au chargement de la page
-document.addEventListener('DOMContentLoaded', function() {
-    setTimeout(() => {
-        enableUrlModal();
-    }, 100);
+    const url = el.getAttribute('data-url');
+    if (!url) return;
+
+    const project = el.getAttribute('data-project') || null;
+    openUrlModal(url, project);
 });
-
-// Fonction à appeler après un chargement AJAX ou dynamique
-function refreshUrlModalHandlers() {
-    enableUrlModal();
-}
