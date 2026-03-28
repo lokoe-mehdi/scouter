@@ -40,7 +40,7 @@ function getCodeDisplayValue($code) {
 // Fonction globale pour obtenir la couleur d'une catégorie
 function getCategoryColor($category) {
     $categoryColors = $GLOBALS['categoryColors'] ?? [];
-    if(empty($category) || $category === 'N/A' || $category === __('common.uncategorized') || $category === 'Non catégorisé') {
+    if(empty($category) || $category === 'N/A' || $category === __('common.uncategorized')) {
         return '#95a5a6';
     }
     return $categoryColors[$category] ?? '#95a5a6';

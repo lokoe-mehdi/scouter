@@ -4622,107 +4622,107 @@ body {
 /* ========================================
    Comparison Control Bar
    ======================================== */
+/* ===== Comparison Bar ===== */
 .comparison-bar {
     display: flex;
     align-items: center;
-    gap: 1.25rem;
-    padding: 1rem 1.5rem;
-    background: #f8f9fb;
+    gap: 1rem;
+    padding: 0.75rem 1.25rem;
+    background: var(--card-bg, #fff);
     border: 1px solid var(--border-color);
     border-radius: 10px;
     position: sticky;
     top: 0;
     z-index: 100;
     box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-    margin-bottom: 32px;
+    margin-bottom: 1.5rem;
 }
 
-.comparison-bar-crawl {
+.comparison-bar-block {
     display: flex;
     align-items: center;
     gap: 0.5rem;
 }
 
+/* Badge labels */
 .comparison-bar-badge {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
     font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.8px;
-    color: var(--text-secondary);
     white-space: nowrap;
 }
 
-.comparison-bar-badge::before {
-    content: '';
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    flex-shrink: 0;
+.comparison-bar-badge .material-symbols-outlined {
+    font-size: 12px;
 }
 
-.comparison-bar-badge--ref::before {
-    background: var(--primary-color);
+.comparison-bar-badge--ref {
+    color: var(--primary-color);
 }
 
-.comparison-bar-badge--base::before {
-    background: #e67e22;
+.comparison-bar-badge--base {
+    color: #e67e22;
 }
 
-.comparison-bar-date {
+/* Current block — read-only, non-interactive */
+.comparison-bar-current {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.comparison-bar-date-static {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.4rem;
     font-weight: 500;
     font-size: 0.85rem;
-    color: var(--text-primary);
-    padding: 0.5rem 1rem;
-    background: white;
-    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 0.4rem 0.75rem;
+    background: transparent;
+    border: 1px dashed var(--border-color);
     border-radius: 8px;
 }
 
-.comparison-bar-date .material-symbols-outlined {
-    font-size: 18px;
-    color: var(--text-secondary);
-}
-
-.comparison-bar-icon {
+.comparison-bar-date-static .material-symbols-outlined {
     font-size: 16px;
     color: var(--text-tertiary);
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
-    transition: color 0.2s, background 0.2s;
-    text-decoration: none;
 }
 
-.comparison-bar-icon:hover {
-    color: var(--primary-color);
-    background: rgba(78, 205, 196, 0.1);
+/* VS separator */
+.comparison-bar-vs {
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--text-tertiary);
+    letter-spacing: 1px;
+    flex-shrink: 0;
 }
 
+/* Control block — interactive */
 .comparison-bar-selector {
     margin-left: 0;
 }
 
-.comparison-bar-selector .crawl-selector-btn {
-    background: white;
-    border: 1px solid #c5ccd4;
-    color: var(--text-primary);
-    font-size: 0.85rem;
+.comparison-bar-control-btn {
+    background: white !important;
+    border: 1px solid #e67e22 !important;
+    color: var(--text-primary) !important;
+    font-size: 0.85rem !important;
+    box-shadow: 0 2px 4px rgba(230, 126, 34, 0.1);
+    transition: all 0.2s;
 }
 
-.comparison-bar-selector .crawl-selector-btn:hover {
-    background: #f0f2f5;
-    border-color: #a0a8b4;
+.comparison-bar-control-btn:hover {
+    background: #fef5ec !important;
+    border-color: #d35400 !important;
+    box-shadow: 0 2px 8px rgba(230, 126, 34, 0.2);
 }
 
-.comparison-bar-selector .crawl-selector-btn .material-symbols-outlined {
-    color: var(--text-secondary);
+.comparison-bar-control-btn .material-symbols-outlined {
+    color: #e67e22 !important;
 }
 
 .comparison-bar-selector .crawl-dropdown {
@@ -4732,6 +4732,29 @@ body {
 
 .comparison-bar-selector .crawl-dropdown.show {
     transform: none;
+}
+
+/* Swap button */
+.comparison-bar-swap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    padding: 0.35rem;
+    border-radius: 6px;
+    color: var(--text-tertiary);
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 0.2s, background 0.2s;
+}
+
+.comparison-bar-swap:hover {
+    color: var(--primary-color);
+    background: rgba(78, 205, 196, 0.1);
+}
+
+.comparison-bar-swap .material-symbols-outlined {
+    font-size: 20px;
 }
 
 .crawl-dropdown-item.disabled {

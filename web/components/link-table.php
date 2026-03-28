@@ -573,7 +573,7 @@ foreach ($linksRaw as $link) {
         
         // Catégorie source
         $srcCatId = $srcPage['cat_id'];
-        $row->source_category = isset($categoriesMap[$srcCatId]) ? $categoriesMap[$srcCatId]['cat'] : 'Non catégorisé';
+        $row->source_category = isset($categoriesMap[$srcCatId]) ? $categoriesMap[$srcCatId]['cat'] : __('common.uncategorized');
         $row->source_category_color = isset($categoriesMap[$srcCatId]) ? $categoriesMap[$srcCatId]['color'] : null;
         
         // Extracteurs source (JSONB)
@@ -621,7 +621,7 @@ foreach ($linksRaw as $link) {
         
         // Catégorie target
         $targetCatId = $targetPage['cat_id'];
-        $row->target_category = isset($categoriesMap[$targetCatId]) ? $categoriesMap[$targetCatId]['cat'] : 'Non catégorisé';
+        $row->target_category = isset($categoriesMap[$targetCatId]) ? $categoriesMap[$targetCatId]['cat'] : __('common.uncategorized');
         $row->target_category_color = isset($categoriesMap[$targetCatId]) ? $categoriesMap[$targetCatId]['color'] : null;
         
         // Extracteurs target (JSONB)

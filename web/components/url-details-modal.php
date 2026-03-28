@@ -736,7 +736,7 @@ function getCategoryColor(category) {
 }
 
 function getCategoryBadge(category, categoryColor) {
-    if (!category || category === 'N/A' || category === '-' || category === 'Non catégorisé') {
+    if (!category || category === 'N/A' || category === '-' || category === __('common.uncategorized')) {
         return '<span style="color: #999;">-</span>';
     }
     

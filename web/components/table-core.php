@@ -229,7 +229,7 @@ function renderCodeCell($code) {
  */
 function renderCategoryCell($catId, $categoriesMap) {
     $catInfo = $categoriesMap[$catId] ?? null;
-    $category = $catInfo ? $catInfo['cat'] : 'Non catégorisé';
+    $category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     $bgColor = $catInfo ? ($catInfo['color'] ?? '#aaaaaa') : '#aaaaaa';
     $textColor = function_exists('getTextColorForBackground') ? getTextColorForBackground($bgColor) : '#fff';
     
