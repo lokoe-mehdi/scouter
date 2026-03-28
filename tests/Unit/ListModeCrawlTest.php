@@ -472,6 +472,54 @@ test('excludes already crawled pages', function () {
 // SECTION 5 — canonical en mode liste (avec PostgreSQL)
 // ============================================
 
+// ============================================
+// SECTION — store_html option
+// ============================================
+
+test('storeRaw stores HTML when store_html is true', function () {
+    $config = array_merge($this->spiderConfig, ['store_html' => true]);
+    $crawlDb = new CrawlDatabase($this->crawlId, $config);
+    $crawler = new PageCrawler($crawlDb, 0, $this->pattern, $config);
+
+    $srcUrl = 'https://example.com/with-html';
+    $crawlDb->insertPage([
+        'id' => hash('crc32', $srcUrl, false),
+        'url' => $srcUrl,
+        'depth' => 0,
+        'crawled' => false,
+        'external' => false,
+    ]);
+
+    setPrivate($crawler, 'page', fakePage($srcUrl, [], ['domZip' => '<html><body>Hello</body></html>']));
+    invokePrivate($crawler, 'storeRaw');
+
+    $stmt = $this->db->prepare("SELECT COUNT(*) FROM html WHERE crawl_id = :id");
+    $stmt->execute([':id' => $this->crawlId]);
+    expect((int) $stmt->fetchColumn())->toBe(1);
+});
+
+test('storeRaw skips HTML when store_html is false', function () {
+    $config = array_merge($this->spiderConfig, ['store_html' => false]);
+    $crawlDb = new CrawlDatabase($this->crawlId, $config);
+    $crawler = new PageCrawler($crawlDb, 0, $this->pattern, $config);
+
+    $srcUrl = 'https://example.com/no-html';
+    $crawlDb->insertPage([
+        'id' => hash('crc32', $srcUrl, false),
+        'url' => $srcUrl,
+        'depth' => 0,
+        'crawled' => false,
+        'external' => false,
+    ]);
+
+    setPrivate($crawler, 'page', fakePage($srcUrl, [], ['domZip' => '<html><body>Hello</body></html>']));
+    invokePrivate($crawler, 'storeRaw');
+
+    $stmt = $this->db->prepare("SELECT COUNT(*) FROM html WHERE crawl_id = :id");
+    $stmt->execute([':id' => $this->crawlId]);
+    expect((int) $stmt->fetchColumn())->toBe(0);
+});
+
 test('inserts canonical page with external=true in list mode', function () {
     $crawlDb = new CrawlDatabase($this->crawlId, $this->listConfig);
     $crawler = new PageCrawler($crawlDb, 0, $this->pattern, $this->listConfig);

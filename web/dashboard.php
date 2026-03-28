@@ -144,6 +144,10 @@ $GLOBALS['categoryColors'] = $categoryColors;
 $crawlRepo = new CrawlRepository();
 $globalStats = $crawlRecord;
 
+// Extraire le flag store_html depuis la config du crawl
+$crawlConfigRaw = is_string($crawlRecord->config ?? '{}') ? json_decode($crawlRecord->config ?? '{}', true) : ($crawlRecord->config ?? []);
+$storeHtml = $crawlConfigRaw['advanced']['store_html'] ?? true;
+
 // Récupération de la page actuelle
 $page = isset($_GET['page']) ? $_GET['page'] : 'home';
 
@@ -242,6 +246,13 @@ if (!$compareId && !empty($domainCrawls)) {
             $compareRecord = CrawlDatabase::getCrawlById($compareId);
         }
     }
+}
+
+// Flag store_html du crawl de comparaison
+$compareStoreHtml = true;
+if ($compareRecord) {
+    $compareConfigRaw = is_string($compareRecord->config ?? '{}') ? json_decode($compareRecord->config ?? '{}', true) : ($compareRecord->config ?? []);
+    $compareStoreHtml = $compareConfigRaw['advanced']['store_html'] ?? true;
 }
 
 // Pré-calculer les scorecards de comparaison une seule fois (utilisés par toutes les pages comparison)

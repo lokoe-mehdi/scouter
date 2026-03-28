@@ -115,6 +115,7 @@ class Cmder
     // Propager follow_redirects, retry_failed_urls et crawl_type dans la config
     $config['follow_redirects'] = $data['advanced']['follow_redirects'] ?? true;
     $config['retry_failed_urls'] = $data['advanced']['retry_failed_urls'] ?? true;
+    $config['store_html'] = $data['advanced']['store_html'] ?? true;
     $config['crawl_type'] = $data['general']['crawl_type'] ?? 'spider';
 
     // Ajouter xPathExtractors et regexExtractors s'ils existent

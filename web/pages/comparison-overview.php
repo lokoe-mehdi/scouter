@@ -47,7 +47,7 @@ $allDepths = [];
 foreach ($depthRef as $r) $allDepths[$r->depth] = true;
 foreach ($depthBase as $r) $allDepths[$r->depth] = true;
 ksort($allDepths);
-$depthLabels = array_map(function($d) { return 'Niveau ' . $d; }, array_keys($allDepths));
+$depthLabels = array_map(function($d) { return __('depth.col_depth') . ' ' . $d; }, array_keys($allDepths));
 
 $refDepthData = [];
 $baseDepthData = [];
@@ -85,7 +85,7 @@ $allDepthsCat = [];
 foreach ($depthCatRef as $r) $allDepthsCat[$r->depth] = true;
 foreach ($depthCatBase as $r) $allDepthsCat[$r->depth] = true;
 ksort($allDepthsCat);
-$depthCatLabels = array_map(function($d) { return 'Niveau ' . $d; }, array_keys($allDepthsCat));
+$depthCatLabels = array_map(function($d) { return __('depth.col_depth') . ' ' . $d; }, array_keys($allDepthsCat));
 $depthCatKeys = array_keys($allDepthsCat);
 
 // Organize by category name
@@ -133,7 +133,7 @@ foreach ($allCatNames as $catName) {
         $refValues[] = $refCatData[$catName][$d] ?? 0;
     }
     $depthCatSeries[] = [
-        'name' => $catName . ' (Ref)',
+        'name' => $catName . ' (' . __('comparison.badge_reference') . ')',
         'data' => $refValues,
         'color' => $color,
         'stack' => 'reference',
@@ -144,7 +144,7 @@ foreach ($allCatNames as $catName) {
         $baseValues[] = $baseCatData[$catName][$d] ?? 0;
     }
     $depthCatSeries[] = [
-        'name' => $catName . ' (Base)',
+        'name' => $catName . ' (' . __('comparison.badge_baseline') . ')',
         'data' => $baseValues,
         'color' => hexToRgba($color, 0.5),
         'stack' => 'baseline',
@@ -197,11 +197,11 @@ $codeStatsBase = $stmtCodeBase->fetchAll(PDO::FETCH_OBJ);
 // Build donut data — Ref: full color, Base: 50% opacity
 $donutRefData = [];
 foreach ($codeStatsRef as $s) {
-    $donutRefData[] = ['name' => 'Ref: ' . getCodeFullLabel($s->code), 'y' => (int)$s->total, 'color' => getCodeColor($s->code)];
+    $donutRefData[] = ['name' => __('comparison.badge_reference') . ': ' . getCodeFullLabel($s->code), 'y' => (int)$s->total, 'color' => getCodeColor($s->code)];
 }
 $donutBaseData = [];
 foreach ($codeStatsBase as $s) {
-    $donutBaseData[] = ['name' => 'Base: ' . getCodeFullLabel($s->code), 'y' => (int)$s->total, 'color' => hexToRgba(getCodeColor($s->code), 0.5)];
+    $donutBaseData[] = ['name' => __('comparison.badge_baseline') . ': ' . getCodeFullLabel($s->code), 'y' => (int)$s->total, 'color' => hexToRgba(getCodeColor($s->code), 0.5)];
 }
 
 // SQL display for donut
@@ -270,7 +270,7 @@ foreach ($codeCatBase as $r) {
 $allCodeCatNames = array_unique(array_merge(array_keys($refCodeCatData), array_keys($baseCodeCatData)));
 
 // Build series: each code family × ref/base
-$codeFamilies = ['2xx' => [200,'2xx - OK'], '3xx' => [300,'3xx - Redirect'], '4xx' => [400,'4xx - Client Error'], '5xx' => [500,'5xx - Server Error'], '0xx' => [0,'0 - Timeout'], '1xx' => [100,'1xx - Info']];
+$codeFamilies = ['2xx' => [200, __('codes.card_2xx') . ' - ' . __('codes.card_2xx_desc')], '3xx' => [300, __('codes.card_3xx') . ' - ' . __('codes.card_3xx_desc')], '4xx' => [400, __('codes.card_4xx') . ' - ' . __('codes.card_4xx_desc')], '5xx' => [500, __('codes.card_5xx') . ' - ' . __('codes.card_5xx_desc')], '0xx' => [0, __('codes.card_timeout')], '1xx' => [100, __('codes.card_1xx') . ' - ' . __('codes.card_1xx_desc')]];
 $codeCatSeries = [];
 foreach ($codeFamilies as $fam => $info) {
     $refVals = [];
@@ -283,13 +283,13 @@ foreach ($codeFamilies as $fam => $info) {
     if (array_sum($refVals) == 0 && array_sum($baseVals) == 0) continue;
     $color = getCodeColor($info[0]);
     $codeCatSeries[] = [
-        'name' => $info[1] . ' (Ref)',
+        'name' => $info[1] . ' (' . __('comparison.badge_reference') . ')',
         'data' => $refVals,
         'color' => $color,
         'stack' => 'reference',
     ];
     $codeCatSeries[] = [
-        'name' => $info[1] . ' (Base)',
+        'name' => $info[1] . ' (' . __('comparison.badge_baseline') . ')',
         'data' => $baseVals,
         'color' => hexToRgba($color, 0.5),
         'stack' => 'baseline',
@@ -522,7 +522,7 @@ ORDER BY depth"
         'title' => __('sidebar.overview'),
         'maxLines' => 0,
         'columns' => [
-            ['key' => 'kpi', 'label' => 'KPI', 'type' => 'bold'],
+            ['key' => 'kpi', 'label' => __('comparison.kpi_column'), 'type' => 'bold'],
             ['key' => 'reference', 'label' => __('comparison.badge_reference'), 'labelHtml' => '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:7px;height:7px;border-radius:50%;background:var(--primary-color);"></span>' . htmlspecialchars(__('comparison.badge_reference')) . '</span>', 'type' => 'default'],
             ['key' => 'baseline', 'label' => __('comparison.badge_baseline'), 'labelHtml' => '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:7px;height:7px;border-radius:50%;background:#e67e22;"></span>' . htmlspecialchars(__('comparison.badge_baseline')) . '</span>', 'type' => 'default'],
             ['key' => 'diff', 'label' => __('comparison.col_difference'), 'type' => 'html'],

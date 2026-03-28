@@ -4748,27 +4748,15 @@ body {
     display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
     font-size: 0.85rem; color: var(--text-primary); line-height: 2.2;
 }
-.sched-pill-select {
-    padding: 0.2rem 0.4rem; border: none; border-radius: 6px;
-    font-size: 0.8rem; font-weight: 600; color: var(--primary-color);
-    background: rgba(78,205,196,0.1); cursor: pointer; outline: none;
-    -webkit-appearance: none; appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%234ECDC4'/%3E%3C/svg%3E");
-    background-repeat: no-repeat; background-position: right 5px center; padding-right: 18px;
-}
-.sched-pill-input {
-    width: 32px; padding: 0.15rem 0; border: none; border-bottom: 2px solid var(--primary-color);
-    font-size: 0.85rem; font-weight: 700; color: var(--primary-color); text-align: center;
-    background: transparent; outline: none; -moz-appearance: textfield; border-radius: 0;
-}
-.sched-pill-input::-webkit-inner-spin-button { -webkit-appearance: none; }
-.sched-pill-input:focus { border-bottom-color: var(--primary-dark); }
+#schedTimeDropdown { width: 90px; }
+.sched-freq-dropdown { white-space: nowrap; }
+.sched-monthday-dropdown { width: 60px; }
 
 /* Time picker dropdown */
 .sched-time-custom { position: relative; display: inline-block; }
 .sched-time-trigger {
     display: inline-flex; align-items: center; gap: 0.3rem;
-    padding: 0.2rem 0.4rem; border: none; border-radius: 6px;
+    padding: 0.2rem 0.6rem; border: none; border-radius: 6px;
     background: rgba(78,205,196,0.1); color: var(--primary-color);
     font-size: 0.8rem; font-weight: 700; cursor: pointer;
     transition: background 0.15s;
@@ -4778,13 +4766,13 @@ body {
 
 .sched-time-dropdown {
     display: none; position: absolute; top: 100%; left: 0; margin-top: 4px;
-    width: 90px; max-height: 200px; overflow-y: auto;
+    min-width: 100%; max-height: 200px; overflow-y: auto; overflow-x: hidden;
     background: var(--card-bg, #fff); border: 1px solid var(--border-color); border-radius: 8px;
     box-shadow: 0 4px 16px rgba(0,0,0,0.12); z-index: 300;
 }
 .sched-time-dropdown.show { display: block; }
 .sched-time-option {
-    padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500;
+    padding: 0.35rem 1rem; font-size: 0.8rem; font-weight: 500;
     color: var(--text-primary); cursor: pointer; text-align: center;
     transition: background 0.1s;
 }
