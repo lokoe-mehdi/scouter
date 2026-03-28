@@ -784,6 +784,7 @@
     "project.no_users_available": "Keine Benutzer verfügbar",
     "project.no_shares": "Keine Freigaben",
     "project.add_share": "Hinzufügen",
+    "project.danger_zone": "Gefahrenzone",
     "project.delete_project": "Projekt löschen",
     "project.col_type": "Typ",
     "index.launch": "Starten",

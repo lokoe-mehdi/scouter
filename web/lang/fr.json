@@ -784,6 +784,7 @@
     "project.no_users_available": "Aucun utilisateur disponible",
     "project.no_shares": "Aucun partage",
     "project.add_share": "Ajouter",
+    "project.danger_zone": "Zone de danger",
     "project.delete_project": "Supprimer le projet",
     "project.col_type": "Type",
     "index.launch": "Lancer",
