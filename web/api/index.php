@@ -69,7 +69,8 @@ try {
     $router->post('/projects/{id}/unshare', [ProjectController::class, 'unshare'], ['auth' => true]);
     $router->get('/projects/{id}/stats', [ProjectController::class, 'stats'], ['auth' => true]);
     $router->post('/projects/duplicate', [ProjectController::class, 'duplicate'], ['auth' => true]);
-    // Note: share/unshare sont gérés via POST /projects avec action=share|unshare dans le body
+    $router->post('/projects/{id}/schedule', [ProjectController::class, 'saveSchedule'], ['auth' => true]);
+    $router->get('/projects/{id}/schedule', [ProjectController::class, 'getSchedule'], ['auth' => true]);
 
     // =============================================================================
     // CRAWLS

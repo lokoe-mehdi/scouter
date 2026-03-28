@@ -43,6 +43,7 @@ foreach ($projectCrawls as $crawl) {
         'stats' => ['urls' => $crawl->urls ?? 0, 'crawled' => $crawl->crawled ?? 0, 'compliant' => $crawl->compliant ?? 0],
         'job_status' => $jobStatus, 'in_progress' => $crawl->in_progress ?? 0,
         'config' => json_decode($crawl->config ?? '{}', true), 'crawl_type' => $crawl->crawl_type ?? 'spider',
+        'scheduled' => $crawl->scheduled ?? false,
     ];
 }
 usort($crawls, fn($a, $b) => $b->crawl_id - $a->crawl_id);
@@ -57,7 +58,56 @@ $kpiCrawled = $lastFinished ? $lastFinished->stats['crawled'] : 0;
 $kpiCompliant = $lastFinished ? $lastFinished->stats['compliant'] : 0;
 $kpiIndexableRate = $kpiCrawled > 0 ? round(($kpiCompliant / $kpiCrawled) * 100, 1) : 0;
 
+// Load existing schedule
+$pdo = \App\Database\PostgresDatabase::getInstance()->getConnection();
+$schedStmt = $pdo->prepare("SELECT * FROM crawl_schedules WHERE project_id = :pid");
+$schedStmt->execute([':pid' => $projectId]);
+$schedule = $schedStmt->fetch(PDO::FETCH_OBJ) ?: null;
+
 $basePath = '';
+
+// AJAX partial: return only the crawl history HTML
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
+    header('Content-Type: text/html; charset=utf-8');
+    if (empty($crawls)) {
+        echo '<div class="pj-empty"><span class="material-symbols-outlined">search_off</span><p>' . __('project.no_crawl_yet') . '</p></div>';
+    } else {
+        foreach ($crawls as $crawl) {
+            $isInProgress = in_array($crawl->job_status, ['running', 'queued', 'pending', 'processing', 'stopping']);
+            $isFinished = in_array($crawl->job_status, ['completed', 'stopped', 'failed']);
+            $statusClass = 'pj-status--completed'; $statusText = __('index.status_completed');
+            if ($crawl->job_status === 'running' || $crawl->job_status === 'stopping') { $statusClass = 'pj-status--running'; $statusText = __('index.status_running'); }
+            elseif (in_array($crawl->job_status, ['queued', 'pending'])) { $statusClass = 'pj-status--queued'; $statusText = __('index.status_queued'); }
+            elseif ($crawl->job_status === 'processing') { $statusClass = 'pj-status--processing'; $statusText = __('index.status_processing'); }
+            elseif ($crawl->job_status === 'failed') { $statusClass = 'pj-status--failed'; $statusText = __('index.status_failed'); }
+            elseif ($crawl->job_status === 'stopped') { $statusClass = 'pj-status--stopped'; $statusText = __('index.status_stopped'); }
+            $typeIcon = $crawl->scheduled ? 'schedule' : (($crawl->crawl_type ?? 'spider') === 'list' ? 'list_alt' : 'bolt');
+            $typeTitle = $crawl->scheduled ? __('project.scheduled_crawl') : (($crawl->crawl_type ?? 'spider') === 'list' ? __('index.mode_url_list') : 'Spider');
+            echo '<div class="pj-crawl-row ' . ($isFinished ? 'pj-crawl-row--clickable' : '') . '" ' . ($isFinished ? 'onclick="window.location.href=\'dashboard.php?crawl=' . $crawl->crawl_id . '\'"' : '') . '>';
+            echo '<span class="pj-crawl-type" title="' . htmlspecialchars($typeTitle) . '"><span class="material-symbols-outlined">' . $typeIcon . '</span></span>';
+            echo '<div class="pj-crawl-info"><span class="pj-crawl-date">' . $crawl->date . '</span><span class="pj-status ' . $statusClass . '">' . $statusText . '</span></div>';
+            echo '<div class="pj-crawl-kpis">';
+            if (!$isInProgress) {
+                echo '<span class="pj-crawl-kpi"><strong>' . number_format($crawl->stats['urls']) . '</strong> URLs</span>';
+                echo '<span class="pj-crawl-kpi"><strong>' . number_format($crawl->stats['crawled']) . '</strong> ' . __('header.crawled') . '</span>';
+                echo '<span class="pj-crawl-kpi"><strong>' . number_format($crawl->stats['compliant']) . '</strong> ' . __('columns.indexable') . '</span>';
+            } else {
+                echo '<span class="pj-crawl-kpi" style="color:var(--text-tertiary);">--</span>';
+            }
+            echo '</div>';
+            echo '<div class="pj-crawl-config">';
+            if (($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript') echo '<span class="pj-pill pj-pill--active" title="' . __('index.mode_javascript') . '">JS</span>';
+            if (!empty($crawl->config['advanced']['respect']['robots'])) echo '<span class="pj-pill pj-pill--active" title="' . __('index.respect_robots') . '">robots</span>';
+            if (($crawl->crawl_type ?? 'spider') !== 'list') echo '<span class="pj-pill" title="' . __('index.max_depth') . '">' . ($crawl->config['general']['depthMax'] ?? '-') . '</span>';
+            echo '</div>';
+            echo '<div class="pj-crawl-actions" onclick="event.stopPropagation();">';
+            if ($isFinished) echo '<a href="dashboard.php?crawl=' . $crawl->crawl_id . '" class="pj-icon-btn" title="' . __('project.view_report') . '"><span class="material-symbols-outlined">bar_chart</span></a>';
+            if ($canManage) echo '<button class="pj-icon-btn" title="' . ($isInProgress ? __('index.monitoring') : __('index.view_logs')) . '" onclick="openCrawlPanel(\'' . htmlspecialchars($crawl->dir) . '\', \'' . htmlspecialchars($domainName) . '\', ' . $crawl->crawl_id . ')"><span class="material-symbols-outlined">terminal</span></button>';
+            echo '</div></div>';
+        }
+    }
+    exit;
+}
 ?>
 <!DOCTYPE html>
 <html lang="<?= I18n::getInstance()->getLang() ?>">
@@ -197,7 +247,6 @@ $basePath = '';
                     <div class="sched-sentence">
                         <?= __('project.sched_run') ?>
                         <select id="schedFreqType" class="sched-pill-select" onchange="schedDirty(); updateScheduleUI()">
-                            <option value="minute"><?= __('project.sched_every_minute') ?></option>
                             <option value="daily"><?= __('project.sched_every_day') ?></option>
                             <option value="weekly" selected><?= __('project.sched_every_week') ?></option>
                             <option value="monthly"><?= __('project.sched_every_month') ?></option>
@@ -257,7 +306,7 @@ $basePath = '';
                     <p><?= __('project.no_crawl_yet') ?></p>
                 </div>
                 <?php else: ?>
-                <div class="pj-crawl-list">
+                <div class="pj-crawl-list" id="pjCrawlList">
                     <?php foreach ($crawls as $crawl):
                         $isInProgress = in_array($crawl->job_status, ['running', 'queued', 'pending', 'processing', 'stopping']);
                         $isFinished = in_array($crawl->job_status, ['completed', 'stopped', 'failed']);
@@ -276,8 +325,8 @@ $basePath = '';
                         }
                     ?>
                     <div class="pj-crawl-row <?= $isFinished ? 'pj-crawl-row--clickable' : '' ?>" <?= $isFinished ? 'onclick="window.location.href=\'dashboard.php?crawl=' . $crawl->crawl_id . '\'"' : '' ?>>
-                        <span class="pj-crawl-type" title="<?= ($crawl->crawl_type ?? 'spider') === 'list' ? __('index.mode_url_list') : 'Spider' ?>">
-                            <span class="material-symbols-outlined"><?= ($crawl->crawl_type ?? 'spider') === 'list' ? 'list_alt' : 'bolt' ?></span>
+                        <span class="pj-crawl-type" title="<?= $crawl->scheduled ? __('project.scheduled_crawl') : (($crawl->crawl_type ?? 'spider') === 'list' ? __('index.mode_url_list') : 'Spider') ?>">
+                            <span class="material-symbols-outlined"><?= $crawl->scheduled ? 'schedule' : (($crawl->crawl_type ?? 'spider') === 'list' ? 'list_alt' : 'bolt') ?></span>
                         </span>
                         <div class="pj-crawl-info">
                             <span class="pj-crawl-date"><?= $crawl->date ?></span>
@@ -362,8 +411,20 @@ $basePath = '';
     function toggleSchedule(checked) {
         document.getElementById('scheduleConfig').style.display = checked ? '' : 'none';
         document.getElementById('scheduleOff').style.display = checked ? 'none' : '';
-        if (checked) { updateScheduleUI(); updateScheduleSummary(); }
-        schedDirty();
+        if (checked) { updateScheduleUI(); updateScheduleSummary(); schedDirty(); }
+        else { disableScheduleNow(); }
+    }
+
+    // Immediately disable schedule via API (no save button needed)
+    async function disableScheduleNow() {
+        try {
+            await fetch('api/projects/<?= $projectId ?>/schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: false })
+            });
+        } catch(e) {}
+        document.getElementById('schedSaveBtn').style.display = 'none';
     }
 
     function updateScheduleUI() {
@@ -400,26 +461,58 @@ $basePath = '';
     function schedDirty() {
         document.getElementById('schedSaveBtn').style.display = '';
     }
-    function saveSchedule() {
+    async function saveSchedule() {
         const btn = document.getElementById('schedSaveBtn');
         btn.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span> Saving...';
         btn.disabled = true;
-        // TODO: API call to persist schedule
-        setTimeout(() => {
-            btn.innerHTML = '<span class="material-symbols-outlined">check_circle</span> Saved!';
-            btn.classList.add('sched-save--done');
-            setTimeout(() => { btn.style.display = 'none'; btn.disabled = false; btn.classList.remove('sched-save--done'); btn.innerHTML = '<span class="material-symbols-outlined">check</span> ' + __('common.save'); }, 1500);
-        }, 600);
+
+        const enabled = document.getElementById('scheduleToggle').checked;
+        const frequency = document.getElementById('schedFreqType').value;
+        const days = [];
+        document.querySelectorAll('.sched-day--active').forEach(d => days.push(d.dataset.day));
+        const hour = parseInt(document.getElementById('schedHour').value) || 0;
+        const minute = parseInt(document.getElementById('schedMinute').value) || 0;
+        const dayOfMonth = parseInt(document.getElementById('schedMonthDay')?.value) || 1;
+
+        try {
+            const resp = await fetch('api/projects/<?= $projectId ?>/schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    enabled, frequency, days_of_week: days,
+                    day_of_month: dayOfMonth, hour, minute,
+                    template_crawl_id: window.selectedModelCrawlId || null
+                })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                btn.innerHTML = '<span class="material-symbols-outlined">check_circle</span> Saved!';
+                btn.classList.add('sched-save--done');
+                setTimeout(() => { btn.style.display = 'none'; btn.disabled = false; btn.classList.remove('sched-save--done'); btn.innerHTML = '<span class="material-symbols-outlined">check</span> ' + __('common.save'); }, 1500);
+            } else {
+                alert(__('common.error') + ': ' + (data.error || ''));
+                btn.disabled = false;
+                btn.innerHTML = '<span class="material-symbols-outlined">check</span> ' + __('common.save');
+            }
+        } catch (e) {
+            alert(__('common.error') + ': ' + e.message);
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-symbols-outlined">check</span> ' + __('common.save');
+        }
     }
 
-    // Model selector dropdown
+    // Model selector
+    window.selectedModelCrawlId = <?= $lastFinished ? $lastFinished->crawl_id : 'null' ?>;
+
     function toggleModelDropdown(e) {
         e.stopPropagation();
         document.getElementById('modelDropdown').classList.toggle('show');
     }
     function selectModel(crawlId, dateStr) {
+        window.selectedModelCrawlId = crawlId;
         document.getElementById('modelSelectorText').textContent = dateStr;
         document.getElementById('modelDropdown').classList.remove('show');
+        schedDirty();
     }
     document.addEventListener('click', function(e) {
         const dd = document.getElementById('modelDropdown');
@@ -590,9 +683,49 @@ $basePath = '';
         const ud = document.getElementById('uaDropdown'); if (ud && !e.target.closest('.custom-ua-select')) ud.classList.remove('show');
     });
 
-    // Auto-refresh if any crawl is running
-    <?php if ($hasRunningCrawl): ?>
-    setInterval(() => { window.location.reload(); }, 15000);
+    // Auto-refresh crawl history every 20s
+    setInterval(() => {
+        fetch('project.php?id=<?= $projectId ?>&ajax=history')
+            .then(r => r.text())
+            .then(html => {
+                const el = document.getElementById('pjCrawlList');
+                if (el) el.innerHTML = html;
+            })
+            .catch(() => {});
+    }, 20000);
+
+    // Load existing schedule
+    <?php if ($schedule && ($schedule->enabled === true || $schedule->enabled === 't' || $schedule->enabled === '1')): ?>
+    document.addEventListener('DOMContentLoaded', function() {
+        const toggle = document.getElementById('scheduleToggle');
+        toggle.checked = true;
+        toggleSchedule(true);
+
+        document.getElementById('schedFreqType').value = <?= json_encode($schedule->frequency) ?>;
+        updateScheduleUI();
+
+        <?php if ($schedule->frequency === 'weekly'):
+            $savedDays = trim($schedule->days_of_week ?? '{mon}', '{}');
+            $savedDaysArr = array_map('trim', explode(',', $savedDays));
+        ?>
+        // Reset all days, then activate saved ones
+        document.querySelectorAll('.sched-day').forEach(d => d.classList.remove('sched-day--active'));
+        <?php foreach ($savedDaysArr as $d): ?>
+        document.querySelector('.sched-day[data-day="<?= $d ?>"]')?.classList.add('sched-day--active');
+        <?php endforeach; ?>
+        <?php endif; ?>
+
+        <?php if ($schedule->frequency === 'monthly'): ?>
+        document.getElementById('schedMonthDay').value = <?= (int)$schedule->day_of_month ?>;
+        <?php endif; ?>
+
+        document.getElementById('schedHour').value = <?= (int)$schedule->hour ?>;
+        document.getElementById('schedMinute').value = <?= (int)$schedule->minute ?>;
+
+        updateScheduleSummary();
+        // Don't show save button on initial load (no changes yet)
+        document.getElementById('schedSaveBtn').style.display = 'none';
+    });
     <?php endif; ?>
     </script>
 </body>

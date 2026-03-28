@@ -621,4 +621,180 @@ class ProjectController extends Controller
             'source_crawl' => $projectDir
         ], 'Crawl dupliqué et mis en queue');
     }
+
+    /**
+     * Save or update crawl schedule for a project
+     */
+    public function saveSchedule(Request $request): void
+    {
+        $projectId = (int)$request->param('id');
+        $this->auth->requireProjectManagement($projectId);
+
+        $enabled = (bool)$request->get('enabled', false);
+        $frequency = $request->get('frequency', 'weekly');
+        $daysOfWeek = $request->get('days_of_week', ['mon']);
+        $dayOfMonth = max(1, min(28, (int)$request->get('day_of_month', 1)));
+        $hour = max(0, min(23, (int)$request->get('hour', 8)));
+        $minute = max(0, min(59, (int)$request->get('minute', 0)));
+        $templateCrawlId = $request->get('template_crawl_id');
+
+        if (!in_array($frequency, ['minute', 'daily', 'weekly', 'monthly'])) {
+            $this->error('Invalid frequency');
+        }
+
+        $db = \App\Database\PostgresDatabase::getInstance()->getConnection();
+
+        // If disabling, just update enabled + next_run_at and return
+        if (!$enabled) {
+            $stmt = $db->prepare("
+                UPDATE crawl_schedules SET enabled = false, next_run_at = NULL, updated_at = NOW()
+                WHERE project_id = :pid
+            ");
+            $stmt->execute([':pid' => $projectId]);
+            // Also handle case where no schedule exists yet (first save while off)
+            if ($stmt->rowCount() === 0) {
+                // Nothing to disable, just return success
+            }
+            $this->success(['next_run_at' => null, 'enabled' => false], 'Schedule disabled');
+            return;
+        }
+
+        // Enabled: get crawl config from template
+        $crawlConfig = '{}';
+        $crawlType = 'spider';
+        $depthMax = 30;
+        $catConfig = null;
+
+        if ($templateCrawlId) {
+            $stmt = $db->prepare("SELECT config, crawl_type, depth_max, project_id FROM crawls WHERE id = :id");
+            $stmt->execute([':id' => (int)$templateCrawlId]);
+            $template = $stmt->fetch(\PDO::FETCH_OBJ);
+
+            if (!$template || (int)$template->project_id !== $projectId) {
+                $this->error('Template crawl not found or not in this project');
+            }
+
+            $crawlConfig = $template->config ?? '{}';
+            $crawlType = $template->crawl_type ?? 'spider';
+            $depthMax = $template->depth_max ?? 30;
+
+            // Copy categorization config
+            $stmt = $db->prepare("SELECT config FROM categorization_config WHERE crawl_id = :id");
+            $stmt->execute([':id' => (int)$templateCrawlId]);
+            $cat = $stmt->fetch(\PDO::FETCH_OBJ);
+            $catConfig = $cat ? $cat->config : null;
+        }
+
+        // Compute next_run_at
+        $nextRun = $this->computeNextRun($frequency, $daysOfWeek, $dayOfMonth, $hour, $minute);
+
+        // Format days_of_week as PostgreSQL array
+        $pgDays = '{' . implode(',', $daysOfWeek) . '}';
+
+        $stmt = $db->prepare("
+            INSERT INTO crawl_schedules (project_id, user_id, enabled, frequency, days_of_week, day_of_month, hour, minute, crawl_config, crawl_type, depth_max, categorization_config, next_run_at, updated_at)
+            VALUES (:project_id, :user_id, :enabled, :frequency, :days_of_week, :day_of_month, :hour, :minute, :crawl_config, :crawl_type, :depth_max, :cat_config, :next_run, NOW())
+            ON CONFLICT (project_id) DO UPDATE SET
+                user_id = EXCLUDED.user_id,
+                enabled = EXCLUDED.enabled,
+                frequency = EXCLUDED.frequency,
+                days_of_week = EXCLUDED.days_of_week,
+                day_of_month = EXCLUDED.day_of_month,
+                hour = EXCLUDED.hour,
+                minute = EXCLUDED.minute,
+                crawl_config = EXCLUDED.crawl_config,
+                crawl_type = EXCLUDED.crawl_type,
+                depth_max = EXCLUDED.depth_max,
+                categorization_config = EXCLUDED.categorization_config,
+                next_run_at = EXCLUDED.next_run_at,
+                updated_at = NOW()
+        ");
+
+        $stmt->execute([
+            ':project_id' => $projectId,
+            ':user_id' => $this->userId,
+            ':enabled' => $enabled ? 'true' : 'false',
+            ':frequency' => $frequency,
+            ':days_of_week' => $pgDays,
+            ':day_of_month' => $dayOfMonth,
+            ':hour' => $hour,
+            ':minute' => $minute,
+            ':crawl_config' => $crawlConfig,
+            ':crawl_type' => $crawlType,
+            ':depth_max' => $depthMax,
+            ':cat_config' => $catConfig,
+            ':next_run' => $nextRun,
+        ]);
+
+        $this->success([
+            'next_run_at' => $nextRun,
+            'enabled' => $enabled,
+        ], 'Schedule saved');
+    }
+
+    /**
+     * Get crawl schedule for a project
+     */
+    public function getSchedule(Request $request): void
+    {
+        $projectId = (int)$request->param('id');
+
+        $db = \App\Database\PostgresDatabase::getInstance()->getConnection();
+        $stmt = $db->prepare("SELECT * FROM crawl_schedules WHERE project_id = :pid");
+        $stmt->execute([':pid' => $projectId]);
+        $schedule = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        $this->success(['schedule' => $schedule ?: null]);
+    }
+
+    /**
+     * Compute next run timestamp
+     */
+    private function computeNextRun(string $freq, array $days, int $dayOfMonth, int $hour, int $minute): string
+    {
+        $now = new \DateTime('now');
+
+        if ($freq === 'minute') {
+            $next = clone $now;
+            $next->modify('+1 minute');
+            return $next->format('Y-m-d H:i:00');
+        }
+
+        if ($freq === 'daily') {
+            $next = clone $now;
+            $next->setTime($hour, $minute, 0);
+            if ($next <= $now) $next->modify('+1 day');
+            return $next->format('Y-m-d H:i:00');
+        }
+
+        if ($freq === 'weekly') {
+            $dayMap = ['mon'=>'Monday','tue'=>'Tuesday','wed'=>'Wednesday',
+                       'thu'=>'Thursday','fri'=>'Friday','sat'=>'Saturday','sun'=>'Sunday'];
+            $candidates = [];
+            foreach ($days as $d) {
+                $dayName = $dayMap[$d] ?? null;
+                if (!$dayName) continue;
+                $c = new \DateTime("this week {$dayName}");
+                $c->setTime($hour, $minute, 0);
+                if ($c <= $now) { $c = new \DateTime("next {$dayName}"); $c->setTime($hour, $minute, 0); }
+                $candidates[] = $c;
+            }
+            if (empty($candidates)) { $c = new \DateTime('next Monday'); $c->setTime($hour, $minute, 0); return $c->format('Y-m-d H:i:00'); }
+            usort($candidates, fn($a, $b) => $a <=> $b);
+            return $candidates[0]->format('Y-m-d H:i:00');
+        }
+
+        if ($freq === 'monthly') {
+            $dom = max(1, min(28, $dayOfMonth));
+            $next = clone $now;
+            $next->setDate((int)$next->format('Y'), (int)$next->format('m'), $dom);
+            $next->setTime($hour, $minute, 0);
+            if ($next <= $now) { $next->modify('+1 month'); $next->setDate((int)$next->format('Y'), (int)$next->format('m'), $dom); }
+            return $next->format('Y-m-d H:i:00');
+        }
+
+        $next = clone $now;
+        $next->modify('+1 day');
+        return $next->format('Y-m-d H:i:00');
+    }
 }
