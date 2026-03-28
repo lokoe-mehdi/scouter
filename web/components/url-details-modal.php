@@ -907,8 +907,8 @@ function displayUrlDetails(data) {
     currentPageUrl = url.url;
     currentCrawlDate = url.date;
     
-    // Afficher les onglets HTML, Headings et Prévisualiser si code 200
-    if (url.code >= 200 && url.code < 300) {
+    // Afficher les onglets HTML, Headings et Prévisualiser si code 200 ET store_html activé
+    if (url.code >= 200 && url.code < 300 && <?= json_encode((bool)($storeHtml ?? true)) ?>) {
         document.getElementById('htmlTabBtn').style.display = 'flex';
         document.getElementById('headingsTabBtn').style.display = 'flex';
         document.getElementById('previewTabBtn').style.display = 'flex';

@@ -156,6 +156,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             echo '<span class="material-symbols-outlined config-icon ' . ((!empty($crawl->config['advanced']['respect']['canonical']) || !empty($crawl->config['advanced']['respect_canonical'])) ? 'active' : 'inactive') . '" title="' . __('index.respect_canonical') . '">content_copy</span>';
             echo '<span class="material-symbols-outlined config-icon ' . ((!empty($crawl->config['advanced']['respect']['nofollow']) || !empty($crawl->config['advanced']['respect_nofollow'])) ? 'active' : 'inactive') . '" title="' . __('index.respect_nofollow') . '">link_off</span>';
             echo '<span class="material-symbols-outlined config-icon ' . (($crawl->config['advanced']['follow_redirects'] ?? true) ? 'active' : 'inactive') . '" title="' . __('index.follow_redirects') . '">redo</span>';
+            echo '<span class="material-symbols-outlined config-icon ' . (($crawl->config['advanced']['store_html'] ?? true) ? 'active' : 'inactive') . '" title="' . __('index.store_html') . '">code</span>';
             if (($crawl->crawl_type ?? 'spider') !== 'list') echo '<span class="config-depth-badge" title="' . __('index.max_depth') . '">' . ($crawl->config['general']['depthMax'] ?? '-') . '</span>';
             echo '</div>';
             echo '<div class="pj-crawl-actions" onclick="event.stopPropagation();">';
@@ -465,6 +466,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                             <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['canonical']) || !empty($crawl->config['advanced']['respect_canonical'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_canonical') ?>">content_copy</span>
                             <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['nofollow']) || !empty($crawl->config['advanced']['respect_nofollow'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_nofollow') ?>">link_off</span>
                             <span class="material-symbols-outlined config-icon <?= ($crawl->config['advanced']['follow_redirects'] ?? true) ? 'active' : 'inactive' ?>" title="<?= __('index.follow_redirects') ?>">redo</span>
+                            <span class="material-symbols-outlined config-icon <?= ($crawl->config['advanced']['store_html'] ?? true) ? 'active' : 'inactive' ?>" title="<?= __('index.store_html') ?>">code</span>
                             <?php if (($crawl->crawl_type ?? 'spider') !== 'list'): ?>
                                 <span class="config-depth-badge" title="<?= __('index.max_depth') ?>"><?= $crawl->config['general']['depthMax'] ?? '-' ?></span>
                             <?php endif; ?>
@@ -946,6 +948,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             respect_canonical: document.getElementById('respect_canonical').checked,
             follow_redirects: document.getElementById('follow_redirects').checked,
             retry_failed_urls: document.getElementById('retry_failed_urls').checked,
+            store_html: document.getElementById('store_html').checked,
             crawl_speed: document.getElementById('crawl_speed').value,
             crawl_mode: document.getElementById('crawl_mode').value
         };

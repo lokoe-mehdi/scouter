@@ -125,7 +125,7 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
                 <span class="material-symbols-outlined">label</span>
                 <span><?= __('sidebar.seo_tags') ?></span>
             </a>
-            <a href="?crawl=<?= $crawlId ?>&page=headings" 
+            <a href="?crawl=<?= $crawlId ?>&page=headings"
                class="sidebar-panel-item <?= $page === 'headings' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">format_h1</span>
                 <span><?= __('sidebar.heading_hierarchy') ?></span>

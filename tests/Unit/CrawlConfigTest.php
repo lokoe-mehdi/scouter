@@ -102,15 +102,39 @@ describe('Crawl Configuration', function () {
             'crawl_speed' => 'fast',
             'max_concurrent_curl' => 50
         ];
-        
+
         $simultaneousLimit = 8; // Valeur par défaut pour 'fast'
-        
+
         // Simuler l'override par config
         if (isset($config['max_concurrent_curl']) && $config['max_concurrent_curl'] > 0) {
             $simultaneousLimit = (int)$config['max_concurrent_curl'];
         }
-        
+
         expect($simultaneousLimit)->toBe(50);
+    });
+
+    it('defaults store_html to true when not set', function () {
+        $data = ['advanced' => []];
+        $storeHtml = $data['advanced']['store_html'] ?? true;
+        expect($storeHtml)->toBeTrue();
+    });
+
+    it('respects store_html when explicitly set to false', function () {
+        $data = ['advanced' => ['store_html' => false]];
+        $storeHtml = $data['advanced']['store_html'] ?? true;
+        expect($storeHtml)->toBeFalse();
+    });
+
+    it('propagates store_html from advanced config', function () {
+        // Simulate Cmder config merge
+        $data = [
+            'general' => ['start' => 'https://example.com', 'crawl_type' => 'spider'],
+            'advanced' => ['store_html' => false, 'follow_redirects' => true]
+        ];
+        $config = $data['advanced'] ?? [];
+        $config['store_html'] = $data['advanced']['store_html'] ?? true;
+
+        expect($config['store_html'])->toBeFalse();
     });
 
 });
