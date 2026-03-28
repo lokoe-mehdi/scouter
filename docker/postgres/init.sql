@@ -85,7 +85,8 @@ CREATE TABLE crawls (
     clusters_duplicate INTEGER DEFAULT 0,
     redirect_total INTEGER DEFAULT 0,
     redirect_chains_count INTEGER DEFAULT 0,
-    redirect_chains_errors INTEGER DEFAULT 0
+    redirect_chains_errors INTEGER DEFAULT 0,
+    scheduled BOOLEAN DEFAULT FALSE
 );
 
 CREATE INDEX idx_crawls_path ON crawls(path);
@@ -99,6 +100,32 @@ CREATE TABLE categorization_config (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(crawl_id)
 );
+
+-- Table de planification des crawls récurrents
+CREATE TABLE crawl_schedules (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    enabled BOOLEAN DEFAULT FALSE,
+    frequency VARCHAR(10) NOT NULL DEFAULT 'weekly'
+        CHECK (frequency IN ('minute', 'daily', 'weekly', 'monthly')),
+    days_of_week TEXT[] DEFAULT '{mon}',
+    day_of_month INTEGER DEFAULT 1 CHECK (day_of_month BETWEEN 1 AND 28),
+    hour INTEGER DEFAULT 8 CHECK (hour BETWEEN 0 AND 23),
+    minute INTEGER DEFAULT 0 CHECK (minute BETWEEN 0 AND 59),
+    crawl_config JSONB NOT NULL DEFAULT '{}',
+    crawl_type VARCHAR(10) DEFAULT 'spider',
+    depth_max INTEGER DEFAULT 30,
+    categorization_config TEXT DEFAULT NULL,
+    last_triggered_at TIMESTAMP DEFAULT NULL,
+    next_run_at TIMESTAMP DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id)
+);
+
+CREATE INDEX idx_crawl_schedules_due ON crawl_schedules(enabled, next_run_at);
+CREATE INDEX idx_crawl_schedules_project ON crawl_schedules(project_id);
 
 -- ============================================
 -- TABLES PARTITIONNÉES
