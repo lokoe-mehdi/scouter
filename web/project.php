@@ -260,14 +260,32 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                     <!-- Sentence -->
                     <div class="sched-sentence">
                         <?= __('project.sched_run') ?>
-                        <select id="schedFreqType" class="sched-pill-select" onchange="schedDirty(); updateScheduleUI()">
-                            <option value="daily"><?= __('project.sched_every_day') ?></option>
-                            <option value="weekly" selected><?= __('project.sched_every_week') ?></option>
-                            <option value="monthly"><?= __('project.sched_every_month') ?></option>
-                        </select>
+                        <div class="sched-time-custom" id="schedFreqPicker">
+                            <button type="button" class="sched-time-trigger" onclick="toggleFreqPicker(event)">
+                                <span class="material-symbols-outlined">replay</span>
+                                <span id="schedFreqLabel"><?= __('project.sched_every_week') ?></span>
+                            </button>
+                            <div class="sched-time-dropdown sched-freq-dropdown" id="schedFreqDropdown">
+                                <div class="sched-time-option" data-value="daily" onclick="selectFreq('daily')"><?= __('project.sched_every_day') ?></div>
+                                <div class="sched-time-option sched-time-option--active" data-value="weekly" onclick="selectFreq('weekly')"><?= __('project.sched_every_week') ?></div>
+                                <div class="sched-time-option" data-value="monthly" onclick="selectFreq('monthly')"><?= __('project.sched_every_month') ?></div>
+                            </div>
+                            <input type="hidden" id="schedFreqType" value="weekly">
+                        </div>
                         <span id="schedMonthDayWrap" style="display: none;">
                             <?= __('project.sched_the') ?>
-                            <input type="number" id="schedMonthDay" class="sched-pill-input" value="1" min="1" max="28" oninput="clampInput(this,1,28)" onchange="schedDirty(); updateScheduleSummary()">
+                            <div class="sched-time-custom" id="schedMonthDayPicker">
+                                <button type="button" class="sched-time-trigger" onclick="toggleMonthDayPicker(event)">
+                                    <span class="material-symbols-outlined">calendar_month</span>
+                                    <span id="schedMonthDayLabel">1</span>
+                                </button>
+                                <div class="sched-time-dropdown sched-monthday-dropdown" id="schedMonthDayDropdown">
+                                    <?php for ($d = 1; $d <= 28; $d++): ?>
+                                    <div class="sched-time-option<?= $d === 1 ? ' sched-time-option--active' : '' ?>" data-value="<?= $d ?>" onclick="selectMonthDay(<?= $d ?>)"><?= $d ?></div>
+                                    <?php endfor; ?>
+                                </div>
+                                <input type="hidden" id="schedMonthDay" value="1">
+                            </div>
                         </span>
                         <span id="schedTimeWrap">
                             <?= __('project.sched_at') ?>
@@ -609,16 +627,45 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         document.querySelectorAll('.sched-time-option').forEach(el => el.classList.remove('sched-time-option--active'));
         schedDirty(); updateScheduleSummary();
     }
+    function toggleFreqPicker(e) {
+        e.stopPropagation();
+        document.getElementById('schedTimeDropdown')?.classList.remove('show');
+        document.getElementById('schedMonthDayDropdown')?.classList.remove('show');
+        document.getElementById('schedFreqDropdown').classList.toggle('show');
+    }
+    function selectFreq(value) {
+        document.getElementById('schedFreqType').value = value;
+        const label = document.querySelector('#schedFreqDropdown .sched-time-option[data-value="'+value+'"]').textContent.trim();
+        document.getElementById('schedFreqLabel').textContent = label;
+        document.getElementById('schedFreqDropdown').classList.remove('show');
+        document.querySelectorAll('#schedFreqDropdown .sched-time-option').forEach(el => el.classList.remove('sched-time-option--active'));
+        document.querySelector('#schedFreqDropdown .sched-time-option[data-value="'+value+'"]').classList.add('sched-time-option--active');
+        schedDirty(); updateScheduleUI();
+    }
+    function toggleMonthDayPicker(e) {
+        e.stopPropagation();
+        document.getElementById('schedTimeDropdown')?.classList.remove('show');
+        document.getElementById('schedFreqDropdown')?.classList.remove('show');
+        const dd = document.getElementById('schedMonthDayDropdown');
+        dd.classList.toggle('show');
+        if (dd.classList.contains('show')) {
+            const active = dd.querySelector('.sched-time-option--active');
+            if (active) active.scrollIntoView({ block: 'center' });
+        }
+    }
+    function selectMonthDay(day) {
+        document.getElementById('schedMonthDay').value = day;
+        document.getElementById('schedMonthDayLabel').textContent = day;
+        document.getElementById('schedMonthDayDropdown').classList.remove('show');
+        document.querySelectorAll('#schedMonthDayDropdown .sched-time-option').forEach(el => el.classList.remove('sched-time-option--active'));
+        document.querySelector('#schedMonthDayDropdown .sched-time-option[data-value="'+day+'"]').classList.add('sched-time-option--active');
+        schedDirty(); updateScheduleSummary();
+    }
     document.addEventListener('click', function(e) {
         if (!e.target.closest('#schedTimePicker')) document.getElementById('schedTimeDropdown')?.classList.remove('show');
+        if (!e.target.closest('#schedFreqPicker')) document.getElementById('schedFreqDropdown')?.classList.remove('show');
+        if (!e.target.closest('#schedMonthDayPicker')) document.getElementById('schedMonthDayDropdown')?.classList.remove('show');
     });
-
-    function clampInput(el, min, max) {
-        let v = parseInt(el.value);
-        if (isNaN(v)) return;
-        if (v < min) el.value = min;
-        if (v > max) el.value = max;
-    }
 
     // Schedule
     function toggleSchedule(checked) {
@@ -1027,8 +1074,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         toggle.checked = true;
         toggleSchedule(true);
 
-        document.getElementById('schedFreqType').value = <?= json_encode($schedule->frequency) ?>;
-        updateScheduleUI();
+        selectFreq(<?= json_encode($schedule->frequency) ?>);
 
         <?php if ($schedule->frequency === 'weekly'):
             $savedDays = trim($schedule->days_of_week ?? '{mon}', '{}');
@@ -1042,7 +1088,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         <?php endif; ?>
 
         <?php if ($schedule->frequency === 'monthly'): ?>
-        document.getElementById('schedMonthDay').value = <?= (int)$schedule->day_of_month ?>;
+        selectMonthDay(<?= (int)$schedule->day_of_month ?>);
         <?php endif; ?>
 
         document.getElementById('schedHour').value = <?= (int)$schedule->hour ?>;
