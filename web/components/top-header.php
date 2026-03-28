@@ -97,6 +97,7 @@ $userInitials = getUserInitials($currentUserEmail);
                         <div class="crawl-item-main">
                             <div class="crawl-item-date">
                                 <?= $crawlDate ? $crawlDate->format('d/m/Y H:i') : __('header.date_unknown') ?>
+                                <span class="crawl-item-id">#<?= $crawl['crawl_id'] ?></span>
                             </div>
                             <?php if ($isActiveCrawl): ?>
                                 <span class="crawl-item-badge"><?= __('header.badge_current') ?></span>

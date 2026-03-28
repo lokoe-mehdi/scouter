@@ -172,7 +172,7 @@ endif;
         <thead>
             <tr>
                 <?php foreach($columns as $column): ?>
-                    <th><?= htmlspecialchars($column['label']) ?></th>
+                    <th><?= !empty($column['labelHtml']) ? $column['labelHtml'] : htmlspecialchars($column['label']) ?></th>
                 <?php endforeach; ?>
             </tr>
         </thead>
@@ -252,6 +252,9 @@ endif;
                             }
                             ?>
                             
+                        <?php elseif ($type === 'html'): ?>
+                            <?= $value ?>
+
                         <?php elseif ($type === 'percent_bar'): ?>
                             <?php 
                             // Conversion en pourcentage si entre 0 et 1
@@ -302,6 +305,11 @@ window.tableData['<?= $tableId ?>'] = {
             $key = $column['key'];
             $value = $row[$key] ?? '';
             
+            // Pour html, strip les tags pour la copie
+            if (($column['type'] ?? 'default') === 'html') {
+                $value = strip_tags($value);
+            }
+
             // Pour percent_bar, convertir en pourcentage
             if (($column['type'] ?? 'default') === 'percent_bar') {
                 $percent = is_numeric($value) ? (float)$value : 0;

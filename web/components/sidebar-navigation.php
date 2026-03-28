@@ -192,6 +192,11 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
 
         <!-- Sous-pages -->
         <div class="sidebar-panel-group">
+            <a href="?crawl=<?= $crawlId ?>&page=comparison-overview<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'comparison-overview' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">dashboard</span>
+                <span><?= __('sidebar.overview') ?></span>
+            </a>
             <a href="?crawl=<?= $crawlId ?>&page=new-urls<?= $compareId ? '&compare=' . $compareId : '' ?>"
                class="sidebar-panel-item <?= $page === 'new-urls' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">add_circle</span>
@@ -201,6 +206,11 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
                class="sidebar-panel-item <?= $page === 'lost-urls' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">remove_circle</span>
                 <span><?= __('sidebar.lost_urls') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=code-changes<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'code-changes' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">sync_alt</span>
+                <span><?= __('sidebar.response_codes') ?></span>
             </a>
         </div>
     </div>
@@ -318,8 +328,8 @@ function changeCompareCrawl(compareId) {
         url.searchParams.delete('compare');
     }
     const currentPage = url.searchParams.get('page');
-    if (!['new-urls', 'lost-urls'].includes(currentPage)) {
-        url.searchParams.set('page', 'new-urls');
+    if (!['comparison-overview', 'new-urls', 'lost-urls'].includes(currentPage)) {
+        url.searchParams.set('page', 'comparison-overview');
     }
     window.location = url.toString();
 }

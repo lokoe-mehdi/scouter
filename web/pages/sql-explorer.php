@@ -82,7 +82,7 @@ $tables = [
 ];
 
 // Requête passée en paramètre GET (depuis la modale scope)
-$initialQuery = isset($_GET['query']) ? urldecode($_GET['query']) : 'SELECT * FROM pages LIMIT 100';
+$initialQuery = isset($_GET['query']) ? $_GET['query'] : 'SELECT * FROM pages LIMIT 100';
 
 // Requêtes pré-enregistrées (adaptées pour PostgreSQL)
 $savedQueries = [

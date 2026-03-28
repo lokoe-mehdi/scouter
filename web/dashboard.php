@@ -292,7 +292,7 @@ function isSectionCollapsed($sectionName) {
     $activeSection = null; // Pas de défaut, on détermine précisément
     $reportPages = ['home', 'categories', 'codes', 'response-time', 'depth', 'redirect-chains', 'inlinks', 'outlinks', 'pagerank', 'seo-tags', 'headings', 'duplication', 'extractions', 'structured-data'];
     $explorerPages = ['url-explorer', 'link-explorer', 'sql-explorer'];
-    $comparisonPages = ['new-urls', 'lost-urls'];
+    $comparisonPages = ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes'];
 
     if (in_array($page, $reportPages)) {
         $activeSection = 'report';
@@ -407,11 +407,17 @@ function isSectionCollapsed($sectionName) {
                         include 'pages/categorize.php';
                     }
                     break;
+                case 'comparison-overview':
+                    include 'pages/comparison-overview.php';
+                    break;
                 case 'new-urls':
                     include 'pages/new-urls.php';
                     break;
                 case 'lost-urls':
                     include 'pages/lost-urls.php';
+                    break;
+                case 'code-changes':
+                    include 'pages/code-changes.php';
                     break;
                 case 'config':
                     // SÉCURITÉ: Vérifier les droits de gestion

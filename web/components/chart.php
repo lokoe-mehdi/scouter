@@ -539,7 +539,17 @@ Highcharts.chart('<?= $chartId ?>', {
         } else {
             $serie['color'] = '#4ECDC4';
         }
-        
+
+        if (isset($s['opacity'])) {
+            $serie['opacity'] = $s['opacity'];
+        }
+        if (isset($s['stack'])) {
+            $serie['stack'] = $s['stack'];
+        }
+        if (isset($s['linkedTo'])) {
+            $serie['linkedTo'] = $s['linkedTo'];
+        }
+
         return $serie;
     }, $series)) ?>,
     exporting: {
@@ -635,7 +645,17 @@ Highcharts.chart('<?= $chartId ?>', {
         } else {
             $serie['color'] = '#4ECDC4';
         }
-        
+
+        if (isset($s['opacity'])) {
+            $serie['opacity'] = $s['opacity'];
+        }
+        if (isset($s['stack'])) {
+            $serie['stack'] = $s['stack'];
+        }
+        if (isset($s['linkedTo'])) {
+            $serie['linkedTo'] = $s['linkedTo'];
+        }
+
         return $serie;
     }, $series)) ?>,
     exporting: {
@@ -697,18 +717,37 @@ Highcharts.chart('<?= $chartId ?>', {
             }
         }
     },
-    series: [{
-        name: '<?= addslashes($series[0]['name'] ?? 'Valeur') ?>',
-        data: <?= json_encode(array_map(function($item, $index) use ($palette) {
-            // Si la couleur n'est pas spécifiée, utiliser la palette
+    series: [<?php
+    $seriesCount = count($series);
+    foreach ($series as $sIdx => $s):
+        $sData = json_encode(array_map(function($item, $index) use ($palette) {
             $color = $item['color'] ?? $palette->getColor('color' . (($index % 20) + 1));
-            return [
-                'name' => $item['name'] ?? '',
-                'y' => $item['y'] ?? 0,
-                'color' => $color
-            ];
-        }, $series[0]['data'] ?? [], array_keys($series[0]['data'] ?? []))) ?>
-    }],
+            return ['name' => $item['name'] ?? '', 'y' => $item['y'] ?? 0, 'color' => $color];
+        }, $s['data'] ?? [], array_keys($s['data'] ?? [])));
+        if ($seriesCount > 1):
+            // Concentric donuts: outer ring = first series, inner ring = second series
+            if ($sIdx === 0):
+                $outerSize = '90%';
+                $innerSizeVal = '60%';
+            else:
+                $outerSize = '55%';
+                $innerSizeVal = '30%';
+            endif;
+    ?>
+    {
+        name: '<?= addslashes($s['name'] ?? 'Valeur') ?>',
+        data: <?= $sData ?>,
+        size: '<?= $s['size'] ?? $outerSize ?>',
+        innerSize: '<?= $s['innerSize'] ?? $innerSizeVal ?>',
+        dataLabels: { enabled: <?= $sIdx === 0 ? 'true' : 'false' ?>, formatter: function() { return this.y === 0 ? null : this.point.name + ': ' + this.percentage.toFixed(1) + '%'; } }
+    }<?= $sIdx < $seriesCount - 1 ? ',' : '' ?>
+    <?php else: ?>
+    {
+        name: '<?= addslashes($s['name'] ?? 'Valeur') ?>',
+        data: <?= $sData ?>
+    }
+    <?php endif; endforeach; ?>
+    ],
     exporting: {
         enabled: false
     },

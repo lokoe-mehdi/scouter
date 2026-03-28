@@ -209,6 +209,10 @@ body {
     font-weight: 600;
 }
 
+.crawl-item-badge--baseline {
+    background: #e67e22;
+}
+
 .crawl-item-row {
     display: flex;
     justify-content: space-between;
@@ -227,6 +231,14 @@ body {
     color: #d1d5db;
 }
 
+.crawl-item-id {
+    font-family: 'Fira Code', 'Consolas', monospace;
+    font-size: 0.7rem;
+    color: #9CA3AF;
+    font-weight: 400;
+    margin-left: 0.35rem;
+}
+
 /* Config icons mini (crawl selector) */
 .crawl-item-config {
     display: flex;
@@ -242,7 +254,7 @@ body {
 }
 
 .config-mini.active {
-    color: #9CA3AF;
+    color: var(--primary-color);
 }
 
 /* Au survol de la ligne, les icônes actives se colorent */
@@ -4622,7 +4634,7 @@ body {
     top: 0;
     z-index: 100;
     box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-    margin-bottom: 2rem;
+    margin-bottom: 32px;
 }
 
 .comparison-bar-crawl {
@@ -4661,9 +4673,21 @@ body {
 }
 
 .comparison-bar-date {
-    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 500;
     font-size: 0.85rem;
     color: var(--text-primary);
+    padding: 0.5rem 1rem;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.comparison-bar-date .material-symbols-outlined {
+    font-size: 18px;
+    color: var(--text-secondary);
 }
 
 .comparison-bar-icon {

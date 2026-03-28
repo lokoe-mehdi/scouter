@@ -28,7 +28,7 @@ $baseDateStr = $baseDate ? $baseDate->format('d/m/Y H:i') : __('comparison.selec
     <!-- Crawl A (Reference) -->
     <div class="comparison-bar-crawl comparison-bar-ref">
         <span class="comparison-bar-badge comparison-bar-badge--ref"><?= __('comparison.badge_reference') ?></span>
-        <span class="comparison-bar-date"><?= $refDateStr ?></span>
+        <span class="comparison-bar-date"><span class="material-symbols-outlined">schedule</span><?= $refDateStr ?></span>
     </div>
 
     <!-- Swap -->
@@ -70,7 +70,7 @@ $baseDateStr = $baseDate ? $baseDate->format('d/m/Y H:i') : __('comparison.selec
                             <?php if ($isCurrentCrawl): ?>
                                 <span class="crawl-item-badge"><?= __('header.badge_current') ?></span>
                             <?php elseif ($isCompare): ?>
-                                <span class="crawl-item-badge"><?= __('comparison.badge_baseline') ?></span>
+                                <span class="crawl-item-badge crawl-item-badge--baseline"><?= __('comparison.badge_baseline') ?></span>
                             <?php endif; ?>
                         </div>
                         <div class="crawl-item-row">
@@ -118,8 +118,8 @@ function changeCompareCrawl(compareId) {
     const url = new URL(window.location);
     url.searchParams.set('compare', compareId);
     const currentPage = url.searchParams.get('page');
-    if (!['new-urls', 'lost-urls'].includes(currentPage)) {
-        url.searchParams.set('page', 'new-urls');
+    if (!['comparison-overview', 'new-urls', 'lost-urls'].includes(currentPage)) {
+        url.searchParams.set('page', 'comparison-overview');
     }
     window.location = url.toString();
 }
