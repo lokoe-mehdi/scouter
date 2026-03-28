@@ -61,16 +61,16 @@ $stmtBase->execute([':crawl_id' => $safeCompareId]);
 $urlDistBase = $stmtBase->fetch(PDO::FETCH_OBJ);
 
 $donutRefData = [
-    ['name' => __('comparison.badge_reference') . ': ' . __('accessibility.series_crawled_html'), 'y' => (int)($urlDistRef->crawled_urls ?? 0), 'color' => '#6bd899'],
-    ['name' => __('comparison.badge_reference') . ': ' . __('accessibility.series_external_html'), 'y' => (int)($urlDistRef->external_urls ?? 0), 'color' => '#d8bf6b'],
-    ['name' => __('comparison.badge_reference') . ': ' . __('accessibility.series_blocked_robots'), 'y' => (int)($urlDistRef->not_crawled_urls ?? 0), 'color' => '#d86b6b'],
-    ['name' => __('comparison.badge_reference') . ': ' . __('accessibility.series_media'), 'y' => (int)($urlDistRef->media_urls ?? 0), 'color' => '#E5E7EB'],
+    ['name' => __('accessibility.series_crawled_html') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($urlDistRef->crawled_urls ?? 0), 'color' => '#6bd899'],
+    ['name' => __('accessibility.series_external_html') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($urlDistRef->external_urls ?? 0), 'color' => '#d8bf6b'],
+    ['name' => __('accessibility.series_blocked_robots') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($urlDistRef->not_crawled_urls ?? 0), 'color' => '#d86b6b'],
+    ['name' => __('accessibility.series_media') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($urlDistRef->media_urls ?? 0), 'color' => '#E5E7EB'],
 ];
 $donutBaseData = [
-    ['name' => __('comparison.badge_baseline') . ': ' . __('accessibility.series_crawled_html'), 'y' => (int)($urlDistBase->crawled_urls ?? 0), 'color' => hexToRgba('#6bd899', 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('accessibility.series_external_html'), 'y' => (int)($urlDistBase->external_urls ?? 0), 'color' => hexToRgba('#d8bf6b', 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('accessibility.series_blocked_robots'), 'y' => (int)($urlDistBase->not_crawled_urls ?? 0), 'color' => hexToRgba('#d86b6b', 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('accessibility.series_media'), 'y' => (int)($urlDistBase->media_urls ?? 0), 'color' => hexToRgba('#E5E7EB', 0.5)],
+    ['name' => __('accessibility.series_crawled_html') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($urlDistBase->crawled_urls ?? 0), 'color' => hexToRgba('#6bd899', 0.5)],
+    ['name' => __('accessibility.series_external_html') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($urlDistBase->external_urls ?? 0), 'color' => hexToRgba('#d8bf6b', 0.5)],
+    ['name' => __('accessibility.series_blocked_robots') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($urlDistBase->not_crawled_urls ?? 0), 'color' => hexToRgba('#d86b6b', 0.5)],
+    ['name' => __('accessibility.series_media') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($urlDistBase->media_urls ?? 0), 'color' => hexToRgba('#E5E7EB', 0.5)],
 ];
 
 // =========================================
@@ -95,16 +95,16 @@ $stmtBase->execute([':crawl_id' => $safeCompareId]);
 $idxBase = $stmtBase->fetch(PDO::FETCH_OBJ);
 
 $idxRefData = [
-    ['name' => __('comparison.badge_reference') . ': ' . __('accessibility.series_indexable'), 'y' => (int)($idxRef->indexable ?? 0), 'color' => '#6bd899'],
-    ['name' => __('comparison.badge_reference') . ': ' . __('accessibility.series_non_canonical'), 'y' => (int)($idxRef->non_canonical ?? 0), 'color' => '#cfd86b'],
-    ['name' => __('comparison.badge_reference') . ': ' . __('accessibility.series_noindex'), 'y' => (int)($idxRef->noindex_urls ?? 0), 'color' => '#d8bf6b'],
-    ['name' => __('comparison.badge_reference') . ': ' . __('accessibility.series_http_not_200'), 'y' => (int)($idxRef->bad_status ?? 0), 'color' => '#d86b6b'],
+    ['name' => __('accessibility.series_indexable') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($idxRef->indexable ?? 0), 'color' => '#6bd899'],
+    ['name' => __('accessibility.series_non_canonical') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($idxRef->non_canonical ?? 0), 'color' => '#cfd86b'],
+    ['name' => __('accessibility.series_noindex') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($idxRef->noindex_urls ?? 0), 'color' => '#d8bf6b'],
+    ['name' => __('accessibility.series_http_not_200') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($idxRef->bad_status ?? 0), 'color' => '#d86b6b'],
 ];
 $idxBaseData = [
-    ['name' => __('comparison.badge_baseline') . ': ' . __('accessibility.series_indexable'), 'y' => (int)($idxBase->indexable ?? 0), 'color' => hexToRgba('#6bd899', 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('accessibility.series_non_canonical'), 'y' => (int)($idxBase->non_canonical ?? 0), 'color' => hexToRgba('#cfd86b', 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('accessibility.series_noindex'), 'y' => (int)($idxBase->noindex_urls ?? 0), 'color' => hexToRgba('#d8bf6b', 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('accessibility.series_http_not_200'), 'y' => (int)($idxBase->bad_status ?? 0), 'color' => hexToRgba('#d86b6b', 0.5)],
+    ['name' => __('accessibility.series_indexable') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($idxBase->indexable ?? 0), 'color' => hexToRgba('#6bd899', 0.5)],
+    ['name' => __('accessibility.series_non_canonical') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($idxBase->non_canonical ?? 0), 'color' => hexToRgba('#cfd86b', 0.5)],
+    ['name' => __('accessibility.series_noindex') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($idxBase->noindex_urls ?? 0), 'color' => hexToRgba('#d8bf6b', 0.5)],
+    ['name' => __('accessibility.series_http_not_200') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($idxBase->bad_status ?? 0), 'color' => hexToRgba('#d86b6b', 0.5)],
 ];
 
 // =========================================

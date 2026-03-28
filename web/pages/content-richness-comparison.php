@@ -162,16 +162,16 @@ $stmtBase->execute([':crawl_id' => $safeCompareId]);
 $qualBase = $stmtBase->fetch(PDO::FETCH_OBJ);
 
 $qualRefData = [
-    ['name' => __('comparison.badge_reference') . ': ' . __('content_richness.series_poor'), 'y' => (int)($qualRef->poor ?? 0), 'color' => $colorPoor],
-    ['name' => __('comparison.badge_reference') . ': ' . __('content_richness.series_medium'), 'y' => (int)($qualRef->medium ?? 0), 'color' => $colorMedium],
-    ['name' => __('comparison.badge_reference') . ': ' . __('content_richness.series_rich'), 'y' => (int)($qualRef->rich ?? 0), 'color' => $colorRich],
-    ['name' => __('comparison.badge_reference') . ': ' . __('content_richness.series_premium'), 'y' => (int)($qualRef->premium ?? 0), 'color' => $colorPremium],
+    ['name' => __('content_richness.series_poor') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($qualRef->poor ?? 0), 'color' => $colorPoor],
+    ['name' => __('content_richness.series_medium') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($qualRef->medium ?? 0), 'color' => $colorMedium],
+    ['name' => __('content_richness.series_rich') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($qualRef->rich ?? 0), 'color' => $colorRich],
+    ['name' => __('content_richness.series_premium') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($qualRef->premium ?? 0), 'color' => $colorPremium],
 ];
 $qualBaseData = [
-    ['name' => __('comparison.badge_baseline') . ': ' . __('content_richness.series_poor'), 'y' => (int)($qualBase->poor ?? 0), 'color' => hexToRgba($colorPoor, 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('content_richness.series_medium'), 'y' => (int)($qualBase->medium ?? 0), 'color' => hexToRgba($colorMedium, 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('content_richness.series_rich'), 'y' => (int)($qualBase->rich ?? 0), 'color' => hexToRgba($colorRich, 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('content_richness.series_premium'), 'y' => (int)($qualBase->premium ?? 0), 'color' => hexToRgba($colorPremium, 0.5)],
+    ['name' => __('content_richness.series_poor') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($qualBase->poor ?? 0), 'color' => hexToRgba($colorPoor, 0.5)],
+    ['name' => __('content_richness.series_medium') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($qualBase->medium ?? 0), 'color' => hexToRgba($colorMedium, 0.5)],
+    ['name' => __('content_richness.series_rich') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($qualBase->rich ?? 0), 'color' => hexToRgba($colorRich, 0.5)],
+    ['name' => __('content_richness.series_premium') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($qualBase->premium ?? 0), 'color' => hexToRgba($colorPremium, 0.5)],
 ];
 
 $sqlQualityDisplay = "SELECT

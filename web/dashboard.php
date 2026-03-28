@@ -250,7 +250,7 @@ $compNewCount = 0;
 $compLostCount = 0;
 $compCommonCount = 0;
 
-$comparisonPages = ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison', 'accessibility-comparison', 'seo-tags-comparison', 'headings-comparison', 'content-richness-comparison', 'duplication-comparison', 'structured-data-comparison'];
+$comparisonPages = ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison', 'accessibility-comparison', 'seo-tags-comparison', 'headings-comparison', 'content-richness-comparison', 'duplication-comparison', 'structured-data-comparison', 'inlinks-comparison', 'outlinks-comparison', 'pagerank-comparison', 'pagerank-leak-comparison'];
 
 if ($compareId && in_array($page ?? '', $comparisonPages)) {
     $comparisonScorecardsComputed = true;
@@ -488,6 +488,18 @@ function isSectionCollapsed($sectionName) {
                     break;
                 case 'structured-data-comparison':
                     include 'pages/structured-data-comparison.php';
+                    break;
+                case 'inlinks-comparison':
+                    include 'pages/inlinks-comparison.php';
+                    break;
+                case 'outlinks-comparison':
+                    include 'pages/outlinks-comparison.php';
+                    break;
+                case 'pagerank-comparison':
+                    include 'pages/pagerank-comparison.php';
+                    break;
+                case 'pagerank-leak-comparison':
+                    include 'pages/pagerank-leak-comparison.php';
                     break;
                 case 'config':
                     // SÉCURITÉ: Vérifier les droits de gestion

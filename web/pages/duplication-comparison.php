@@ -81,14 +81,14 @@ $refUnique = max(0, $indexableRef - (int)$dupRef->exact_dup - (int)$dupRef->near
 $baseUnique = max(0, $indexableBase - (int)$dupBase->exact_dup - (int)$dupBase->near_dup);
 
 $dupRefData = [
-    ['name' => __('comparison.badge_reference') . ': ' . __('duplication.series_unique'), 'y' => $refUnique, 'color' => '#6bd899'],
-    ['name' => __('comparison.badge_reference') . ': ' . __('duplication.series_near'), 'y' => (int)$dupRef->near_dup, 'color' => '#60a5fa'],
-    ['name' => __('comparison.badge_reference') . ': ' . __('duplication.series_exact'), 'y' => (int)$dupRef->exact_dup, 'color' => '#f87171'],
+    ['name' => __('duplication.series_unique') . ' (' . __('comparison.badge_reference') . ')', 'y' => $refUnique, 'color' => '#6bd899'],
+    ['name' => __('duplication.series_near') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)$dupRef->near_dup, 'color' => '#60a5fa'],
+    ['name' => __('duplication.series_exact') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)$dupRef->exact_dup, 'color' => '#f87171'],
 ];
 $dupBaseData = [
-    ['name' => __('comparison.badge_baseline') . ': ' . __('duplication.series_unique'), 'y' => $baseUnique, 'color' => hexToRgba('#6bd899', 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('duplication.series_near'), 'y' => (int)$dupBase->near_dup, 'color' => hexToRgba('#60a5fa', 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('duplication.series_exact'), 'y' => (int)$dupBase->exact_dup, 'color' => hexToRgba('#f87171', 0.5)],
+    ['name' => __('duplication.series_unique') . ' (' . __('comparison.badge_baseline') . ')', 'y' => $baseUnique, 'color' => hexToRgba('#6bd899', 0.5)],
+    ['name' => __('duplication.series_near') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)$dupBase->near_dup, 'color' => hexToRgba('#60a5fa', 0.5)],
+    ['name' => __('duplication.series_exact') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)$dupBase->exact_dup, 'color' => hexToRgba('#f87171', 0.5)],
 ];
 
 $sqlDupDisplay = "SELECT
@@ -144,13 +144,13 @@ foreach ($dupCatRef as $r) {
     $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     $catColor = $catInfo ? $catInfo['color'] : '#95a5a6';
     $catRefData[] = [
-        'name' => __('comparison.badge_reference') . ': ' . $catName,
+        'name' => $catName . ' (' . __('comparison.badge_reference') . ')',
         'y' => (int)$r->page_count,
         'color' => $catColor
     ];
 }
 if (empty($catRefData)) {
-    $catRefData[] = ['name' => __('comparison.badge_reference') . ': ' . __('duplication.no_duplicates'), 'y' => 1, 'color' => '#e5e7eb'];
+    $catRefData[] = ['name' => __('duplication.no_duplicates') . ' (' . __('comparison.badge_reference') . ')', 'y' => 1, 'color' => '#e5e7eb'];
 }
 
 // Build donut data for base
@@ -160,13 +160,13 @@ foreach ($dupCatBase as $r) {
     $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
     $catColor = $catInfo ? $catInfo['color'] : '#95a5a6';
     $catBaseData[] = [
-        'name' => __('comparison.badge_baseline') . ': ' . $catName,
+        'name' => $catName . ' (' . __('comparison.badge_baseline') . ')',
         'y' => (int)$r->page_count,
         'color' => hexToRgba($catColor, 0.5)
     ];
 }
 if (empty($catBaseData)) {
-    $catBaseData[] = ['name' => __('comparison.badge_baseline') . ': ' . __('duplication.no_duplicates'), 'y' => 1, 'color' => hexToRgba('#e5e7eb', 0.5)];
+    $catBaseData[] = ['name' => __('duplication.no_duplicates') . ' (' . __('comparison.badge_baseline') . ')', 'y' => 1, 'color' => hexToRgba('#e5e7eb', 0.5)];
 }
 
 $sqlDupCatDisplay = "SELECT

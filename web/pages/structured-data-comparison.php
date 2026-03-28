@@ -69,7 +69,7 @@ $donutRefData = [];
 $colorIndex = 0;
 foreach ($schemaDistRef as $stat) {
     $donutRefData[] = [
-        'name' => __('comparison.badge_reference') . ': ' . $stat->schema_type,
+        'name' => $stat->schema_type . ' (' . __('comparison.badge_reference') . ')',
         'y' => (int)$stat->page_count,
         'color' => $colors[$colorIndex % count($colors)]
     ];
@@ -81,7 +81,7 @@ $donutBaseData = [];
 $colorIndex = 0;
 foreach ($schemaDistBase as $stat) {
     $donutBaseData[] = [
-        'name' => __('comparison.badge_baseline') . ': ' . $stat->schema_type,
+        'name' => $stat->schema_type . ' (' . __('comparison.badge_baseline') . ')',
         'y' => (int)$stat->page_count,
         'color' => hexToRgba($colors[$colorIndex % count($colors)], 0.5)
     ];

@@ -61,24 +61,24 @@ $stmtBase->execute([':crawl_id' => $safeCompareId]);
 $statsBase = $stmtBase->fetch(PDO::FETCH_OBJ);
 
 $h1RefData = [
-    ['name' => __('comparison.badge_reference') . ': ' . __('headings.series_h1_unique'), 'y' => (int)($statsRef->h1_unique_count ?? 0), 'color' => '#6bd899'],
-    ['name' => __('comparison.badge_reference') . ': ' . __('headings.series_h1_multiple'), 'y' => (int)($statsRef->h1_multiple_count ?? 0), 'color' => '#d86b6b'],
+    ['name' => __('headings.series_h1_unique') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($statsRef->h1_unique_count ?? 0), 'color' => '#6bd899'],
+    ['name' => __('headings.series_h1_multiple') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($statsRef->h1_multiple_count ?? 0), 'color' => '#d86b6b'],
 ];
 $h1BaseData = [
-    ['name' => __('comparison.badge_baseline') . ': ' . __('headings.series_h1_unique'), 'y' => (int)($statsBase->h1_unique_count ?? 0), 'color' => hexToRgba('#6bd899', 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('headings.series_h1_multiple'), 'y' => (int)($statsBase->h1_multiple_count ?? 0), 'color' => hexToRgba('#d86b6b', 0.5)],
+    ['name' => __('headings.series_h1_unique') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($statsBase->h1_unique_count ?? 0), 'color' => hexToRgba('#6bd899', 0.5)],
+    ['name' => __('headings.series_h1_multiple') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($statsBase->h1_multiple_count ?? 0), 'color' => hexToRgba('#d86b6b', 0.5)],
 ];
 
 // =========================================
 // Chart 2: Hn Structure OK vs Bad (donut) ref vs base
 // =========================================
 $hnRefData = [
-    ['name' => __('comparison.badge_reference') . ': ' . __('headings.series_structure_ok'), 'y' => (int)($statsRef->hn_ok_count ?? 0), 'color' => '#6bd899'],
-    ['name' => __('comparison.badge_reference') . ': ' . __('headings.series_bad_structure'), 'y' => (int)($statsRef->hn_missing_count ?? 0), 'color' => '#d8bf6b'],
+    ['name' => __('headings.series_structure_ok') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($statsRef->hn_ok_count ?? 0), 'color' => '#6bd899'],
+    ['name' => __('headings.series_bad_structure') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($statsRef->hn_missing_count ?? 0), 'color' => '#d8bf6b'],
 ];
 $hnBaseData = [
-    ['name' => __('comparison.badge_baseline') . ': ' . __('headings.series_structure_ok'), 'y' => (int)($statsBase->hn_ok_count ?? 0), 'color' => hexToRgba('#6bd899', 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('headings.series_bad_structure'), 'y' => (int)($statsBase->hn_missing_count ?? 0), 'color' => hexToRgba('#d8bf6b', 0.5)],
+    ['name' => __('headings.series_structure_ok') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($statsBase->hn_ok_count ?? 0), 'color' => hexToRgba('#6bd899', 0.5)],
+    ['name' => __('headings.series_bad_structure') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($statsBase->hn_missing_count ?? 0), 'color' => hexToRgba('#d8bf6b', 0.5)],
 ];
 
 // =========================================

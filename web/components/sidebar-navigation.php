@@ -214,18 +214,18 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
             <div class="sidebar-panel-group-title"><?= __('sidebar.engine_accessibility') ?></div>
             <a href="?crawl=<?= $crawlId ?>&page=accessibility-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
                class="sidebar-panel-item <?= $page === 'accessibility-comparison' ? 'active' : '' ?>">
-                <span class="material-symbols-outlined">verified</span>
+                <span class="material-symbols-outlined">folder</span>
                 <span><?= __('sidebar.indexability') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=code-changes<?= $compareId ? '&compare=' . $compareId : '' ?>"
                class="sidebar-panel-item <?= $page === 'code-changes' ? 'active' : '' ?>">
-                <span class="material-symbols-outlined">sync_alt</span>
+                <span class="material-symbols-outlined">http</span>
                 <span><?= __('sidebar.response_codes') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=depth-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
                class="sidebar-panel-item <?= $page === 'depth-comparison' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">layers</span>
-                <span><?= __('sidebar.depth_comparison') ?></span>
+                <span><?= __('sidebar.depth_levels') ?></span>
             </a>
         </div>
 
@@ -234,7 +234,7 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
             <div class="sidebar-panel-group-title"><?= __('sidebar.content') ?></div>
             <a href="?crawl=<?= $crawlId ?>&page=seo-tags-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
                class="sidebar-panel-item <?= $page === 'seo-tags-comparison' ? 'active' : '' ?>">
-                <span class="material-symbols-outlined">sell</span>
+                <span class="material-symbols-outlined">label</span>
                 <span><?= __('sidebar.seo_tags') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=headings-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
@@ -244,7 +244,7 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=content-richness-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
                class="sidebar-panel-item <?= $page === 'content-richness-comparison' ? 'active' : '' ?>">
-                <span class="material-symbols-outlined">article</span>
+                <span class="material-symbols-outlined">format_size</span>
                 <span><?= __('sidebar.content_richness') ?></span>
             </a>
             <a href="?crawl=<?= $crawlId ?>&page=duplication-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
@@ -256,6 +256,31 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
                class="sidebar-panel-item <?= $page === 'structured-data-comparison' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">data_object</span>
                 <span><?= __('sidebar.structured_data') ?></span>
+            </a>
+        </div>
+
+        <!-- Maillage -->
+        <div class="sidebar-panel-group">
+            <div class="sidebar-panel-group-title"><?= __('sidebar.linking') ?></div>
+            <a href="?crawl=<?= $crawlId ?>&page=inlinks-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'inlinks-comparison' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">link</span>
+                <span><?= __('sidebar.inlinks') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=outlinks-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'outlinks-comparison' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">open_in_new</span>
+                <span><?= __('sidebar.outlinks') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=pagerank-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'pagerank-comparison' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">star</span>
+                <span><?= __('sidebar.pagerank') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=pagerank-leak-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'pagerank-leak-comparison' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">sprint</span>
+                <span><?= __('sidebar.pagerank_leak') ?></span>
             </a>
         </div>
     </div>

@@ -76,38 +76,38 @@ $colorEmpty = '#d86b6b';
 
 // Title donut
 $titleRefData = [
-    ['name' => __('comparison.badge_reference') . ': ' . __('seo_tags.series_unique'), 'y' => (int)($seoRef->title_unique ?? 0), 'color' => $colorUnique],
-    ['name' => __('comparison.badge_reference') . ': ' . __('seo_tags.series_duplicate'), 'y' => (int)($seoRef->title_duplicate ?? 0), 'color' => $colorDuplicate],
-    ['name' => __('comparison.badge_reference') . ': ' . __('seo_tags.series_empty'), 'y' => (int)($seoRef->title_empty ?? 0), 'color' => $colorEmpty],
+    ['name' => __('seo_tags.series_unique') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($seoRef->title_unique ?? 0), 'color' => $colorUnique],
+    ['name' => __('seo_tags.series_duplicate') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($seoRef->title_duplicate ?? 0), 'color' => $colorDuplicate],
+    ['name' => __('seo_tags.series_empty') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($seoRef->title_empty ?? 0), 'color' => $colorEmpty],
 ];
 $titleBaseData = [
-    ['name' => __('comparison.badge_baseline') . ': ' . __('seo_tags.series_unique'), 'y' => (int)($seoBase->title_unique ?? 0), 'color' => hexToRgba($colorUnique, 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('seo_tags.series_duplicate'), 'y' => (int)($seoBase->title_duplicate ?? 0), 'color' => hexToRgba($colorDuplicate, 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('seo_tags.series_empty'), 'y' => (int)($seoBase->title_empty ?? 0), 'color' => hexToRgba($colorEmpty, 0.5)],
+    ['name' => __('seo_tags.series_unique') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($seoBase->title_unique ?? 0), 'color' => hexToRgba($colorUnique, 0.5)],
+    ['name' => __('seo_tags.series_duplicate') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($seoBase->title_duplicate ?? 0), 'color' => hexToRgba($colorDuplicate, 0.5)],
+    ['name' => __('seo_tags.series_empty') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($seoBase->title_empty ?? 0), 'color' => hexToRgba($colorEmpty, 0.5)],
 ];
 
 // H1 donut
 $h1RefData = [
-    ['name' => __('comparison.badge_reference') . ': ' . __('seo_tags.series_unique'), 'y' => (int)($seoRef->h1_unique ?? 0), 'color' => $colorUnique],
-    ['name' => __('comparison.badge_reference') . ': ' . __('seo_tags.series_duplicate'), 'y' => (int)($seoRef->h1_duplicate ?? 0), 'color' => $colorDuplicate],
-    ['name' => __('comparison.badge_reference') . ': ' . __('seo_tags.series_empty'), 'y' => (int)($seoRef->h1_empty ?? 0), 'color' => $colorEmpty],
+    ['name' => __('seo_tags.series_unique') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($seoRef->h1_unique ?? 0), 'color' => $colorUnique],
+    ['name' => __('seo_tags.series_duplicate') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($seoRef->h1_duplicate ?? 0), 'color' => $colorDuplicate],
+    ['name' => __('seo_tags.series_empty') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($seoRef->h1_empty ?? 0), 'color' => $colorEmpty],
 ];
 $h1BaseData = [
-    ['name' => __('comparison.badge_baseline') . ': ' . __('seo_tags.series_unique'), 'y' => (int)($seoBase->h1_unique ?? 0), 'color' => hexToRgba($colorUnique, 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('seo_tags.series_duplicate'), 'y' => (int)($seoBase->h1_duplicate ?? 0), 'color' => hexToRgba($colorDuplicate, 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('seo_tags.series_empty'), 'y' => (int)($seoBase->h1_empty ?? 0), 'color' => hexToRgba($colorEmpty, 0.5)],
+    ['name' => __('seo_tags.series_unique') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($seoBase->h1_unique ?? 0), 'color' => hexToRgba($colorUnique, 0.5)],
+    ['name' => __('seo_tags.series_duplicate') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($seoBase->h1_duplicate ?? 0), 'color' => hexToRgba($colorDuplicate, 0.5)],
+    ['name' => __('seo_tags.series_empty') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($seoBase->h1_empty ?? 0), 'color' => hexToRgba($colorEmpty, 0.5)],
 ];
 
 // Meta Description donut
 $metaRefData = [
-    ['name' => __('comparison.badge_reference') . ': ' . __('seo_tags.series_unique'), 'y' => (int)($seoRef->meta_desc_unique ?? 0), 'color' => $colorUnique],
-    ['name' => __('comparison.badge_reference') . ': ' . __('seo_tags.series_duplicate'), 'y' => (int)($seoRef->meta_desc_duplicate ?? 0), 'color' => $colorDuplicate],
-    ['name' => __('comparison.badge_reference') . ': ' . __('seo_tags.series_empty'), 'y' => (int)($seoRef->meta_desc_empty ?? 0), 'color' => $colorEmpty],
+    ['name' => __('seo_tags.series_unique') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($seoRef->meta_desc_unique ?? 0), 'color' => $colorUnique],
+    ['name' => __('seo_tags.series_duplicate') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($seoRef->meta_desc_duplicate ?? 0), 'color' => $colorDuplicate],
+    ['name' => __('seo_tags.series_empty') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($seoRef->meta_desc_empty ?? 0), 'color' => $colorEmpty],
 ];
 $metaBaseData = [
-    ['name' => __('comparison.badge_baseline') . ': ' . __('seo_tags.series_unique'), 'y' => (int)($seoBase->meta_desc_unique ?? 0), 'color' => hexToRgba($colorUnique, 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('seo_tags.series_duplicate'), 'y' => (int)($seoBase->meta_desc_duplicate ?? 0), 'color' => hexToRgba($colorDuplicate, 0.5)],
-    ['name' => __('comparison.badge_baseline') . ': ' . __('seo_tags.series_empty'), 'y' => (int)($seoBase->meta_desc_empty ?? 0), 'color' => hexToRgba($colorEmpty, 0.5)],
+    ['name' => __('seo_tags.series_unique') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($seoBase->meta_desc_unique ?? 0), 'color' => hexToRgba($colorUnique, 0.5)],
+    ['name' => __('seo_tags.series_duplicate') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($seoBase->meta_desc_duplicate ?? 0), 'color' => hexToRgba($colorDuplicate, 0.5)],
+    ['name' => __('seo_tags.series_empty') . ' (' . __('comparison.badge_baseline') . ')', 'y' => (int)($seoBase->meta_desc_empty ?? 0), 'color' => hexToRgba($colorEmpty, 0.5)],
 ];
 
 // SQL display for donuts
