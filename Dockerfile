@@ -67,35 +67,9 @@ RUN chown -R www-data:www-data /app && \
 # Expose port 8080 for Nginx
 EXPOSE 8080
 
-# Create entrypoint script with migrations
-RUN echo '#!/bin/bash\n\
-set -e\n\
-\n\
-# Wait for PostgreSQL to be ready (max 30 seconds)\n\
-echo "Waiting for PostgreSQL..."\n\
-for i in $(seq 1 30); do\n\
-    if php -r "require_once \"/app/vendor/autoload.php\"; try { App\\Database\\PostgresDatabase::getInstance(); exit(0); } catch(Exception \$e) { exit(1); }" 2>/dev/null; then\n\
-        echo "PostgreSQL is ready!"\n\
-        break\n\
-    fi\n\
-    echo "  Attempt $i/30 - waiting..."\n\
-    sleep 1\n\
-done\n\
-\n\
-# Fix log permissions so both root (worker) and www-data (scouter) can write\n\
-mkdir -p /app/logs\n\
-chmod 777 /app/logs\n\
-find /app/logs -name "*.log" -exec chmod 666 {} \\; 2>/dev/null || true\n\
-\n\
-# Run migrations\n\
-echo ""\n\
-php /app/migrations/migrate.php\n\
-\n\
-# Export env vars for cron jobs\n\
-printenv | grep -E '^(DATABASE_URL|RENDERER_URL|MAX_|PHP_|APP_)' | sed 's/=\\(.*\\)/=\"\\1\"/' > /etc/environment\n\
-\n\
-exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf\n\
-' > /entrypoint.sh && chmod +x /entrypoint.sh
+# Copy entrypoint script
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Start with entrypoint
 CMD ["/entrypoint.sh"]
