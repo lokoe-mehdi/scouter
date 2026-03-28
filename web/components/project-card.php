@@ -85,17 +85,10 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
                 }
             }
             ?>
-            <?php if($lastFinishedCrawl): ?>
-                <a href="dashboard.php?crawl=<?= $lastFinishedCrawl->crawl_id ?>" class="btn btn-sm btn-primary" onclick="event.stopPropagation();">
-                    <span class="material-symbols-outlined" style="font-size: 16px;">bar_chart</span>
-                    <?= __('index.last_crawl') ?>
-                </a>
-            <?php elseif($latestCrawl): ?>
-                <span class="btn btn-sm btn-disabled" style="cursor: default; opacity: 0.5; pointer-events: none;">
-                    <span class="material-symbols-outlined" style="font-size: 16px;">bar_chart</span>
-                    <?= __('index.no_dashboard') ?>
-                </span>
-            <?php endif; ?>
+            <a href="project.php?id=<?= $projectId ?>" class="btn btn-sm btn-primary" onclick="event.stopPropagation();">
+                <span class="material-symbols-outlined" style="font-size: 16px;">folder_open</span>
+                <?= __('index.view_project') ?>
+            </a>
             <span class="material-symbols-outlined expand-icon">expand_more</span>
             
             <!-- Menu Kebab (actions) - Only for owners -->
