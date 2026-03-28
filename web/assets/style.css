@@ -4626,8 +4626,8 @@ body {
 .comparison-bar {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    padding: 0.75rem 1.25rem;
+    gap: 0.75rem;
+    padding: 0.6rem 1.25rem;
     background: var(--card-bg, #fff);
     border: 1px solid var(--border-color);
     border-radius: 10px;
@@ -4638,13 +4638,15 @@ body {
     margin-bottom: 1.5rem;
 }
 
-.comparison-bar-block {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+/* Label "Compare with:" */
+.comparison-bar-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
 }
 
-/* Badge labels */
+/* Badge labels (used in dropdown items) */
 .comparison-bar-badge {
     display: inline-flex;
     align-items: center;
@@ -4656,10 +4658,6 @@ body {
     white-space: nowrap;
 }
 
-.comparison-bar-badge .material-symbols-outlined {
-    font-size: 12px;
-}
-
 .comparison-bar-badge--ref {
     color: var(--primary-color);
 }
@@ -4668,40 +4666,7 @@ body {
     color: #e67e22;
 }
 
-/* Current block — read-only, non-interactive */
-.comparison-bar-current {
-    opacity: 0.7;
-    pointer-events: none;
-}
-
-.comparison-bar-date-static {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-weight: 500;
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-    padding: 0.4rem 0.75rem;
-    background: transparent;
-    border: 1px dashed var(--border-color);
-    border-radius: 8px;
-}
-
-.comparison-bar-date-static .material-symbols-outlined {
-    font-size: 16px;
-    color: var(--text-tertiary);
-}
-
-/* VS separator */
-.comparison-bar-vs {
-    font-size: 11px;
-    font-weight: 800;
-    color: var(--text-tertiary);
-    letter-spacing: 1px;
-    flex-shrink: 0;
-}
-
-/* Control block — interactive */
+/* Selector */
 .comparison-bar-selector {
     margin-left: 0;
 }
@@ -4712,6 +4677,7 @@ body {
     color: var(--text-primary) !important;
     font-size: 0.85rem !important;
     box-shadow: 0 2px 4px rgba(230, 126, 34, 0.1);
+    cursor: pointer;
     transition: all 0.2s;
 }
 
@@ -4739,7 +4705,6 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    margin-left: auto;
     padding: 0.35rem;
     border-radius: 6px;
     color: var(--text-tertiary);
@@ -4754,6 +4719,29 @@ body {
 }
 
 .comparison-bar-swap .material-symbols-outlined {
+    font-size: 20px;
+}
+
+/* Close button */
+.comparison-bar-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    padding: 0.35rem;
+    border-radius: 6px;
+    color: var(--text-tertiary);
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 0.2s, background 0.2s;
+}
+
+.comparison-bar-close:hover {
+    color: #e74c3c;
+    background: rgba(231, 76, 60, 0.1);
+}
+
+.comparison-bar-close .material-symbols-outlined {
     font-size: 20px;
 }
 

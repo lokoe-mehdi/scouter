@@ -1,93 +1,71 @@
 <?php
 /**
- * Comparison Control Bar
+ * Comparison Control Bar — Lightweight
  *
- * Displays Current crawl (read-only, linked to header) vs Control crawl (interactive selector).
- * The Current block is static — users change it via the global header selector.
- * The Control block has a dropdown to pick the comparison crawl.
+ * Only shows the comparison crawl selector (the current crawl is already
+ * visible in the global header). Includes swap and close buttons.
  *
  * Required variables:
  * - $crawlId, $crawlRecord, $compareId, $compareRecord
  * - $domainCrawls, $page
  */
 
-// Resolve dates
-$refDate = null;
-if (!empty($crawlRecord->started_at)) {
-    $refDate = DateTime::createFromFormat('Y-m-d H:i:s', $crawlRecord->started_at);
-}
 $baseDate = null;
 if ($compareRecord && !empty($compareRecord->started_at)) {
     $baseDate = DateTime::createFromFormat('Y-m-d H:i:s', $compareRecord->started_at);
 }
-$refDateStr = $refDate ? $refDate->format('d/m/Y H:i') : __('header.date_unknown');
 $baseDateStr = $baseDate ? $baseDate->format('d/m/Y H:i') : __('comparison.select_placeholder');
 ?>
 
 <div class="comparison-bar" id="comparisonBar">
-    <!-- Current Crawl (Read-only) -->
-    <div class="comparison-bar-block comparison-bar-current">
-        <span class="comparison-bar-badge comparison-bar-badge--ref">
-            <span class="material-symbols-outlined" style="font-size: 12px;">lock</span>
-            <?= __('comparison.badge_reference') ?>
-        </span>
-        <span class="comparison-bar-date-static">
+    <!-- Label -->
+    <span class="comparison-bar-label"><?= __('comparison.select_crawl') ?></span>
+
+    <!-- Crawl selector -->
+    <div class="crawl-selector comparison-bar-selector">
+        <button class="crawl-selector-btn comparison-bar-control-btn" id="compareSelectorBtn" onclick="toggleCompareDropdown(event)">
             <span class="material-symbols-outlined">schedule</span>
-            <?= $refDateStr ?>
-        </span>
-    </div>
-
-    <!-- Separator -->
-    <span class="comparison-bar-vs">VS</span>
-
-    <!-- Control Crawl (Interactive) -->
-    <div class="comparison-bar-block comparison-bar-control">
-        <span class="comparison-bar-badge comparison-bar-badge--base"><?= __('comparison.badge_baseline') ?></span>
-        <div class="crawl-selector comparison-bar-selector">
-            <button class="crawl-selector-btn comparison-bar-control-btn" id="compareSelectorBtn" onclick="toggleCompareDropdown(event)">
-                <span class="material-symbols-outlined">schedule</span>
-                <?= $baseDateStr ?>
-                <span class="material-symbols-outlined">expand_more</span>
-            </button>
-            <div class="crawl-dropdown" id="compareDropdown">
-                <?php foreach ($domainCrawls as $crawl):
-                    $crawlStatus = $crawl['status'] ?? $crawl['job_status'] ?? 'finished';
-                    if (!in_array($crawlStatus, ['finished', 'stopped', 'error', 'completed'])) continue;
-                    $crawlDate = DateTime::createFromFormat('Y-m-d H:i:s', $crawl['date']);
-                    $isCurrentCrawl = ($crawl['crawl_id'] == $crawlId);
-                    $isCompare = ($compareId == $crawl['crawl_id']);
-                ?>
-                    <?php if ($isCurrentCrawl): ?>
-                    <div class="crawl-dropdown-item disabled">
-                    <?php else: ?>
-                    <a href="javascript:void(0)" onclick="changeCompareCrawl(<?= $crawl['crawl_id'] ?>)"
-                       class="crawl-dropdown-item <?= $isCompare ? 'active' : '' ?>">
-                    <?php endif; ?>
-                        <div class="crawl-item-main">
-                            <div class="crawl-item-date">
-                                <?= $crawlDate ? $crawlDate->format('d/m/Y H:i') : __('header.date_unknown') ?>
-                                <span class="crawl-item-id">#<?= $crawl['crawl_id'] ?></span>
-                            </div>
-                            <?php if ($isCurrentCrawl): ?>
-                                <span class="crawl-item-badge"><?= __('comparison.badge_reference') ?></span>
-                            <?php elseif ($isCompare): ?>
-                                <span class="crawl-item-badge crawl-item-badge--baseline"><?= __('comparison.badge_baseline') ?></span>
-                            <?php endif; ?>
+            <?= $baseDateStr ?>
+            <span class="material-symbols-outlined">expand_more</span>
+        </button>
+        <div class="crawl-dropdown" id="compareDropdown">
+            <?php foreach ($domainCrawls as $crawl):
+                $crawlStatus = $crawl['status'] ?? $crawl['job_status'] ?? 'finished';
+                if (!in_array($crawlStatus, ['finished', 'stopped', 'error', 'completed'])) continue;
+                $crawlDate = DateTime::createFromFormat('Y-m-d H:i:s', $crawl['date']);
+                $isCurrentCrawl = ($crawl['crawl_id'] == $crawlId);
+                $isCompare = ($compareId == $crawl['crawl_id']);
+            ?>
+                <?php if ($isCurrentCrawl): ?>
+                <div class="crawl-dropdown-item disabled">
+                <?php else: ?>
+                <a href="javascript:void(0)" onclick="changeCompareCrawl(<?= $crawl['crawl_id'] ?>)"
+                   class="crawl-dropdown-item <?= $isCompare ? 'active' : '' ?>">
+                <?php endif; ?>
+                    <div class="crawl-item-main">
+                        <div class="crawl-item-date">
+                            <?= $crawlDate ? $crawlDate->format('d/m/Y H:i') : __('header.date_unknown') ?>
+                            <span class="crawl-item-id">#<?= $crawl['crawl_id'] ?></span>
                         </div>
-                        <div class="crawl-item-row">
-                            <div class="crawl-item-stats">
-                                <span><?= number_format($crawl['stats']['urls']) ?> URLs</span>
-                                <span>•</span>
-                                <span><?= number_format($crawl['stats']['crawled']) ?> <?= __('header.crawled') ?></span>
-                            </div>
+                        <?php if ($isCurrentCrawl): ?>
+                            <span class="crawl-item-badge"><?= __('comparison.badge_reference') ?></span>
+                        <?php elseif ($isCompare): ?>
+                            <span class="crawl-item-badge crawl-item-badge--baseline"><?= __('comparison.badge_baseline') ?></span>
+                        <?php endif; ?>
+                    </div>
+                    <div class="crawl-item-row">
+                        <div class="crawl-item-stats">
+                            <span><?= number_format($crawl['stats']['urls']) ?> URLs</span>
+                            <span>•</span>
+                            <span><?= number_format($crawl['stats']['crawled']) ?> <?= __('header.crawled') ?></span>
                         </div>
-                    <?= $isCurrentCrawl ? '</div>' : '</a>' ?>
-                <?php endforeach; ?>
-            </div>
+                    </div>
+                <?= $isCurrentCrawl ? '</div>' : '</a>' ?>
+            <?php endforeach; ?>
         </div>
     </div>
 
-    <!-- Swap button -->
+    <!-- Swap -->
     <?php if ($compareId): ?>
     <a href="?crawl=<?= $compareId ?>&page=<?= urlencode($page) ?>&compare=<?= $crawlId ?>" class="comparison-bar-swap" title="<?= __('comparison.swap') ?>">
         <span class="material-symbols-outlined">swap_horiz</span>
