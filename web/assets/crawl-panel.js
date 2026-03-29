@@ -1343,7 +1343,8 @@ const CrawlPanel = {
             const errorLine = document.createElement('div');
             errorLine.className = 'crawl-panel-log-line crawl-panel-log-error';
             errorLine.style.cssText = 'color: #ff4444; font-weight: bold; padding: 4px 0; border-top: 1px solid #ff444440;';
-            errorLine.innerHTML = `<span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle;margin-right:4px;">error</span>${statusData.error}`;
+            const safeError = (statusData.error || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            errorLine.innerHTML = `<span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle;margin-right:4px;">error</span>${safeError}`;
             this.elements.terminal.appendChild(errorLine);
         }
 

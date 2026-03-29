@@ -243,6 +243,7 @@ class ProjectController extends Controller
                 'respect_canonical' => $request->get('respect_canonical', true),
                 'follow_redirects' => $followRedirects,
                 'retry_failed_urls' => $request->get('retry_failed_urls', true),
+                'store_html' => $request->get('store_html', true),
                 'custom_headers' => $request->get('custom_headers', []),
                 'http_auth' => $request->get('http_auth'),
                 'xPathExtractors' => $xPathExtractors,
@@ -744,6 +745,7 @@ class ProjectController extends Controller
     public function getSchedule(Request $request): void
     {
         $projectId = (int)$request->param('id');
+        $this->auth->requireProjectAccess($projectId);
 
         $db = \App\Database\PostgresDatabase::getInstance()->getConnection();
         $stmt = $db->prepare("SELECT * FROM crawl_schedules WHERE project_id = :pid");

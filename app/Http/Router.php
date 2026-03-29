@@ -224,7 +224,8 @@ class Router
                 $controller->$method($request);
             }
         } catch (\Throwable $e) {
-            Response::serverError($e->getMessage());
+            error_log('[SCOUTER ERROR] ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            Response::serverError('An internal error occurred.');
         }
     }
 

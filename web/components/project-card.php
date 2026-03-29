@@ -140,7 +140,7 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
                 </tr>
             </thead>
             <tbody>
-                <?php foreach($crawls as $crawl): 
+                <?php foreach(array_slice($crawls, 0, 3) as $crawl):
                     // Tous les crawls vont vers le dashboard
                     $rowUrl = "dashboard.php?crawl=" . $crawl->crawl_id;
                     $isInProgress = in_array($crawl->job_status, ['running', 'queued', 'pending', 'processing', 'stopping']);
@@ -189,10 +189,11 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
                                     <span class="config-list-badge" title="<?= __('index.mode_url_list') ?>"><?= __('index.mode_list_short') ?></span>
                                 <?php endif; ?>
                                 <span class="material-symbols-outlined config-icon <?= ($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript' ? 'active' : 'inactive' ?>" title="<?= __('index.mode_javascript') ?>">javascript</span>
-                                <span class="material-symbols-outlined config-icon <?= !empty($crawl->config['advanced']['respect']['robots']) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_robots') ?>">smart_toy</span>
-                                <span class="material-symbols-outlined config-icon <?= !empty($crawl->config['advanced']['respect']['canonical']) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_canonical') ?>">content_copy</span>
-                                <span class="material-symbols-outlined config-icon <?= !empty($crawl->config['advanced']['respect']['nofollow']) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_nofollow') ?>">link_off</span>
+                                <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['robots']) || !empty($crawl->config['advanced']['respect_robots'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_robots') ?>">smart_toy</span>
+                                <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['canonical']) || !empty($crawl->config['advanced']['respect_canonical'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_canonical') ?>">content_copy</span>
+                                <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['nofollow']) || !empty($crawl->config['advanced']['respect_nofollow'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_nofollow') ?>">link_off</span>
                                 <span class="material-symbols-outlined config-icon <?= ($crawl->config['advanced']['follow_redirects'] ?? true) ? 'active' : 'inactive' ?>" title="<?= __('index.follow_redirects') ?>">redo</span>
+                                <span class="material-symbols-outlined config-icon <?= ($crawl->config['advanced']['store_html'] ?? true) ? 'active' : 'inactive' ?>" title="<?= __('index.store_html') ?>">code</span>
                                 <?php if (($crawl->crawl_type ?? 'spider') !== 'list'): ?>
                                     <span class="config-depth-badge" title="<?= __('index.max_depth') ?>"><?= $crawl->config['general']['depthMax'] ?? '-' ?></span>
                                 <?php endif; ?>
@@ -209,6 +210,12 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
                 <?php endforeach; ?>
             </tbody>
         </table>
+        <?php if (count($crawls) > 3): ?>
+        <a href="project.php?id=<?= $projectId ?>" class="crawl-view-all" onclick="event.stopPropagation();">
+            <?= __('index.view_all_crawls', ['count' => count($crawls)]) ?>
+            <span class="material-symbols-outlined" style="font-size: 14px;">arrow_forward</span>
+        </a>
+        <?php endif; ?>
     </div>
     <?php endif; ?>
 </div>

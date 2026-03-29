@@ -90,11 +90,11 @@ if (!empty($crawlRecord->config)) {
 }
 
 .config-value.boolean.true {
-    color: var(--success);
+    color: #5a9a6e;
 }
 
 .config-value.boolean.false {
-    color: var(--danger);
+    color: var(--text-tertiary);
 }
 
 .config-list {
@@ -281,79 +281,44 @@ if (!empty($crawlRecord->config)) {
                 <?= __('config.section_advanced') ?>
             </h2>
             
-            <?php if (isset($configData['advanced']['respect'])): ?>
+            <?php
+            // Support both old nested format (respect.robots) and new flat format (respect_robots)
+            $adv = $configData['advanced'];
+            $rules = [
+                ['key' => 'respect_robots',    'old' => $adv['respect']['robots'] ?? null,    'new' => $adv['respect_robots'] ?? null,    'label' => __('config.respect_robots'),    'icon' => 'smart_toy'],
+                ['key' => 'respect_canonical', 'old' => $adv['respect']['canonical'] ?? null, 'new' => $adv['respect_canonical'] ?? null, 'label' => __('config.respect_canonical'), 'icon' => 'content_copy'],
+                ['key' => 'respect_nofollow',  'old' => $adv['respect']['nofollow'] ?? null,  'new' => $adv['respect_nofollow'] ?? null,  'label' => __('config.respect_nofollow'),  'icon' => 'link_off'],
+                ['key' => 'follow_redirects',  'old' => null,                                 'new' => $adv['follow_redirects'] ?? null,  'label' => __('config.follow_redirects'),  'icon' => 'redo'],
+                ['key' => 'store_html',        'old' => null,                                 'new' => $adv['store_html'] ?? null,        'label' => __('config.store_html'),        'icon' => 'code'],
+                ['key' => 'retry_failed_urls', 'old' => null,                                 'new' => $adv['retry_failed_urls'] ?? null, 'label' => __('config.retry_failed_urls'), 'icon' => 'refresh'],
+            ];
+            // Filter to only show rules that have a value set
+            $visibleRules = array_filter($rules, fn($r) => $r['new'] !== null || $r['old'] !== null);
+            ?>
+            <?php if (!empty($visibleRules)): ?>
             <h3 style="margin: 1.5rem 0 1rem 0; color: var(--text-primary); font-size: 1.1rem;"><?= __('config.directives_respect') ?></h3>
-            <table class="data-table" style="margin-bottom: 2rem;">
+            <table class="data-table" style="margin-bottom: 2rem; width: auto;">
                 <tbody>
-                    <?php if (isset($configData['advanced']['respect']['robots'])): ?>
+                    <?php foreach ($visibleRules as $rule):
+                        $val = $rule['new'] ?? $rule['old'];
+                    ?>
                     <tr>
-                        <td style="width: 300px;"><?= __('config.respect_robots') ?></td>
-                        <td>
-                            <span class="config-value boolean <?= $configData['advanced']['respect']['robots'] ? 'true' : 'false' ?>">
-                                <span class="material-symbols-outlined">
-                                    <?= $configData['advanced']['respect']['robots'] ? 'check_circle' : 'cancel' ?>
+                        <td style="white-space: nowrap;">
+                            <span style="display: inline-flex; align-items: center; gap: 0.5rem;">
+                                <span class="material-symbols-outlined" style="font-size: 18px; color: var(--text-tertiary);"><?= $rule['icon'] ?></span>
+                                <?= $rule['label'] ?>
+                            </span>
+                        </td>
+                        <td style="padding-left: 2rem;">
+                            <span class="config-value boolean <?= $val ? 'true' : 'false' ?>">
+                                <span class="material-symbols-outlined" style="font-size: 18px;">
+                                    <?= $val ? 'check_circle' : 'cancel' ?>
                                 </span>
-                                <?= $configData['advanced']['respect']['robots'] ? __('common.yes') : __('common.no') ?>
+                                <?= $val ? __('common.yes') : __('common.no') ?>
                             </span>
                         </td>
                     </tr>
-                    <?php endif; ?>
-
-                    <?php if (isset($configData['advanced']['respect']['nofollow'])): ?>
-                    <tr>
-                        <td style="width: 300px;"><?= __('config.respect_nofollow') ?></td>
-                        <td>
-                            <span class="config-value boolean <?= $configData['advanced']['respect']['nofollow'] ? 'true' : 'false' ?>">
-                                <span class="material-symbols-outlined">
-                                    <?= $configData['advanced']['respect']['nofollow'] ? 'check_circle' : 'cancel' ?>
-                                </span>
-                                <?= $configData['advanced']['respect']['nofollow'] ? __('common.yes') : __('common.no') ?>
-                            </span>
-                        </td>
-                    </tr>
-                    <?php endif; ?>
-
-                    <?php if (isset($configData['advanced']['respect']['canonical'])): ?>
-                    <tr>
-                        <td style="width: 300px;"><?= __('config.respect_canonical') ?></td>
-                        <td>
-                            <span class="config-value boolean <?= $configData['advanced']['respect']['canonical'] ? 'true' : 'false' ?>">
-                                <span class="material-symbols-outlined">
-                                    <?= $configData['advanced']['respect']['canonical'] ? 'check_circle' : 'cancel' ?>
-                                </span>
-                                <?= $configData['advanced']['respect']['canonical'] ? __('common.yes') : __('common.no') ?>
-                            </span>
-                        </td>
-                    </tr>
-                    <?php endif; ?>
-
-                    <?php if (isset($configData['advanced']['follow_redirects'])): ?>
-                    <tr>
-                        <td style="width: 300px;"><?= __('config.follow_redirects') ?></td>
-                        <td>
-                            <span class="config-value boolean <?= $configData['advanced']['follow_redirects'] ? 'true' : 'false' ?>">
-                                <span class="material-symbols-outlined">
-                                    <?= $configData['advanced']['follow_redirects'] ? 'check_circle' : 'cancel' ?>
-                                </span>
-                                <?= $configData['advanced']['follow_redirects'] ? __('common.yes') : __('common.no') ?>
-                            </span>
-                        </td>
-                    </tr>
-                    <?php endif; ?>
-
-                    <?php if (isset($configData['advanced']['retry_failed_urls'])): ?>
-                    <tr>
-                        <td style="width: 300px;"><?= __('config.retry_failed_urls') ?></td>
-                        <td>
-                            <span class="config-value boolean <?= $configData['advanced']['retry_failed_urls'] ? 'true' : 'false' ?>">
-                                <span class="material-symbols-outlined">
-                                    <?= $configData['advanced']['retry_failed_urls'] ? 'check_circle' : 'cancel' ?>
-                                </span>
-                                <?= $configData['advanced']['retry_failed_urls'] ? __('common.yes') : __('common.no') ?>
-                            </span>
-                        </td>
-                    </tr>
-                    <?php endif; ?>
+                    <?php endforeach; ?>
                 </tbody>
             </table>
             <?php endif; ?>

@@ -223,7 +223,8 @@ class CrawlController extends Controller
         }
         
         // Clear old log file so stale errors don't persist
-        $logFile = dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . $projectDir . '.log';
+        $safeDir = basename($projectDir); // Prevent path traversal
+        $logFile = dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . $safeDir . '.log';
         if (file_exists($logFile)) {
             file_put_contents($logFile, '');
         }
@@ -302,22 +303,35 @@ class CrawlController extends Controller
     {
         $jobs = $this->jobManager->getRunningJobs();
         $crawls = [];
-        
+        $userId = $this->auth->getCurrentUserId();
+        $isAdmin = $this->auth->isAdmin();
+
+        // Get project IDs owned by the current user
+        $db = \App\Database\PostgresDatabase::getInstance()->getConnection();
+        $stmt = $db->prepare("SELECT id FROM projects WHERE user_id = :uid");
+        $stmt->execute([':uid' => $userId]);
+        $ownedProjectIds = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+
         foreach ($jobs as $job) {
             $crawlRecord = CrawlDatabase::getCrawlByPath($job->project_dir);
-            if ($crawlRecord) {
-                $crawls[] = [
-                    'job_id' => $job->id,
-                    'project_dir' => $job->project_dir,
-                    'status' => $job->status,
-                    'crawl_id' => $crawlRecord->id,
-                    'domain' => $crawlRecord->domain,
-                    'urls' => $crawlRecord->urls ?? 0,
-                    'crawled' => $crawlRecord->crawled ?? 0
-                ];
+            if (!$crawlRecord) continue;
+
+            // Only show crawls from projects the user owns (or all if admin)
+            if (!$isAdmin && !in_array($crawlRecord->project_id, $ownedProjectIds)) {
+                continue;
             }
+
+            $crawls[] = [
+                'job_id' => $job->id,
+                'project_dir' => $job->project_dir,
+                'status' => $job->status,
+                'crawl_id' => $crawlRecord->id,
+                'domain' => $crawlRecord->domain,
+                'urls' => $crawlRecord->urls ?? 0,
+                'crawled' => $crawlRecord->crawled ?? 0
+            ];
         }
-        
+
         $this->success(['crawls' => $crawls]);
     }
 }

@@ -12,7 +12,8 @@
 
 $baseDate = null;
 if ($compareRecord && !empty($compareRecord->started_at)) {
-    $baseDate = DateTime::createFromFormat('Y-m-d H:i:s', $compareRecord->started_at);
+    // Handle timestamps with or without microseconds
+    $baseDate = new DateTime($compareRecord->started_at);
 }
 $baseDateStr = $baseDate ? $baseDate->format('d/m/Y H:i') : __('comparison.select_placeholder');
 ?>

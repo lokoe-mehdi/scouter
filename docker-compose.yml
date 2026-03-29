@@ -92,8 +92,6 @@ services:
       - 3000
     environment:
       - SCOUTER_API_URL=http://scouter:8080
-    cap_add:
-      - SYS_ADMIN
     restart: unless-stopped
 
   renderer-2:

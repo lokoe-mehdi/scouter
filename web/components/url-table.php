@@ -579,7 +579,7 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                                         <span class="material-symbols-outlined" style="font-size: 16px;">content_copy</span>
                                     </span>
                                     <?php endif; ?>
-                                    <span class="url-clickable" data-url="<?= htmlspecialchars($url->url) ?>" style="cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;">
+                                    <span class="url-clickable" data-url="<?= htmlspecialchars($url->url) ?>" data-project="<?= htmlspecialchars($crawlId) ?>" style="cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;">
                                         <?= htmlspecialchars($url->url) ?>
                                     </span>
                                     <a href="<?= htmlspecialchars($url->url) ?>" target="_blank" rel="noopener noreferrer" title="<?= __('common.open_new_tab') ?>" style="display: inline-flex; align-items: center; color: var(--text-secondary); text-decoration: none; margin-left: 0.5rem; flex-shrink: 0;">

@@ -72,23 +72,56 @@ class QueryController extends Controller
 
         $crawlId = $crawlRecord->id;
 
-        // SÉCURITÉ : Vérifier que SEULES les requêtes SELECT sont autorisées
-        $queryUpper = strtoupper(trim($query));
-        
-        $forbiddenKeywords = [
-            'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 
-            'TRUNCATE', 'REPLACE', 'RENAME', 'ATTACH', 'DETACH',
-            'VACUUM', 'REINDEX', 'GRANT', 'REVOKE'
-        ];
-        
+        // SÉCURITÉ : Nettoyage et validation stricte
+        $queryClean = preg_replace('/\/\*.*?\*\//s', ' ', $query); // strip block comments
+        $queryClean = preg_replace('/--.*$/m', ' ', $queryClean);  // strip line comments
+        $queryUpper = strtoupper(trim($queryClean));
+
         if (strpos($queryUpper, 'SELECT') !== 0) {
             Response::forbidden('Seules les requêtes SELECT sont autorisées.');
         }
-        
+
+        // Block multi-statement attacks
+        if (preg_match('/;\s*(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|COPY|SET|DO|CALL)/i', $queryClean)) {
+            Response::forbidden('Requête multi-statement interdite.');
+        }
+
+        $forbiddenKeywords = [
+            'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER',
+            'TRUNCATE', 'REPLACE', 'RENAME', 'ATTACH', 'DETACH',
+            'VACUUM', 'REINDEX', 'GRANT', 'REVOKE', 'COPY'
+        ];
         foreach ($forbiddenKeywords as $keyword) {
-            if (preg_match('/\b' . $keyword . '\b/i', $query)) {
+            if (preg_match('/\b' . $keyword . '\b/i', $queryClean)) {
                 Response::forbidden('Requête interdite : opération de modification détectée (' . $keyword . ').');
             }
+        }
+
+        // Block dangerous PostgreSQL functions
+        $forbiddenFunctions = [
+            'pg_sleep', 'pg_read_file', 'pg_read_binary_file', 'pg_ls_dir',
+            'pg_stat_file', 'lo_import', 'lo_export', 'dblink',
+            'pg_advisory_lock', 'pg_terminate_backend', 'pg_cancel_backend',
+            'set_config', 'current_setting'
+        ];
+        foreach ($forbiddenFunctions as $fn) {
+            if (preg_match('/\b' . preg_quote($fn, '/') . '\s*\(/i', $queryClean)) {
+                Response::forbidden('Fonction interdite : ' . $fn);
+            }
+        }
+
+        // Block access to system/auth tables (including quoted identifiers)
+        $cleanForTableCheck = str_replace('"', '', $queryClean); // strip quotes to catch "users"
+        if (preg_match('/\b(pg_catalog|information_schema|pg_roles|pg_authid|pg_shadow|users)\b/i', $cleanForTableCheck)) {
+            Response::forbidden('Accès aux tables système interdit.');
+        }
+
+        // Block PREPARE/EXECUTE, WITH RECURSIVE, EXPLAIN, COPY TO PROGRAM
+        if (preg_match('/\b(PREPARE|EXECUTE|EXPLAIN|WITH\s+RECURSIVE)\b/i', $queryClean)) {
+            Response::forbidden('Instruction interdite.');
+        }
+        if (preg_match('/COPY\s+.*\s+TO\s+PROGRAM/i', $queryClean)) {
+            Response::forbidden('COPY TO PROGRAM interdit.');
         }
         
         // Transformer les références multi-crawl (syntaxe table@ID)
@@ -100,7 +133,7 @@ class QueryController extends Controller
                 $referencedCrawlIds[] = (int)$matches[2];
                 return $matches[1] . '_' . $matches[2];
             },
-            $query
+            $queryClean
         );
         // categories@ID → crawl_categories (project-level, no partition)
         $transformedQuery = preg_replace('/\bcategories@\d+\b/i', 'crawl_categories', $transformedQuery);
@@ -122,8 +155,17 @@ class QueryController extends Controller
         $transformedQuery = preg_replace('/\bduplicate_clusters\b(?!_\d)/i', "duplicate_clusters_{$crawlId}", $transformedQuery);
         $transformedQuery = preg_replace('/\bpage_schemas\b(?!_\d)/i', "page_schemas_{$crawlId}", $transformedQuery);
         
+        // Force a LIMIT if none present (max 10000 rows)
+        if (!preg_match('/\bLIMIT\s+\d/i', $transformedQuery)) {
+            $transformedQuery .= ' LIMIT 10000';
+        }
+
+        // Security: read-only transaction + timeout
+        $this->db->exec("SET statement_timeout = '10s'");
+        $this->db->exec("SET TRANSACTION READ ONLY");
         $stmt = $this->db->query($transformedQuery);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $this->db->exec("SET statement_timeout = '0'");
         
         $columns = [];
         if (!empty($rows)) {

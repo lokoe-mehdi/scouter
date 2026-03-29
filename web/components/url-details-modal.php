@@ -746,7 +746,8 @@ function getCategoryBadge(category, categoryColor) {
     // Calculer la couleur du texte selon la luminosité
     const textColor = getTextColorForBg(bgColor);
     
-    return `<span style="display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; background: ${bgColor}; color: ${textColor};">${category}</span>`;
+    const safeCategory = category.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return `<span style="display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; background: ${bgColor}; color: ${textColor};">${safeCategory}</span>`;
 }
 
 function getTextColorForBg(hexColor) {
@@ -759,7 +760,7 @@ function getTextColorForBg(hexColor) {
 }
 
 function openUrlModal(url, project = null) {
-    if (project) currentProject = project;
+    if (project) { currentProject = String(project); }
     
     // Annuler toute requête en cours
     if (modalAbortController) {
@@ -906,8 +907,8 @@ function displayUrlDetails(data) {
     currentPageUrl = url.url;
     currentCrawlDate = url.date;
     
-    // Afficher les onglets HTML, Headings et Prévisualiser si code 200
-    if (url.code >= 200 && url.code < 300) {
+    // Afficher les onglets HTML, Headings et Prévisualiser si code 200 ET store_html activé
+    if (url.code >= 200 && url.code < 300 && <?= json_encode((bool)($storeHtml ?? true)) ?>) {
         document.getElementById('htmlTabBtn').style.display = 'flex';
         document.getElementById('headingsTabBtn').style.display = 'flex';
         document.getElementById('previewTabBtn').style.display = 'flex';

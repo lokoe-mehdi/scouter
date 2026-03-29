@@ -301,6 +301,9 @@ class PageCrawler
 
     private function storeRaw()
     {
+        if (!($this->config['store_html'] ?? true)) {
+            return;
+        }
         $this->crawlDb->insertHtml($this->page->id, $this->page->domZip);
     }
 }

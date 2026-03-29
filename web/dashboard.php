@@ -116,7 +116,7 @@ $compareId = isset($_GET['compare']) ? (int)$_GET['compare'] : null;
 $compareRecord = null;
 if ($compareId) {
     $compareRecord = CrawlDatabase::getCrawlById($compareId);
-    if (!$compareRecord || $compareRecord->project_id !== $crawlRecord->project_id) {
+    if (!$compareRecord) {
         $compareId = null;
         $compareRecord = null;
     }
@@ -143,6 +143,10 @@ $GLOBALS['categoryColors'] = $categoryColors;
 // Charger les statistiques globales
 $crawlRepo = new CrawlRepository();
 $globalStats = $crawlRecord;
+
+// Extraire le flag store_html depuis la config du crawl
+$crawlConfigRaw = is_string($crawlRecord->config ?? '{}') ? json_decode($crawlRecord->config ?? '{}', true) : ($crawlRecord->config ?? []);
+$storeHtml = $crawlConfigRaw['advanced']['store_html'] ?? true;
 
 // Récupération de la page actuelle
 $page = isset($_GET['page']) ? $_GET['page'] : 'home';
@@ -242,6 +246,13 @@ if (!$compareId && !empty($domainCrawls)) {
             $compareRecord = CrawlDatabase::getCrawlById($compareId);
         }
     }
+}
+
+// Flag store_html du crawl de comparaison
+$compareStoreHtml = true;
+if ($compareRecord) {
+    $compareConfigRaw = is_string($compareRecord->config ?? '{}') ? json_decode($compareRecord->config ?? '{}', true) : ($compareRecord->config ?? []);
+    $compareStoreHtml = $compareConfigRaw['advanced']['store_html'] ?? true;
 }
 
 // Pré-calculer les scorecards de comparaison une seule fois (utilisés par toutes les pages comparison)
@@ -521,7 +532,7 @@ function isSectionCollapsed($sectionName) {
     <script src="assets/confirm-modal.js"></script>
     <script src="assets/crawl-panel.js?v=<?= time() ?>"></script>
     <script src="assets/app.js"></script>
-    <script src="assets/url-modal-handler.js"></script>
+    <script src="assets/url-modal-handler.js?v=<?= time() ?>"></script>
     
     <?php include 'components/url-details-modal.php'; ?>
     <?php include 'components/quick-search.php'; ?>
