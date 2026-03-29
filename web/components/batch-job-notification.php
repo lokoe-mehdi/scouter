@@ -111,7 +111,8 @@ let batchJobId = null;
 function checkBatchJobStatus() {
     if (!batchJobId) return;
 
-    fetch(`/api/jobs/${batchJobId}`)
+    const apiBase = window.location.pathname.includes('/pages/') ? '../api' : 'api';
+    fetch(`${apiBase}/jobs/${batchJobId}`)
         .then(res => res.json())
         .then(data => {
             if (data.success && data.job) {
@@ -121,13 +122,13 @@ function checkBatchJobStatus() {
                     showBatchNotification(job);
                 } else if (job.status === 'completed') {
                     showCompletionNotification();
+                    stopBatchPolling();
+                    // Refresh categorization view immediately
+                    if (typeof refreshCategorizationView === 'function') {
+                        refreshCategorizationView();
+                    }
                     setTimeout(() => {
                         hideBatchNotification();
-                        stopBatchPolling();
-                        // Refresh categorization view
-                        if (typeof refreshCategorizationView === 'function') {
-                            refreshCategorizationView();
-                        }
                     }, 3000);
                 } else if (job.status === 'failed') {
                     showErrorNotification(job.error);

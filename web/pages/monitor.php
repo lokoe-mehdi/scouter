@@ -1,6 +1,7 @@
 <?php
 require_once(__DIR__ . '/init.php');
 $auth->requireAdmin(false);
+$pdo = \App\Database\PostgresDatabase::getInstance()->getConnection();
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -133,13 +134,71 @@ $auth->requireAdmin(false);
                 <h1 class="page-title"><?= __('monitor.page_title') ?></h1>
                 <p style="color: var(--text-secondary);"><?= __('monitor.subtitle') ?></p>
             </div>
-            <div style="display: flex; align-items: center; gap: 1rem;">
-                <button id="btn-test-crawls" onclick="launchTestCrawls()" style="background: #8b5cf6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="material-symbols-outlined" style="font-size: 18px;">rocket_launch</span>
-                    <?= __('monitor.test_crawls') ?>
-                </button>
-                <div style="font-size: 0.85rem; color: var(--text-secondary);">
-                    <span class="refresh-dot"></span><?= __('monitor.auto_refresh') ?>
+            <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                <span class="refresh-dot"></span><?= __('monitor.auto_refresh') ?>
+            </div>
+        </div>
+
+        <!-- Server Info -->
+        <?php
+        $serverTime = date('Y-m-d H:i:s');
+        $serverTimezone = date_default_timezone_get();
+        $serverUtcOffset = date('P');
+        $serverIp = $_SERVER['SERVER_ADDR'] ?? gethostbyname(gethostname());
+        ?>
+        <div style="display: flex; gap: 1.5rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem; background: var(--card-bg, white); border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.8rem;">
+                <span class="material-symbols-outlined" style="font-size: 18px; color: var(--text-tertiary);">schedule</span>
+                <span style="color: var(--text-secondary);">Server time</span>
+                <strong style="color: var(--text-primary);"><?= $serverTime ?></strong>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem; background: var(--card-bg, white); border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.8rem;">
+                <span class="material-symbols-outlined" style="font-size: 18px; color: var(--text-tertiary);">public</span>
+                <span style="color: var(--text-secondary);">Timezone</span>
+                <strong style="color: var(--text-primary);"><?= $serverTimezone ?> (UTC<?= $serverUtcOffset ?>)</strong>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem; background: var(--card-bg, white); border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.8rem;">
+                <span class="material-symbols-outlined" style="font-size: 18px; color: var(--text-tertiary);">dns</span>
+                <span style="color: var(--text-secondary);">Server IP</span>
+                <strong style="color: var(--text-primary); font-family: monospace;"><?= htmlspecialchars($serverIp) ?></strong>
+            </div>
+        </div>
+
+        <!-- Global overview -->
+        <?php
+        $globalProjectCount = (int)$pdo->query("SELECT COUNT(*) FROM projects")->fetchColumn();
+        $globalCrawlCount = (int)$pdo->query("SELECT COUNT(*) FROM crawls")->fetchColumn();
+        $globalDbSize = $pdo->query("SELECT pg_database_size(current_database()) AS s")->fetch(PDO::FETCH_OBJ)->s;
+        $globalDbSizeFormatted = $globalDbSize >= 1073741824
+            ? round($globalDbSize / 1073741824, 2) . ' GB'
+            : ($globalDbSize >= 1048576 ? round($globalDbSize / 1048576, 1) . ' MB' : round($globalDbSize / 1024, 0) . ' KB');
+        ?>
+        <div class="monitor-grid" style="margin-bottom: 1.5rem;">
+            <div class="stat-card">
+                <div class="stat-icon" style="background: #e0f2fe; color: #0284c7;">
+                    <span class="material-symbols-outlined">folder</span>
+                </div>
+                <div class="stat-info">
+                    <h3><?= $globalProjectCount ?></h3>
+                    <p>Projects</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon" style="background: #f0fdf4; color: #16a34a;">
+                    <span class="material-symbols-outlined">travel_explore</span>
+                </div>
+                <div class="stat-info">
+                    <h3><?= $globalCrawlCount ?></h3>
+                    <p>Crawls</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon" style="background: #fdf4ff; color: #a855f7;">
+                    <span class="material-symbols-outlined">database</span>
+                </div>
+                <div class="stat-info">
+                    <h3><?= $globalDbSizeFormatted ?></h3>
+                    <p>Database size</p>
                 </div>
             </div>
         </div>
@@ -209,6 +268,76 @@ $auth->requireAdmin(false);
                 <tr><td colspan="5" style="text-align:center; padding:2rem; color:#94a3b8;"><?= __('common.loading') ?></td></tr>
             </tbody>
         </table>
+
+        <!-- Projects Overview -->
+        <?php
+        $projectsQuery = $pdo->query("
+            SELECT p.id, p.name, u.email AS owner,
+                   COUNT(DISTINCT cr.id) AS crawl_count
+            FROM projects p
+            JOIN users u ON u.id = p.user_id
+            LEFT JOIN crawls cr ON cr.project_id = p.id
+            GROUP BY p.id, p.name, u.email
+            ORDER BY p.id
+        ");
+        $projects = $projectsQuery->fetchAll(PDO::FETCH_OBJ);
+
+        // Compute size per project
+        $tables = ['pages', 'links', 'html', 'page_schemas', 'duplicate_clusters', 'redirect_chains'];
+        foreach ($projects as $proj) {
+            $proj->size_bytes = 0;
+            $crawlIdsStmt = $pdo->prepare("SELECT id FROM crawls WHERE project_id = :pid");
+            $crawlIdsStmt->execute([':pid' => $proj->id]);
+            $cids = $crawlIdsStmt->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($cids as $cid) {
+                foreach ($tables as $t) {
+                    try {
+                        $s = $pdo->query("SELECT pg_total_relation_size('{$t}_{$cid}') AS s")->fetch(PDO::FETCH_OBJ);
+                        if ($s) $proj->size_bytes += (int)$s->s;
+                    } catch (Exception $e) {}
+                }
+            }
+        }
+
+        // Sort by size descending
+        usort($projects, fn($a, $b) => $b->size_bytes <=> $a->size_bytes);
+
+        function formatBytes($bytes) {
+            if ($bytes >= 1073741824) return round($bytes / 1073741824, 2) . ' GB';
+            if ($bytes >= 1048576) return round($bytes / 1048576, 1) . ' MB';
+            if ($bytes >= 1024) return round($bytes / 1024, 0) . ' KB';
+            return $bytes . ' B';
+        }
+        ?>
+
+        <h2 style="font-size: 1rem; margin: 2rem 0 1rem; color: var(--text-primary);">
+            <span class="material-symbols-outlined" style="font-size: 18px; vertical-align: text-bottom;">folder</span>
+            Projects (<?= count($projects) ?>)
+        </h2>
+        <table class="jobs-table">
+            <thead>
+                <tr>
+                    <th>Project</th>
+                    <th>Owner</th>
+                    <th>Crawls</th>
+                    <th>Size</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (empty($projects)): ?>
+                <tr><td colspan="5" style="text-align:center; padding:2rem; color:#94a3b8;">No projects</td></tr>
+                <?php else: foreach ($projects as $proj): ?>
+                <tr>
+                    <td style="font-weight: 600;"><?= htmlspecialchars($proj->name) ?></td>
+                    <td style="color: var(--text-secondary); font-size: 0.85rem;"><?= htmlspecialchars($proj->owner) ?></td>
+                    <td style="font-family: monospace; font-weight: 600;"><?= $proj->crawl_count ?></td>
+                    <td style="font-family: monospace; font-weight: 600; color: <?= $proj->size_bytes >= 1073741824 ? '#dc2626' : ($proj->size_bytes >= 104857600 ? '#d97706' : '#16a34a') ?>;"><?= formatBytes($proj->size_bytes) ?></td>
+                    <td><a href="../project.php?id=<?= $proj->id ?>" style="color: var(--primary-color); text-decoration: none; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><span class="material-symbols-outlined" style="font-size: 16px;">open_in_new</span>View</a></td>
+                </tr>
+                <?php endforeach; endif; ?>
+            </tbody>
+        </table>
     </div>
 
     <script>
@@ -246,43 +375,6 @@ $auth->requireAdmin(false);
         
         refresh();
         setInterval(refresh, 5000);
-        
-        async function launchTestCrawls() {
-            const btn = document.getElementById('btn-test-crawls');
-            btn.disabled = true;
-            btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">hourglass_empty</span> <?= __('monitor.creating') ?>';
-            
-            try {
-                const res = await fetch('../api/monitor/test-crawls', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ count: 5, url: 'https://lokoe.fr' })
-                });
-                const data = await res.json();
-                
-                if (data.success) {
-                    btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">check</span> ' + data.message;
-                    btn.style.background = '#16a34a';
-                    refresh();
-                    setTimeout(() => {
-                        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">rocket_launch</span> <?= __('monitor.test_crawls') ?>';
-                        btn.style.background = '#8b5cf6';
-                        btn.disabled = false;
-                    }, 3000);
-                } else {
-                    throw new Error(data.error || '<?= __('common.error') ?>');
-                }
-            } catch(e) {
-                btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">error</span> <?= __('common.error') ?>';
-                btn.style.background = '#dc2626';
-                console.error(e);
-                setTimeout(() => {
-                    btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">rocket_launch</span> <?= __('monitor.test_crawls') ?>';
-                    btn.style.background = '#8b5cf6';
-                    btn.disabled = false;
-                }, 3000);
-            }
-        }
     </script>
 </body>
 </html>
