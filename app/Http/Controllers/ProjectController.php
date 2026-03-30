@@ -333,40 +333,76 @@ class ProjectController extends Controller
     public function delete(Request $request): void
     {
         $projectId = (int)$request->param('id');
-        
+
         if (!$projectId) {
             $this->error('ID projet invalide');
         }
-        
+
         if (!$this->auth->canManageProject($projectId)) {
             Response::forbidden('Droits insuffisants');
         }
-        
-        $this->projects->delete($projectId);
+
+        $this->asyncDeleteProject($projectId);
         $this->success([], 'Projet supprimé avec succès');
     }
 
     /**
      * Supprime un projet (ID dans le body pour compatibilité frontend)
-     * 
-     * @param Request $request Requête HTTP (project_id dans body)
-     * 
-     * @return void
      */
     public function deleteFromBody(Request $request): void
     {
         $projectId = (int)$request->get('project_id');
-        
+
         if (!$projectId) {
             $this->error('ID projet invalide');
         }
-        
+
         if (!$this->auth->canManageProject($projectId)) {
             Response::forbidden('Droits insuffisants');
         }
-        
-        $this->projects->delete($projectId);
+
+        $this->asyncDeleteProject($projectId);
         $this->success([], 'Projet supprimé avec succès');
+    }
+
+    /**
+     * Soft-delete project and schedule async cleanup job.
+     */
+    private function asyncDeleteProject(int $projectId): void
+    {
+        $pdo = \App\Database\PostgresDatabase::getInstance()->getConnection();
+        $jobManager = new \App\Job\JobManager();
+
+        // Kill all running crawls and delete their jobs
+        $crawlRepo = new \App\Database\CrawlRepository();
+        $crawls = $crawlRepo->getByProjectId($projectId);
+        foreach ($crawls as $crawl) {
+            $job = $jobManager->getJobByProject($crawl->path);
+            if ($job) {
+                if ($job->pid > 0) {
+                    exec("kill -9 " . intval($job->pid) . " 2>&1");
+                }
+                $jobManager->deleteJob($job->id);
+            }
+        }
+
+        // Mark all crawls as 'deleting'
+        $stmt = $pdo->prepare("UPDATE crawls SET status = 'deleting', in_progress = 0 WHERE project_id = :pid");
+        $stmt->execute([':pid' => $projectId]);
+
+        // Soft-delete project
+        $stmt = $pdo->prepare("UPDATE projects SET deleted_at = NOW() WHERE id = :id");
+        $stmt->execute([':id' => $projectId]);
+
+        // Disable schedule
+        $stmt = $pdo->prepare("UPDATE crawl_schedules SET enabled = false WHERE project_id = :pid");
+        $stmt->execute([':pid' => $projectId]);
+
+        // Create async deletion job
+        $project = $this->projects->getById($projectId);
+        $projectName = $project ? $project->name : "Project $projectId";
+        $deleteJobId = $jobManager->createJob("project-$projectId", $projectName, "delete-project:$projectId");
+        $jobManager->updateJobStatus($deleteJobId, 'queued');
     }
 
     /**

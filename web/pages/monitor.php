@@ -10,8 +10,8 @@ $serverUtcOffset = date('P');
 $serverIp = $_SERVER['SERVER_ADDR'] ?? gethostbyname(gethostname());
 
 // Global stats
-$globalProjectCount = (int)$pdo->query("SELECT COUNT(*) FROM projects")->fetchColumn();
-$globalCrawlCount = (int)$pdo->query("SELECT COUNT(*) FROM crawls")->fetchColumn();
+$globalProjectCount = (int)$pdo->query("SELECT COUNT(*) FROM projects WHERE deleted_at IS NULL")->fetchColumn();
+$globalCrawlCount = (int)$pdo->query("SELECT COUNT(*) FROM crawls WHERE status != 'deleting'")->fetchColumn();
 $globalDbSize = (int)$pdo->query("SELECT pg_database_size(current_database()) AS s")->fetchColumn();
 
 function monitorFormatBytes($bytes) {
@@ -27,24 +27,35 @@ $projectsQuery = $pdo->query("
            COUNT(DISTINCT cr.id) AS crawl_count
     FROM projects p
     JOIN users u ON u.id = p.user_id
-    LEFT JOIN crawls cr ON cr.project_id = p.id
+    LEFT JOIN crawls cr ON cr.project_id = p.id AND cr.status != 'deleting'
+    WHERE p.deleted_at IS NULL
     GROUP BY p.id, p.name, u.email
     ORDER BY p.id
 ");
 $projects = $projectsQuery->fetchAll(PDO::FETCH_OBJ);
 
-$partitionTables = ['pages', 'links', 'html', 'page_schemas', 'duplicate_clusters', 'redirect_chains'];
+// Build a single query to get all partition sizes (avoids errors on missing tables)
+$sizeStmt = $pdo->query("
+    SELECT tablename, pg_total_relation_size(tablename::regclass) AS size_bytes
+    FROM pg_tables
+    WHERE schemaname = 'public'
+      AND tablename ~ '^(pages|links|html|page_schemas|duplicate_clusters|redirect_chains)_[0-9]+$'
+");
+$partitionSizes = [];
+foreach ($sizeStmt->fetchAll(PDO::FETCH_OBJ) as $row) {
+    // Extract crawl_id from table name (e.g. pages_123 → 123)
+    preg_match('/_(\d+)$/', $row->tablename, $m);
+    if ($m) {
+        $partitionSizes[(int)$m[1]] = ($partitionSizes[(int)$m[1]] ?? 0) + (int)$row->size_bytes;
+    }
+}
+
 foreach ($projects as $proj) {
     $proj->size_bytes = 0;
-    $cids = $pdo->prepare("SELECT id FROM crawls WHERE project_id = :pid");
+    $cids = $pdo->prepare("SELECT id FROM crawls WHERE project_id = :pid AND status != 'deleting'");
     $cids->execute([':pid' => $proj->id]);
     foreach ($cids->fetchAll(PDO::FETCH_COLUMN) as $cid) {
-        foreach ($partitionTables as $t) {
-            try {
-                $s = $pdo->query("SELECT pg_total_relation_size('{$t}_{$cid}') AS s")->fetch(PDO::FETCH_OBJ);
-                if ($s) $proj->size_bytes += (int)$s->s;
-            } catch (Exception $e) {}
-        }
+        $proj->size_bytes += $partitionSizes[(int)$cid] ?? 0;
     }
 }
 usort($projects, fn($a, $b) => $b->size_bytes <=> $a->size_bytes);

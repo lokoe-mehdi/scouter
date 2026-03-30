@@ -276,6 +276,132 @@ class Cmder
       }
   }
 
+  /**
+   * Async crawl deletion — drops partitions then deletes the crawl record.
+   * @param string $arg Format: delete-crawl:<crawl_id>
+   */
+  static function deleteCrawl($arg)
+  {
+      if (strpos($arg, ':') === false) {
+          self::alert("Invalid format. Expected: delete-crawl:<crawl_id>");
+          die();
+      }
+
+      [, $crawlId] = explode(':', $arg, 2);
+      $crawlId = (int)$crawlId;
+
+      if ($crawlId <= 0) {
+          self::alert("Invalid crawl ID: $crawlId");
+          die();
+      }
+
+      self::info("Starting async deletion for crawl ID: $crawlId");
+
+      $db = \App\Database\PostgresDatabase::getInstance()->getConnection();
+      $jobId = getenv('JOB_ID');
+      $jobManager = $jobId ? new \App\Job\JobManager() : null;
+
+      try {
+          // Drop partitions first (instant, regardless of row count)
+          self::info("Dropping partitions for crawl $crawlId...");
+          $db->exec("SELECT drop_crawl_partitions($crawlId)");
+          if ($jobManager) $jobManager->updateJobProgress($jobId, 50);
+
+          // Delete categorization config
+          $stmt = $db->prepare("DELETE FROM categorization_config WHERE crawl_id = :id");
+          $stmt->execute([':id' => $crawlId]);
+
+          // Delete crawl record (lightweight now — no partition data left)
+          $stmt = $db->prepare("DELETE FROM crawls WHERE id = :id");
+          $stmt->execute([':id' => $crawlId]);
+          if ($jobManager) $jobManager->updateJobProgress($jobId, 100);
+
+          self::info("Crawl $crawlId deleted successfully");
+      } catch (\Exception $e) {
+          self::alert("Error deleting crawl $crawlId: " . $e->getMessage());
+          throw $e;
+      }
+  }
+
+  /**
+   * Async project deletion — drops all crawl partitions then deletes everything.
+   * @param string $arg Format: delete-project:<project_id>
+   */
+  static function deleteProject($arg)
+  {
+      if (strpos($arg, ':') === false) {
+          self::alert("Invalid format. Expected: delete-project:<project_id>");
+          die();
+      }
+
+      [, $projectId] = explode(':', $arg, 2);
+      $projectId = (int)$projectId;
+
+      if ($projectId <= 0) {
+          self::alert("Invalid project ID: $projectId");
+          die();
+      }
+
+      self::info("Starting async deletion for project ID: $projectId");
+
+      $db = \App\Database\PostgresDatabase::getInstance()->getConnection();
+      $jobId = getenv('JOB_ID');
+      $jobManager = $jobId ? new \App\Job\JobManager() : null;
+
+      // Get all crawls for this project (including 'deleting' ones)
+      $stmt = $db->prepare("SELECT id, domain FROM crawls WHERE project_id = :pid");
+      $stmt->execute([':pid' => $projectId]);
+      $crawls = $stmt->fetchAll(\PDO::FETCH_OBJ);
+
+      $totalCrawls = count($crawls);
+      $processed = 0;
+
+      self::info("Found $totalCrawls crawl(s) to delete");
+
+      foreach ($crawls as $crawl) {
+          $processed++;
+
+          try {
+              // Drop partitions (instant)
+              $db->exec("SELECT drop_crawl_partitions({$crawl->id})");
+
+              // Delete categorization config
+              $stmt = $db->prepare("DELETE FROM categorization_config WHERE crawl_id = :id");
+              $stmt->execute([':id' => $crawl->id]);
+
+              // Delete crawl record
+              $stmt = $db->prepare("DELETE FROM crawls WHERE id = :id");
+              $stmt->execute([':id' => $crawl->id]);
+
+              echo "\r \033[36mDeleted crawl {$processed}/{$totalCrawls} (ID: {$crawl->id}, {$crawl->domain})\033[0m                    ";
+              flush();
+
+              if ($jobManager) {
+                  $progress = round(($processed / max($totalCrawls, 1)) * 90); // 90% for crawls
+                  $jobManager->updateJobProgress($jobId, $progress);
+                  $jobManager->addLog($jobId, "Deleted crawl {$crawl->id} - {$crawl->domain} ({$processed}/{$totalCrawls})", 'info');
+              }
+          } catch (\Exception $e) {
+              self::alert("Error deleting crawl {$crawl->id}: " . $e->getMessage());
+              if ($jobManager) {
+                  $jobManager->addLog($jobId, "Error crawl {$crawl->id}: {$e->getMessage()}", 'error');
+              }
+          }
+      }
+
+      // Delete project-level data
+      self::info("Cleaning up project data...");
+      $db->prepare("DELETE FROM crawl_schedules WHERE project_id = :pid")->execute([':pid' => $projectId]);
+      $db->prepare("DELETE FROM crawl_categories WHERE project_id = :pid")->execute([':pid' => $projectId]);
+      $db->prepare("DELETE FROM project_category_links WHERE project_id IN (SELECT id FROM projects WHERE id = :pid)")->execute([':pid' => $projectId]);
+      $db->prepare("DELETE FROM project_shares WHERE project_id = :pid")->execute([':pid' => $projectId]);
+      $db->prepare("DELETE FROM projects WHERE id = :pid")->execute([':pid' => $projectId]);
+
+      if ($jobManager) $jobManager->updateJobProgress($jobId, 100);
+
+      self::info("Project $projectId deleted successfully");
+  }
+
   static function logs($arg) {
     self::info("Logs import is deprecated.");
   }

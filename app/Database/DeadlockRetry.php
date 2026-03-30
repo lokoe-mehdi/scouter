@@ -114,17 +114,17 @@ trait DeadlockRetry
                 // - 25P02 = transaction aborted
                 // - 55P03 = lock timeout (fréquent sur CREATE TABLE concurrent)
                 $sqlState = $e->getCode();
-                $isRetryable = in_array($sqlState, ['40P01', '40001', '25P02', '55P03']);
-                
-                if (!$isRetryable) {
-                    // Ce n'est pas une erreur récupérable, on ne retry pas
-                    throw $e;
+                // Only retry true concurrency errors, not data/constraint errors
+                // 40P01 = deadlock, 40001 = serialization failure, 55P03 = lock timeout
+                $isRetryable = in_array($sqlState, ['40P01', '40001', '55P03']);
+
+                // Clean up aborted transaction state before deciding
+                if ($pdo->inTransaction()) {
+                    try { $pdo->rollBack(); } catch (\Exception $ignored) {}
                 }
-                
-                // Nettoyer l'état de transaction seulement si c'est 25P02
-                // (les autres erreurs sont gérées par executeTransactionWithRetry)
-                if ($sqlState === '25P02') {
-                    $this->cleanupTransactionState($pdo);
+
+                if (!$isRetryable) {
+                    throw $e;
                 }
                 
                 if ($attempts >= $maxRetries) {

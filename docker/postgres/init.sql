@@ -26,11 +26,13 @@ CREATE TABLE projects (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     categorization_config TEXT DEFAULT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP DEFAULT NULL
 );
 
 CREATE INDEX idx_projects_user_id ON projects(user_id);
 CREATE INDEX idx_projects_has_config ON projects(id) WHERE categorization_config IS NOT NULL;
+CREATE INDEX idx_projects_deleted ON projects(id) WHERE deleted_at IS NOT NULL;
 
 -- Table des partages de projets (lecture seule)
 CREATE TABLE project_shares (
@@ -69,7 +71,7 @@ CREATE TABLE crawls (
     project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
     domain VARCHAR(255) NOT NULL,
     path TEXT UNIQUE,
-    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'queued', 'running', 'stopping', 'stopped', 'finished', 'error', 'failed')),
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'queued', 'running', 'stopping', 'stopped', 'finished', 'error', 'failed', 'deleting')),
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     finished_at TIMESTAMP,
     config JSONB,

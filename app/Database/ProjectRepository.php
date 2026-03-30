@@ -62,7 +62,7 @@ class ProjectRepository
             SELECT p.*, u.email as owner_email
             FROM projects p
             JOIN users u ON p.user_id = u.id
-            WHERE p.user_id = :user_id AND p.name = :name
+            WHERE p.user_id = :user_id AND p.name = :name AND p.deleted_at IS NULL
         ");
         $stmt->execute([':user_id' => $userId, ':name' => $name]);
         return $stmt->fetch(PDO::FETCH_OBJ) ?: null;
@@ -110,8 +110,8 @@ class ProjectRepository
                    MAX(c.started_at) as last_crawl_at
             FROM projects p
             JOIN users u ON p.user_id = u.id
-            LEFT JOIN crawls c ON c.project_id = p.id
-            WHERE p.user_id = :user_id
+            LEFT JOIN crawls c ON c.project_id = p.id AND c.status != 'deleting'
+            WHERE p.user_id = :user_id AND p.deleted_at IS NULL
             GROUP BY p.id, u.email
             ORDER BY p.name ASC
         ");
@@ -131,13 +131,14 @@ class ProjectRepository
                    p.name,
                    p.created_at,
                    u.email as owner_email,
-                   (SELECT COUNT(*) FROM crawls WHERE project_id = p.id) as crawl_count,
-                   (SELECT MAX(started_at) FROM crawls WHERE project_id = p.id) as last_crawl_at
+                   (SELECT COUNT(*) FROM crawls WHERE project_id = p.id AND status != 'deleting') as crawl_count,
+                   (SELECT MAX(started_at) FROM crawls WHERE project_id = p.id AND status != 'deleting') as last_crawl_at
             FROM project_shares ps
             JOIN projects p ON ps.project_id = p.id
             JOIN users u ON p.user_id = u.id
             WHERE ps.user_id = :shared_with_user_id
             AND p.user_id != :exclude_owner_id
+            AND p.deleted_at IS NULL
             ORDER BY p.id, p.name ASC
         ");
         $stmt->execute([
@@ -153,13 +154,14 @@ class ProjectRepository
     public function getAllWithOwner(): array
     {
         $stmt = $this->db->query("
-            SELECT p.*, 
+            SELECT p.*,
                    u.email as owner_email,
                    COUNT(DISTINCT c.id) as crawl_count,
                    MAX(c.started_at) as last_crawl_at
             FROM projects p
             JOIN users u ON p.user_id = u.id
-            LEFT JOIN crawls c ON c.project_id = p.id
+            LEFT JOIN crawls c ON c.project_id = p.id AND c.status != 'deleting'
+            WHERE p.deleted_at IS NULL
             GROUP BY p.id, u.email
             ORDER BY u.email ASC, p.name ASC
         ");
@@ -172,7 +174,7 @@ class ProjectRepository
     public function isOwner(int $userId, int $projectId): bool
     {
         $stmt = $this->db->prepare("
-            SELECT 1 FROM projects WHERE id = :project_id AND user_id = :user_id
+            SELECT 1 FROM projects WHERE id = :project_id AND user_id = :user_id AND deleted_at IS NULL
         ");
         $stmt->execute([':project_id' => $projectId, ':user_id' => $userId]);
         return $stmt->fetch() !== false;
@@ -184,9 +186,9 @@ class ProjectRepository
     public function userCanAccess(int $userId, int $projectId): bool
     {
         $stmt = $this->db->prepare("
-            SELECT 1 FROM projects WHERE id = :project_id AND user_id = :user_id
+            SELECT 1 FROM projects WHERE id = :project_id AND user_id = :user_id AND deleted_at IS NULL
             UNION
-            SELECT 1 FROM project_shares WHERE project_id = :project_id2 AND user_id = :user_id2
+            SELECT 1 FROM project_shares ps JOIN projects p ON ps.project_id = p.id AND p.deleted_at IS NULL WHERE ps.project_id = :project_id2 AND ps.user_id = :user_id2
         ");
         $stmt->execute([
             ':project_id' => $projectId, 
