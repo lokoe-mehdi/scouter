@@ -500,7 +500,7 @@ class Page
         $this->dom = preg_replace_callback(
             '/href=["\'](.*)["\']/isU',
             function ($matches) {
-                return 'href="'.$this->rel2abs($this->base,$matches[1]).'"';
+                return 'href="'.$this->rel2abs($this->base, trim($matches[1])).'"';
             },
             $this->dom
         );
@@ -531,7 +531,8 @@ class Page
         $extracts = [];
         foreach($links as $link)
         {
-            $target = explode("#",$link['target']);
+            $target = trim($link['target']);
+            $target = explode("#",$target);
             $target = $target[0];
             
             // S'assurer que l'URL est absolue

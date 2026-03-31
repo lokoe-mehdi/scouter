@@ -92,6 +92,7 @@ $needsSetup = !$auth->hasUsers();
     <title><?= $needsSetup ? __('login.page_title_setup') : __('login.page_title_login') ?> - Scouter</title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/responsive.css">
     <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
     <style>
         .login-container {

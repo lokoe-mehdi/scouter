@@ -19,19 +19,11 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
 <aside class="icon-rail">
     <nav class="icon-rail-nav">
         <!-- Crawl Report -->
-        <div class="icon-rail-item <?= $activeSection === 'report' ? 'active' : '' ?>" 
-             data-section="report" 
+        <div class="icon-rail-item <?= $activeSection === 'report' ? 'active' : '' ?>"
+             data-section="report"
              data-tooltip="<?= __('sidebar.crawl_report') ?>">
             <span class="material-symbols-outlined">assessment</span>
             <span class="icon-rail-label"><?= __('sidebar.report') ?></span>
-        </div>
-
-        <!-- Data Explorer -->
-        <div class="icon-rail-item <?= $activeSection === 'explorer' ? 'active' : '' ?>" 
-             data-section="explorer" 
-             data-tooltip="<?= __('sidebar.data_explorer') ?>">
-            <span class="material-symbols-outlined">manage_search</span>
-            <span class="icon-rail-label"><?= __('sidebar.explorer') ?></span>
         </div>
 
         <!-- Crawl Comparison -->
@@ -42,28 +34,32 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
             <span class="icon-rail-label"><?= __('sidebar.comparison') ?></span>
         </div>
 
-        <!-- Categorize (lien direct) -->
+        <!-- Data Explorer -->
+        <div class="icon-rail-item <?= $activeSection === 'explorer' ? 'active' : '' ?>"
+             data-section="explorer"
+             data-tooltip="<?= __('sidebar.data_explorer') ?>">
+            <span class="material-symbols-outlined">manage_search</span>
+            <span class="icon-rail-label"><?= __('sidebar.explorer') ?></span>
+        </div>
+    </nav>
+
+    <!-- Segments + Config en bas -->
+    <div class="icon-rail-bottom">
         <?php if ($canManageCurrentProject): ?>
-        <a href="?crawl=<?= $crawlId ?>&page=categorize" 
-           class="icon-rail-item icon-rail-link <?= $activeSection === 'categorize' ? 'active' : '' ?>" 
+        <a href="?crawl=<?= $crawlId ?>&page=categorize"
+           class="icon-rail-item icon-rail-link <?= $activeSection === 'categorize' ? 'active' : '' ?>"
            data-tooltip="<?= __('sidebar.categorization') ?>">
             <span class="material-symbols-outlined">style</span>
             <span class="icon-rail-label"><?= __('sidebar.segments') ?></span>
         </a>
-        <?php endif; ?>
-    </nav>
-    
-    <!-- Config en bas, séparé -->
-    <?php if ($canManageCurrentProject): ?>
-    <div class="icon-rail-bottom">
-        <a href="?crawl=<?= $crawlId ?>&page=config" 
-           class="icon-rail-item icon-rail-link <?= $activeSection === 'config' ? 'active' : '' ?>" 
+        <a href="?crawl=<?= $crawlId ?>&page=config"
+           class="icon-rail-item icon-rail-link <?= $activeSection === 'config' ? 'active' : '' ?>"
            data-tooltip="<?= __('sidebar.settings') ?>">
             <span class="material-symbols-outlined">settings</span>
             <span class="icon-rail-label"><?= __('sidebar.config') ?></span>
         </a>
+        <?php endif; ?>
     </div>
-    <?php endif; ?>
 </aside>
 
 <!-- Panneau latéral secondaire (caché si page directe) -->
@@ -388,6 +384,17 @@ function openSidebarPanel() {
         }
     }, 300);
 }
+
+// Mobile: close sidebar panel when clicking outside
+document.addEventListener('click', function(e) {
+    if (window.innerWidth > 768) return;
+    if (!sidebarPanel.classList.contains('open')) return;
+    const clickedInsidePanel = sidebarPanel.contains(e.target);
+    const clickedIconRail = e.target.closest('.icon-rail');
+    if (!clickedInsidePanel && !clickedIconRail) {
+        closeSidebarPanel();
+    }
+});
 
 // Changer le crawl de comparaison
 function changeCompareCrawl(compareId) {

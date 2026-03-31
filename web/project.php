@@ -70,19 +70,16 @@ $projectSize = '—';
 try {
     $crawlIds = array_map(fn($c) => (int)$c->crawl_id, $crawls);
     if (!empty($crawlIds)) {
+        $idsPattern = implode('|', $crawlIds);
+        $sizeStmt = $pdo->query("
+            SELECT pg_total_relation_size(tablename::regclass) AS s
+            FROM pg_tables
+            WHERE schemaname = 'public'
+              AND tablename ~ '^(pages|links|html|page_schemas|duplicate_clusters|redirect_chains)_({$idsPattern})$'
+        ");
         $totalBytes = 0;
-        foreach ($crawlIds as $cid) {
-            $tables = ['pages', 'links', 'html', 'page_schemas', 'duplicate_clusters', 'redirect_chains'];
-            foreach ($tables as $t) {
-                $tname = $t . '_' . $cid;
-                try {
-                    $stmt = $pdo->query("SELECT pg_total_relation_size('{$tname}') AS s");
-                    $row = $stmt->fetch(PDO::FETCH_OBJ);
-                    if ($row) $totalBytes += (int)$row->s;
-                } catch (Exception $e) {
-                    // Partition doesn't exist (failed crawl), skip
-                }
-            }
+        foreach ($sizeStmt->fetchAll(PDO::FETCH_OBJ) as $row) {
+            $totalBytes += (int)$row->s;
         }
         if ($totalBytes >= 1073741824) $projectSize = round($totalBytes / 1073741824, 2) . ' GB';
         elseif ($totalBytes >= 1048576) $projectSize = round($totalBytes / 1048576, 1) . ' MB';
@@ -176,6 +173,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     <title>Scouter - <?= htmlspecialchars($domainName) ?></title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="assets/style.css?v=<?= time() ?>">
+    <link rel="stylesheet" href="assets/responsive.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/crawl-panel.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
     <script src="assets/i18n.js"></script>

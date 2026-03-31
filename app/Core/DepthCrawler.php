@@ -314,8 +314,12 @@ class DepthCrawler
                 } else {
                     // Succes OU derniere tentative : stocker en base
                     $request = new RetryRequest($url, $response ?: '', $info, $errno, $error);
-                    $pageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
-                    $pageCrawler->run($request);
+                    try {
+                        $pageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
+                        $pageCrawler->run($request);
+                    } catch (\Exception $e) {
+                        error_log("PageCrawler error on " . $request->getUrl() . ": " . $e->getMessage());
+                    }
                 }
 
                 curl_multi_remove_handle($mh, $ch);
@@ -357,8 +361,12 @@ class DepthCrawler
             if ($retryEnabled && $this->isRetryableResponse($request)) {
                 $failedUrls[] = $request->getUrl();
             } else {
-                $PageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
-                $PageCrawler->run($request);
+                try {
+                    $PageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
+                    $PageCrawler->run($request);
+                } catch (\Exception $e) {
+                    error_log("PageCrawler error on " . $request->getUrl() . ": " . $e->getMessage());
+                }
             }
 
             self::$iterations++;

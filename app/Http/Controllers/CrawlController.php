@@ -257,20 +257,21 @@ class CrawlController extends Controller
     public function delete(Request $request): void
     {
         $projectDir = $request->get('project_dir');
-        
+
         if (empty($projectDir)) {
             $this->error('Missing project_dir');
         }
-        
+
         $this->auth->requireCrawlManagement($projectDir, true);
-        
+
         $crawlRecord = CrawlDatabase::getCrawlByPath($projectDir);
         if (!$crawlRecord) {
             Response::notFound('Crawl not found');
         }
-        
+
         $crawlId = $crawlRecord->id;
-        
+
+        // Kill running process and delete existing job
         $job = $this->jobManager->getJobByProject($projectDir);
         if ($job) {
             if ($job->pid > 0) {
@@ -278,16 +279,17 @@ class CrawlController extends Controller
             }
             $this->jobManager->deleteJob($job->id);
         }
-        
+
+        // Soft-delete: mark as 'deleting' (hides from UI immediately)
         $pdo = PostgresDatabase::getInstance()->getConnection();
-        
-        $stmt = $pdo->prepare("DELETE FROM categorization_config WHERE crawl_id = :crawl_id");
-        $stmt->execute([':crawl_id' => $crawlId]);
-        
-        $stmt = $pdo->prepare("DELETE FROM crawls WHERE id = :crawl_id");
-        $stmt->execute([':crawl_id' => $crawlId]);
-        
-        $this->success([], 'Crawl deleted successfully');
+        $stmt = $pdo->prepare("UPDATE crawls SET status = 'deleting', in_progress = 0 WHERE id = :id");
+        $stmt->execute([':id' => $crawlId]);
+
+        // Create async deletion job
+        $deleteJobId = $this->jobManager->createJob($projectDir, $crawlRecord->domain, "delete-crawl:$crawlId");
+        $this->jobManager->updateJobStatus($deleteJobId, 'queued');
+
+        $this->success([], 'Crawl deletion started');
     }
 
     /**
