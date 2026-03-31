@@ -385,6 +385,17 @@ function openSidebarPanel() {
     }, 300);
 }
 
+// Mobile: close sidebar panel when clicking outside
+document.addEventListener('click', function(e) {
+    if (window.innerWidth > 768) return;
+    if (!sidebarPanel.classList.contains('open')) return;
+    const clickedInsidePanel = sidebarPanel.contains(e.target);
+    const clickedIconRail = e.target.closest('.icon-rail');
+    if (!clickedInsidePanel && !clickedIconRail) {
+        closeSidebarPanel();
+    }
+});
+
 // Changer le crawl de comparaison
 function changeCompareCrawl(compareId) {
     const url = new URL(window.location);

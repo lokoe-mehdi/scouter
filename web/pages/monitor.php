@@ -67,6 +67,7 @@ usort($projects, fn($a, $b) => $b->size_bytes <=> $a->size_bytes);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>System Monitor - Scouter</title>
     <link rel="stylesheet" href="../assets/style.css">
+    <link rel="stylesheet" href="../assets/responsive.css">
     <link rel="icon" type="image/png" href="/logo.png">
     <link rel="stylesheet" href="../assets/vendor/material-symbols/material-symbols.css" />
     <style>

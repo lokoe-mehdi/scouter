@@ -311,6 +311,7 @@ function isSectionCollapsed($sectionName) {
     <title>Scouter - <?= htmlspecialchars($projectName) ?></title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="assets/style.css?v=<?= time() ?>">
+    <link rel="stylesheet" href="assets/responsive.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/crawl-panel.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
     <script src="assets/i18n.js"></script>
