@@ -117,8 +117,15 @@ const CrawlPanel = {
         try {
             const saved = localStorage.getItem('crawlPanel_finishedUnseen');
             if (saved) {
-                this.state.finishedUnseenCrawls = JSON.parse(saved);
-            } else {
+                const parsed = JSON.parse(saved);
+                // Filter out stale notifications (older than 30 minutes)
+                const TTL = 30 * 60 * 1000;
+                this.state.finishedUnseenCrawls = parsed.filter(c => {
+                    return c.finishedAt && (Date.now() - c.finishedAt) < TTL;
+                });
+                if (this.state.finishedUnseenCrawls.length !== parsed.length) {
+                    this.saveFinishedUnseenCrawls();
+                }
             }
         } catch (e) {
             console.error('loadFinishedUnseenCrawls: error:', e);
@@ -145,8 +152,22 @@ const CrawlPanel = {
         try {
             const saved = localStorage.getItem('crawlPanel_tracked');
             if (saved) {
-                this.state.trackedCrawlIds = JSON.parse(saved);
-            } else {
+                let parsed = JSON.parse(saved);
+                // Migrate old format (plain IDs) to new format ({id, trackedAt})
+                parsed = parsed.map(entry => {
+                    if (typeof entry === 'number') {
+                        return { id: entry, trackedAt: Date.now() };
+                    }
+                    return entry;
+                });
+                // Filter out stale tracked crawls (older than 1 hour)
+                const TTL = 60 * 60 * 1000;
+                this.state.trackedCrawlIds = parsed.filter(entry => {
+                    return entry.trackedAt && (Date.now() - entry.trackedAt) < TTL;
+                });
+                if (this.state.trackedCrawlIds.length !== parsed.length) {
+                    this.saveTrackedCrawls();
+                }
             }
         } catch (e) {
             console.error('loadTrackedCrawls: error:', e);
@@ -174,9 +195,13 @@ const CrawlPanel = {
         if (isNaN(id)) {
             return;
         }
-        if (!this.state.trackedCrawlIds.includes(id)) {
-            this.state.trackedCrawlIds.push(id);
+        const existing = this.state.trackedCrawlIds.find(e => e.id === id);
+        if (!existing) {
+            this.state.trackedCrawlIds.push({ id, trackedAt: Date.now() });
             this.saveTrackedCrawls();
+        } else {
+            // Refresh timestamp so active crawls don't expire
+            existing.trackedAt = Date.now();
         }
     },
     
@@ -210,11 +235,8 @@ const CrawlPanel = {
         }
         
         // Retirer aussi du tracking
-        const trackIndex = this.state.trackedCrawlIds.indexOf(id);
-        if (trackIndex !== -1) {
-            this.state.trackedCrawlIds.splice(trackIndex, 1);
-            this.saveTrackedCrawls();
-        }
+        this.state.trackedCrawlIds = this.state.trackedCrawlIds.filter(e => e.id !== id);
+        this.saveTrackedCrawls();
     },
 
     /**
@@ -255,80 +277,88 @@ const CrawlPanel = {
      * Vérifie les crawls trackés qui ont terminé pendant l'absence
      */
     async checkFinishedTrackedCrawls(runningIds) {
-        
         const finishedIds = [];
-        
-        for (const trackedId of this.state.trackedCrawlIds) {
-            // Si le crawl tracké n'est plus en cours
-            if (!runningIds.includes(trackedId)) {
-                
-                // Vérifier s'il n'est pas déjà dans les non vus
-                const alreadyUnseen = this.state.finishedUnseenCrawls.find(
-                    c => parseInt(c.crawl_id, 10) === trackedId
-                );
-                
-                if (!alreadyUnseen) {
-                    // Récupérer les infos du crawl via l'API
-                    try {
-                        const resp = await fetch(`${this.basePath}api/crawls/info?project=${trackedId}`);
-                        
-                        // Vérifier que la réponse est OK
-                        if (!resp.ok) {
-                            // Retirer ce crawl du tracking car il n'existe plus
-                            const idx = this.state.trackedCrawlIds.indexOf(trackedId);
-                            if (idx !== -1) {
-                                this.state.trackedCrawlIds.splice(idx, 1);
-                            }
-                            continue;
-                        }
-                        
-                        const crawlData = await resp.json();
-                        
-                        if (crawlData.success && crawlData.crawl) {
-                            const finishedCrawl = {
-                                crawl_id: trackedId,
-                                domain: crawlData.crawl.domain || __('crawl_panel.crawl_finished'),
-                                project_dir: crawlData.crawl.project_dir || '',
-                                urls: parseInt(crawlData.crawl.urls, 10) || 0,
-                                crawled: parseInt(crawlData.crawl.crawled, 10) || 0,
-                                status: 'completed',
-                                finishedAt: Date.now()
-                            };
-                            this.state.finishedUnseenCrawls.push(finishedCrawl);
-                            finishedIds.push(trackedId);
+        const toRemove = [];
 
-                            // IMPORTANT: Retirer du tracking pour éviter de le re-détecter
-                            const idx = this.state.trackedCrawlIds.indexOf(trackedId);
-                            if (idx !== -1) {
-                                this.state.trackedCrawlIds.splice(idx, 1);
-                            }
-                        } else {
-                            // Retirer ce crawl du tracking car il n'existe plus
-                            const idx = this.state.trackedCrawlIds.indexOf(trackedId);
-                            if (idx !== -1) {
-                                this.state.trackedCrawlIds.splice(idx, 1);
-                            }
-                        }
-                    } catch (e) {
-                        console.error('checkFinishedTrackedCrawls: Error fetching crawl info:', e);
-                        // En cas d'erreur, retirer du tracking pour éviter les boucles
-                        const idx = this.state.trackedCrawlIds.indexOf(trackedId);
-                        if (idx !== -1) {
-                            this.state.trackedCrawlIds.splice(idx, 1);
-                        }
-                    }
-                } else {
+        for (const tracked of this.state.trackedCrawlIds) {
+            const trackedId = tracked.id;
+
+            // Skip if still running
+            if (runningIds.includes(trackedId)) continue;
+
+            // Skip if already in unseen list
+            const alreadyUnseen = this.state.finishedUnseenCrawls.find(
+                c => parseInt(c.crawl_id, 10) === trackedId
+            );
+            if (alreadyUnseen) {
+                toRemove.push(trackedId);
+                continue;
+            }
+
+            try {
+                const resp = await fetch(`${this.basePath}api/crawls/info?project=${trackedId}`);
+
+                if (!resp.ok) {
+                    toRemove.push(trackedId);
+                    continue;
                 }
+
+                const crawlData = await resp.json();
+
+                if (!crawlData.success || !crawlData.crawl) {
+                    toRemove.push(trackedId);
+                    continue;
+                }
+
+                const crawlStatus = crawlData.crawl.status;
+
+                // Skip deleted/deleting crawls silently
+                if (crawlStatus === 'deleting') {
+                    toRemove.push(trackedId);
+                    continue;
+                }
+
+                // Only notify for crawls that finished recently (within 30 min)
+                // Older finished crawls are stale — user was away, no need to notify
+                const finishedAt = crawlData.crawl.finished_at;
+                if (finishedAt) {
+                    const finishedTime = new Date(finishedAt).getTime();
+                    if (Date.now() - finishedTime > 30 * 60 * 1000) {
+                        toRemove.push(trackedId);
+                        continue;
+                    }
+                }
+
+                const finishedCrawl = {
+                    crawl_id: trackedId,
+                    domain: crawlData.crawl.domain || __('crawl_panel.crawl_finished'),
+                    project_dir: crawlData.crawl.project_dir || '',
+                    urls: parseInt(crawlData.crawl.urls, 10) || 0,
+                    crawled: parseInt(crawlData.crawl.crawled, 10) || 0,
+                    status: 'completed',
+                    finishedAt: Date.now()
+                };
+                this.state.finishedUnseenCrawls.push(finishedCrawl);
+                finishedIds.push(trackedId);
+                toRemove.push(trackedId);
+            } catch (e) {
+                console.error('checkFinishedTrackedCrawls: Error fetching crawl info:', e);
+                toRemove.push(trackedId);
             }
         }
-        
+
+        // Remove processed IDs from tracking
+        if (toRemove.length > 0) {
+            this.state.trackedCrawlIds = this.state.trackedCrawlIds.filter(
+                e => !toRemove.includes(e.id)
+            );
+        }
+
         if (finishedIds.length > 0) {
             this.saveFinishedUnseenCrawls();
         }
-        
-        // Sauvegarder les tracked après nettoyage des IDs invalides
+
         this.saveTrackedCrawls();
-        
         return finishedIds;
     },
 
@@ -387,7 +417,7 @@ const CrawlPanel = {
                                 this.state.sessionFinishedCrawls.push(finishedCrawl);
                             }
                             // Retirer du tracking pour ne pas le re-détecter comme unseen
-                            this.state.trackedCrawlIds = this.state.trackedCrawlIds.filter(id => id !== oldId);
+                            this.state.trackedCrawlIds = this.state.trackedCrawlIds.filter(e => e.id !== oldId);
                             this.saveTrackedCrawls();
                         } else {
                             const alreadyInUnseen = this.state.finishedUnseenCrawls.find(
@@ -823,8 +853,8 @@ const CrawlPanel = {
             this.saveFinishedUnseenCrawls();
             // Retirer du tracking aussi
             this.state.sessionFinishedCrawls.forEach(c => {
-                const idx = this.state.trackedCrawlIds.indexOf(parseInt(c.crawl_id, 10));
-                if (idx !== -1) this.state.trackedCrawlIds.splice(idx, 1);
+                const cid = parseInt(c.crawl_id, 10);
+                this.state.trackedCrawlIds = this.state.trackedCrawlIds.filter(e => e.id !== cid);
             });
             this.saveTrackedCrawls();
             // Mettre à jour l'UI
