@@ -94,6 +94,29 @@ CREATE TABLE crawls (
 CREATE INDEX idx_crawls_path ON crawls(path);
 CREATE INDEX idx_crawls_project_id ON crawls(project_id);
 
+
+-- ============================================
+-- TABLES POUR L'ANALYSE SITEMAP (feature/sitemap-analysis)
+-- ============================================
+
+-- Stockage des URLs venant des sitemaps
+CREATE TABLE sitemap_urls (
+    id SERIAL PRIMARY KEY,
+    crawl_id INTEGER NOT NULL REFERENCES crawls(id) ON DELETE CASCADE,
+    url TEXT NOT NULL,
+    source_sitemap TEXT,
+    http_status INTEGER,
+    is_indexable BOOLEAN,
+    is_in_crawl BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_sitemap_urls_crawl_id ON sitemap_urls(crawl_id);
+
+-- ============================================
+-- FIN AJOUT SITEMAP
+-- ============================================
+
+
 -- Configuration de catégorisation par crawl (contenu YAML du cat.yml)
 CREATE TABLE categorization_config (
     id SERIAL PRIMARY KEY,
