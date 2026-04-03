@@ -88,11 +88,36 @@ CREATE TABLE crawls (
     redirect_total INTEGER DEFAULT 0,
     redirect_chains_count INTEGER DEFAULT 0,
     redirect_chains_errors INTEGER DEFAULT 0,
-    scheduled BOOLEAN DEFAULT FALSE
+    scheduled BOOLEAN DEFAULT FALSE,
+    sitemap_total INTEGER DEFAULT 0,
+    sitemap_only INTEGER DEFAULT 0,
+    crawl_only_indexable INTEGER DEFAULT 0,
+    sitemap_not_indexable INTEGER DEFAULT 0
 );
 
 CREATE INDEX idx_crawls_path ON crawls(path);
 CREATE INDEX idx_crawls_project_id ON crawls(project_id);
+
+-- ============================================
+-- SITEMAP ANALYSIS
+-- ============================================
+
+CREATE TABLE sitemap_urls (
+    id SERIAL PRIMARY KEY,
+    crawl_id INTEGER NOT NULL REFERENCES crawls(id) ON DELETE CASCADE,
+    url TEXT NOT NULL,
+    source_sitemap TEXT,
+    http_status INTEGER,
+    is_indexable BOOLEAN,
+    is_in_crawl BOOLEAN DEFAULT FALSE,
+    lastmod TIMESTAMP DEFAULT NULL,
+    changefreq VARCHAR(20) DEFAULT NULL,
+    priority FLOAT DEFAULT NULL,
+    hreflang JSONB DEFAULT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_sitemap_urls_crawl_id ON sitemap_urls(crawl_id);
+CREATE INDEX idx_sitemap_urls_url ON sitemap_urls(crawl_id, url);
 
 -- Configuration de catégorisation par crawl (contenu YAML du cat.yml)
 CREATE TABLE categorization_config (
@@ -180,6 +205,7 @@ CREATE TABLE pages (
     headings_missing BOOLEAN DEFAULT FALSE,
     schemas TEXT[] DEFAULT '{}',
     word_count INTEGER DEFAULT 0,
+    is_in_sitemap BOOLEAN DEFAULT FALSE,
     PRIMARY KEY (crawl_id, id)
 ) PARTITION BY LIST (crawl_id);
 
@@ -298,6 +324,9 @@ BEGIN
         -- Index pages: simhash et is_html (duplicate detection)
         EXECUTE format('CREATE INDEX IF NOT EXISTS idx_pages_%s_simhash ON pages_%s(simhash) WHERE simhash IS NOT NULL', p_crawl_id, p_crawl_id);
         EXECUTE format('CREATE INDEX IF NOT EXISTS idx_pages_%s_is_html ON pages_%s(is_html)', p_crawl_id, p_crawl_id);
+        
+        -- Index pages: sitemap cross-reference
+        EXECUTE format('CREATE INDEX IF NOT EXISTS idx_pages_%s_is_in_sitemap ON pages_%s(is_in_sitemap)', p_crawl_id, p_crawl_id);
         
         -- Partition pour links
         EXECUTE format('CREATE TABLE IF NOT EXISTS links_%s PARTITION OF links FOR VALUES IN (%s)', p_crawl_id, p_crawl_id);

@@ -64,6 +64,7 @@ class PostProcessor
             'categorize',
             'duplicateAnalysis',
             'redirectChainAnalysis',
+            'sitemapAnalysis',
         ];
 
         try {
@@ -798,5 +799,39 @@ class PostProcessor
             ':errors' => $errors,
             ':id' => $this->crawlId
         ]);
+    }
+
+    /**
+     * Analyse des sitemaps XML
+     * 
+     * Exécuté uniquement si des URLs de sitemap sont configurées dans le crawl.
+     * Délègue le traitement à SitemapProcessor.
+     */
+    public function sitemapAnalysis(): void
+    {
+        // Check if sitemap URLs are configured
+        $stmt = $this->db->prepare("SELECT config FROM crawls WHERE id = :id");
+        $stmt->execute([':id' => $this->crawlId]);
+        $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+        
+        $config = $result ? json_decode($result['config'] ?? '{}', true) : [];
+        $sitemapUrls = $config['general']['sitemap_urls'] ?? [];
+        
+        if (empty($sitemapUrls) || (is_string($sitemapUrls) && trim($sitemapUrls) === '')) {
+            echo "\r \033[32m Sitemap analysis \033[0m : \033[33mno sitemap configured\033[0m                    \n";
+            flush();
+            return;
+        }
+
+        $userAgent = $config['user-agent'] ?? 'Scouter/2.0 (Sitemap Processor)';
+        
+        // Clear previous sitemap data for this crawl (in case of re-run)
+        $this->db->prepare("DELETE FROM sitemap_urls WHERE crawl_id = :cid")
+            ->execute([':cid' => $this->crawlId]);
+        $this->db->prepare("UPDATE pages SET is_in_sitemap = FALSE WHERE crawl_id = :cid")
+            ->execute([':cid' => $this->crawlId]);
+
+        $processor = new SitemapProcessor($this->crawlId, $userAgent);
+        $processor->process();
     }
 }

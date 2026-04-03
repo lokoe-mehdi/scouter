@@ -139,6 +139,13 @@
                         </div>
                     </div>
                     <div class="scope-section">
+                        <h4 class="scope-section-title"><span class="material-symbols-outlined">map</span><?= __('sitemap.modal_sitemap_urls') ?></h4>
+                        <div class="scope-section-content">
+                            <textarea id="sitemap_urls" name="sitemap_urls" class="body-url-textarea" rows="3" placeholder="https://example.com/sitemap.xml&#10;https://example.com/sitemap-index.xml" style="min-height: 70px;"></textarea>
+                            <div class="scope-hint"><span class="material-symbols-outlined">info</span><?= __('sitemap.modal_sitemap_urls_hint') ?></div>
+                        </div>
+                    </div>
+                    <div class="scope-section">
                         <h4 class="scope-section-title"><span class="material-symbols-outlined">rule</span><?= __('index.modal_crawl_rules') ?></h4>
                         <div class="rules-grid">
                             <label class="rule-toggle"><input type="checkbox" id="respect_robots" name="respect_robots" checked><span class="rule-toggle-slider"></span><div class="rule-toggle-content"><span class="rule-toggle-label"><?= __('index.modal_rule_robots') ?></span><span class="rule-toggle-hint"><?= __('index.modal_rule_robots_hint') ?></span></div></label>
