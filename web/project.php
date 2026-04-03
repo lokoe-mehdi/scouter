@@ -956,6 +956,11 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             formData.start_url = document.getElementById('start_url').value;
             formData.depth_max = document.getElementById('depth_max').value;
         }
+        // Sitemap URLs (optional, works with both spider and list modes)
+        const sitemapField = document.getElementById('sitemap_urls');
+        if (sitemapField && sitemapField.value.trim()) {
+            formData.sitemap_urls = sitemapField.value.trim().split('\n').filter(u => u.trim());
+        }
         try {
             // Step 1: Create project
             const resp = await fetch('api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });

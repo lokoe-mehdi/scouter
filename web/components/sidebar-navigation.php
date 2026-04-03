@@ -111,6 +111,11 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
                 <span class="material-symbols-outlined">redo</span>
                 <span><?= __('sidebar.redirect_chains') ?></span>
             </a>
+            <a href="?crawl=<?= $crawlId ?>&page=sitemap"
+               class="sidebar-panel-item <?= $page === 'sitemap' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">map</span>
+                <span><?= __('sidebar.sitemap_analysis') ?></span>
+            </a>
         </div>
         
         <!-- Contenu -->

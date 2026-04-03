@@ -256,6 +256,25 @@ class ProjectController extends Controller
             $config['general']['url_list'] = $urls;
         }
 
+        // Ajouter les URLs de sitemap si fournies
+        $sitemapUrls = $request->get('sitemap_urls', []);
+        if (is_string($sitemapUrls)) {
+            $sitemapUrls = array_filter(array_map('trim', explode("\n", $sitemapUrls)));
+        }
+        if (!empty($sitemapUrls)) {
+            // Validate URLs
+            $validSitemapUrls = [];
+            foreach ($sitemapUrls as $url) {
+                $url = trim($url);
+                if (!empty($url) && filter_var($url, FILTER_VALIDATE_URL)) {
+                    $validSitemapUrls[] = $url;
+                }
+            }
+            if (!empty($validSitemapUrls)) {
+                $config['general']['sitemap_urls'] = $validSitemapUrls;
+            }
+        }
+
         // Créer le crawl dans la base de données
         $crawlRepo = new CrawlRepository();
         $crawlId = $crawlRepo->insert([
