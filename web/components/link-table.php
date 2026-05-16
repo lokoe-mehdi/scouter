@@ -161,6 +161,7 @@ $linkSpecificColumns = [
 // Colonnes disponibles (seront dupliquées en source_ et target_)
 $availableColumns = [
     'url' => 'URL',
+    'domain' => __('url_explorer.field_domain'),
     'depth' => __('columns.depth'),
     'code' => __('columns.http_code'),
     'category' => __('columns.category'),
@@ -173,6 +174,10 @@ $availableColumns = [
     'canonical_value' => __('columns.canonical_url'),
     'noindex' => 'Noindex',
     'blocked' => __('columns.blocked'),
+    'crawled' => __('url_explorer.field_crawled'),
+    'in_crawl' => __('url_explorer.field_in_crawl'),
+    'in_sitemap' => __('url_explorer.field_in_sitemap'),
+    'is_html' => __('url_explorer.field_is_html'),
     'redirect_to' => __('columns.redirect_to'),
     'content_type' => __('columns.content_type'),
     'pri' => 'PageRank',
@@ -319,6 +324,11 @@ $columnMapping['source_h1_multiple'] = 'cs.h1_multiple';
 $columnMapping['source_headings_missing'] = 'cs.headings_missing';
 $columnMapping['source_word_count'] = 'cs.word_count';
 $columnMapping['source_category'] = 'cats.cat';
+$columnMapping['source_domain'] = 'cs.domain';
+$columnMapping['source_crawled'] = 'cs.crawled';
+$columnMapping['source_in_crawl'] = 'cs.in_crawl';
+$columnMapping['source_in_sitemap'] = 'cs.in_sitemap';
+$columnMapping['source_is_html'] = 'cs.is_html';
 
 // Ajouter les colonnes TARGET avec préfixe target_
 $columnMapping['target_url'] = 'ct.url';
@@ -346,6 +356,11 @@ $columnMapping['target_h1_multiple'] = 'ct.h1_multiple';
 $columnMapping['target_headings_missing'] = 'ct.headings_missing';
 $columnMapping['target_word_count'] = 'ct.word_count';
 $columnMapping['target_category'] = 'catt.cat';
+$columnMapping['target_domain'] = 'ct.domain';
+$columnMapping['target_crawled'] = 'ct.crawled';
+$columnMapping['target_in_crawl'] = 'ct.in_crawl';
+$columnMapping['target_in_sitemap'] = 'ct.in_sitemap';
+$columnMapping['target_is_html'] = 'ct.is_html';
 
 // Ajouter les colonnes extract_* au mapping pour le tri (JSONB)
 foreach($customExtractColumns as $col) {
@@ -517,10 +532,11 @@ $pageIds = array_keys($pageIds);
 $pagesMap = [];
 if (!empty($pageIds)) {
     $placeholders = implode(',', array_fill(0, count($pageIds), '?'));
-    $pagesQuery = "SELECT id, url, depth, code, cat_id, inlinks, outlinks, response_time, schemas,
+    $pagesQuery = "SELECT id, url, domain, depth, code, cat_id, inlinks, outlinks, response_time, schemas,
                           compliant, canonical, canonical_value, noindex, blocked, redirect_to, content_type,
                           pri, title, title_status, h1, h1_status, metadesc, metadesc_status,
-                          h1_multiple, headings_missing, extracts, word_count
+                          h1_multiple, headings_missing, extracts, word_count,
+                          crawled, in_crawl, in_sitemap, is_html
                    FROM pages
                    WHERE crawl_id = ? AND id IN ($placeholders) AND in_crawl = TRUE";
     $stmt = $pdo->prepare($pagesQuery);
@@ -570,7 +586,12 @@ foreach ($linksRaw as $link) {
         $row->source_h1_multiple = $srcPage['h1_multiple'];
         $row->source_headings_missing = $srcPage['headings_missing'];
         $row->source_word_count = $srcPage['word_count'];
-        
+        $row->source_domain = $srcPage['domain'];
+        $row->source_crawled = $srcPage['crawled'];
+        $row->source_in_crawl = $srcPage['in_crawl'];
+        $row->source_in_sitemap = $srcPage['in_sitemap'];
+        $row->source_is_html = $srcPage['is_html'];
+
         // Catégorie source
         $srcCatId = $srcPage['cat_id'];
         $row->source_category = isset($categoriesMap[$srcCatId]) ? $categoriesMap[$srcCatId]['cat'] : __('common.uncategorized');
@@ -618,7 +639,12 @@ foreach ($linksRaw as $link) {
         $row->target_h1_multiple = $targetPage['h1_multiple'];
         $row->target_headings_missing = $targetPage['headings_missing'];
         $row->target_word_count = $targetPage['word_count'];
-        
+        $row->target_domain = $targetPage['domain'];
+        $row->target_crawled = $targetPage['crawled'];
+        $row->target_in_crawl = $targetPage['in_crawl'];
+        $row->target_in_sitemap = $targetPage['in_sitemap'];
+        $row->target_is_html = $targetPage['is_html'];
+
         // Catégorie target
         $targetCatId = $targetPage['cat_id'];
         $row->target_category = isset($categoriesMap[$targetCatId]) ? $categoriesMap[$targetCatId]['cat'] : __('common.uncategorized');
@@ -893,11 +919,11 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                             </td>
                         <?php elseif($col === 'type'): ?>
                             <td class="col-type" style="background: #f8f9fa;"><?= htmlspecialchars($link->type ?? '') ?></td>
-                        <?php elseif(strpos($col, 'canonical_value') !== false || strpos($col, 'redirect_to') !== false): ?>
+                        <?php elseif(strpos($col, 'canonical_value') !== false || strpos($col, 'redirect_to') !== false || strpos($col, '_domain') !== false): ?>
                             <td class="col-<?= $col ?>" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($link->$col ?? '') ?>">
                                 <?= htmlspecialchars($link->$col ?? '') ?>
                             </td>
-                        <?php elseif(strpos($col, 'compliant') !== false || strpos($col, 'canonical') !== false || strpos($col, 'noindex') !== false || strpos($col, 'blocked') !== false || strpos($col, 'h1_multiple') !== false || strpos($col, 'headings_missing') !== false): ?>
+                        <?php elseif(strpos($col, 'compliant') !== false || strpos($col, 'canonical') !== false || strpos($col, 'noindex') !== false || strpos($col, 'blocked') !== false || strpos($col, 'h1_multiple') !== false || strpos($col, 'headings_missing') !== false || strpos($col, '_crawled') !== false || strpos($col, 'in_crawl') !== false || strpos($col, 'in_sitemap') !== false || strpos($col, 'is_html') !== false): ?>
                             <td class="col-<?= $col ?>" style="text-align: center;">
                                 <?= ($link->$col ?? 0) ? '<span class="material-symbols-outlined" style="color: #6bd899; font-size: 1.2rem; opacity: 0.8;">check_circle</span>' : '<span class="material-symbols-outlined" style="color: #95a5a6; font-size: 1.2rem; opacity: 0.7;">cancel</span>' ?>
                             </td>

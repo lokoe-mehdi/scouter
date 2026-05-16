@@ -4,8 +4,16 @@
  * $crawlId est défini dans dashboard.php
  */
 
-// Récupération des filtres
-$filters = isset($_GET['filters']) ? json_decode($_GET['filters'], true) : [];
+// Récupération des filtres. Au premier chargement (aucun filtre dans l'URL) on
+// active par défaut un filtre `external = false` pour ne montrer que les URLs
+// internes — l'utilisateur peut le retirer pour voir les externes.
+$filtersInUrl = isset($_GET['filters']);
+$defaultFilterGroups = [[
+    'type'  => 'group',
+    'logic' => 'AND',
+    'items' => [['field' => 'external', 'operator' => '=', 'value' => 'false']],
+]];
+$filters = $filtersInUrl ? json_decode($_GET['filters'], true) : $defaultFilterGroups;
 $search = isset($_GET['search']) ? $_GET['search'] : '';
 
 // Récupération des catégories disponibles
@@ -19,9 +27,7 @@ $stmt->execute([':crawl_id' => $crawlId]);
 $availableSchemas = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
 // Construction de la clause WHERE (PostgreSQL)
-// On affiche toutes les URLs internes (external = false), y compris celles bloquées
-// par robots.txt — sinon le filtre "blocked = true" ne ramènerait jamais rien.
-$whereConditions = ["c.external = false"];
+$whereConditions = ["1=1"];
 $params = [];
 
 // Recherche globale
@@ -168,9 +174,50 @@ function buildFilterConditions($items, &$params, &$paramCounter = 0) {
                 case 'blocked':
                 case 'h1_multiple':
                 case 'headings_missing':
+                case 'external':
+                case 'in_sitemap':
+                case 'is_html':
+                case 'crawled':
                     $condition = "c.{$field} = " . ($value === 'true' ? 'true' : 'false');
                     break;
-                    
+
+                case 'out_of_scope':
+                    // Filtre composé : URLs internes découvertes mais non visitées
+                    // (ni externes, ni bloquées, ni crawlées) — alignée sur la même
+                    // définition que la vue Accessibility.
+                    $expr = '(c.external = false AND c.blocked = false AND c.crawled = false)';
+                    $condition = ($value === 'true') ? $expr : "NOT $expr";
+                    break;
+
+                case 'pri':
+                    // PageRank : valeur flottante
+                    $paramName = ':pri_' . $paramCounter++;
+                    $sqlOperator = in_array($operator, ['=', '>', '<', '>=', '<=', '!=']) ? $operator : '=';
+                    $condition = "c.pri {$sqlOperator} {$paramName}";
+                    $params[$paramName] = floatval($value);
+                    break;
+
+                case 'content_type':
+                case 'redirect_to':
+                case 'canonical_value':
+                case 'domain':
+                    // Filtres texte simples (contains / not_contains / regex / not_regex)
+                    $paramName = ':txt_' . $paramCounter++;
+                    if($operator === 'contains') {
+                        $condition = "c.{$field} ILIKE {$paramName}";
+                        $params[$paramName] = '%' . $value . '%';
+                    } elseif($operator === 'not_contains') {
+                        $condition = "(c.{$field} NOT ILIKE {$paramName} OR c.{$field} IS NULL)";
+                        $params[$paramName] = '%' . $value . '%';
+                    } elseif($operator === 'regex') {
+                        $condition = "c.{$field} ~* {$paramName}";
+                        $params[$paramName] = $value;
+                    } elseif($operator === 'not_regex') {
+                        $condition = "(c.{$field} !~* {$paramName} OR c.{$field} IS NULL)";
+                        $params[$paramName] = $value;
+                    }
+                    break;
+
                 case 'title':
                 case 'h1':
                 case 'metadesc':
@@ -852,6 +899,36 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
         <div class="popover-field-item" onclick="selectField('word_count')">
             <span class="material-symbols-outlined">format_size</span> <?= __('url_explorer.field_word_count') ?>
         </div>
+        <div class="popover-field-item" onclick="selectField('pri')">
+            <span class="material-symbols-outlined">star</span> <?= __('url_explorer.field_pagerank') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('external')">
+            <span class="material-symbols-outlined">public</span> <?= __('url_explorer.field_external') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('crawled')">
+            <span class="material-symbols-outlined">task_alt</span> <?= __('url_explorer.field_crawled') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('in_sitemap')">
+            <span class="material-symbols-outlined">map</span> <?= __('url_explorer.field_in_sitemap') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('is_html')">
+            <span class="material-symbols-outlined">html</span> <?= __('url_explorer.field_is_html') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('out_of_scope')">
+            <span class="material-symbols-outlined">explore_off</span> <?= __('url_explorer.field_out_of_scope') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('content_type')">
+            <span class="material-symbols-outlined">draft</span> <?= __('url_explorer.field_content_type') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('redirect_to')">
+            <span class="material-symbols-outlined">redo</span> <?= __('url_explorer.field_redirect_to') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('canonical_value')">
+            <span class="material-symbols-outlined">north_east</span> <?= __('url_explorer.field_canonical_value') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('domain')">
+            <span class="material-symbols-outlined">domain</span> <?= __('url_explorer.field_domain') ?>
+        </div>
     </div>
 </div>
 
@@ -909,7 +986,17 @@ const fieldConfig = {
     headings_missing: { label: __('url_explorer.field_bad_headings'), icon: 'format_list_numbered', type: 'boolean' },
     schemas: { label: __('url_explorer.field_structured_data'), icon: 'data_object', type: 'schemas', operators: ['=', '>', '<', '>=', '<=', 'contains', 'not_contains'] },
     response_time: { label: 'TTFB (ms)', icon: 'speed', type: 'number', operators: ['>', '<', '>=', '<='] },
-    word_count: { label: __('url_explorer.field_word_count'), icon: 'format_size', type: 'number', operators: ['=', '>', '<', '>=', '<=', '!='] }
+    word_count: { label: __('url_explorer.field_word_count'), icon: 'format_size', type: 'number', operators: ['=', '>', '<', '>=', '<=', '!='] },
+    pri: { label: __('url_explorer.field_pagerank'), icon: 'star', type: 'number', operators: ['>', '<', '>=', '<=', '=', '!='] },
+    external: { label: __('url_explorer.field_external'), icon: 'public', type: 'boolean' },
+    crawled: { label: __('url_explorer.field_crawled'), icon: 'task_alt', type: 'boolean' },
+    in_sitemap: { label: __('url_explorer.field_in_sitemap'), icon: 'map', type: 'boolean' },
+    is_html: { label: __('url_explorer.field_is_html'), icon: 'html', type: 'boolean' },
+    out_of_scope: { label: __('url_explorer.field_out_of_scope'), icon: 'explore_off', type: 'boolean' },
+    content_type: { label: __('url_explorer.field_content_type'), icon: 'draft', type: 'text', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
+    redirect_to: { label: __('url_explorer.field_redirect_to'), icon: 'redo', type: 'text', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
+    canonical_value: { label: __('url_explorer.field_canonical_value'), icon: 'north_east', type: 'text', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
+    domain: { label: __('url_explorer.field_domain'), icon: 'domain', type: 'text', operators: ['contains', 'not_contains', 'regex', 'not_regex'] }
 };
 
 const availableSchemas = <?= json_encode($availableSchemas) ?>;
@@ -1657,16 +1744,15 @@ function collectFiltersForURL() {
 
 function applyFilters() {
     const filters = collectFiltersForURL();
-    
+
     const params = new URLSearchParams(window.location.search);
     params.set('page', 'url-explorer');
     params.delete('p');
-    if (filters.length > 0) {
-        params.set('filters', JSON.stringify(filters));
-    } else {
-        params.delete('filters');
-    }
-    
+    // On écrit toujours le paramètre, même vide (`[]`) : ça signale au backend
+    // que l'utilisateur a choisi "aucun filtre" et l'empêche de re-appliquer
+    // le default (external = false) au reload.
+    params.set('filters', JSON.stringify(filters));
+
     window.location.search = params.toString();
 }
 
@@ -1674,7 +1760,9 @@ function clearFilters() {
     filterGroups = [];
     const params = new URLSearchParams(window.location.search);
     params.set('page', 'url-explorer');
-    params.delete('filters');
+    // Idem : on écrit `filters=[]` plutôt que de supprimer la clé, pour ne pas
+    // ré-injecter le default côté PHP au prochain chargement.
+    params.set('filters', '[]');
     params.delete('search');
     params.delete('p');
     window.location.search = params.toString();

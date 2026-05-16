@@ -1653,5 +1653,16 @@
     "comparison.subtitle_sitemap_coverage": "Distribuzione della copertura sitemap, anello esterno = corrente, interno = riferimento",
     "comparison.subtitle_sitemap_indexability": "Indicizzabilità degli URL del sitemap, anello esterno = corrente, interno = riferimento",
     "comparison.sitemap_urls_added_title": "URL aggiunti al sitemap",
-    "comparison.sitemap_urls_removed_title": "URL rimossi dal sitemap"
+    "comparison.sitemap_urls_removed_title": "URL rimossi dal sitemap",
+    "url_explorer.field_pagerank": "PageRank",
+    "url_explorer.field_external": "URL esterno",
+    "url_explorer.field_crawled": "Scansionato",
+    "url_explorer.field_in_crawl": "Nello scope della scansione",
+    "url_explorer.field_in_sitemap": "Nel sitemap",
+    "url_explorer.field_is_html": "Pagina HTML",
+    "url_explorer.field_content_type": "Content-Type",
+    "url_explorer.field_redirect_to": "Destinazione redirect",
+    "url_explorer.field_canonical_value": "URL canonico",
+    "url_explorer.field_domain": "Dominio",
+    "url_explorer.field_out_of_scope": "Fuori scope"
 }

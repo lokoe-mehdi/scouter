@@ -1653,5 +1653,16 @@
     "comparison.subtitle_sitemap_coverage": "Sitemap coverage distribution, outer ring = current, inner = baseline",
     "comparison.subtitle_sitemap_indexability": "Indexability of sitemap URLs, outer ring = current, inner = baseline",
     "comparison.sitemap_urls_added_title": "URLs newly added to the sitemap",
-    "comparison.sitemap_urls_removed_title": "URLs removed from the sitemap"
+    "comparison.sitemap_urls_removed_title": "URLs removed from the sitemap",
+    "url_explorer.field_pagerank": "PageRank",
+    "url_explorer.field_external": "External URL",
+    "url_explorer.field_crawled": "Crawled",
+    "url_explorer.field_in_crawl": "In crawl scope",
+    "url_explorer.field_in_sitemap": "In sitemap",
+    "url_explorer.field_is_html": "HTML page",
+    "url_explorer.field_content_type": "Content-Type",
+    "url_explorer.field_redirect_to": "Redirect target",
+    "url_explorer.field_canonical_value": "Canonical URL",
+    "url_explorer.field_domain": "Domain",
+    "url_explorer.field_out_of_scope": "Out of scope"
 }
