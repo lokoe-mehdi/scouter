@@ -283,8 +283,16 @@ class DepthCrawler
             $handles = [];
 
             foreach ($failedUrls as $url) {
+                // Anti-SSRF : skip les URLs qui résolvent vers IP privée/loopback/metadata
+                try {
+                    \App\Util\SafeHttp::validate($url);
+                } catch (\RuntimeException $e) {
+                    error_log('[DepthCrawler] SSRF block: ' . $e->getMessage());
+                    continue;
+                }
                 $ch = curl_init($url);
                 curl_setopt_array($ch, $this->curlOptions);
+                \App\Util\SafeHttp::applyCurlSecurity($ch);  // restrict protocoles à http(s)
                 curl_multi_add_handle($mh, $ch);
                 $handles[(int)$ch] = ['handle' => $ch, 'url' => $url];
             }
@@ -540,7 +548,7 @@ class DepthCrawler
         
         // Préparer les headers pour le renderer
         $headers = [
-            'User-Agent' => isset($this->config['user-agent']) ? $this->config['user-agent'] : 'Scouter/0.3'
+            'User-Agent' => isset($this->config['user-agent']) ? $this->config['user-agent'] : 'Scouter/0.6'
         ];
         
         if (isset($this->config['customHeaders']) && is_array($this->config['customHeaders'])) {
@@ -561,13 +569,20 @@ class DepthCrawler
         $rendererUrls = array_map('trim', explode(',', $rendererUrlsEnv));
         $rendererCount = count($rendererUrls);
         
-        // Préparer les URLs
+        // Préparer les URLs (+ filtrage anti-SSRF : on ne passe pas au renderer
+        // les URLs qui résolvent vers IP privée/loopback/AWS metadata)
         $urlsToProcess = [];
         foreach ($this->urls as $url) {
             $url = trim($url);
             if (empty($url)) continue;
             if (HtmlParser::regexMatch("#^https?://[^/]+$#", $url) == true) {
                 $url = $url . "/";
+            }
+            try {
+                \App\Util\SafeHttp::validate($url);
+            } catch (\RuntimeException $e) {
+                error_log('[DepthCrawler] SSRF block: ' . $e->getMessage());
+                continue;
             }
             $urlsToProcess[] = $url;
         }

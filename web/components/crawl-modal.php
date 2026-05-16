@@ -192,7 +192,7 @@
                 <div class="crawl-tab-pane" id="tab-advanced">
                     <div class="advanced-section">
                         <h4 class="advanced-section-title"><span class="material-symbols-outlined">smart_toy</span>User-Agent</h4>
-                        <input type="hidden" id="user_agent" name="user_agent" value="Scouter/0.3 (Crawler developed by Lokoé SASU; +https://lokoe.fr/scouter-crawler)" required>
+                        <input type="hidden" id="user_agent" name="user_agent" value="Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)" required>
                         <div class="custom-ua-select" id="uaSelect">
                             <div class="ua-select-trigger" onclick="toggleUADropdown()">
                                 <div class="ua-select-value"><span class="material-symbols-outlined ua-icon ua-icon-scouter">smart_toy</span><div class="ua-select-text"><span class="ua-select-name">Scouter</span><span class="ua-select-desc"><?= __('index.ua_default') ?></span></div></div>

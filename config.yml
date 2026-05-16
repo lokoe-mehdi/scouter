@@ -4,7 +4,7 @@ general:
     - {dom}
     - www.{dom}
   depthMax: 30
-  user-agent: Scouter/0.3 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)
+  user-agent: Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)
   crawl_speed: fast
   crawl_mode: classic
 
