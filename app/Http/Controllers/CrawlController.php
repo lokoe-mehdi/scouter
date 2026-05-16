@@ -336,4 +336,67 @@ class CrawlController extends Controller
 
         $this->success(['crawls' => $crawls]);
     }
+
+    /**
+     * Récupère les URLs Sitemap déclarées dans le /robots.txt d'un site.
+     *
+     * Utilisé par la modal de nouveau crawl pour prérémplir le champ sitemap
+     * à partir de l'URL de départ. Fait un GET côté serveur (évite CORS).
+     * Retourne toujours un tableau (vide en cas d'absence/erreur) — jamais
+     * d'erreur 500 pour permettre un fail silencieux côté UI.
+     *
+     * @param Request $request Requête HTTP (url=...)
+     *
+     * @return void
+     */
+    public function fetchSitemaps(Request $request): void
+    {
+        $url = trim((string)$request->get('url', ''));
+        if ($url === '') {
+            $this->success(['sitemaps' => []]);
+            return;
+        }
+
+        $parts = parse_url($url);
+        if (!$parts || empty($parts['scheme']) || empty($parts['host'])
+            || !in_array(strtolower($parts['scheme']), ['http', 'https'], true)) {
+            $this->success(['sitemaps' => []]);
+            return;
+        }
+
+        $origin = strtolower($parts['scheme']) . '://' . $parts['host']
+            . (isset($parts['port']) ? ':' . $parts['port'] : '');
+        $robotsUrl = $origin . '/robots.txt';
+
+        $ch = curl_init($robotsUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS      => 5,
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_USERAGENT      => 'Mozilla/5.0 (compatible; Scouter-RobotsProbe/1.0)',
+        ]);
+        $body = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($body === false || $httpCode < 200 || $httpCode >= 300 || !is_string($body)) {
+            $this->success(['sitemaps' => []]);
+            return;
+        }
+
+        $sitemaps = [];
+        foreach (preg_split('/\r?\n/', $body) as $line) {
+            if (preg_match('/^\s*Sitemap\s*:\s*(.+?)\s*$/i', $line, $m)) {
+                $candidate = trim($m[1]);
+                if ($candidate !== '' && preg_match('#^https?://#i', $candidate)) {
+                    $sitemaps[] = $candidate;
+                }
+            }
+        }
+
+        $this->success(['sitemaps' => array_values(array_unique($sitemaps))]);
+    }
 }
