@@ -463,34 +463,34 @@ class Page
             $configuration->setSubstituteEntities(false);
             
             // Parser avec Readability
+            // Strip HTML comments: readability.php v3.3.3 crashes (TypeError) on DOMComment nodes
+            $htmlForReadability = preg_replace('/<!--.*?-->/s', '', $this->dom);
             $readability = new Readability($configuration);
-            $readability->parse($this->dom);
-            
+            $readability->parse($htmlForReadability);
+
             // Récupérer le contenu texte
             $content = $readability->getContent();
             if (empty($content)) {
                 return 0;
             }
-            
+
             // Nettoyer le HTML pour ne garder que le texte
             $text = strip_tags($content);
             $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            
+
             // Nettoyer les espaces multiples et compter les mots
             $text = preg_replace('/\s+/', ' ', trim($text));
-            
+
             if (empty($text)) {
                 return 0;
             }
-            
+
             // Compter les mots
             $wordCount = str_word_count($text, 0);
-            
+
             return $wordCount > 0 ? $wordCount : 0;
-            
-        } catch (ParseException $e) {
-            return 0;
-        } catch (\Exception $e) {
+
+        } catch (\Throwable $e) {
             return 0;
         }
     }
@@ -847,8 +847,10 @@ class Page
             $configuration->setFixRelativeURLs(false);
             $configuration->setSubstituteEntities(false);
 
+            // Strip HTML comments: readability.php v3.3.3 crashes (TypeError) on DOMComment nodes
+            $htmlForReadability = preg_replace('/<!--.*?-->/s', '', $this->dom);
             $readability = new Readability($configuration);
-            $readability->parse($this->dom);
+            $readability->parse($htmlForReadability);
             $readabilityContent = $readability->getContent();
 
             if (!empty($readabilityContent)) {
@@ -860,7 +862,7 @@ class Page
                     $useReadability = true;
                 }
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $content = null;
         }
 
