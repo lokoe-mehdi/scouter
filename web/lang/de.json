@@ -7,9 +7,9 @@
     "accessibility.card_total": "Gesamte URLs",
     "accessibility.card_total_desc": "Entdeckte URLs",
     "accessibility.chart_category": "Verteilung nach Kategorie",
-    "accessibility.chart_category_desc": "Verteilung der entdeckten URLs nach Kategorie",
+    "accessibility.chart_category_desc": "Aufteilung je Kategorie: indexierbare Seiten, Medien und durch robots.txt blockierte Seiten",
     "accessibility.chart_discovered": "Verteilung der entdeckten URLs",
-    "accessibility.chart_discovered_desc": "Verteilung zwischen HTML (gecrawlt, extern, blockiert) und Medien-URLs",
+    "accessibility.chart_discovered_desc": "Verteilung zwischen HTML (gecrawlt, extern, blockiert, außerhalb des Scopes) und Medien-URLs",
     "accessibility.chart_indexability": "Indexierbarkeit gecrawlter URLs",
     "accessibility.chart_indexability_category": "Indexierbarkeit nach Kategorie",
     "accessibility.chart_indexability_category_desc": "Ursachen der Nicht-Indexierbarkeit nach Kategorie",
@@ -1647,5 +1647,11 @@
     "url_table.indexable": "Indexierbar",
     "url_table.no_urls": "Keine URLs gefunden",
     "url_table.title": "Ergebnisse",
-    "url_table.tooltip_scope": "Umfang anzeigen"
+    "url_table.tooltip_scope": "Umfang anzeigen",
+    "accessibility.series_out_of_scope": "Außerhalb des Scopes",
+    "monitor.disk_usage_hint": "Speicherplatz: :used / :total (:free_pct% frei)",
+    "comparison.subtitle_sitemap_coverage": "Verteilung der Sitemap-Abdeckung, äußerer Ring = aktuell, innerer = Vergleich",
+    "comparison.subtitle_sitemap_indexability": "Indexierbarkeit der Sitemap-URLs, äußerer Ring = aktuell, innerer = Vergleich",
+    "comparison.sitemap_urls_added_title": "Neu zur Sitemap hinzugefügte URLs",
+    "comparison.sitemap_urls_removed_title": "Aus der Sitemap entfernte URLs"
 }

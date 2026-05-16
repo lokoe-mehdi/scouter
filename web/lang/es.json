@@ -7,9 +7,9 @@
     "accessibility.card_total": "URLs totales",
     "accessibility.card_total_desc": "URLs descubiertas",
     "accessibility.chart_category": "Distribución por categoría",
-    "accessibility.chart_category_desc": "Distribución de URLs descubiertas por categoría",
+    "accessibility.chart_category_desc": "Distribución por categoría: páginas indexables, medios y páginas bloqueadas por robots.txt",
     "accessibility.chart_discovered": "Distribución de URLs descubiertas",
-    "accessibility.chart_discovered_desc": "Distribución entre HTML (rastreadas, externas, bloqueadas) y URLs de medios",
+    "accessibility.chart_discovered_desc": "Distribución entre HTML (rastreadas, externas, bloqueadas, fuera de alcance) y URLs de medios",
     "accessibility.chart_indexability": "Indexabilidad de URLs rastreadas",
     "accessibility.chart_indexability_category": "Indexabilidad por categoría",
     "accessibility.chart_indexability_category_desc": "Causas de no indexabilidad por categoría",
@@ -1647,5 +1647,11 @@
     "url_table.indexable": "Indexable",
     "url_table.no_urls": "No se encontraron URLs",
     "url_table.title": "Resultados",
-    "url_table.tooltip_scope": "Ver alcance"
+    "url_table.tooltip_scope": "Ver alcance",
+    "accessibility.series_out_of_scope": "Fuera de alcance",
+    "monitor.disk_usage_hint": "Disco: :used / :total (:free_pct% libre)",
+    "comparison.subtitle_sitemap_coverage": "Distribución de cobertura del sitemap, anillo externo = actual, interno = referencia",
+    "comparison.subtitle_sitemap_indexability": "Indexabilidad de las URLs del sitemap, anillo externo = actual, interno = referencia",
+    "comparison.sitemap_urls_added_title": "URLs añadidas al sitemap",
+    "comparison.sitemap_urls_removed_title": "URLs eliminadas del sitemap"
 }

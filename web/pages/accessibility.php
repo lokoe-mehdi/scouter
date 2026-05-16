@@ -31,13 +31,15 @@ $stmt = $pdo->prepare("
 $stmt->execute([':project_id' => $crawlRecord->project_id, ':crawl_id2' => $crawlId]);
 $categoryStats = $stmt->fetchAll(PDO::FETCH_OBJ);
 
-// Distribution des URLs découvertes (external, crawled, non crawlées, médias)
-// Note: is_html ne s'applique qu'aux URLs crawlées (on ne peut pas savoir si une externe est HTML ou média)
+// Distribution des URLs découvertes : on distingue désormais les URLs réellement
+// bloquées par robots.txt (blocked = true) des URLs simplement non crawlées
+// (limite de profondeur, crawl interrompu, etc.) que l'on classe "hors scope".
 $sqlUrlDistribution = "
-    SELECT 
+    SELECT
         SUM(CASE WHEN external = true THEN 1 ELSE 0 END) as external_urls,
         SUM(CASE WHEN external = false AND crawled = true AND is_html = true THEN 1 ELSE 0 END) as crawled_urls,
-        SUM(CASE WHEN external = false AND crawled = false THEN 1 ELSE 0 END) as not_crawled_urls,
+        SUM(CASE WHEN external = false AND blocked = true THEN 1 ELSE 0 END) as blocked_urls,
+        SUM(CASE WHEN external = false AND blocked = false AND crawled = false THEN 1 ELSE 0 END) as out_of_scope_urls,
         SUM(CASE WHEN external = false AND crawled = true AND (is_html = false OR is_html IS NULL) THEN 1 ELSE 0 END) as media_urls
     FROM pages
     WHERE crawl_id = :crawl_id AND in_crawl = TRUE
@@ -59,17 +61,18 @@ $stmt = $pdo->prepare($sqlNonIndexable);
 $stmt->execute([':crawl_id' => $crawlId]);
 $nonIndexableReasons = $stmt->fetch(PDO::FETCH_OBJ);
 
-// Distribution par catégorie (sans jointure)
+// Distribution par catégorie (URLs internes uniquement) :
+// indexables vs médias vs bloquées au robots.txt.
 $sqlDistributionByCategory = "
-    SELECT 
+    SELECT
         cat_id,
-        SUM(CASE WHEN external = false AND crawled = true THEN 1 ELSE 0 END) as crawled,
-        SUM(CASE WHEN external = true THEN 1 ELSE 0 END) as external,
-        SUM(CASE WHEN external = false AND crawled = false THEN 1 ELSE 0 END) as blocked
+        SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) as indexable,
+        SUM(CASE WHEN blocked = false AND crawled = true AND (is_html = false OR is_html IS NULL) THEN 1 ELSE 0 END) as media,
+        SUM(CASE WHEN blocked = true THEN 1 ELSE 0 END) as blocked
     FROM pages
-    WHERE crawl_id = :crawl_id AND is_html = true AND in_crawl = TRUE
+    WHERE crawl_id = :crawl_id AND external = false AND in_crawl = TRUE
     GROUP BY cat_id
-    ORDER BY SUM(CASE WHEN external = false AND crawled = true THEN 1 ELSE 0 END) DESC
+    ORDER BY SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) DESC
 ";
 $stmt = $pdo->prepare($sqlDistributionByCategory);
 $stmt->execute([':crawl_id' => $crawlId]);
@@ -164,7 +167,7 @@ foreach ($indexabilityByCategoryRaw as $row) {
          ======================================== -->
     <div class="charts-grid">
     <?php
-    // Graphique 1: Distribution des URLs découvertes (HTML + Médias)
+    // Graphique 1: Distribution des URLs découvertes (HTML + Médias + Bloquées + Hors scope)
     Component::chart([
         'type' => 'donut',
         'title' => __('accessibility.chart_discovered'),
@@ -175,7 +178,8 @@ foreach ($indexabilityByCategoryRaw as $row) {
                 'data' => [
                     ['name' => __('accessibility.series_crawled_html'), 'y' => (int)($urlDistribution->crawled_urls ?? 0), 'color' => '#6bd899ff'],
                     ['name' => __('accessibility.series_external_html'), 'y' => (int)($urlDistribution->external_urls ?? 0), 'color' => '#d8bf6bff'],
-                    ['name' => __('accessibility.series_blocked_robots'), 'y' => (int)($urlDistribution->not_crawled_urls ?? 0), 'color' => '#d86b6bff'],
+                    ['name' => __('accessibility.series_blocked_robots'), 'y' => (int)($urlDistribution->blocked_urls ?? 0), 'color' => '#d86b6bff'],
+                    ['name' => __('accessibility.series_out_of_scope'), 'y' => (int)($urlDistribution->out_of_scope_urls ?? 0), 'color' => '#f5a25dff'],
                     ['name' => __('accessibility.series_media'), 'y' => (int)($urlDistribution->media_urls ?? 0), 'color' => '#E5E7EB']
                 ]
             ]
@@ -212,21 +216,21 @@ foreach ($indexabilityByCategoryRaw as $row) {
          ======================================== -->
     <div class="charts-grid">
     <?php
-    // Préparation des données pour le stacked bar - Distribution
+    // Préparation des données pour le stacked bar - Distribution (indexable / média / bloqué)
     $distCategories = array_map(fn($r) => $r->category, $distributionByCategory);
-    $distCrawled = array_map(fn($r) => (int)$r->crawled, $distributionByCategory);
-    $distExternal = array_map(fn($r) => (int)$r->external, $distributionByCategory);
+    $distIndexable = array_map(fn($r) => (int)$r->indexable, $distributionByCategory);
+    $distMedia = array_map(fn($r) => (int)$r->media, $distributionByCategory);
     $distBlocked = array_map(fn($r) => (int)$r->blocked, $distributionByCategory);
-    
+
     Component::chart([
         'type' => 'horizontalBar',
         'title' => __('accessibility.chart_category'),
         'subtitle' => __('accessibility.chart_category_desc'),
         'categories' => $distCategories,
         'series' => [
-            ['name' => __('accessibility.series_blocked'), 'data' => $distBlocked, 'color' => '#d86b6bff'],
-            ['name' => __('accessibility.series_external'), 'data' => $distExternal, 'color' => '#d8bf6bff'],
-            ['name' => __('accessibility.series_crawled'), 'data' => $distCrawled, 'color' => '#6bd899ff']
+            ['name' => __('accessibility.series_blocked_robots'), 'data' => $distBlocked, 'color' => '#d86b6bff'],
+            ['name' => __('accessibility.series_media'), 'data' => $distMedia, 'color' => '#E5E7EB'],
+            ['name' => __('accessibility.series_indexable'), 'data' => $distIndexable, 'color' => '#6bd899ff']
         ],
         'stacking' => 'percent',
         'yAxisMax' => 100,
@@ -267,7 +271,7 @@ foreach ($indexabilityByCategoryRaw as $row) {
     Component::urlTable([
         'title' => __('accessibility.table_non_indexable'),
         'id' => 'nonIndexableTable',
-        'whereClause' => 'WHERE c.compliant = false AND c.is_html = true',
+        'whereClause' => 'WHERE c.compliant = false AND (c.is_html = true OR c.blocked = true)',
         'orderBy' => 'ORDER BY c.code DESC, c.url ASC',
         'defaultColumns' => ['url', 'code', 'depth','canonical','noindex','blocked'],
         'pdo' => $pdo,

@@ -7,9 +7,9 @@
     "accessibility.card_total": "Total URLs",
     "accessibility.card_total_desc": "URLs discovered",
     "accessibility.chart_category": "Distribution by category",
-    "accessibility.chart_category_desc": "Discovered URL distribution by category",
+    "accessibility.chart_category_desc": "Per-category breakdown: indexable pages, media and pages blocked by robots.txt",
     "accessibility.chart_discovered": "Discovered URL distribution",
-    "accessibility.chart_discovered_desc": "Distribution between HTML (crawled, external, blocked) and media URLs",
+    "accessibility.chart_discovered_desc": "Distribution across HTML (crawled, external, blocked, out of scope) and media URLs",
     "accessibility.chart_indexability": "Crawled URL indexability",
     "accessibility.chart_indexability_category": "Indexability by category",
     "accessibility.chart_indexability_category_desc": "Non-indexability causes by category",
@@ -1647,5 +1647,11 @@
     "url_table.indexable": "Indexable",
     "url_table.no_urls": "No URLs found",
     "url_table.title": "Results",
-    "url_table.tooltip_scope": "View scope"
+    "url_table.tooltip_scope": "View scope",
+    "accessibility.series_out_of_scope": "Out of scope",
+    "monitor.disk_usage_hint": "Disk: :used / :total (:free_pct% free)",
+    "comparison.subtitle_sitemap_coverage": "Sitemap coverage distribution, outer ring = current, inner = baseline",
+    "comparison.subtitle_sitemap_indexability": "Indexability of sitemap URLs, outer ring = current, inner = baseline",
+    "comparison.sitemap_urls_added_title": "URLs newly added to the sitemap",
+    "comparison.sitemap_urls_removed_title": "URLs removed from the sitemap"
 }
