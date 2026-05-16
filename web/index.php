@@ -2743,6 +2743,6 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
             }
         })();
     </script>
-    <div style="text-align: center; padding: 2rem 0 1rem; font-size: 0.9rem; color: #c0c4cc; letter-spacing: 0.3px;">Scouter v0.5</div>
+    <div style="text-align: center; padding: 2rem 0 1rem; font-size: 0.9rem; color: #c0c4cc; letter-spacing: 0.3px;">Scouter v0.6</div>
 </body>
 </html>
