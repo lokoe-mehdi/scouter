@@ -1649,7 +1649,7 @@
     "url_table.title": "Results",
     "url_table.tooltip_scope": "View scope",
     "accessibility.series_out_of_scope": "Out of scope",
-    "monitor.disk_usage_hint": "Disk: :used / :total (:free_pct% free)",
+    "monitor.disk_free_hint": "Available disk space: :free",
     "comparison.subtitle_sitemap_coverage": "Sitemap coverage distribution, outer ring = current, inner = baseline",
     "comparison.subtitle_sitemap_indexability": "Indexability of sitemap URLs, outer ring = current, inner = baseline",
     "comparison.sitemap_urls_added_title": "URLs newly added to the sitemap",

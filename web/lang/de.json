@@ -1649,7 +1649,7 @@
     "url_table.title": "Ergebnisse",
     "url_table.tooltip_scope": "Umfang anzeigen",
     "accessibility.series_out_of_scope": "Außerhalb des Scopes",
-    "monitor.disk_usage_hint": "Speicherplatz: :used / :total (:free_pct% frei)",
+    "monitor.disk_free_hint": "Verfügbarer Speicherplatz: :free",
     "comparison.subtitle_sitemap_coverage": "Verteilung der Sitemap-Abdeckung, äußerer Ring = aktuell, innerer = Vergleich",
     "comparison.subtitle_sitemap_indexability": "Indexierbarkeit der Sitemap-URLs, äußerer Ring = aktuell, innerer = Vergleich",
     "comparison.sitemap_urls_added_title": "Neu zur Sitemap hinzugefügte URLs",

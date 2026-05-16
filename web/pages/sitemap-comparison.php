@@ -83,6 +83,20 @@ $stmtBase = $pdo->prepare($sqlSitemapDistribution);
 $stmtBase->execute([':cid' => $safeCompareId]);
 $distBase = $stmtBase->fetch(PDO::FETCH_OBJ);
 
+$sqlSitemapDistributionDisplay = "-- Reference crawl
+SELECT 'reference' AS source,
+       SUM(CASE WHEN in_crawl = TRUE  AND in_sitemap = FALSE AND compliant = TRUE THEN 1 ELSE 0 END) AS crawl_only,
+       SUM(CASE WHEN in_crawl = TRUE  AND in_sitemap = TRUE  AND compliant = TRUE THEN 1 ELSE 0 END) AS both,
+       SUM(CASE WHEN in_crawl = FALSE AND in_sitemap = TRUE  AND compliant = TRUE THEN 1 ELSE 0 END) AS sitemap_only
+FROM pages@{$safeCrawlId}
+UNION ALL
+-- Baseline crawl
+SELECT 'baseline' AS source,
+       SUM(CASE WHEN in_crawl = TRUE  AND in_sitemap = FALSE AND compliant = TRUE THEN 1 ELSE 0 END) AS crawl_only,
+       SUM(CASE WHEN in_crawl = TRUE  AND in_sitemap = TRUE  AND compliant = TRUE THEN 1 ELSE 0 END) AS both,
+       SUM(CASE WHEN in_crawl = FALSE AND in_sitemap = TRUE  AND compliant = TRUE THEN 1 ELSE 0 END) AS sitemap_only
+FROM pages@{$safeCompareId}";
+
 $coverageRefData = [
     ['name' => __('sitemap.chart_distribution_both') . ' (' . __('comparison.badge_reference') . ')',         'y' => (int)($distRef->both         ?? 0), 'color' => '#6bd899'],
     ['name' => __('sitemap.chart_distribution_crawl_only') . ' (' . __('comparison.badge_reference') . ')',   'y' => (int)($distRef->crawl_only   ?? 0), 'color' => '#cfd86b'],
@@ -114,6 +128,22 @@ $idxRef = $stmtRef->fetch(PDO::FETCH_OBJ);
 $stmtBase = $pdo->prepare($sqlSitemapIndexability);
 $stmtBase->execute([':cid' => $safeCompareId]);
 $idxBase = $stmtBase->fetch(PDO::FETCH_OBJ);
+
+$sqlSitemapIndexabilityDisplay = "-- Reference crawl
+SELECT 'reference' AS source,
+       SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) AS indexable,
+       SUM(CASE WHEN compliant = false AND canonical = false THEN 1 ELSE 0 END) AS non_canonical,
+       SUM(CASE WHEN compliant = false AND canonical = true  AND noindex = true THEN 1 ELSE 0 END) AS noindex,
+       SUM(CASE WHEN compliant = false AND canonical = true  AND noindex = false AND (code <> 200 OR code IS NULL) THEN 1 ELSE 0 END) AS bad_status
+FROM pages@{$safeCrawlId} WHERE in_sitemap = TRUE
+UNION ALL
+-- Baseline crawl
+SELECT 'baseline' AS source,
+       SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) AS indexable,
+       SUM(CASE WHEN compliant = false AND canonical = false THEN 1 ELSE 0 END) AS non_canonical,
+       SUM(CASE WHEN compliant = false AND canonical = true  AND noindex = true THEN 1 ELSE 0 END) AS noindex,
+       SUM(CASE WHEN compliant = false AND canonical = true  AND noindex = false AND (code <> 200 OR code IS NULL) THEN 1 ELSE 0 END) AS bad_status
+FROM pages@{$safeCompareId} WHERE in_sitemap = TRUE";
 
 $indexabilityRefData = [
     ['name' => __('accessibility.series_indexable') . ' (' . __('comparison.badge_reference') . ')',     'y' => (int)($idxRef->indexable     ?? 0), 'color' => '#6bd899'],
@@ -171,7 +201,7 @@ $indexabilityBaseData = [
         ],
         'height'         => 350,
         'legendPosition' => 'bottom',
-        'sqlQuery'       => $sqlSitemapDistribution,
+        'sqlQuery'       => $sqlSitemapDistributionDisplay,
     ]);
 
     Component::chart([
@@ -184,7 +214,7 @@ $indexabilityBaseData = [
         ],
         'height'         => 350,
         'legendPosition' => 'bottom',
-        'sqlQuery'       => $sqlSitemapIndexability,
+        'sqlQuery'       => $sqlSitemapIndexabilityDisplay,
     ]);
     ?>
     </div>

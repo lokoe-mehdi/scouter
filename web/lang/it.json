@@ -1649,7 +1649,7 @@
     "url_table.title": "Risultati",
     "url_table.tooltip_scope": "Visualizza ambito",
     "accessibility.series_out_of_scope": "Fuori scope",
-    "monitor.disk_usage_hint": "Disco: :used / :total (:free_pct% libero)",
+    "monitor.disk_free_hint": "Spazio disco disponibile: :free",
     "comparison.subtitle_sitemap_coverage": "Distribuzione della copertura sitemap, anello esterno = corrente, interno = riferimento",
     "comparison.subtitle_sitemap_indexability": "Indicizzabilità degli URL del sitemap, anello esterno = corrente, interno = riferimento",
     "comparison.sitemap_urls_added_title": "URL aggiunti al sitemap",

@@ -111,20 +111,31 @@ $metaBaseData = [
 ];
 
 // SQL display for donuts
-$sqlSeoStatsDisplay = "SELECT
-    SUM(CASE WHEN title_status = 'unique' THEN 1 ELSE 0 END) AS title_unique,
-    SUM(CASE WHEN title_status = 'duplicate' THEN 1 ELSE 0 END) AS title_duplicate,
-    SUM(CASE WHEN title_status = 'empty' THEN 1 ELSE 0 END) AS title_empty,
-    SUM(CASE WHEN h1_status = 'unique' THEN 1 ELSE 0 END) AS h1_unique,
-    SUM(CASE WHEN h1_status = 'duplicate' THEN 1 ELSE 0 END) AS h1_duplicate,
-    SUM(CASE WHEN h1_status = 'empty' THEN 1 ELSE 0 END) AS h1_empty,
-    SUM(CASE WHEN metadesc_status = 'unique' THEN 1 ELSE 0 END) AS meta_desc_unique,
-    SUM(CASE WHEN metadesc_status = 'duplicate' THEN 1 ELSE 0 END) AS meta_desc_duplicate,
-    SUM(CASE WHEN metadesc_status = 'empty' THEN 1 ELSE 0 END) AS meta_desc_empty
-FROM pages@{$safeCrawlId}
-WHERE crawled = true AND compliant = true AND in_crawl = TRUE
-
--- Same query on pages@{$safeCompareId}";
+$sqlSeoStatsDisplay = "-- Reference crawl
+SELECT 'reference' AS source,
+       SUM(CASE WHEN title_status = 'unique' THEN 1 ELSE 0 END) AS title_unique,
+       SUM(CASE WHEN title_status = 'duplicate' THEN 1 ELSE 0 END) AS title_duplicate,
+       SUM(CASE WHEN title_status = 'empty' THEN 1 ELSE 0 END) AS title_empty,
+       SUM(CASE WHEN h1_status = 'unique' THEN 1 ELSE 0 END) AS h1_unique,
+       SUM(CASE WHEN h1_status = 'duplicate' THEN 1 ELSE 0 END) AS h1_duplicate,
+       SUM(CASE WHEN h1_status = 'empty' THEN 1 ELSE 0 END) AS h1_empty,
+       SUM(CASE WHEN metadesc_status = 'unique' THEN 1 ELSE 0 END) AS meta_desc_unique,
+       SUM(CASE WHEN metadesc_status = 'duplicate' THEN 1 ELSE 0 END) AS meta_desc_duplicate,
+       SUM(CASE WHEN metadesc_status = 'empty' THEN 1 ELSE 0 END) AS meta_desc_empty
+FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE
+UNION ALL
+-- Baseline crawl
+SELECT 'baseline' AS source,
+       SUM(CASE WHEN title_status = 'unique' THEN 1 ELSE 0 END) AS title_unique,
+       SUM(CASE WHEN title_status = 'duplicate' THEN 1 ELSE 0 END) AS title_duplicate,
+       SUM(CASE WHEN title_status = 'empty' THEN 1 ELSE 0 END) AS title_empty,
+       SUM(CASE WHEN h1_status = 'unique' THEN 1 ELSE 0 END) AS h1_unique,
+       SUM(CASE WHEN h1_status = 'duplicate' THEN 1 ELSE 0 END) AS h1_duplicate,
+       SUM(CASE WHEN h1_status = 'empty' THEN 1 ELSE 0 END) AS h1_empty,
+       SUM(CASE WHEN metadesc_status = 'unique' THEN 1 ELSE 0 END) AS meta_desc_unique,
+       SUM(CASE WHEN metadesc_status = 'duplicate' THEN 1 ELSE 0 END) AS meta_desc_duplicate,
+       SUM(CASE WHEN metadesc_status = 'empty' THEN 1 ELSE 0 END) AS meta_desc_empty
+FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE";
 
 // =========================================
 // Chart 2: Three horizontal bar charts by category (stacked percent)

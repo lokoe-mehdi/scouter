@@ -63,6 +63,24 @@ $stmtBase = $pdo->prepare($sqlUrlDistribution);
 $stmtBase->execute([':crawl_id' => $safeCompareId]);
 $urlDistBase = $stmtBase->fetch(PDO::FETCH_OBJ);
 
+$sqlUrlDistributionDisplay = "-- Reference crawl
+SELECT 'reference' AS source,
+       SUM(CASE WHEN external = true THEN 1 ELSE 0 END) AS external_urls,
+       SUM(CASE WHEN external = false AND crawled = true AND is_html = true THEN 1 ELSE 0 END) AS crawled_urls,
+       SUM(CASE WHEN external = false AND blocked = true THEN 1 ELSE 0 END) AS blocked_urls,
+       SUM(CASE WHEN external = false AND blocked = false AND crawled = false THEN 1 ELSE 0 END) AS out_of_scope_urls,
+       SUM(CASE WHEN external = false AND crawled = true AND (is_html = false OR is_html IS NULL) THEN 1 ELSE 0 END) AS media_urls
+FROM pages@{$safeCrawlId} WHERE in_crawl = TRUE
+UNION ALL
+-- Baseline crawl
+SELECT 'baseline' AS source,
+       SUM(CASE WHEN external = true THEN 1 ELSE 0 END) AS external_urls,
+       SUM(CASE WHEN external = false AND crawled = true AND is_html = true THEN 1 ELSE 0 END) AS crawled_urls,
+       SUM(CASE WHEN external = false AND blocked = true THEN 1 ELSE 0 END) AS blocked_urls,
+       SUM(CASE WHEN external = false AND blocked = false AND crawled = false THEN 1 ELSE 0 END) AS out_of_scope_urls,
+       SUM(CASE WHEN external = false AND crawled = true AND (is_html = false OR is_html IS NULL) THEN 1 ELSE 0 END) AS media_urls
+FROM pages@{$safeCompareId} WHERE in_crawl = TRUE";
+
 $donutRefData = [
     ['name' => __('accessibility.series_crawled_html') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($urlDistRef->crawled_urls ?? 0), 'color' => '#6bd899'],
     ['name' => __('accessibility.series_external_html') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($urlDistRef->external_urls ?? 0), 'color' => '#d8bf6b'],
@@ -98,6 +116,22 @@ $idxRef = $stmtRef->fetch(PDO::FETCH_OBJ);
 $stmtBase = $pdo->prepare($sqlNonIndexable);
 $stmtBase->execute([':crawl_id' => $safeCompareId]);
 $idxBase = $stmtBase->fetch(PDO::FETCH_OBJ);
+
+$sqlNonIndexableDisplay = "-- Reference crawl
+SELECT 'reference' AS source,
+       SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) AS indexable,
+       SUM(CASE WHEN compliant = false AND code != 200 AND code IS NOT NULL THEN 1 ELSE 0 END) AS bad_status,
+       SUM(CASE WHEN compliant = false AND code = 200 AND noindex = true THEN 1 ELSE 0 END) AS noindex_urls,
+       SUM(CASE WHEN compliant = false AND code = 200 AND noindex = false AND canonical = false THEN 1 ELSE 0 END) AS non_canonical
+FROM pages@{$safeCrawlId} WHERE crawled = true AND is_html = true AND in_crawl = TRUE
+UNION ALL
+-- Baseline crawl
+SELECT 'baseline' AS source,
+       SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) AS indexable,
+       SUM(CASE WHEN compliant = false AND code != 200 AND code IS NOT NULL THEN 1 ELSE 0 END) AS bad_status,
+       SUM(CASE WHEN compliant = false AND code = 200 AND noindex = true THEN 1 ELSE 0 END) AS noindex_urls,
+       SUM(CASE WHEN compliant = false AND code = 200 AND noindex = false AND canonical = false THEN 1 ELSE 0 END) AS non_canonical
+FROM pages@{$safeCompareId} WHERE crawled = true AND is_html = true AND in_crawl = TRUE";
 
 $idxRefData = [
     ['name' => __('accessibility.series_indexable') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($idxRef->indexable ?? 0), 'color' => '#6bd899'],
@@ -255,7 +289,7 @@ ORDER BY cat_id";
         ],
         'height' => 350,
         'legendPosition' => 'bottom',
-        'sqlQuery' => $sqlUrlDistribution
+        'sqlQuery' => $sqlUrlDistributionDisplay
     ]);
 
     Component::chart([
@@ -268,7 +302,7 @@ ORDER BY cat_id";
         ],
         'height' => 350,
         'legendPosition' => 'bottom',
-        'sqlQuery' => $sqlNonIndexable
+        'sqlQuery' => $sqlNonIndexableDisplay
     ]);
     ?>
     </div>
