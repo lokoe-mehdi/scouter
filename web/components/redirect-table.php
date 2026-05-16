@@ -110,7 +110,7 @@ $query = "SELECT rc.id, rc.source_id, rc.source_url, rc.final_id, rc.final_url,
                  rc.final_code, rc.final_compliant, rc.hops, rc.is_loop, rc.chain_ids,
                  p.code AS source_code
           FROM redirect_chains rc
-          LEFT JOIN pages p ON p.id = rc.source_id AND p.crawl_id = $crawlIdInt
+          LEFT JOIN pages p ON p.id = rc.source_id AND p.crawl_id = $crawlIdInt AND p.in_crawl = TRUE
           WHERE rc.crawl_id = $crawlIdInt
           $orderBy
           LIMIT $perPage OFFSET $offset";

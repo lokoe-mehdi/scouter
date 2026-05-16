@@ -791,7 +791,52 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         setTimeout(() => { if (startUrl) startUrl.focus(); }, 100);
         switchCrawlTab('general');
         initDefaultExtractors();
+        // Auto-remplir le sitemap depuis /robots.txt (async, silencieux si échec)
+        if (startUrl && startUrl.value) autoFillSitemapFromRobots(startUrl.value);
     }
+
+    // Récupère l'instruction Sitemap du /robots.txt via l'endpoint backend (évite CORS)
+    // et préremplit le textarea correspondant. Silencieux en cas d'échec.
+    let _robotsSitemapLastOrigin = null;
+    let _robotsSitemapController = null;
+    async function autoFillSitemapFromRobots(url) {
+        const sitemapField = document.getElementById('sitemap_urls');
+        if (!sitemapField || sitemapField.value.trim()) return;
+        let origin;
+        try { origin = new URL(url.trim()).origin; } catch (err) { return; }
+        if (origin === _robotsSitemapLastOrigin) return;
+        _robotsSitemapLastOrigin = origin;
+        if (_robotsSitemapController) _robotsSitemapController.abort();
+        _robotsSitemapController = new AbortController();
+        try {
+            const resp = await fetch('api/crawls/fetch-sitemaps?url=' + encodeURIComponent(origin), {
+                signal: _robotsSitemapController.signal,
+                credentials: 'same-origin',
+                cache: 'no-store'
+            });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const sitemaps = (data && Array.isArray(data.sitemaps)) ? data.sitemaps : [];
+            if (sitemaps.length && !sitemapField.value.trim()) {
+                sitemapField.value = sitemaps.join('\n');
+            }
+        } catch (error) {
+            // Silencieux
+        }
+    }
+
+    // Si l'utilisateur modifie le start_url, on retente le fetch (débouncé)
+    (function() {
+        const startUrlEl = document.getElementById('start_url');
+        if (!startUrlEl) return;
+        let debounceTimer = null;
+        startUrlEl.addEventListener('input', function(e) {
+            const v = e.target.value.trim();
+            if (!v) return;
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => autoFillSitemapFromRobots(v), 600);
+        });
+    })();
     function closeNewProjectModal() {
         document.getElementById('newProjectModal').style.display = 'none';
         document.getElementById('newProjectForm').reset();
@@ -938,6 +983,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             crawl_type: crawlType,
             user_agent: document.getElementById('user_agent').value,
             allowed_domains: document.getElementById('allowed_domains').value.trim().split('\n').filter(d=>d.trim()),
+            sitemap_urls: document.getElementById('sitemap_urls').value.trim().split('\n').map(u=>u.trim()).filter(u=>u),
             custom_headers: customHeaders,
             http_auth: enableAuth ? { username: document.getElementById('auth_username').value.trim(), password: document.getElementById('auth_password').value.trim() } : null,
             extractors: extractors,

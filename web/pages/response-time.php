@@ -11,7 +11,7 @@ try {
             ROUND(AVG(response_time)::numeric, 2) as avg_time,
             MAX(response_time) as max_time
         FROM pages
-        WHERE crawl_id = :crawl_id AND crawled = true AND code = 200 AND is_html = true
+        WHERE crawl_id = :crawl_id AND crawled = true AND code = 200 AND is_html = true AND in_crawl = TRUE
     ");
     $stmt->execute([':crawl_id' => $crawlId]);
     $responseStats = $stmt->fetch(PDO::FETCH_OBJ);
@@ -20,7 +20,7 @@ try {
     $stmt = $pdo->prepare("
         SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY response_time) as median_time
         FROM pages
-        WHERE crawl_id = :crawl_id AND crawled = true AND code = 200 AND is_html = true
+        WHERE crawl_id = :crawl_id AND crawled = true AND code = 200 AND is_html = true AND in_crawl = TRUE
     ");
     $stmt->execute([':crawl_id' => $crawlId]);
     $medianResult = $stmt->fetch(PDO::FETCH_OBJ);
@@ -37,7 +37,7 @@ try {
             SUM(CASE WHEN response_time >= 600 THEN 1 ELSE 0 END) as slow_count,
             ROUND(AVG(response_time)::numeric, 2) as avg_time
         FROM pages
-        WHERE crawl_id = :crawl_id AND crawled = true AND code = 200 AND is_html = true
+        WHERE crawl_id = :crawl_id AND crawled = true AND code = 200 AND is_html = true AND in_crawl = TRUE
         GROUP BY cat_id
         ORDER BY AVG(response_time) DESC
     ";
@@ -422,7 +422,7 @@ try {
 Component::urlTable([
     'title' => __('response_time.table_title'),
     'id' => 'responsetimetable',
-    'whereClause' => 'WHERE c.response_time >= 600 AND (code=200 OR code=304) AND c.is_html = true',
+    'whereClause' => 'WHERE c.response_time >= 600 AND (code=200 OR code=304) AND c.is_html = true AND c.in_crawl = TRUE',
     'orderBy' => 'ORDER BY c.response_time DESC',
     'defaultColumns' => ['url','category', 'code', 'response_time'],
     'pdo' => $pdo,

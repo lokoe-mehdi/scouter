@@ -13,7 +13,7 @@ $stmt = $pdo->prepare("
         COUNT(DISTINCT CASE WHEN array_length(p.schemas, 1) > 0 THEN p.id END) as pages_with_schema,
         COUNT(DISTINCT CASE WHEN array_length(p.schemas, 1) IS NULL OR array_length(p.schemas, 1) = 0 THEN p.id END) as pages_without_schema
     FROM pages p
-    WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.compliant = true
+    WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.compliant = true AND p.in_crawl = TRUE
 ");
 $stmt->execute([':crawl_id' => $crawlId]);
 $globalStats = $stmt->fetch(PDO::FETCH_OBJ);
@@ -24,7 +24,7 @@ $sqlSchemaDistribution = "
         ps.schema_type,
         COUNT(DISTINCT ps.page_id) as page_count
     FROM page_schemas ps
-    INNER JOIN pages p ON p.crawl_id = ps.crawl_id AND p.id = ps.page_id
+    INNER JOIN pages p ON p.crawl_id = ps.crawl_id AND p.id = ps.page_id AND p.in_crawl = TRUE
     WHERE ps.crawl_id = :crawl_id AND p.compliant = true
     GROUP BY ps.schema_type
     ORDER BY page_count DESC
@@ -40,7 +40,7 @@ $sqlSchemaByCategory = "
         COUNT(DISTINCT p.id) as total_pages,
         COALESCE(AVG(array_length(p.schemas, 1)), 0) as avg_schemas
     FROM pages p
-    WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.compliant = true
+    WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.compliant = true AND p.in_crawl = TRUE
     GROUP BY p.cat_id
     ORDER BY avg_schemas DESC
 ";
@@ -247,7 +247,7 @@ $percentWithSchema = $globalStats->total_pages > 0
     Component::urlTable([
         'title' => __('structured_data.table_with'),
         'id' => 'structured_data_urls',
-        'whereClause' => 'WHERE array_length(c.schemas, 1) > 0 AND c.crawled = true AND c.compliant = true',
+        'whereClause' => 'WHERE array_length(c.schemas, 1) > 0 AND c.crawled = true AND c.compliant = true AND c.in_crawl = TRUE',
         'orderBy' => 'ORDER BY c.depth ASC, c.pri DESC',
         'defaultColumns' => ['url', 'depth', 'inlinks', 'outlinks', 'pri'],
         'pdo' => $pdo,
@@ -264,7 +264,7 @@ $percentWithSchema = $globalStats->total_pages > 0
     Component::urlTable([
         'title' => __('structured_data.table_without'),
         'id' => 'no_structured_data_urls',
-        'whereClause' => 'WHERE (array_length(c.schemas, 1) IS NULL OR array_length(c.schemas, 1) = 0) AND c.crawled = true AND c.compliant = true',
+        'whereClause' => 'WHERE (array_length(c.schemas, 1) IS NULL OR array_length(c.schemas, 1) = 0) AND c.crawled = true AND c.compliant = true AND c.in_crawl = TRUE',
         'orderBy' => 'ORDER BY c.depth ASC, c.pri DESC',
         'defaultColumns' => ['url', 'depth', 'inlinks', 'outlinks', 'pri'],
         'pdo' => $pdo,

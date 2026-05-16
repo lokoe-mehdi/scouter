@@ -81,6 +81,7 @@ try {
     $router->post('/crawls/resume', [CrawlController::class, 'resume'], ['auth' => true]);
     $router->post('/crawls/delete', [CrawlController::class, 'delete'], ['auth' => true]);
     $router->get('/crawls/running', [CrawlController::class, 'runningCrawls'], ['auth' => true]);
+    $router->get('/crawls/fetch-sitemaps', [CrawlController::class, 'fetchSitemaps'], ['auth' => true]);
 
     // =============================================================================
     // JOBS

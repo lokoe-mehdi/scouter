@@ -198,10 +198,11 @@ class PageRepository
         $blockedCondition = $respectRobots ? "AND blocked = false" : "";
         
         $stmt = $this->db->prepare("
-            SELECT id, url, depth FROM pages 
-            WHERE crawl_id = :crawl_id 
-            AND crawled = false 
-            AND external = false 
+            SELECT id, url, depth FROM pages
+            WHERE crawl_id = :crawl_id
+            AND crawled = false
+            AND external = false
+            AND in_crawl = TRUE
             $blockedCondition
             ORDER BY depth ASC
         ");
@@ -215,9 +216,9 @@ class PageRepository
     public function getCurrentDepth(): int
     {
         $stmt = $this->db->prepare("
-            SELECT COALESCE(MAX(depth), 0) as max_depth 
-            FROM pages 
-            WHERE crawl_id = :crawl_id AND crawled = true
+            SELECT COALESCE(MAX(depth), 0) as max_depth
+            FROM pages
+            WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
         ");
         $stmt->execute([':crawl_id' => $this->crawlId]);
         return (int)$stmt->fetchColumn();
@@ -229,8 +230,8 @@ class PageRepository
     public function isNewCrawl(): bool
     {
         $stmt = $this->db->prepare("
-            SELECT COUNT(*) FROM pages 
-            WHERE crawl_id = :crawl_id AND crawled = true
+            SELECT COUNT(*) FROM pages
+            WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
         ");
         $stmt->execute([':crawl_id' => $this->crawlId]);
         return (int)$stmt->fetchColumn() === 0;

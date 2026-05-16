@@ -58,7 +58,7 @@ $commonCount = $compCommonCount;
     Component::urlTable([
         'title' => __('comparison.new_urls_title'),
         'id' => 'new_urls_table',
-        'whereClause' => "WHERE c.crawled = true AND NOT EXISTS (SELECT 1 FROM pages_{$safeCompareId} b WHERE b.crawled = true AND b.url = c.url)",
+        'whereClause' => "WHERE c.crawled = true AND c.in_crawl = TRUE AND NOT EXISTS (SELECT 1 FROM pages_{$safeCompareId} b WHERE b.crawled = true AND b.in_crawl = TRUE AND b.url = c.url)",
         'orderBy' => 'ORDER BY c.url ASC',
         'defaultColumns' => ['url', 'code', 'depth', 'category', 'inlinks'],
         'pdo' => $pdo,

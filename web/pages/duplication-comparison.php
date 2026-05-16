@@ -63,7 +63,7 @@ $dupBase = $stmtBase->fetch(PDO::FETCH_OBJ);
 // Indexable page counts per crawl
 $sqlIndexable = "
     SELECT COUNT(*) as indexable FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
 
 $stmtRef = $pdo->prepare($sqlIndexable);
@@ -122,7 +122,7 @@ $sqlDupByCategory = "
         FROM duplicate_clusters
         WHERE crawl_id = :crawl_id AND similarity >= 80
     ) dc ON p.id = dc.page_id
-    WHERE p.crawl_id = :crawl_id2
+    WHERE p.crawl_id = :crawl_id2 AND p.in_crawl = TRUE
     GROUP BY p.cat_id
     ORDER BY page_count DESC
 ";
@@ -177,14 +177,14 @@ FROM (
     SELECT p.cat_id, COUNT(*) AS page_count
     FROM pages p
     INNER JOIN (SELECT unnest(page_ids) AS page_id FROM duplicate_clusters WHERE crawl_id = {$safeCrawlId} AND similarity >= 80) dc ON p.id = dc.page_id
-    WHERE p.crawl_id = {$safeCrawlId}
+    WHERE p.crawl_id = {$safeCrawlId} AND p.in_crawl = TRUE
     GROUP BY p.cat_id
 ) r
 FULL OUTER JOIN (
     SELECT p.cat_id, COUNT(*) AS page_count
     FROM pages p
     INNER JOIN (SELECT unnest(page_ids) AS page_id FROM duplicate_clusters WHERE crawl_id = {$safeCompareId} AND similarity >= 80) dc ON p.id = dc.page_id
-    WHERE p.crawl_id = {$safeCompareId}
+    WHERE p.crawl_id = {$safeCompareId} AND p.in_crawl = TRUE
     GROUP BY p.cat_id
 ) b ON r.cat_id = b.cat_id
 ORDER BY COALESCE(r.page_count, 0) + COALESCE(b.page_count, 0) DESC";

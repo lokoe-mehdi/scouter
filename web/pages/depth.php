@@ -12,9 +12,9 @@ $search = isset($_GET['search']) ? $_GET['search'] : '';
 
 // Niveaux de profondeur disponibles
 $stmt = $pdo->prepare("
-    SELECT DISTINCT depth 
-    FROM pages 
-    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true
+    SELECT DISTINCT depth
+    FROM pages
+    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true AND in_crawl = TRUE
     ORDER BY depth
 ");
 $stmt->execute([':crawl_id' => $crawlId]);
@@ -29,9 +29,9 @@ $sqlDepthStats = "
         SUM(CASE WHEN code = 200 THEN 1 ELSE 0 END) as ok,
         AVG(inlinks) as avg_inlinks,
         AVG(pri) as avg_pagerank
-    FROM pages 
-    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true
-    GROUP BY depth 
+    FROM pages
+    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true AND in_crawl = TRUE
+    GROUP BY depth
     ORDER BY depth
 ";
 $stmt = $pdo->prepare($sqlDepthStats);
@@ -45,7 +45,7 @@ $sqlDepthByCategory = "
         cat_id,
         COUNT(*) as count
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true AND in_crawl = TRUE
     GROUP BY depth, cat_id
     ORDER BY depth, cat_id
 ";
@@ -181,7 +181,7 @@ foreach($depthStats as $stat) {
     Component::urlTable([
         'title' => __('depth.table_deepest'),
         'id' => 'responsetimetable',
-        'whereClause' => 'WHERE c.crawled = true AND c.is_html = true',
+        'whereClause' => 'WHERE c.crawled = true AND c.is_html = true AND c.in_crawl = TRUE',
         'orderBy' => 'ORDER BY c.depth DESC',
         'defaultColumns' => ['url','depth','category','compliant', 'code','inlinks','outlinks'],
         'pdo' => $pdo,

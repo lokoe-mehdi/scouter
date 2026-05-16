@@ -180,6 +180,8 @@ CREATE TABLE pages (
     headings_missing BOOLEAN DEFAULT FALSE,
     schemas TEXT[] DEFAULT '{}',
     word_count INTEGER DEFAULT 0,
+    in_crawl BOOLEAN DEFAULT TRUE,
+    in_sitemap BOOLEAN DEFAULT FALSE,
     PRIMARY KEY (crawl_id, id)
 ) PARTITION BY LIST (crawl_id);
 

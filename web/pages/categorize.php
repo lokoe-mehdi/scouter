@@ -60,7 +60,7 @@ try {
         cat_id,
         COUNT(*) as count
         FROM pages
-        WHERE crawl_id = :crawl_id AND crawled = true
+        WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
         GROUP BY cat_id
         ORDER BY count DESC");
     $stmt->execute([':crawl_id' => $crawlId]);
@@ -1719,7 +1719,7 @@ body {
         <div class="table-container-wrapper">
         <?php
         // Construire le WHERE avec le filtre de catégorie
-        $catWhereConditions = ["c.crawled = true"];
+        $catWhereConditions = ["c.crawled = true", "c.in_crawl = TRUE"];
         $catParams = [];
         
         if(!empty($filterCat)) {

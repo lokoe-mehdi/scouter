@@ -271,8 +271,8 @@ if ($compareId && in_array($page ?? '', $comparisonPages)) {
     // New URLs: dans current, pas dans compare (NOT EXISTS est O(n) vs NOT IN qui est O(n²))
     $stmt = $pdo->prepare("
         SELECT COUNT(*) FROM pages a
-        WHERE a.crawl_id = :current AND a.crawled = true
-        AND NOT EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :compare AND b.crawled = true AND b.url = a.url)
+        WHERE a.crawl_id = :current AND a.crawled = true AND a.in_crawl = TRUE
+        AND NOT EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :compare AND b.crawled = true AND b.in_crawl = TRUE AND b.url = a.url)
     ");
     $stmt->execute([':current' => $safeCrId, ':compare' => $safeCompId]);
     $compNewCount = (int)$stmt->fetchColumn();
@@ -280,8 +280,8 @@ if ($compareId && in_array($page ?? '', $comparisonPages)) {
     // Lost URLs: dans compare, pas dans current
     $stmt = $pdo->prepare("
         SELECT COUNT(*) FROM pages a
-        WHERE a.crawl_id = :compare AND a.crawled = true
-        AND NOT EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :current AND b.crawled = true AND b.url = a.url)
+        WHERE a.crawl_id = :compare AND a.crawled = true AND a.in_crawl = TRUE
+        AND NOT EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :current AND b.crawled = true AND b.in_crawl = TRUE AND b.url = a.url)
     ");
     $stmt->execute([':compare' => $safeCompId, ':current' => $safeCrId]);
     $compLostCount = (int)$stmt->fetchColumn();
@@ -289,8 +289,8 @@ if ($compareId && in_array($page ?? '', $comparisonPages)) {
     // Common URLs
     $stmt = $pdo->prepare("
         SELECT COUNT(*) FROM pages a
-        WHERE a.crawl_id = :current AND a.crawled = true
-        AND EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :compare AND b.crawled = true AND b.url = a.url)
+        WHERE a.crawl_id = :current AND a.crawled = true AND a.in_crawl = TRUE
+        AND EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :compare AND b.crawled = true AND b.in_crawl = TRUE AND b.url = a.url)
     ");
     $stmt->execute([':current' => $safeCrId, ':compare' => $safeCompId]);
     $compCommonCount = (int)$stmt->fetchColumn();
@@ -352,7 +352,7 @@ function isSectionCollapsed($sectionName) {
     <?php
     // Déterminer la section active basée sur la page actuelle
     $activeSection = null; // Pas de défaut, on détermine précisément
-    $reportPages = ['home', 'categories', 'codes', 'response-time', 'depth', 'redirect-chains', 'inlinks', 'outlinks', 'pagerank', 'seo-tags', 'headings', 'duplication', 'extractions', 'structured-data'];
+    $reportPages = ['home', 'categories', 'codes', 'response-time', 'depth', 'redirect-chains', 'sitemap', 'inlinks', 'outlinks', 'pagerank', 'seo-tags', 'headings', 'duplication', 'extractions', 'structured-data'];
     $explorerPages = ['url-explorer', 'link-explorer', 'sql-explorer'];
 
     if (in_array($page, $reportPages)) {
@@ -429,6 +429,9 @@ function isSectionCollapsed($sectionName) {
                     break;
                 case 'redirect-chains':
                     include 'pages/redirect-chains.php';
+                    break;
+                case 'sitemap':
+                    include 'pages/sitemap.php';
                     break;
                 case 'duplication':
                     include 'pages/duplication.php';

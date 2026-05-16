@@ -1227,19 +1227,19 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
         // Auto-remplir les domaines autorisés depuis l'URL de départ
         document.getElementById('start_url').addEventListener('input', function(e) {
             const url = e.target.value.trim();
-            
+
             if (!url) {
                 document.getElementById('allowed_domains').value = '';
                 return;
             }
-            
+
             try {
                 const urlObj = new URL(url);
                 const hostname = urlObj.hostname;
-                
+
                 // Créer la liste des domaines
                 const domains = [hostname];
-                
+
                 // Si le domaine ne commence pas par www., ajouter la version avec www.
                 if (!hostname.startsWith('www.')) {
                     domains.push('www.' + hostname);
@@ -1249,12 +1249,51 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                     const withoutWww = hostname.replace(/^www\./, '');
                     domains.unshift(withoutWww); // Ajouter au début
                 }
-                
+
                 // Mettre à jour le textarea
                 document.getElementById('allowed_domains').value = domains.join('\n');
             } catch (error) {
                 // URL invalide, ne rien faire
             }
+        });
+
+        // Auto-remplir le sitemap depuis /robots.txt via l'endpoint backend
+        // (évite CORS). Silencieux en cas d'échec ou d'absence d'instruction Sitemap.
+        const robotsSitemapState = { timer: null, controller: null, lastOrigin: null };
+        document.getElementById('start_url').addEventListener('input', function(e) {
+            const url = e.target.value.trim();
+            if (!url) return;
+
+            let origin;
+            try { origin = new URL(url).origin; } catch (err) { return; }
+
+            if (origin === robotsSitemapState.lastOrigin) return;
+
+            if (robotsSitemapState.timer) clearTimeout(robotsSitemapState.timer);
+            if (robotsSitemapState.controller) robotsSitemapState.controller.abort();
+
+            robotsSitemapState.timer = setTimeout(async () => {
+                const sitemapField = document.getElementById('sitemap_urls');
+                if (sitemapField.value.trim()) return;
+
+                robotsSitemapState.lastOrigin = origin;
+                robotsSitemapState.controller = new AbortController();
+                try {
+                    const resp = await fetch('api/crawls/fetch-sitemaps?url=' + encodeURIComponent(origin), {
+                        signal: robotsSitemapState.controller.signal,
+                        credentials: 'same-origin',
+                        cache: 'no-store'
+                    });
+                    if (!resp.ok) return;
+                    const data = await resp.json();
+                    const sitemaps = (data && Array.isArray(data.sitemaps)) ? data.sitemaps : [];
+                    if (sitemaps.length && !sitemapField.value.trim()) {
+                        sitemapField.value = sitemaps.join('\n');
+                    }
+                } catch (error) {
+                    // Silencieux
+                }
+            }, 600);
         });
 
         // Create project
@@ -1297,6 +1336,10 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
             // Récupérer les domaines autorisés
             const allowedDomainsText = document.getElementById('allowed_domains').value.trim();
             const allowedDomains = allowedDomainsText ? allowedDomainsText.split('\n').map(d => d.trim()).filter(d => d) : [];
+
+            // Récupérer les URLs de sitemap (une par ligne, optionnel)
+            const sitemapUrlsText = document.getElementById('sitemap_urls').value.trim();
+            const sitemapUrls = sitemapUrlsText ? sitemapUrlsText.split('\n').map(u => u.trim()).filter(u => u) : [];
             
             // Récupérer les headers HTTP personnalisés
             const customHeaders = {};
@@ -1345,6 +1388,7 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                 crawl_type: crawlType,
                 user_agent: document.getElementById('user_agent').value,
                 allowed_domains: allowedDomains,
+                sitemap_urls: sitemapUrls,
                 custom_headers: customHeaders,
                 http_auth: httpAuth,
                 extractors: extractors,
