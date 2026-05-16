@@ -131,6 +131,7 @@ $orderBy = preg_replace('/\bcategory\b/', 'c.cat_id', $orderBy);
 // Colonnes disponibles
 $availableColumns = [
     'url' => 'URL',
+    'domain' => __('url_explorer.field_domain'),
     'depth' => __('columns.depth'),
     'code' => __('columns.http_code'),
     'category' => __('columns.category'),
@@ -144,6 +145,11 @@ $availableColumns = [
     'noindex' => 'Noindex',
     'nofollow' => 'Nofollow',
     'blocked' => __('columns.blocked'),
+    'external' => __('url_explorer.field_external'),
+    'crawled' => __('url_explorer.field_crawled'),
+    'in_crawl' => __('url_explorer.field_in_crawl'),
+    'in_sitemap' => __('url_explorer.field_in_sitemap'),
+    'is_html' => __('url_explorer.field_is_html'),
     'redirect_to' => __('columns.redirect_to'),
     'content_type' => __('columns.content_type'),
     'pri' => 'PageRank',
@@ -258,6 +264,7 @@ if($componentId === 'main_explorer' && isset($_GET['sort'])) {
 // Mapper les colonnes vers leurs vraies colonnes SQL
 $columnMapping = [
     'url' => 'c.url',
+    'domain' => 'c.domain',
     'depth' => 'c.depth',
     'code' => 'c.code',
     'inlinks' => 'c.inlinks',
@@ -270,6 +277,11 @@ $columnMapping = [
     'noindex' => 'c.noindex',
     'nofollow' => 'c.nofollow',
     'blocked' => 'c.blocked',
+    'external' => 'c.external',
+    'crawled' => 'c.crawled',
+    'in_crawl' => 'c.in_crawl',
+    'in_sitemap' => 'c.in_sitemap',
+    'is_html' => 'c.is_html',
     'redirect_to' => 'c.redirect_to',
     'content_type' => 'c.content_type',
     'pri' => 'c.pri',
@@ -338,6 +350,7 @@ if($useSimplifiedMode) {
     // OPTIMISATION : Plus de jointure sur categories, on utilise le tableau PHP
     $sqlQuery = "SELECT
         c.url,
+        c.domain,
         c.depth,
         c.code,
         c.inlinks,
@@ -350,6 +363,11 @@ if($useSimplifiedMode) {
         c.noindex,
         c.nofollow,
         c.blocked,
+        c.external,
+        c.crawled,
+        c.in_crawl,
+        c.in_sitemap,
+        c.is_html,
         c.redirect_to,
         c.content_type,
         c.pri,
@@ -618,9 +636,13 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                             <td class="col-<?= $col ?>" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->$dataField ?? '') ?>">
                                 <?= htmlspecialchars($url->$dataField ?? '') ?>
                             </td>
-                        <?php elseif($renderCol === 'compliant' || $renderCol === 'canonical' || $renderCol === 'noindex' || $renderCol === 'nofollow' || $renderCol === 'blocked' || $renderCol === 'h1_multiple' || $renderCol === 'headings_missing'): ?>
+                        <?php elseif($renderCol === 'compliant' || $renderCol === 'canonical' || $renderCol === 'noindex' || $renderCol === 'nofollow' || $renderCol === 'blocked' || $renderCol === 'h1_multiple' || $renderCol === 'headings_missing' || $renderCol === 'external' || $renderCol === 'crawled' || $renderCol === 'in_crawl' || $renderCol === 'in_sitemap' || $renderCol === 'is_html'): ?>
                             <td class="col-<?= $col ?>" style="text-align: center;">
                                 <?= $url->$dataField ? '<span class="material-symbols-outlined" style="color: #6bd899; font-size: 1.2rem; opacity: 0.8;">check_circle</span>' : '<span class="material-symbols-outlined" style="color: #95a5a6; font-size: 1.2rem; opacity: 0.7;">cancel</span>' ?>
+                            </td>
+                        <?php elseif($renderCol === 'domain'): ?>
+                            <td class="col-<?= $col ?>" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->$dataField ?? '') ?>">
+                                <?= htmlspecialchars($url->$dataField ?? '') ?>
                             </td>
                         <?php elseif($renderCol === 'pri'): ?>
                             <td class="col-<?= $col ?>"><?= number_format(($url->$dataField ?? 0) * 100, 4) ?>%</td>

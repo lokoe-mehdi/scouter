@@ -261,7 +261,7 @@ $compNewCount = 0;
 $compLostCount = 0;
 $compCommonCount = 0;
 
-$comparisonPages = ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison', 'accessibility-comparison', 'seo-tags-comparison', 'headings-comparison', 'content-richness-comparison', 'duplication-comparison', 'structured-data-comparison', 'inlinks-comparison', 'outlinks-comparison', 'pagerank-comparison', 'pagerank-leak-comparison'];
+$comparisonPages = ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison', 'accessibility-comparison', 'sitemap-comparison', 'seo-tags-comparison', 'headings-comparison', 'content-richness-comparison', 'duplication-comparison', 'structured-data-comparison', 'inlinks-comparison', 'outlinks-comparison', 'pagerank-comparison', 'pagerank-leak-comparison'];
 
 if ($compareId && in_array($page ?? '', $comparisonPages)) {
     $comparisonScorecardsComputed = true;
@@ -485,6 +485,9 @@ function isSectionCollapsed($sectionName) {
                     break;
                 case 'depth-comparison':
                     include 'pages/depth-comparison.php';
+                    break;
+                case 'sitemap-comparison':
+                    include 'pages/sitemap-comparison.php';
                     break;
                 case 'accessibility-comparison':
                     include 'pages/accessibility-comparison.php';

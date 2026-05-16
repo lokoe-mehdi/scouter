@@ -228,6 +228,11 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
                 <span class="material-symbols-outlined">layers</span>
                 <span><?= __('sidebar.depth_levels') ?></span>
             </a>
+            <a href="?crawl=<?= $crawlId ?>&page=sitemap-comparison<?= $compareId ? '&compare=' . $compareId : '' ?>"
+               class="sidebar-panel-item <?= $page === 'sitemap-comparison' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">map</span>
+                <span><?= __('sidebar.sitemap') ?></span>
+            </a>
         </div>
 
         <!-- Contenu -->

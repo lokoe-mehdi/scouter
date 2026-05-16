@@ -14,6 +14,32 @@ $globalProjectCount = (int)$pdo->query("SELECT COUNT(*) FROM projects WHERE dele
 $globalCrawlCount = (int)$pdo->query("SELECT COUNT(*) FROM crawls WHERE status != 'deleting'")->fetchColumn();
 $globalDbSize = (int)$pdo->query("SELECT pg_database_size(current_database()) AS s")->fetchColumn();
 
+// Espace disque réel (jauge de stockage adaptative).
+// On mesure le FS root du conteneur web : dans un setup Docker classique le volume
+// Postgres vit sur le même disque physique que l'image, donc l'ordre de grandeur
+// est correct. Si la fonction échoue (sandbox restreinte), on retombe sur l'ancien
+// comportement à 50 Go.
+//
+// La jauge montre la part de la DB sur le disque total (fraction généralement
+// petite). La couleur passe en orange/rouge quand le disque arrive à saturation
+// — utile comme alerte indépendamment de la taille de la DB elle-même.
+$diskTotalSpace = @disk_total_space('/');
+$diskFreeSpace = @disk_free_space('/');
+$diskKnown = ($diskTotalSpace !== false && $diskTotalSpace > 0 && $diskFreeSpace !== false);
+if (!$diskKnown) {
+    $diskTotalSpace = 50 * 1073741824;
+    $diskFreeSpace = max(0, $diskTotalSpace - $globalDbSize);
+}
+$dbBarPct = $diskTotalSpace > 0 ? min(100, ($globalDbSize / $diskTotalSpace) * 100) : 0;
+$diskFreePct = $diskTotalSpace > 0 ? ($diskFreeSpace / $diskTotalSpace) * 100 : 100;
+if ($diskFreePct < 10) {
+    $diskBarBg = 'linear-gradient(90deg, #ef4444, #dc2626)';
+} elseif ($diskFreePct < 25) {
+    $diskBarBg = 'linear-gradient(90deg, #f59e0b, #d97706)';
+} else {
+    $diskBarBg = 'linear-gradient(90deg, var(--primary-color), #a78bfa)';
+}
+
 function monitorFormatBytes($bytes) {
     if ($bytes >= 1073741824) return round($bytes / 1073741824, 2) . ' GB';
     if ($bytes >= 1048576) return round($bytes / 1048576, 1) . ' MB';
@@ -256,8 +282,14 @@ usort($projects, fn($a, $b) => $b->size_bytes <=> $a->size_bytes);
                     <div class="mon-card-title"><span class="material-symbols-outlined">database</span> <?= __('monitor.storage') ?></div>
                     <div class="mon-db-size">
                         <div class="mon-db-value"><?= monitorFormatBytes($globalDbSize) ?></div>
-                        <div class="mon-db-bar"><div class="mon-db-bar-fill" style="width: <?= min(100, round($globalDbSize / (50 * 1073741824) * 100)) ?>%;"></div></div>
-                        <div class="mon-db-hint"><?= __('monitor.db_size_hint') ?></div>
+                        <div class="mon-db-bar"><div class="mon-db-bar-fill" style="width: <?= round($dbBarPct, 1) ?>%; background: <?= $diskBarBg ?>;"></div></div>
+                        <div class="mon-db-hint">
+                            <?= __('monitor.db_size_hint') ?>
+                            <?php if ($diskKnown): ?>
+                                <br>
+                                <?= str_replace(':free', monitorFormatBytes($diskFreeSpace), __('monitor.disk_free_hint')) ?>
+                            <?php endif; ?>
+                        </div>
                     </div>
                 </div>
 

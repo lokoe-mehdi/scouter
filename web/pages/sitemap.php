@@ -186,7 +186,7 @@ $crawlOnlyIndexable = (int)$crawlIndexableMissingStmt->fetchColumn();
         'defaultColumns' => ['url', 'code', 'depth', 'compliant'],
         'pdo'            => $pdo,
         'crawlId'        => $crawlId,
-        'perPage'        => 25,
+        'perPage'        => 10,
         'projectDir'     => $_GET['project'] ?? '',
     ]);
     ?>
@@ -200,10 +200,10 @@ $crawlOnlyIndexable = (int)$crawlIndexableMissingStmt->fetchColumn();
         'id'             => 'sitemap_non_indexable_table',
         'whereClause'    => 'WHERE c.in_sitemap = TRUE AND c.compliant = FALSE',
         'orderBy'        => 'ORDER BY c.code DESC, c.url ASC',
-        'defaultColumns' => ['url', 'code', 'noindex', 'canonical', 'redirect_to'],
+        'defaultColumns' => ['url', 'code', 'noindex', 'canonical', 'blocked', 'redirect_to'],
         'pdo'            => $pdo,
         'crawlId'        => $crawlId,
-        'perPage'        => 25,
+        'perPage'        => 10,
         'projectDir'     => $_GET['project'] ?? '',
     ]);
     ?>

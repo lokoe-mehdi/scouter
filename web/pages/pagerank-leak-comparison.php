@@ -83,12 +83,19 @@ $donutBaseData = [
     ['name' => __('pagerank_leak.series_external') . ' (' . __('comparison.badge_baseline') . ')', 'y' => $baseExternalPct, 'color' => hexToRgba('#d86b6b', 0.5)],
 ];
 
-$sqlDistDisplay = "SELECT
-    SUM(CASE WHEN external = true THEN pri ELSE 0 END) AS external_pr,
-    SUM(CASE WHEN external = false AND compliant = false THEN pri ELSE 0 END) AS non_indexable_pr,
-    SUM(CASE WHEN external = false AND compliant = true THEN pri ELSE 0 END) AS indexable_pr
-FROM pages
-WHERE (crawled = true OR external = true) AND in_crawl = TRUE";
+$sqlDistDisplay = "-- Reference crawl
+SELECT 'reference' AS source,
+       SUM(CASE WHEN external = true THEN pri ELSE 0 END) AS external_pr,
+       SUM(CASE WHEN external = false AND compliant = false THEN pri ELSE 0 END) AS non_indexable_pr,
+       SUM(CASE WHEN external = false AND compliant = true THEN pri ELSE 0 END) AS indexable_pr
+FROM pages@{$safeCrawlId} WHERE (crawled = true OR external = true) AND in_crawl = TRUE
+UNION ALL
+-- Baseline crawl
+SELECT 'baseline' AS source,
+       SUM(CASE WHEN external = true THEN pri ELSE 0 END) AS external_pr,
+       SUM(CASE WHEN external = false AND compliant = false THEN pri ELSE 0 END) AS non_indexable_pr,
+       SUM(CASE WHEN external = false AND compliant = true THEN pri ELSE 0 END) AS indexable_pr
+FROM pages@{$safeCompareId} WHERE (crawled = true OR external = true) AND in_crawl = TRUE";
 
 // =========================================
 // Top 10 external domains for both crawls
@@ -133,12 +140,22 @@ foreach ($allDomains as $domain) {
     $baseDomainValues[] = $baseDomainMap[$domain] ?? 0;
 }
 
-$sqlTopDomainsDisplay = "SELECT
-    COALESCE(SUBSTRING(url FROM '://([^/]+)'), SUBSTRING(url FROM '^([^/]+)')) AS domain,
-    COUNT(*) AS url_count,
-    SUM(pri) AS total_pr
-FROM pages
-WHERE external = true AND in_crawl = TRUE
+$sqlTopDomainsDisplay = "-- Reference crawl
+SELECT 'reference' AS source,
+       COALESCE(SUBSTRING(url FROM '://([^/]+)'), SUBSTRING(url FROM '^([^/]+)')) AS domain,
+       COUNT(*) AS url_count,
+       SUM(pri) AS total_pr
+FROM pages@{$safeCrawlId} WHERE external = true AND in_crawl = TRUE
+GROUP BY domain
+ORDER BY total_pr DESC
+LIMIT 10
+;
+-- Baseline crawl
+SELECT 'baseline' AS source,
+       COALESCE(SUBSTRING(url FROM '://([^/]+)'), SUBSTRING(url FROM '^([^/]+)')) AS domain,
+       COUNT(*) AS url_count,
+       SUM(pri) AS total_pr
+FROM pages@{$safeCompareId} WHERE external = true AND in_crawl = TRUE
 GROUP BY domain
 ORDER BY total_pr DESC
 LIMIT 10";

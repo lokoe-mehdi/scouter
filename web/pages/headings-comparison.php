@@ -60,6 +60,22 @@ $stmtBase = $pdo->prepare($sqlHeadingsStats);
 $stmtBase->execute([':crawl_id' => $safeCompareId]);
 $statsBase = $stmtBase->fetch(PDO::FETCH_OBJ);
 
+$sqlHeadingsStatsDisplay = "-- Reference crawl
+SELECT 'reference' AS source,
+       SUM(CASE WHEN h1_multiple = false THEN 1 ELSE 0 END) AS h1_unique_count,
+       SUM(CASE WHEN h1_multiple = true THEN 1 ELSE 0 END) AS h1_multiple_count,
+       SUM(CASE WHEN headings_missing = false THEN 1 ELSE 0 END) AS hn_ok_count,
+       SUM(CASE WHEN headings_missing = true THEN 1 ELSE 0 END) AS hn_missing_count
+FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE
+UNION ALL
+-- Baseline crawl
+SELECT 'baseline' AS source,
+       SUM(CASE WHEN h1_multiple = false THEN 1 ELSE 0 END) AS h1_unique_count,
+       SUM(CASE WHEN h1_multiple = true THEN 1 ELSE 0 END) AS h1_multiple_count,
+       SUM(CASE WHEN headings_missing = false THEN 1 ELSE 0 END) AS hn_ok_count,
+       SUM(CASE WHEN headings_missing = true THEN 1 ELSE 0 END) AS hn_missing_count
+FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE";
+
 $h1RefData = [
     ['name' => __('headings.series_h1_unique') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($statsRef->h1_unique_count ?? 0), 'color' => '#6bd899'],
     ['name' => __('headings.series_h1_multiple') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($statsRef->h1_multiple_count ?? 0), 'color' => '#d86b6b'],
@@ -252,7 +268,7 @@ ORDER BY cat_id";
         ],
         'height' => 350,
         'legendPosition' => 'bottom',
-        'sqlQuery' => $sqlHeadingsStats
+        'sqlQuery' => $sqlHeadingsStatsDisplay
     ]);
 
     Component::chart([
@@ -265,7 +281,7 @@ ORDER BY cat_id";
         ],
         'height' => 350,
         'legendPosition' => 'bottom',
-        'sqlQuery' => $sqlHeadingsStats
+        'sqlQuery' => $sqlHeadingsStatsDisplay
     ]);
     ?>
     </div>
