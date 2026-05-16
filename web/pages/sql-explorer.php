@@ -428,12 +428,12 @@ unset($q);
     margin-left: 0.25rem;
 }
 
-/* Bouton "Enregistrer la requête" — discret à côté d'Exécuter */
+/* Bouton "Enregistrer" — ghost (transparent), groupé avec les actions secondaires à droite */
 .save-query-btn {
-    background: white;
-    color: #4b5563;
-    border: 1px solid #d1d5db;
-    padding: 0.35rem 0.75rem;
+    background: transparent;
+    color: #6b7280;
+    border: none;
+    padding: 0.35rem 0.6rem;
     border-radius: 4px;
     font-weight: 500;
     font-size: 0.8rem;
@@ -442,13 +442,12 @@ unset($q);
     align-items: center;
     gap: 0.35rem;
     transition: all 0.15s;
-    margin-left: 0.5rem;
 }
 .save-query-btn:hover {
-    border-color: var(--primary-color);
+    background: rgba(0,0,0,0.04);
     color: var(--primary-color);
 }
-.save-query-btn .material-symbols-outlined { font-size: 18px; }
+.save-query-btn .material-symbols-outlined { font-size: 16px; }
 
 /* Modale Save Query */
 .sq-modal-overlay {
@@ -606,11 +605,12 @@ unset($q);
 /* Styles pour les onglets - plus compacts */
 .tabs-container {
     display: flex;
-    background: #eef1f5;
+    /* Fond fondu sur le canvas — plus de cassure grise sous les tabs */
+    background: #f1f3f6;
     overflow-x: auto;
     overflow-y: hidden;
     flex-shrink: 0;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid #e5e7eb;
     scrollbar-width: thin;
 }
 
@@ -633,7 +633,9 @@ unset($q);
     gap: 0.4rem;
     padding: 0.45rem 0.75rem;
     background: transparent;
-    border-right: 1px solid rgba(0,0,0,0.08);
+    /* Plus de séparation verticale entre les tabs : look "flat" */
+    border: none;
+    border-top: 2px solid transparent;
     cursor: pointer;
     font-size: 0.78rem;
     white-space: nowrap;
@@ -650,10 +652,12 @@ unset($q);
 }
 
 .tab.active {
+    /* L'onglet actif fusionne avec le fond blanc de l'éditeur, marqué par une
+       fine ligne verte en haut (style VS Code / Chrome DevTools) */
     background: var(--card-bg);
     color: var(--text-primary);
-    border-bottom: 2px solid var(--primary-color);
-    margin-bottom: -1px;
+    border-top: 2px solid var(--primary-color);
+    margin-bottom: -1px; /* recouvre la bordure du container pour fusion */
 }
 
 .tab-title {
@@ -1178,20 +1182,20 @@ unset($q);
 .query-item-action .material-symbols-outlined { font-size: 14px; }
 
 .query-item {
-    padding: 0.5rem 0.75rem;
-    padding-left: 0.6rem;
+    padding: 0.35rem 0.75rem;
+    /* Indentation pour montrer la hiérarchie parent (accordéon) > enfant (requête) */
+    padding-left: 2rem;
     cursor: pointer;
     transition: background-color 0.15s;
-    border-bottom: 1px solid rgba(0,0,0,0.04);
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 0.5rem;
 }
 
 .query-item .query-icon {
-    font-size: 14px;
-    color: #9CA3AF;
-    margin-top: 2px;
+    font-size: 13px;
+    /* Très clair au repos : ne doit pas attirer l'œil plus que le texte */
+    color: #d1d5db;
     flex-shrink: 0;
 }
 
@@ -1217,20 +1221,14 @@ unset($q);
     font-size: 0.78rem;
     font-weight: 500;
     color: var(--text-primary);
-    margin-bottom: 0.15rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.query-description {
-    font-size: 0.68rem;
-    color: var(--text-secondary);
-    line-height: 1.2;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
+/* Descriptions retirées de la liste (trop dense) — visible en tooltip natif
+   via l'attribut title="..." sur .query-item */
+.query-description { display: none; }
 
 .query-item:hover .query-description {
     color: var(--text-primary);
@@ -1243,23 +1241,24 @@ unset($q);
 }
 
 .sql-results-container {
-    background: #F9FAFB;
+    background: white;
     flex: 1;
     overflow: hidden;
     display: flex;
     flex-direction: column;
     min-height: 0;
-    border-top: 1px solid var(--border-color);
+    /* Simple ligne fine séparatrice entre éditeur et résultats — pas de bandeau */
+    border-top: 1px solid #e5e7eb;
 }
 
-/* Toolbar de résultats fine */
+/* Toolbar de résultats : fond blanc, bordure très discrète */
 .sql-results-toolbar {
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 0.35rem 0.75rem;
-    background: #f8f9fb;
-    border-bottom: 1px solid var(--border-color);
+    background: white;
+    border-bottom: 1px solid #f1f3f6;
     flex-shrink: 0;
 }
 
@@ -1634,12 +1633,12 @@ unset($q);
                         <?= __('sql_explorer.execute') ?>
                         <span class="shortcut">Ctrl+Enter</span>
                     </button>
+                </div>
+                <div class="toolbar-right">
                     <button class="save-query-btn" onclick="openSaveQueryModal()" title="<?= __('sql_explorer.save_query') ?>">
                         <span class="material-symbols-outlined">save</span>
                         <?= __('sql_explorer.save_query') ?>
                     </button>
-                </div>
-                <div class="toolbar-right">
                     <button class="help-btn" onclick="showSQLHelp()" title="<?= __('sql_explorer.sql_help') ?>">
                         <span class="material-symbols-outlined">help</span>
                     </button>
