@@ -281,7 +281,9 @@ class PageCrawler
                     'anchor' => $link->anchor ?? '',
                     'type' => 'ahref',
                     'external' => (bool)$link->external,
-                    'nofollow' => (bool)$link->nofollow
+                    'nofollow' => (bool)$link->nofollow,
+                    'xpath' => $link->xpath ?? null,
+                    'position' => $link->position ?? 'Content',
                 ];
 
                 preg_match("#https?:\/\/([^/\?]+)#i", $link->target, $dom);

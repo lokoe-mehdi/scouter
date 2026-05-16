@@ -45,11 +45,11 @@ class LinkRepository
     public function insert(array $data): void
     {
         $stmt = $this->db->prepare("
-            INSERT INTO links (crawl_id, src, target, anchor, type, external, nofollow)
-            VALUES (:crawl_id, :src, :target, :anchor, :type, :external, :nofollow)
+            INSERT INTO links (crawl_id, src, target, anchor, type, external, nofollow, xpath, position)
+            VALUES (:crawl_id, :src, :target, :anchor, :type, :external, :nofollow, :xpath, :position)
             ON CONFLICT (crawl_id, src, target) DO NOTHING
         ");
-        
+
         $stmt->execute([
             ':crawl_id' => $this->crawlId,
             ':src' => $data['src'],
@@ -57,7 +57,9 @@ class LinkRepository
             ':anchor' => $data['anchor'] ?? '',
             ':type' => $data['type'] ?? 'ahref',
             ':external' => $this->toBool($data['external'] ?? false),
-            ':nofollow' => $this->toBool($data['nofollow'] ?? false)
+            ':nofollow' => $this->toBool($data['nofollow'] ?? false),
+            ':xpath' => $data['xpath'] ?? null,
+            ':position' => $data['position'] ?? 'Content',
         ]);
     }
 
@@ -67,16 +69,16 @@ class LinkRepository
     public function insertBatch(array $links): void
     {
         if (empty($links)) return;
-        
+
         $chunks = array_chunk($links, 100);
-        
+
         foreach ($chunks as $chunk) {
             $values = [];
             $params = [];
             $i = 0;
-            
+
             foreach ($chunk as $link) {
-                $values[] = "(:crawl_id{$i}, :src{$i}, :target{$i}, :anchor{$i}, :type{$i}, :external{$i}, :nofollow{$i})";
+                $values[] = "(:crawl_id{$i}, :src{$i}, :target{$i}, :anchor{$i}, :type{$i}, :external{$i}, :nofollow{$i}, :xpath{$i}, :position{$i})";
                 $params[":crawl_id{$i}"] = $this->crawlId;
                 $params[":src{$i}"] = $link['src'];
                 $params[":target{$i}"] = $link['target'];
@@ -84,13 +86,15 @@ class LinkRepository
                 $params[":type{$i}"] = $link['type'] ?? 'ahref';
                 $params[":external{$i}"] = $this->toBool($link['external'] ?? false);
                 $params[":nofollow{$i}"] = $this->toBool($link['nofollow'] ?? false);
+                $params[":xpath{$i}"] = $link['xpath'] ?? null;
+                $params[":position{$i}"] = $link['position'] ?? 'Content';
                 $i++;
             }
-            
-            $sql = "INSERT INTO links (crawl_id, src, target, anchor, type, external, nofollow) VALUES " 
-                 . implode(', ', $values) 
+
+            $sql = "INSERT INTO links (crawl_id, src, target, anchor, type, external, nofollow, xpath, position) VALUES "
+                 . implode(', ', $values)
                  . " ON CONFLICT (crawl_id, src, target) DO NOTHING";
-            
+
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
         }

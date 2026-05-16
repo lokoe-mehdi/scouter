@@ -526,8 +526,10 @@ class Page
     private function parse()
     {
         $time = microtime(true);
-        // Utiliser le DOM UTF-8 directement pour préserver les caractères internationaux
-        $links = HtmlParser::xpathExtractTree("//a", ["target"=>"@href","anchor"=>".","rel"=>"@rel"], $this->dom);
+        // Utiliser le DOM UTF-8 directement pour préserver les caractères internationaux.
+        // extractLinksWithPosition retourne aussi l'XPath enrichi et la position
+        // sémantique du lien (Navigation/Header/Footer/Aside/Content).
+        $links = HtmlParser::extractLinksWithPosition($this->dom);
         $extracts = [];
         foreach($links as $link)
         {
@@ -583,7 +585,9 @@ class Page
                     "external" => $external,
                     "anchor" => $link["anchor"],
                     "nofollow" => $nofollow,
-                    "blocked" => $blocked
+                    "blocked" => $blocked,
+                    "xpath" => $link["xpath"] ?? null,
+                    "position" => $link["position"] ?? 'Content'
                 ];
             }
         }

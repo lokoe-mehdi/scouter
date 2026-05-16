@@ -186,6 +186,8 @@ CREATE TABLE pages (
 ) PARTITION BY LIST (crawl_id);
 
 -- Table links partitionnée par crawl_id
+-- xpath    : XPath enrichi du <a> (tags + class/id des ancêtres) ; NULL si l'extraction a échoué
+-- position : classification sémantique (Navigation, Header, Footer, Aside, Content)
 CREATE TABLE links (
     crawl_id INTEGER NOT NULL REFERENCES crawls(id) ON DELETE CASCADE,
     src CHAR(8) NOT NULL,
@@ -194,6 +196,8 @@ CREATE TABLE links (
     external BOOLEAN DEFAULT FALSE,
     nofollow BOOLEAN DEFAULT FALSE,
     type VARCHAR(50),
+    xpath TEXT,
+    position VARCHAR(20) NOT NULL DEFAULT 'Content',
     PRIMARY KEY (crawl_id, src, target)
 ) PARTITION BY LIST (crawl_id);
 
@@ -312,6 +316,7 @@ BEGIN
         EXECUTE format('CREATE INDEX IF NOT EXISTS idx_links_%s_external ON links_%s(external)', p_crawl_id, p_crawl_id);
         EXECUTE format('CREATE INDEX IF NOT EXISTS idx_links_%s_nofollow ON links_%s(nofollow)', p_crawl_id, p_crawl_id);
         EXECUTE format('CREATE INDEX IF NOT EXISTS idx_links_%s_type ON links_%s(type)', p_crawl_id, p_crawl_id);
+        EXECUTE format('CREATE INDEX IF NOT EXISTS idx_links_%s_position ON links_%s(position)', p_crawl_id, p_crawl_id);
         
         -- Partition pour html
         EXECUTE format('CREATE TABLE IF NOT EXISTS html_%s PARTITION OF html FOR VALUES IN (%s)', p_crawl_id, p_crawl_id);
