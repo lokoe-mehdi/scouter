@@ -368,6 +368,14 @@ class CrawlController extends Controller
             . (isset($parts['port']) ? ':' . $parts['port'] : '');
         $robotsUrl = $origin . '/robots.txt';
 
+        // Anti-SSRF : refuse les hôtes qui résolvent vers une IP privée/loopback/metadata
+        try {
+            \App\Util\SafeHttp::validate($robotsUrl);
+        } catch (\RuntimeException $e) {
+            $this->success(['sitemaps' => []]);
+            return;
+        }
+
         $ch = curl_init($robotsUrl);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
@@ -378,8 +386,16 @@ class CrawlController extends Controller
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_USERAGENT      => 'Mozilla/5.0 (compatible; Scouter-RobotsProbe/1.0)',
         ]);
+        \App\Util\SafeHttp::applyCurlSecurity($ch);  // restrict protocoles à http(s)
         $body = curl_exec($ch);
         $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        try {
+            \App\Util\SafeHttp::validateFinalIp($ch);  // catch un redirect 302 vers IP privée
+        } catch (\RuntimeException $e) {
+            curl_close($ch);
+            $this->success(['sitemaps' => []]);
+            return;
+        }
         curl_close($ch);
 
         if ($body === false || $httpCode < 200 || $httpCode >= 300 || !is_string($body)) {

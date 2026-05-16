@@ -347,7 +347,7 @@ foreach ($codeByCategory as $row) {
         'id' => 'codes_links',
         'whereClause' => 'WHERE ct.code != 200 AND ct.crawled = true AND ct.in_crawl = TRUE',
         'orderBy' => 'ORDER BY ct.code DESC, ct.inlinks DESC',
-        'defaultColumns' => ['url', 'code', 'type', 'anchor', 'nofollow'],
+        'defaultColumns' => ['url', 'code', 'type', 'position', 'anchor', 'nofollow'],
         'pdo' => $pdo,
         'crawlId' => $crawlId,
         'perPage' => 10,

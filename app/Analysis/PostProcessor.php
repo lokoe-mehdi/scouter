@@ -991,7 +991,7 @@ class PostProcessor
             'crawl_speed'          => $general['crawl_speed'] ?? 'fast',
             'crawl_mode'           => 'classic', // sitemap-only fetch always uses classic mode (JS rendering of 50k pages is unrealistic)
             'crawl_type'           => 'spider',
-            'user-agent'           => $general['user-agent'] ?? 'Scouter/0.3',
+            'user-agent'           => $general['user-agent'] ?? 'Scouter/0.6',
             'customHeaders'        => $advanced['custom_headers'] ?? [],
             'httpAuth'             => $httpAuth,
             'follow_redirects'     => $advanced['follow_redirects'] ?? true,

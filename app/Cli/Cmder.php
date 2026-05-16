@@ -101,7 +101,7 @@ class Cmder
     $config = $data['advanced'] ?? [];
     $config['crawl_speed'] = $data['general']['crawl_speed'] ?? 'fast';
     $config['crawl_mode'] = $data['general']['crawl_mode'] ?? 'classic';
-    $config['user-agent'] = $data['general']['user-agent'] ?? 'Scouter/0.3 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)';
+    $config['user-agent'] = $data['general']['user-agent'] ?? 'Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)';
     
     // INJECTION DES VARIABLES D'ENVIRONNEMENT (WORKER)
     // Si ces variables sont présentes (injectées par le worker), elles surchargent la config

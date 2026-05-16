@@ -144,6 +144,41 @@ function buildFilterConditions($items, &$params, &$paramCounter = 0) {
                         $params[$paramName] = $value;
                     }
                     break;
+
+                case 'position':
+                    // Enum link-level (Navigation/Header/Footer/Aside/Content), multi-valeurs
+                    if(is_array($value)) {
+                        $placeholders = [];
+                        foreach($value as $v) {
+                            $paramName = ':pos_' . $paramCounter++;
+                            $placeholders[] = $paramName;
+                            $params[$paramName] = $v;
+                        }
+                        $condition = "l.position IN (" . implode(',', $placeholders) . ")";
+                    } else {
+                        $paramName = ':pos_' . $paramCounter++;
+                        $condition = "l.position = {$paramName}";
+                        $params[$paramName] = $value;
+                    }
+                    break;
+
+                case 'xpath':
+                    // Filtre texte sur l'XPath du lien (contains / regex)
+                    $paramName = ':xpath_' . $paramCounter++;
+                    if($operator === 'contains') {
+                        $condition = "l.xpath ILIKE {$paramName}";
+                        $params[$paramName] = '%' . $value . '%';
+                    } elseif($operator === 'not_contains') {
+                        $condition = "(l.xpath NOT ILIKE {$paramName} OR l.xpath IS NULL)";
+                        $params[$paramName] = '%' . $value . '%';
+                    } elseif($operator === 'regex') {
+                        $condition = "l.xpath ~* {$paramName}";
+                        $params[$paramName] = $value;
+                    } elseif($operator === 'not_regex') {
+                        $condition = "(l.xpath !~* {$paramName} OR l.xpath IS NULL)";
+                        $params[$paramName] = $value;
+                    }
+                    break;
                     
                 case 'url':
                     $paramName = ':url_' . $paramCounter++;
@@ -957,6 +992,12 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
         <div class="popover-field-item" onclick="addSelfLinkFilter()">
             <span class="material-symbols-outlined">sync</span> <?= __('link_explorer.field_self_link') ?>
         </div>
+        <div class="popover-field-item" onclick="selectField('position', 'link')">
+            <span class="material-symbols-outlined">my_location</span> <?= __('link_explorer.field_position') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('xpath', 'link')">
+            <span class="material-symbols-outlined">account_tree</span> <?= __('link_explorer.field_xpath') ?>
+        </div>
 
         <div class="popover-section-title"><?= __('link_explorer.section_page_source_target') ?></div>
         <div class="popover-field-item" onclick="selectField('url', 'page')">
@@ -1093,6 +1134,9 @@ const fieldConfig = {
     link_nofollow: { label: __('link_explorer.field_dofollow_nofollow'), icon: 'link_off', type: 'dofollow_nofollow', scope: 'link' },
     type: { label: __('link_explorer.field_link_type'), icon: 'category', type: 'link_type', scope: 'link', values: ['ahref', 'canonical', 'redirect'] },
     self_link: { label: 'Self-link', icon: 'sync', type: 'instant', scope: 'link' },
+    // Position sémantique du lien dans la page (réutilise le widget enum multi-select de `link_type`)
+    position: { label: __('link_explorer.field_position'), icon: 'my_location', type: 'link_type', scope: 'link', values: ['Navigation', 'Header', 'Footer', 'Aside', 'Content'] },
+    xpath: { label: __('link_explorer.field_xpath'), icon: 'account_tree', type: 'text', scope: 'link', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
     // Champs liés à la page (source ou target)
     url: { label: 'URL', icon: 'link', type: 'text', scope: 'page', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
     category: { label: __('link_explorer.field_category'), icon: 'label', type: 'category', scope: 'page', operators: ['in', 'not_in'] },
@@ -1598,15 +1642,19 @@ function openConfigPopover(field, existingChip = null) {
         `;
     } else if (config.type === 'link_type') {
         const selectedValues = Array.isArray(existingChip?.value) ? existingChip.value : (existingChip?.value ? [existingChip.value] : []);
+        // Le widget link_type est aussi réutilisé par d'autres enums (e.g. position) :
+        // on adapte le label de section et on garde un fallback sur la valeur brute
+        // si elle n'a pas d'entrée dans linkTypeLabels.
+        const sectionLabel = (field === 'position') ? config.label : __('link_explorer.label_link_types');
         html += `
             <div class="popover-row">
-                <label class="popover-label">${__('link_explorer.label_link_types')}</label>
+                <label class="popover-label">${sectionLabel}</label>
                 <div class="styled-checkbox-list" style="max-height: 140px;">
                     ${config.values.map(v => `
                         <label class="styled-checkbox-item">
                             <input type="checkbox" class="link-type-checkbox" value="${v}" ${selectedValues.includes(v) ? 'checked' : ''}>
                             <span class="checkbox-box"><span class="material-symbols-outlined">check</span></span>
-                            <span class="checkbox-label">${linkTypeLabels[v]}</span>
+                            <span class="checkbox-label">${linkTypeLabels[v] || v}</span>
                         </label>
                     `).join('')}
                 </div>

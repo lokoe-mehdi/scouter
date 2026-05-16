@@ -59,6 +59,45 @@ foreach ($prByCategoryRaw as $row) {
     $prByCategory[] = $row;
 }
 
+// Répartition du PageRank transmis, par position de lien.
+// PR transmis par un lien = pri(source) / N, où N = nombre de liens UNIQUES
+// de la page source dans la table `links` (la PK (crawl_id, src, target)
+// déduplique les liens). On ne peut PAS utiliser pages.outlinks comme
+// dénominateur car cette colonne compte les liens bruts avant dédup, donc
+// notre somme finissait à ~0.3 au lieu de ~1.
+//
+// On normalise ensuite en pourcentage côté PHP pour que le donut totalise
+// 100% — la métrique pertinente ici est la part relative entre positions.
+// Note: crawl_id de la subquery est inliné (int safe) plutôt que via placeholder
+// — sinon le cleanSqlForExplorer du SQL viewer ne reconnaît pas un nom autre
+// que `:crawl_id` exact et envoie un placeholder non bindé à Postgres.
+$crawlIdInt = intval($crawlId);
+$sqlPrByLinkPosition = "
+    SELECT
+        l.position,
+        COALESCE(SUM(ps.pri / NULLIF(slc.n, 0)), 0) AS sum_pr
+    FROM links l
+    INNER JOIN pages ps ON ps.crawl_id = l.crawl_id AND ps.id = l.src AND ps.in_crawl = TRUE
+    INNER JOIN (
+        SELECT src, COUNT(*) AS n
+        FROM links
+        WHERE crawl_id = {$crawlIdInt}
+        GROUP BY src
+    ) slc ON slc.src = l.src
+    WHERE l.crawl_id = :crawl_id
+    GROUP BY l.position
+    ORDER BY sum_pr DESC
+";
+$stmt = $pdo->prepare($sqlPrByLinkPosition);
+$stmt->execute([':crawl_id' => $crawlId]);
+$prByLinkPosition = $stmt->fetchAll(PDO::FETCH_OBJ);
+
+// Normalisation en pourcentage (somme = 100%)
+$totalPrPosition = array_sum(array_map(fn($r) => (float)$r->sum_pr, $prByLinkPosition));
+foreach ($prByLinkPosition as $r) {
+    $r->pct = $totalPrPosition > 0 ? round(((float)$r->sum_pr / $totalPrPosition) * 100, 2) : 0;
+}
+
 // ============================================================================
 // SANKEY : Flux de liens entre catégories
 // Compte simplement les liens internes dofollow entre catégories
@@ -285,9 +324,38 @@ usort($sankeyNodes, function($a, $b) use ($linksByCategory) {
         ?>
     </div>
 
+    <!-- Donut Position (gauche) + Bar Catégorie (droite), côte à côte -->
+    <div class="charts-grid">
     <?php
-    // Horizontal bar chart - PageRank moyen par catégorie avec couleurs personnalisées
-    
+    // Donut : répartition du PageRank distribué par position de lien
+    $positionColors = [
+        'Navigation' => '#4ECDC4',
+        'Header'     => '#45B7D1',
+        'Footer'     => '#FF6B6B',
+        'Aside'      => '#FFEAA7',
+        'Content'    => '#6bd899',
+    ];
+    Component::chart([
+        'type'     => 'donut',
+        'title'    => __('pagerank.chart_position_title'),
+        'subtitle' => __('pagerank.chart_position_desc'),
+        'series'   => [
+            [
+                'name' => __('pagerank.label_sum_pr'),
+                'data' => array_map(function($r) use ($positionColors) {
+                    return [
+                        'name'  => $r->position,
+                        'y'     => $r->pct,
+                        'color' => $positionColors[$r->position] ?? '#95a5a6',
+                    ];
+                }, $prByLinkPosition),
+            ],
+        ],
+        'height'   => 400,
+        'sqlQuery' => $sqlPrByLinkPosition,
+    ]);
+
+    // Horizontal bar - PageRank moyen par catégorie
     Component::chart([
         'type' => 'horizontalBar',
         'title' => __('pagerank.chart_category_avg'),
@@ -303,7 +371,10 @@ usort($sankeyNodes, function($a, $b) use ($linksByCategory) {
         'height' => 400,
         'sqlQuery' => $sqlPrByCategory
     ]);
-    
+    ?>
+    </div>
+
+    <?php
     // Diagramme Sankey - Flux de liens entre catégories
     if (!empty($sankeyData)):
     Component::chart([

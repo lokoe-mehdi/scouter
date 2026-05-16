@@ -49,8 +49,14 @@ class JsRenderer
      */
     public function render(string $url, array $headers = []): string
     {
+        // Anti-SSRF : valide l'URL utilisateur AVANT de la passer au renderer Go.
+        // Le renderer va déclencher un fetch HTTP via Chrome headless avec cette URL ;
+        // si on ne valide pas ici, un utilisateur peut faire crawler les services
+        // internes (postgres, AWS metadata 169.254.169.254, etc.).
+        \App\Util\SafeHttp::validate($url);
+
         $endpoint = rtrim($this->serviceUrl, '/') . '/render';
-        
+
         $payload = json_encode([
             'url' => $url,
             'headers' => $headers
