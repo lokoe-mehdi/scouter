@@ -47,7 +47,6 @@ class LinkRepository
         $stmt = $this->db->prepare("
             INSERT INTO links (crawl_id, src, target, anchor, type, external, nofollow, xpath, position)
             VALUES (:crawl_id, :src, :target, :anchor, :type, :external, :nofollow, :xpath, :position)
-            ON CONFLICT (crawl_id, src, target) DO NOTHING
         ");
 
         $stmt->execute([
@@ -93,7 +92,7 @@ class LinkRepository
 
             $sql = "INSERT INTO links (crawl_id, src, target, anchor, type, external, nofollow, xpath, position) VALUES "
                  . implode(', ', $values)
-                 . " ON CONFLICT (crawl_id, src, target) DO NOTHING";
+                 ;
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);

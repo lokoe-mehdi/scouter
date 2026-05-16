@@ -270,7 +270,6 @@ class CrawlDatabase
             $stmt = $pdo->prepare("
                 INSERT INTO links (crawl_id, src, target, anchor, type, external, nofollow, xpath, position)
                 VALUES (:crawl_id, :src, :target, :anchor, :type, :external, :nofollow, :xpath, :position)
-                ON CONFLICT (crawl_id, src, target) DO NOTHING
             ");
             $stmt->execute($params);
         });
@@ -308,7 +307,7 @@ class CrawlDatabase
 
             $sql = "INSERT INTO links (crawl_id, src, target, anchor, type, external, nofollow, xpath, position) VALUES "
                  . implode(', ', $values)
-                 . " ON CONFLICT (crawl_id, src, target) DO NOTHING";
+                 ;
             
             // Retry sur deadlock
             $this->executeWithRetry($this->db, function($pdo) use ($sql, $params) {

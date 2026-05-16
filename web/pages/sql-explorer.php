@@ -72,44 +72,73 @@ foreach ($virtualToReal as $virtual => $real) {
 $initialQuery = isset($_GET['query']) ? $_GET['query'] : 'SELECT * FROM pages LIMIT 100';
 
 // Requêtes pré-enregistrées (adaptées pour PostgreSQL)
+// Convention : chaque entrée porte un `category_key` machine-friendly (utilisé
+// par le filtre JS) + un `category` traduit (affiché à l'utilisateur).
 $savedQueries = [
-    [
-        'name' => __('sql_explorer.query_response_codes'),
-        'description' => __('sql_explorer.query_response_codes_desc'),
-        'category' => __('sql_explorer.cat_analysis'),
-        'query' => "SELECT\n\tcode,\n\tCOUNT(url) AS urls\nFROM pages\nWHERE crawled = true\nGROUP BY code\nORDER BY urls DESC"
-    ],
-    [
-        'name' => __('sql_explorer.query_depth_distribution'),
-        'description' => __('sql_explorer.query_depth_distribution_desc'),
-        'category' => __('sql_explorer.cat_analysis'),
-        'query' => "SELECT\n\tdepth,\n\tCOUNT(url) AS urls\nFROM pages\nWHERE compliant = true\nGROUP BY depth\nORDER BY depth ASC"
-    ],
-    [
-        'name' => __('sql_explorer.query_top_pagerank'),
-        'description' => __('sql_explorer.query_top_pagerank_desc'),
-        'category' => __('sql_explorer.cat_seo'),
-        'query' => "SELECT\n\turl,\n\tpri AS pagerank,\n\tinlinks,\n\tcode\nFROM pages\nWHERE crawled = true AND compliant = true\nORDER BY pagerank DESC\nLIMIT 20"
-    ],
-    [
-        'name' => __('sql_explorer.query_all_links'),
-        'description' => __('sql_explorer.query_all_links_desc'),
-        'category' => __('sql_explorer.cat_links'),
-        'query' => "SELECT\n\ts.url AS source_url,\n\tcs.cat AS source_cat,\n\tt.url AS target_url,\n\tct.cat AS target_cat,\n\tl.anchor,\n\tl.type,\n\tl.external,\n\tl.nofollow\nFROM links l\nLEFT JOIN pages s ON l.src = s.id\nLEFT JOIN pages t ON l.target = t.id\nLEFT JOIN categories cs ON cs.id = s.cat_id\nLEFT JOIN categories ct ON ct.id = t.cat_id\nLIMIT 100"
-    ],
-    [
-        'name' => __('sql_explorer.query_non_indexable'),
-        'description' => __('sql_explorer.query_non_indexable_desc'),
-        'category' => __('sql_explorer.cat_seo'),
-        'query' => "SELECT\n\turl,\n\tcode,\n\tblocked,\n\tnoindex,\n\tcanonical\nFROM pages\nWHERE crawled = true AND compliant = false"
-    ],
-    [
-        'name' => __('sql_explorer.query_by_category'),
-        'description' => __('sql_explorer.query_by_category_desc'),
-        'category' => __('sql_explorer.cat_analysis'),
-        'query' => "SELECT\n\tc.cat AS category,\n\tCOUNT(*) AS urls\nFROM pages p\nLEFT JOIN categories c ON c.id = p.cat_id\nWHERE p.crawled = true\nGROUP BY category\nORDER BY urls DESC"
-    ]
+    // === INDEXABILITÉ ===
+    ['key' => 'response_codes',         'category_key' => 'indexability', 'query' => "SELECT\n\tcode,\n\tCOUNT(url) AS urls\nFROM pages\nWHERE crawled = true\nGROUP BY code\nORDER BY urls DESC"],
+    ['key' => 'non_indexable_reasons',  'category_key' => 'indexability', 'query' => "SELECT\n\tCASE\n\t\tWHEN code != 200 AND code IS NOT NULL THEN 'Bad status'\n\t\tWHEN noindex = true THEN 'Noindex'\n\t\tWHEN canonical = false THEN 'Non canonical'\n\t\tWHEN blocked = true THEN 'Blocked by robots.txt'\n\t\tELSE 'Other'\n\tEND AS reason,\n\tCOUNT(*) AS urls\nFROM pages\nWHERE compliant = false AND external = false\nGROUP BY reason\nORDER BY urls DESC"],
+    ['key' => 'canonical_different',    'category_key' => 'indexability', 'query' => "SELECT\n\turl,\n\tcanonical_value\nFROM pages\nWHERE crawled = true\n  AND canonical_value IS NOT NULL\n  AND canonical_value != ''\n  AND canonical_value != url\nORDER BY url\nLIMIT 100"],
+    ['key' => 'pages_4xx_linked',       'category_key' => 'indexability', 'query' => "SELECT\n\tp.url,\n\tp.code,\n\tCOUNT(l.src) AS inlinks_count\nFROM pages p\nINNER JOIN links l ON l.target = p.id AND l.external = false\nWHERE p.code >= 400 AND p.code < 500\nGROUP BY p.url, p.code\nORDER BY inlinks_count DESC\nLIMIT 50"],
+    ['key' => 'pages_5xx',              'category_key' => 'indexability', 'query' => "SELECT\n\turl,\n\tcode,\n\tdepth\nFROM pages\nWHERE code >= 500 AND code < 600\nORDER BY code, url\nLIMIT 100"],
+    ['key' => 'out_of_scope',           'category_key' => 'indexability', 'query' => "SELECT\n\turl,\n\tdepth,\n\tinlinks\nFROM pages\nWHERE external = false AND blocked = false AND crawled = false\nORDER BY inlinks DESC\nLIMIT 100"],
+
+    // === MAILLAGE INTERNE ===
+    ['key' => 'orphan_pages',           'category_key' => 'internal_linking', 'query' => "SELECT\n\turl,\n\tdepth,\n\tcode\nFROM pages\nWHERE compliant = true AND inlinks = 0 AND depth > 0\nORDER BY depth\nLIMIT 100"],
+    ['key' => 'single_inlink',          'category_key' => 'internal_linking', 'query' => "SELECT\n\turl,\n\tdepth,\n\tinlinks\nFROM pages\nWHERE compliant = true AND inlinks = 1\nORDER BY url\nLIMIT 100"],
+    ['key' => 'top_inlinks',            'category_key' => 'internal_linking', 'query' => "SELECT\n\turl,\n\tinlinks,\n\tpri AS pagerank\nFROM pages\nWHERE crawled = true AND compliant = true\nORDER BY inlinks DESC\nLIMIT 50"],
+    ['key' => 'top_anchors',            'category_key' => 'internal_linking', 'query' => "SELECT\n\tanchor,\n\tCOUNT(*) AS occurrences\nFROM links\nWHERE anchor IS NOT NULL AND anchor != ''\nGROUP BY anchor\nORDER BY occurrences DESC\nLIMIT 50"],
+    ['key' => 'links_by_position',      'category_key' => 'internal_linking', 'query' => "SELECT\n\tposition,\n\tCOUNT(*) AS links_count\nFROM links\nGROUP BY position\nORDER BY links_count DESC"],
+    ['key' => 'internal_nofollow',      'category_key' => 'internal_linking', 'query' => "SELECT\n\ts.url AS source,\n\tt.url AS target,\n\tl.anchor,\n\tl.position\nFROM links l\nLEFT JOIN pages s ON l.src = s.id\nLEFT JOIN pages t ON l.target = t.id\nWHERE l.external = false AND l.nofollow = true\nLIMIT 100"],
+    ['key' => 'internal_links_to_4xx',  'category_key' => 'internal_linking', 'query' => "SELECT\n\ts.url AS source,\n\tt.url AS target,\n\tt.code,\n\tl.anchor,\n\tl.position\nFROM links l\nINNER JOIN pages s ON l.src = s.id\nINNER JOIN pages t ON l.target = t.id\nWHERE l.external = false\n  AND t.code >= 400 AND t.code < 500\nORDER BY t.code, s.url\nLIMIT 100"],
+    ['key' => 'high_outlinks',          'category_key' => 'internal_linking', 'query' => "SELECT\n\turl,\n\toutlinks,\n\tinlinks\nFROM pages\nWHERE crawled = true AND outlinks > 100\nORDER BY outlinks DESC\nLIMIT 50"],
+
+    // === PAGERANK ===
+    ['key' => 'top_pagerank',           'category_key' => 'pagerank', 'query' => "SELECT\n\turl,\n\tpri AS pagerank,\n\tinlinks,\n\toutlinks\nFROM pages\nWHERE crawled = true AND compliant = true\nORDER BY pagerank DESC\nLIMIT 50"],
+    ['key' => 'high_pr_non_indexable',  'category_key' => 'pagerank', 'query' => "SELECT\n\turl,\n\tpri AS pagerank,\n\tcode,\n\tnoindex,\n\tcanonical,\n\tblocked\nFROM pages\nWHERE crawled = true AND compliant = false AND pri > 0\nORDER BY pagerank DESC\nLIMIT 50"],
+    ['key' => 'pr_leak_external',       'category_key' => 'pagerank', 'query' => "SELECT\n\tCOALESCE(SUBSTRING(url FROM '://([^/]+)'), 'unknown') AS domain,\n\tCOUNT(*) AS link_count,\n\tSUM(pri) AS total_pr\nFROM pages\nWHERE external = true\nGROUP BY domain\nORDER BY total_pr DESC\nLIMIT 30"],
+    ['key' => 'dead_end_with_pr',       'category_key' => 'pagerank', 'query' => "SELECT\n\tp.url,\n\tp.pri AS pagerank\nFROM pages p\nWHERE p.crawled = true\n  AND p.pri > 0\n  AND NOT EXISTS (SELECT 1 FROM links l WHERE l.src = p.id)\nORDER BY pagerank DESC\nLIMIT 50"],
+
+    // === SEO TAGS ===
+    ['key' => 'duplicate_titles',       'category_key' => 'seo_tags', 'query' => "SELECT\n\ttitle,\n\tCOUNT(*) AS pages_count\nFROM pages\nWHERE crawled = true AND title IS NOT NULL AND title != ''\nGROUP BY title\nHAVING COUNT(*) > 1\nORDER BY pages_count DESC\nLIMIT 50"],
+    ['key' => 'bad_length_titles',      'category_key' => 'seo_tags', 'query' => "SELECT\n\turl,\n\ttitle,\n\tLENGTH(title) AS title_length\nFROM pages\nWHERE crawled = true AND is_html = true\n  AND (title IS NULL OR title = '' OR LENGTH(title) < 30 OR LENGTH(title) > 60)\nORDER BY title_length ASC NULLS FIRST\nLIMIT 100"],
+    ['key' => 'duplicate_h1',           'category_key' => 'seo_tags', 'query' => "SELECT\n\th1,\n\tCOUNT(*) AS pages_count\nFROM pages\nWHERE crawled = true AND h1 IS NOT NULL AND h1 != ''\nGROUP BY h1\nHAVING COUNT(*) > 1\nORDER BY pages_count DESC\nLIMIT 50"],
+    ['key' => 'h1_not_matching_title',  'category_key' => 'seo_tags', 'query' => "SELECT\n\turl,\n\ttitle,\n\th1\nFROM pages\nWHERE crawled = true AND is_html = true\n  AND title IS NOT NULL AND title != ''\n  AND h1 IS NOT NULL AND h1 != ''\n  AND title != h1\nLIMIT 100"],
+    ['key' => 'multiple_h1',            'category_key' => 'seo_tags', 'query' => "SELECT\n\turl,\n\th1\nFROM pages\nWHERE h1_multiple = true\nLIMIT 100"],
+    ['key' => 'empty_metadesc',         'category_key' => 'seo_tags', 'query' => "SELECT\n\turl,\n\ttitle\nFROM pages\nWHERE crawled = true AND is_html = true\n  AND (metadesc IS NULL OR metadesc = '')\nLIMIT 100"],
+
+    // === REDIRECTIONS ===
+    ['key' => 'all_redirects',          'category_key' => 'redirects', 'query' => "SELECT\n\turl,\n\tcode,\n\tredirect_to\nFROM pages\nWHERE code >= 300 AND code < 400 AND redirect_to IS NOT NULL AND redirect_to != ''\nORDER BY code, url\nLIMIT 100"],
+    ['key' => 'redirect_to_error',      'category_key' => 'redirects', 'query' => "SELECT\n\tp1.url AS source,\n\tp1.code AS source_code,\n\tp1.redirect_to AS target,\n\tp2.code AS target_code\nFROM pages p1\nINNER JOIN pages p2 ON p2.url = p1.redirect_to\nWHERE p1.code >= 300 AND p1.code < 400\n  AND p2.code >= 400\nLIMIT 100"],
+
+    // === SITEMAP ===
+    ['key' => 'indexable_not_in_sitemap','category_key' => 'sitemap', 'query' => "SELECT\n\turl,\n\tpri AS pagerank,\n\tinlinks\nFROM pages\nWHERE compliant = true AND in_sitemap = false\nORDER BY pagerank DESC\nLIMIT 100"],
+    ['key' => 'sitemap_non_indexable',  'category_key' => 'sitemap', 'query' => "SELECT\n\turl,\n\tcode,\n\tnoindex,\n\tcanonical,\n\tblocked\nFROM pages\nWHERE in_sitemap = true AND compliant = false\nLIMIT 100"],
+    ['key' => 'sitemap_only',           'category_key' => 'sitemap', 'query' => "SELECT\n\turl\nFROM pages\nWHERE in_sitemap = true AND in_crawl = false\nLIMIT 100"],
+
+    // === PERFORMANCE ===
+    ['key' => 'slowest_pages',          'category_key' => 'performance', 'query' => "SELECT\n\turl,\n\tresponse_time,\n\tcode\nFROM pages\nWHERE crawled = true AND response_time > 0\nORDER BY response_time DESC\nLIMIT 20"],
+    ['key' => 'ttfb_distribution',      'category_key' => 'performance', 'query' => "SELECT\n\tCASE\n\t\tWHEN response_time < 200 THEN '< 200 ms'\n\t\tWHEN response_time < 500 THEN '200-500 ms'\n\t\tWHEN response_time < 1000 THEN '500-1000 ms'\n\t\tWHEN response_time < 2000 THEN '1-2 s'\n\t\tELSE '> 2 s'\n\tEND AS ttfb_range,\n\tCOUNT(*) AS pages_count\nFROM pages\nWHERE crawled = true AND response_time > 0\nGROUP BY ttfb_range\nORDER BY MIN(response_time)"],
+
+    // === DONNÉES STRUCTURÉES ===
+    ['key' => 'schema_distribution',    'category_key' => 'structured_data', 'query' => "SELECT\n\tschema_type,\n\tCOUNT(*) AS pages_count\nFROM page_schemas\nGROUP BY schema_type\nORDER BY pages_count DESC"],
+    ['key' => 'indexable_no_schema',    'category_key' => 'structured_data', 'query' => "SELECT\n\tp.url,\n\tp.pri AS pagerank\nFROM pages p\nWHERE p.compliant = true\n  AND NOT EXISTS (SELECT 1 FROM page_schemas s WHERE s.page_id = p.id)\nORDER BY pagerank DESC\nLIMIT 100"],
+
+    // === CONTENU ===
+    ['key' => 'thin_content',           'category_key' => 'content', 'query' => "SELECT\n\turl,\n\tword_count,\n\tpri AS pagerank\nFROM pages\nWHERE compliant = true AND word_count < 250 AND word_count > 0\nORDER BY pagerank DESC\nLIMIT 100"],
+    ['key' => 'word_count_by_category', 'category_key' => 'content', 'query' => "SELECT\n\tCOALESCE(c.cat, 'Uncategorized') AS category,\n\tCOUNT(*) AS pages,\n\tROUND(AVG(p.word_count)::numeric, 0) AS avg_words,\n\tMIN(p.word_count) AS min_words,\n\tMAX(p.word_count) AS max_words\nFROM pages p\nLEFT JOIN crawl_categories c ON c.id = p.cat_id\nWHERE p.compliant = true\nGROUP BY category\nORDER BY pages DESC"],
+
+    // === VUE GLOBALE ===
+    ['key' => 'category_overview',      'category_key' => 'overview', 'query' => "SELECT\n\tCOALESCE(c.cat, 'Uncategorized') AS category,\n\tCOUNT(*) AS total_pages,\n\tSUM(CASE WHEN p.compliant THEN 1 ELSE 0 END) AS indexable_pages,\n\tROUND(100.0 * SUM(CASE WHEN p.compliant THEN 1 ELSE 0 END) / COUNT(*), 1) AS pct_indexable,\n\tROUND(AVG(p.pri)::numeric, 5) AS avg_pagerank,\n\tROUND(AVG(p.inlinks)::numeric, 1) AS avg_inlinks,\n\tROUND(AVG(p.word_count)::numeric, 0) AS avg_words\nFROM pages p\nLEFT JOIN crawl_categories c ON c.id = p.cat_id\nWHERE p.external = false AND p.in_crawl = true\nGROUP BY category\nORDER BY total_pages DESC"],
 ];
+
+// Hydrate name/description/category depuis i18n
+foreach ($savedQueries as &$q) {
+    $q['name']        = __('sql_explorer.query_' . $q['key']);
+    $q['description'] = __('sql_explorer.query_' . $q['key'] . '_desc');
+    $q['category']    = __('sql_explorer.cat_' . $q['category_key']);
+}
+unset($q);
 ?>
 
 <style>
@@ -398,6 +427,138 @@ $savedQueries = [
     border-radius: 2px;
     margin-left: 0.25rem;
 }
+
+/* Bouton "Enregistrer la requête" — discret à côté d'Exécuter */
+.save-query-btn {
+    background: white;
+    color: #4b5563;
+    border: 1px solid #d1d5db;
+    padding: 0.35rem 0.75rem;
+    border-radius: 4px;
+    font-weight: 500;
+    font-size: 0.8rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    transition: all 0.15s;
+    margin-left: 0.5rem;
+}
+.save-query-btn:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+.save-query-btn .material-symbols-outlined { font-size: 18px; }
+
+/* Modale Save Query */
+.sq-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+.sq-modal-overlay.active { display: flex; }
+.sq-modal {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    width: 480px;
+    max-width: 90vw;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.sq-modal-header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.sq-modal-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #111827;
+    margin: 0;
+}
+.sq-modal-close {
+    background: transparent;
+    border: none;
+    color: #6b7280;
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+}
+.sq-modal-close:hover { color: #111827; }
+.sq-modal-body {
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.sq-form-field { display: flex; flex-direction: column; gap: 0.25rem; }
+.sq-form-field label {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #374151;
+}
+.sq-form-field input,
+.sq-form-field textarea,
+.sq-form-field select {
+    padding: 0.5rem 0.65rem;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    color: #111827;
+    background: white;
+    outline: none;
+    font-family: inherit;
+    box-sizing: border-box;
+    width: 100%;
+}
+.sq-form-field input:focus,
+.sq-form-field textarea:focus,
+.sq-form-field select:focus {
+    border-color: var(--primary-color);
+}
+.sq-form-field textarea { min-height: 60px; resize: vertical; }
+.sq-modal-footer {
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+.sq-btn {
+    padding: 0.45rem 1rem;
+    border-radius: 4px;
+    font-weight: 500;
+    font-size: 0.85rem;
+    cursor: pointer;
+    border: none;
+}
+.sq-btn-cancel {
+    background: transparent;
+    color: #6b7280;
+}
+.sq-btn-cancel:hover { color: #111827; }
+.sq-btn-primary {
+    background: var(--primary-color);
+    color: white;
+}
+.sq-btn-primary:hover { background: var(--primary-dark); }
+.sq-modal-error {
+    display: none;
+    background: #fee2e2;
+    color: #991b1b;
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+.sq-modal-error.active { display: block; }
 
 /* Bouton aide compact */
 .help-btn {
@@ -927,7 +1088,94 @@ $savedQueries = [
     border-top: 1px solid var(--border-color);
     flex: 1;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
 }
+
+/* Accordéons des saved queries (prédéfinies + user) */
+.sq-accordion-group { display: flex; flex-direction: column; }
+.sq-accordion { border-bottom: 1px solid rgba(0,0,0,0.06); }
+.sq-accordion-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.75rem;
+    cursor: pointer;
+    background: #f8f9fb;
+    transition: background-color 0.15s;
+    user-select: none;
+}
+.sq-accordion-header:hover { background: #eef1f5; }
+.sq-accordion-header .sq-chevron {
+    font-size: 16px;
+    color: #6b7280;
+    transition: transform 0.2s;
+}
+.sq-accordion.open > .sq-accordion-header .sq-chevron { transform: rotate(90deg); }
+.sq-accordion-title {
+    flex: 1;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #374151;
+}
+.sq-accordion-count {
+    font-size: 0.65rem;
+    color: #9ca3af;
+    background: #e5e7eb;
+    padding: 1px 6px;
+    border-radius: 8px;
+    min-width: 18px;
+    text-align: center;
+}
+.sq-cat-actions {
+    display: none;
+    gap: 0.15rem;
+    margin-left: 0.25rem;
+}
+.sq-accordion-header:hover .sq-cat-actions { display: flex; }
+.sq-cat-action {
+    background: transparent;
+    border: none;
+    color: #9ca3af;
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+}
+.sq-cat-action:hover { color: var(--primary-color); background: rgba(0,0,0,0.05); }
+.sq-cat-action.danger:hover { color: #dc2626; }
+.sq-cat-action .material-symbols-outlined { font-size: 14px; }
+.sq-accordion-body { display: none; }
+.sq-accordion.open > .sq-accordion-body { display: block; }
+.sq-empty-state {
+    padding: 0.75rem;
+    text-align: center;
+    color: #9ca3af;
+    font-size: 0.7rem;
+    font-style: italic;
+}
+
+/* Actions hover sur les requêtes user (edit/delete) */
+.query-item-actions {
+    display: none;
+    gap: 0.25rem;
+    margin-left: auto;
+}
+.query-item:hover .query-item-actions { display: flex; }
+.query-item-action {
+    background: transparent;
+    border: none;
+    color: #9ca3af;
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+}
+.query-item-action:hover { color: var(--primary-color); background: rgba(0,0,0,0.05); }
+.query-item-action.danger:hover { color: #dc2626; }
+.query-item-action .material-symbols-outlined { font-size: 14px; }
 
 .query-item {
     padding: 0.5rem 0.75rem;
@@ -1297,22 +1545,63 @@ $savedQueries = [
             </div>
         <?php endif; ?>
         
-        <!-- Requêtes sauvegardées -->
+        <!-- Requêtes sauvegardées : 2 sections en accordéon (prédéfinies + user) -->
+        <?php
+        // Grouper les requêtes prédéfinies par catégorie pour les rendre en accordéons
+        $categoryOrder = [
+            'indexability', 'internal_linking', 'pagerank', 'seo_tags',
+            'redirects', 'sitemap', 'performance', 'structured_data',
+            'content', 'overview',
+        ];
+        $predefinedByCat = [];
+        foreach ($savedQueries as $index => $q) {
+            $predefinedByCat[$q['category_key']][] = ['index' => $index, 'data' => $q];
+        }
+        $orderedCats = array_values(array_filter($categoryOrder, fn($c) => isset($predefinedByCat[$c])));
+        ?>
+
+        <!-- Section 1 : Requêtes prédéfinies (accordéons par catégorie) -->
         <div class="saved-queries-section">
             <h3>
                 <span class="material-symbols-outlined">bookmark</span>
-                <?= __('sql_explorer.saved_queries') ?>
+                <?= __('sql_explorer.predefined_queries') ?>
             </h3>
-            
-            <?php foreach ($savedQueries as $index => $query): ?>
-            <div class="query-item" onclick="loadSavedQuery(<?= $index ?>)">
-                <span class="material-symbols-outlined query-icon">code</span>
-                <div class="query-item-content">
-                    <div class="query-name"><?= htmlspecialchars($query['name']) ?></div>
-                    <div class="query-description"><?= htmlspecialchars($query['description']) ?></div>
+            <div class="sq-accordion-group">
+                <?php foreach ($orderedCats as $catKey):
+                    $catLabel = __('sql_explorer.cat_' . $catKey);
+                    $items = $predefinedByCat[$catKey];
+                ?>
+                <div class="sq-accordion" data-cat="<?= htmlspecialchars($catKey) ?>">
+                    <div class="sq-accordion-header" onclick="toggleSqAccordion(this)">
+                        <span class="material-symbols-outlined sq-chevron">chevron_right</span>
+                        <span class="sq-accordion-title"><?= htmlspecialchars($catLabel) ?></span>
+                        <span class="sq-accordion-count"><?= count($items) ?></span>
+                    </div>
+                    <div class="sq-accordion-body">
+                        <?php foreach ($items as $entry): $q = $entry['data']; ?>
+                        <div class="query-item" onclick="loadSavedQuery(<?= $entry['index'] ?>)" title="<?= htmlspecialchars($q['description']) ?>">
+                            <span class="material-symbols-outlined query-icon">code</span>
+                            <div class="query-item-content">
+                                <div class="query-name"><?= htmlspecialchars($q['name']) ?></div>
+                                <div class="query-description"><?= htmlspecialchars($q['description']) ?></div>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
                 </div>
+                <?php endforeach; ?>
             </div>
-            <?php endforeach; ?>
+        </div>
+
+        <!-- Section 2 : Mes requêtes (hydratée en JS via /api/saved-queries) -->
+        <div class="saved-queries-section saved-queries-user">
+            <h3>
+                <span class="material-symbols-outlined">star</span>
+                <?= __('sql_explorer.my_queries') ?>
+            </h3>
+            <div id="userQueriesContainer" class="sq-accordion-group">
+                <div class="sq-empty-state"><?= __('sql_explorer.no_user_queries') ?></div>
+            </div>
         </div>
     </div>
 
@@ -1344,6 +1633,10 @@ $savedQueries = [
                         <span class="material-symbols-outlined">play_arrow</span>
                         <?= __('sql_explorer.execute') ?>
                         <span class="shortcut">Ctrl+Enter</span>
+                    </button>
+                    <button class="save-query-btn" onclick="openSaveQueryModal()" title="<?= __('sql_explorer.save_query') ?>">
+                        <span class="material-symbols-outlined">save</span>
+                        <?= __('sql_explorer.save_query') ?>
                     </button>
                 </div>
                 <div class="toolbar-right">
@@ -1422,6 +1715,41 @@ $savedQueries = [
     </div>
 </div>
 </div><!-- Fin sql-workspace-container -->
+
+<!-- Modale Save Query : sert pour create et edit -->
+<div id="sqSaveModal" class="sq-modal-overlay" onclick="if(event.target === this) closeSaveQueryModal()">
+    <div class="sq-modal">
+        <div class="sq-modal-header">
+            <h3 id="sqModalTitle" class="sq-modal-title"><?= __('sql_explorer.save_query_title') ?></h3>
+            <button type="button" class="sq-modal-close" onclick="closeSaveQueryModal()">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <div class="sq-modal-body">
+            <div id="sqModalError" class="sq-modal-error"></div>
+            <div class="sq-form-field">
+                <label for="sqName"><?= __('sql_explorer.field_name') ?></label>
+                <input type="text" id="sqName" maxlength="255" placeholder="<?= __('sql_explorer.field_name_placeholder') ?>">
+            </div>
+            <div class="sq-form-field">
+                <label for="sqDesc"><?= __('sql_explorer.field_description') ?></label>
+                <textarea id="sqDesc" placeholder="<?= __('sql_explorer.field_description_placeholder') ?>"></textarea>
+            </div>
+            <div class="sq-form-field">
+                <label for="sqCat"><?= __('sql_explorer.field_category') ?></label>
+                <select id="sqCat" onchange="onSqCategoryChange()">
+                    <option value="">— <?= __('sql_explorer.no_category') ?> —</option>
+                    <option value="__new__"><?= __('sql_explorer.create_new_category') ?></option>
+                </select>
+                <input type="text" id="sqNewCat" maxlength="100" placeholder="<?= __('sql_explorer.new_category_placeholder') ?>" style="display:none; margin-top: 0.35rem;">
+            </div>
+        </div>
+        <div class="sq-modal-footer">
+            <button type="button" class="sq-btn sq-btn-cancel" onclick="closeSaveQueryModal()"><?= __('common.cancel') ?></button>
+            <button type="button" class="sq-btn sq-btn-primary" onclick="submitSaveQuery()"><?= __('common.save') ?></button>
+        </div>
+    </div>
+</div>
 
 <!-- Modale d'aide -->
 <div id="sqlHelpModal" class="help-modal" onclick="if(event.target === this) hideSQLHelp()">
@@ -2193,6 +2521,268 @@ function startRenameTab(tabId, event) {
     // Empêcher le clic sur l'onglet pendant l'édition
     input.onclick = (e) => e.stopPropagation();
 }
+
+// Toggle un accordéon de saved queries (prédéfini ou user)
+function toggleSqAccordion(headerEl) {
+    const acc = headerEl.closest('.sq-accordion');
+    if (acc) acc.classList.toggle('open');
+}
+
+// ============================================================================
+// USER SAVED QUERIES — gestion complète (load list, render, CRUD via API)
+// ============================================================================
+let userQueries = [];    // populé via API
+let sqEditingId = null;  // id de la query en édition (null = mode create)
+
+async function loadUserQueries() {
+    try {
+        const resp = await fetch('api/saved-queries', { credentials: 'same-origin' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        userQueries = (data && data.queries) ? data.queries : [];
+        renderUserQueries();
+    } catch (e) { /* silencieux */ }
+}
+
+function renderUserQueries() {
+    const container = document.getElementById('userQueriesContainer');
+    if (!container) return;
+    if (userQueries.length === 0) {
+        container.innerHTML = '<div class="sq-empty-state">' + __('sql_explorer.no_user_queries') + '</div>';
+        return;
+    }
+    // Grouper par catégorie (NULL/'' = "Sans catégorie")
+    const noCat = __('sql_explorer.no_category');
+    const byCat = {};
+    userQueries.forEach(q => {
+        const c = q.category && q.category.trim() !== '' ? q.category : noCat;
+        if (!byCat[c]) byCat[c] = [];
+        byCat[c].push(q);
+    });
+    const cats = Object.keys(byCat).sort((a, b) => a.localeCompare(b));
+    let html = '';
+    for (const cat of cats) {
+        const items = byCat[cat];
+        const isReal = (cat !== noCat); // pas d'actions rename/delete sur le fallback "Sans catégorie"
+        html += '<div class="sq-accordion">';
+        html +=   '<div class="sq-accordion-header" onclick="toggleSqAccordion(this)">';
+        html +=     '<span class="material-symbols-outlined sq-chevron">chevron_right</span>';
+        html +=     '<span class="sq-accordion-title">' + escapeHtml(cat) + '</span>';
+        html +=     '<span class="sq-accordion-count">' + items.length + '</span>';
+        if (isReal) {
+            html += '<div class="sq-cat-actions">';
+            html +=   '<button type="button" class="sq-cat-action" title="' + __('sql_explorer.rename_category') + '" onclick="event.stopPropagation(); renameUserCategory(\'' + escapeJs(cat) + '\')">';
+            html +=     '<span class="material-symbols-outlined">edit</span>';
+            html +=   '</button>';
+            html +=   '<button type="button" class="sq-cat-action danger" title="' + __('sql_explorer.delete_category') + '" onclick="event.stopPropagation(); deleteUserCategory(\'' + escapeJs(cat) + '\', ' + items.length + ')">';
+            html +=     '<span class="material-symbols-outlined">delete</span>';
+            html +=   '</button>';
+            html += '</div>';
+        }
+        html +=   '</div>';
+        html +=   '<div class="sq-accordion-body">';
+        for (const q of items) {
+            const desc = q.description || '';
+            html += '<div class="query-item" onclick="loadUserQuery(' + q.id + ')" title="' + escapeHtml(desc) + '">';
+            html +=   '<span class="material-symbols-outlined query-icon">code</span>';
+            html +=   '<div class="query-item-content">';
+            html +=     '<div class="query-name">' + escapeHtml(q.name) + '</div>';
+            html +=     (desc ? '<div class="query-description">' + escapeHtml(desc) + '</div>' : '');
+            html +=   '</div>';
+            html +=   '<div class="query-item-actions">';
+            html +=     '<button type="button" class="query-item-action" title="' + __('sql_explorer.edit') + '" onclick="event.stopPropagation(); openEditQueryModal(' + q.id + ')">';
+            html +=       '<span class="material-symbols-outlined">edit</span>';
+            html +=     '</button>';
+            html +=     '<button type="button" class="query-item-action danger" title="' + __('sql_explorer.delete') + '" onclick="event.stopPropagation(); deleteUserQuery(' + q.id + ')">';
+            html +=       '<span class="material-symbols-outlined">delete</span>';
+            html +=     '</button>';
+            html +=   '</div>';
+            html += '</div>';
+        }
+        html +=   '</div>';
+        html += '</div>';
+    }
+    container.innerHTML = html;
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Pour embedder une string user dans un onclick="..." inline JS sans casser
+function escapeJs(s) {
+    return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+async function renameUserCategory(oldName) {
+    const newName = prompt(__('sql_explorer.prompt_rename_category'), oldName);
+    if (newName === null) return;          // annulé
+    const trimmed = newName.trim();
+    if (trimmed === '' || trimmed === oldName) return;
+    try {
+        const resp = await fetch('api/saved-queries/category/rename', {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ old_name: oldName, new_name: trimmed }),
+        });
+        if (resp.ok) loadUserQueries();
+    } catch (e) { /* silencieux */ }
+}
+
+async function deleteUserCategory(name, count) {
+    const msg = __('sql_explorer.confirm_delete_category')
+        .replace(':name', name)
+        .replace(':count', count);
+    if (!confirm(msg)) return;
+    try {
+        const resp = await fetch('api/saved-queries/category', {
+            method: 'DELETE',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name }),
+        });
+        if (resp.ok) loadUserQueries();
+    } catch (e) { /* silencieux */ }
+}
+
+function loadUserQuery(id) {
+    const q = userQueries.find(x => x.id === id);
+    if (!q) return;
+    // Réutilise la logique de loadSavedQuery — on crée un nouvel onglet
+    const newTab = {
+        id: nextTabId,
+        title: q.name.substring(0, 20) + (q.name.length > 20 ? '...' : ''),
+        query: q.query,
+        editor: null,
+    };
+    tabs.push(newTab);
+    activeTabId = nextTabId;
+    nextTabId++;
+    updateTabsUI();
+    if (sqlEditor) {
+        sqlEditor.setValue(q.query);
+        sqlEditor.focus();
+    }
+}
+
+// ----------- MODALE SAVE / EDIT -----------
+function openSaveQueryModal() {
+    sqEditingId = null;
+    document.getElementById('sqModalTitle').textContent = __('sql_explorer.save_query_title');
+    document.getElementById('sqName').value = '';
+    document.getElementById('sqDesc').value = '';
+    populateCategorySelect('');
+    document.getElementById('sqNewCat').style.display = 'none';
+    document.getElementById('sqNewCat').value = '';
+    document.getElementById('sqModalError').classList.remove('active');
+    document.getElementById('sqSaveModal').classList.add('active');
+    setTimeout(() => document.getElementById('sqName').focus(), 50);
+}
+
+function openEditQueryModal(id) {
+    const q = userQueries.find(x => x.id === id);
+    if (!q) return;
+    sqEditingId = id;
+    document.getElementById('sqModalTitle').textContent = __('sql_explorer.edit_query_title');
+    document.getElementById('sqName').value = q.name;
+    document.getElementById('sqDesc').value = q.description || '';
+    populateCategorySelect(q.category || '');
+    document.getElementById('sqNewCat').style.display = 'none';
+    document.getElementById('sqNewCat').value = '';
+    document.getElementById('sqModalError').classList.remove('active');
+    document.getElementById('sqSaveModal').classList.add('active');
+    setTimeout(() => document.getElementById('sqName').focus(), 50);
+}
+
+function closeSaveQueryModal() {
+    document.getElementById('sqSaveModal').classList.remove('active');
+}
+
+function populateCategorySelect(selected) {
+    const select = document.getElementById('sqCat');
+    const existing = Array.from(new Set(userQueries.map(q => q.category).filter(c => c && c.trim() !== '')));
+    existing.sort((a, b) => a.localeCompare(b));
+    let html = '<option value="">— ' + __('sql_explorer.no_category') + ' —</option>';
+    for (const c of existing) {
+        html += '<option value="' + escapeHtml(c) + '"' + (c === selected ? ' selected' : '') + '>' + escapeHtml(c) + '</option>';
+    }
+    html += '<option value="__new__">' + __('sql_explorer.create_new_category') + '</option>';
+    select.innerHTML = html;
+}
+
+function onSqCategoryChange() {
+    const sel = document.getElementById('sqCat');
+    const input = document.getElementById('sqNewCat');
+    if (sel.value === '__new__') {
+        input.style.display = '';
+        setTimeout(() => input.focus(), 30);
+    } else {
+        input.style.display = 'none';
+    }
+}
+
+async function submitSaveQuery() {
+    const name = document.getElementById('sqName').value.trim();
+    const desc = document.getElementById('sqDesc').value.trim();
+    const catSel = document.getElementById('sqCat').value;
+    const newCat = document.getElementById('sqNewCat').value.trim();
+    const category = catSel === '__new__' ? newCat : catSel;
+    const query = sqlEditor ? sqlEditor.getValue() : '';
+    const err = document.getElementById('sqModalError');
+
+    if (!name) {
+        err.textContent = __('sql_explorer.error_name_required');
+        err.classList.add('active');
+        return;
+    }
+    if (!query.trim()) {
+        err.textContent = __('sql_explorer.error_query_required');
+        err.classList.add('active');
+        return;
+    }
+
+    const body = { name, description: desc, category, query };
+    const isEdit = sqEditingId !== null;
+    const url = isEdit ? ('api/saved-queries/' + sqEditingId) : 'api/saved-queries';
+    const method = isEdit ? 'PUT' : 'POST';
+
+    try {
+        const resp = await fetch(url, {
+            method,
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.success) {
+            err.textContent = (data && data.error) ? data.error : __('common.error');
+            err.classList.add('active');
+            return;
+        }
+        closeSaveQueryModal();
+        loadUserQueries();
+    } catch (e) {
+        err.textContent = __('common.error');
+        err.classList.add('active');
+    }
+}
+
+async function deleteUserQuery(id) {
+    const q = userQueries.find(x => x.id === id);
+    if (!q) return;
+    if (!confirm(__('sql_explorer.confirm_delete').replace(':name', q.name))) return;
+    try {
+        const resp = await fetch('api/saved-queries/' + id, {
+            method: 'DELETE',
+            credentials: 'same-origin',
+        });
+        if (resp.ok) loadUserQueries();
+    } catch (e) { /* silencieux */ }
+}
+
+// Charge la liste user au démarrage
+document.addEventListener('DOMContentLoaded', loadUserQueries);
 
 // Charger une requête sauvegardée
 function loadSavedQuery(index) {

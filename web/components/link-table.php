@@ -115,7 +115,9 @@ $tableSqlQuery = "SELECT
     l.anchor,
     l.type,
     l.external,
-    l.nofollow
+    l.nofollow,
+    l.position,
+    l.xpath
 FROM links l
 LEFT JOIN pages s ON l.src = s.id AND s.in_crawl = TRUE
 LEFT JOIN pages t ON l.target = t.id AND t.in_crawl = TRUE
@@ -155,7 +157,9 @@ $linkSpecificColumns = [
     'anchor' => 'Anchor',
     'external' => __('columns.external'),
     'nofollow' => 'Follow',
-    'type' => __('columns.link_type')
+    'type' => __('columns.link_type'),
+    'position' => __('link_explorer.field_position'),
+    'xpath' => __('link_explorer.field_xpath')
 ];
 
 // Colonnes disponibles (seront dupliquées en source_ et target_)
@@ -295,7 +299,9 @@ $columnMapping = [
     'anchor' => 'l.anchor',
     'external' => 'l.external',
     'nofollow' => 'l.nofollow',
-    'type' => 'l.type'
+    'type' => 'l.type',
+    'position' => 'l.position',
+    'xpath' => 'l.xpath'
 ];
 
 // Ajouter les colonnes SOURCE avec préfixe source_
@@ -469,7 +475,7 @@ if ($hasSourceFilter || $hasTargetFilter) {
     }
     
     // Requête liens avec jointure(s) minimale(s)
-    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external, l.nofollow, l.type 
+    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external, l.nofollow, l.type, l.position, l.xpath
                    FROM links l $joinClauses
                    $fullWhereClause 
                    $linksOrderBy 
@@ -502,7 +508,9 @@ if ($hasSourceFilter || $hasTargetFilter) {
             'anchor' => 'l.anchor',
             'external' => 'l.external',
             'nofollow' => 'l.nofollow',
-            'type' => 'l.type'
+            'type' => 'l.type',
+            'position' => 'l.position',
+            'xpath' => 'l.xpath'
         ];
         if(isset($linkSortMap[$sortColumn])) {
             $linksOrderBy = 'ORDER BY ' . $linkSortMap[$sortColumn] . ' ' . $sortDirection;
@@ -510,7 +518,7 @@ if ($hasSourceFilter || $hasTargetFilter) {
     }
     
     // Requête liens simple
-    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external, l.nofollow, l.type 
+    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external, l.nofollow, l.type, l.position, l.xpath
                    FROM links l 
                    $linksWhereClause 
                    $linksOrderBy 
@@ -559,6 +567,8 @@ foreach ($linksRaw as $link) {
     $row->external = $link['external'];
     $row->nofollow = $link['nofollow'];
     $row->type = $link['type'];
+    $row->position = $link['position'] ?? 'Content';
+    $row->xpath = $link['xpath'] ?? null;
     
     // Colonnes SOURCE
     if ($srcPage) {
@@ -920,6 +930,12 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                             </td>
                         <?php elseif($col === 'type'): ?>
                             <td class="col-type" style="background: #f8f9fa;"><?= htmlspecialchars($link->type ?? '') ?></td>
+                        <?php elseif($col === 'position'): ?>
+                            <td class="col-position" style="background: #f8f9fa;"><?= htmlspecialchars($link->position ?? 'Content') ?></td>
+                        <?php elseif($col === 'xpath'): ?>
+                            <td class="col-xpath" style="background: #f8f9fa; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 0.85em;" title="<?= htmlspecialchars($link->xpath ?? '') ?>">
+                                <?= $link->xpath !== null && $link->xpath !== '' ? htmlspecialchars($link->xpath) : '<span style="color: #95A5A6;">—</span>' ?>
+                            </td>
                         <?php elseif(strpos($col, 'canonical_value') !== false || strpos($col, 'redirect_to') !== false || strpos($col, '_domain') !== false): ?>
                             <td class="col-<?= $col ?>" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($link->$col ?? '') ?>">
                                 <?= htmlspecialchars($link->$col ?? '') ?>
