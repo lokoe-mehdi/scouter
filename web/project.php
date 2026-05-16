@@ -862,15 +862,42 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         btn.classList.add('active');
         document.getElementById('crawl_mode').value = mode;
     }
-    function toggleSpeedDropdown(e) { e.stopPropagation(); document.getElementById('speedDropdown').classList.toggle('show'); }
+    function toggleSpeedDropdown(event) {
+        event.stopPropagation();
+        const select = document.getElementById('speedSelect');
+        const dropdown = document.getElementById('speedDropdown');
+        const trigger = select.querySelector('.speed-select-trigger');
+
+        if (select.classList.contains('open')) {
+            select.classList.remove('open');
+            dropdown.style.display = 'none';
+        } else {
+            // Déplacer le dropdown dans le body pour échapper aux overflow:hidden parents
+            if (dropdown.parentElement !== document.body) {
+                document.body.appendChild(dropdown);
+            }
+            const rect = trigger.getBoundingClientRect();
+            dropdown.style.position = 'fixed';
+            dropdown.style.top = (rect.bottom + 2) + 'px';
+            dropdown.style.left = rect.left + 'px';
+            dropdown.style.width = rect.width + 'px';
+            dropdown.style.display = 'block';
+            dropdown.style.zIndex = '2147483647';
+            select.classList.add('open');
+        }
+    }
     function selectSpeedOption(value, name, desc, icon) {
+        const select = document.getElementById('speedSelect');
+        const dropdown = document.getElementById('speedDropdown');
         document.getElementById('crawl_speed').value = value;
-        const trigger = document.querySelector('.speed-select-trigger');
-        trigger.querySelector('.speed-select-name').textContent = name;
-        trigger.querySelector('.speed-select-desc').textContent = desc;
-        trigger.querySelector('.speed-icon').textContent = icon;
-        trigger.querySelector('.speed-icon').className = 'material-symbols-outlined speed-icon speed-icon-' + value;
-        document.getElementById('speedDropdown').classList.remove('show');
+        const triggerValue = select.querySelector('.speed-select-value');
+        triggerValue.innerHTML = '<span class="material-symbols-outlined speed-icon speed-icon-' + value + '">' + icon + '</span>'
+            + '<div class="speed-select-text"><span class="speed-select-name">' + name + '</span><span class="speed-select-desc">' + desc + '</span></div>';
+        dropdown.querySelectorAll('.speed-select-option').forEach(opt => {
+            opt.classList.toggle('selected', opt.dataset.value === value);
+        });
+        select.classList.remove('open');
+        dropdown.style.display = 'none';
     }
     function toggleUADropdown() { document.getElementById('uaDropdown').classList.toggle('show'); }
     function selectUAOption(value, name, desc, icon) {
@@ -1071,7 +1098,12 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     // Close modal on outside click
     document.addEventListener('click', function(e) {
         if (e.target.id === 'newProjectModal') closeNewProjectModal();
-        const sd = document.getElementById('speedDropdown'); if (sd && !e.target.closest('.custom-speed-select')) sd.classList.remove('show');
+        const ss = document.getElementById('speedSelect');
+        const sd = document.getElementById('speedDropdown');
+        if (ss && sd && !ss.contains(e.target) && !sd.contains(e.target)) {
+            ss.classList.remove('open');
+            sd.style.display = 'none';
+        }
         const ud = document.getElementById('uaDropdown'); if (ud && !e.target.closest('.custom-ua-select')) ud.classList.remove('show');
     });
 

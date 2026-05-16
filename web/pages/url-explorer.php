@@ -19,7 +19,9 @@ $stmt->execute([':crawl_id' => $crawlId]);
 $availableSchemas = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
 // Construction de la clause WHERE (PostgreSQL)
-$whereConditions = ["c.crawled = true"];
+// On affiche toutes les URLs internes (external = false), y compris celles bloquées
+// par robots.txt — sinon le filtre "blocked = true" ne ramènerait jamais rien.
+$whereConditions = ["c.external = false"];
 $params = [];
 
 // Recherche globale

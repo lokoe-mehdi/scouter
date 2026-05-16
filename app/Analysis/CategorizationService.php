@@ -94,12 +94,14 @@ class CategorizationService
         $caseWhen = $this->buildCaseWhenSql($rules);
 
         // Stats par catégorie via CTE
+        // NB: on inclut toutes les URLs internes (external = false), y compris celles
+        // bloquées par robots.txt — elles doivent être catégorisées même non crawlées.
         $sql = "
             WITH pages_with_path AS (
                 SELECT url, depth, code,
                        regexp_replace(url, '^https?://[^/]+', '') AS url_path
                 FROM pages
-                WHERE crawl_id = :crawl_id AND crawled = true
+                WHERE crawl_id = :crawl_id AND external = false
             ),
             categorized AS (
                 SELECT url, depth, code, {$caseWhen['sql']} AS cat_name
@@ -122,7 +124,7 @@ class CategorizationService
                 SELECT url, depth, code,
                        regexp_replace(url, '^https?://[^/]+', '') AS url_path
                 FROM pages
-                WHERE crawl_id = :crawl_id AND crawled = true
+                WHERE crawl_id = :crawl_id AND external = false
             )
             SELECT url, depth, code, {$caseWhen['sql']} AS category
             FROM pages_with_path
@@ -189,7 +191,7 @@ class CategorizationService
                 UPDATE pages SET cat_id = :cat_id
                 WHERE crawl_id = :crawl_id
                   AND cat_id IS NULL
-                  AND crawled = true
+                  AND external = false
                   AND url ~* :domain
                   AND regexp_replace(url, '^https?://[^/]+', '') ~* :include
             ";

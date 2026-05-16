@@ -230,7 +230,7 @@ class CategorizationController extends Controller
                 COUNT(p.id) as count
             FROM pages p
             LEFT JOIN crawl_categories c ON p.cat_id = c.id
-            WHERE p.crawl_id = :crawl_id2 AND p.crawled = true
+            WHERE p.crawl_id = :crawl_id2 AND p.external = false
             GROUP BY c.cat, c.color
             ORDER BY count DESC
         ");
@@ -289,7 +289,7 @@ class CategorizationController extends Controller
         $GLOBALS['categoryColors'] = $categoryColors;
         
         // Construire le WHERE avec le filtre de catégorie
-        $catWhereConditions = ["c.crawled = true"];
+        $catWhereConditions = ["c.external = false"];
         $catParams = [];
         
         if (!empty($filterCat)) {
