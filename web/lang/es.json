@@ -1660,9 +1660,11 @@
     "url_explorer.field_in_crawl": "En el alcance del rastreo",
     "url_explorer.field_in_sitemap": "En el sitemap",
     "url_explorer.field_is_html": "Página HTML",
-    "url_explorer.field_content_type": "Content-Type",
-    "url_explorer.field_redirect_to": "Destino de redirección",
+    "url_explorer.field_content_type": "Tipo de contenido",
+    "url_explorer.field_redirect_to": "Redirige a",
     "url_explorer.field_canonical_value": "URL canónica",
     "url_explorer.field_domain": "Dominio",
-    "url_explorer.field_out_of_scope": "Fuera de alcance"
+    "url_explorer.field_out_of_scope": "Fuera de alcance",
+    "url_explorer.search_filter_placeholder": "Buscar un filtro…",
+    "table.search_column_placeholder": "Buscar una columna…"
 }

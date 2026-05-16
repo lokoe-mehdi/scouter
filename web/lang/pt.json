@@ -1660,9 +1660,11 @@
     "url_explorer.field_in_crawl": "No escopo do rastreamento",
     "url_explorer.field_in_sitemap": "No sitemap",
     "url_explorer.field_is_html": "Página HTML",
-    "url_explorer.field_content_type": "Content-Type",
-    "url_explorer.field_redirect_to": "Destino do redirecionamento",
+    "url_explorer.field_content_type": "Tipo de conteúdo",
+    "url_explorer.field_redirect_to": "Redireciona para",
     "url_explorer.field_canonical_value": "URL canônico",
     "url_explorer.field_domain": "Domínio",
-    "url_explorer.field_out_of_scope": "Fora do escopo"
+    "url_explorer.field_out_of_scope": "Fora do escopo",
+    "url_explorer.search_filter_placeholder": "Pesquisar um filtro…",
+    "table.search_column_placeholder": "Pesquisar uma coluna…"
 }

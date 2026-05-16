@@ -175,7 +175,7 @@ $availableColumns = [
     'noindex' => 'Noindex',
     'blocked' => __('columns.blocked'),
     'crawled' => __('url_explorer.field_crawled'),
-    'in_crawl' => __('url_explorer.field_in_crawl'),
+    'out_of_scope' => __('url_explorer.field_out_of_scope'),
     'in_sitemap' => __('url_explorer.field_in_sitemap'),
     'is_html' => __('url_explorer.field_is_html'),
     'redirect_to' => __('columns.redirect_to'),
@@ -326,7 +326,7 @@ $columnMapping['source_word_count'] = 'cs.word_count';
 $columnMapping['source_category'] = 'cats.cat';
 $columnMapping['source_domain'] = 'cs.domain';
 $columnMapping['source_crawled'] = 'cs.crawled';
-$columnMapping['source_in_crawl'] = 'cs.in_crawl';
+$columnMapping['source_out_of_scope'] = '(cs.external = false AND cs.blocked = false AND cs.crawled = false)';
 $columnMapping['source_in_sitemap'] = 'cs.in_sitemap';
 $columnMapping['source_is_html'] = 'cs.is_html';
 
@@ -358,7 +358,7 @@ $columnMapping['target_word_count'] = 'ct.word_count';
 $columnMapping['target_category'] = 'catt.cat';
 $columnMapping['target_domain'] = 'ct.domain';
 $columnMapping['target_crawled'] = 'ct.crawled';
-$columnMapping['target_in_crawl'] = 'ct.in_crawl';
+$columnMapping['target_out_of_scope'] = '(ct.external = false AND ct.blocked = false AND ct.crawled = false)';
 $columnMapping['target_in_sitemap'] = 'ct.in_sitemap';
 $columnMapping['target_is_html'] = 'ct.is_html';
 
@@ -536,7 +536,7 @@ if (!empty($pageIds)) {
                           compliant, canonical, canonical_value, noindex, blocked, redirect_to, content_type,
                           pri, title, title_status, h1, h1_status, metadesc, metadesc_status,
                           h1_multiple, headings_missing, extracts, word_count,
-                          crawled, in_crawl, in_sitemap, is_html
+                          crawled, external, in_crawl, in_sitemap, is_html
                    FROM pages
                    WHERE crawl_id = ? AND id IN ($placeholders) AND in_crawl = TRUE";
     $stmt = $pdo->prepare($pagesQuery);
@@ -588,7 +588,7 @@ foreach ($linksRaw as $link) {
         $row->source_word_count = $srcPage['word_count'];
         $row->source_domain = $srcPage['domain'];
         $row->source_crawled = $srcPage['crawled'];
-        $row->source_in_crawl = $srcPage['in_crawl'];
+        $row->source_out_of_scope = (!$srcPage['external'] && !$srcPage['blocked'] && !$srcPage['crawled']);
         $row->source_in_sitemap = $srcPage['in_sitemap'];
         $row->source_is_html = $srcPage['is_html'];
 
@@ -641,7 +641,7 @@ foreach ($linksRaw as $link) {
         $row->target_word_count = $targetPage['word_count'];
         $row->target_domain = $targetPage['domain'];
         $row->target_crawled = $targetPage['crawled'];
-        $row->target_in_crawl = $targetPage['in_crawl'];
+        $row->target_out_of_scope = (!$targetPage['external'] && !$targetPage['blocked'] && !$targetPage['crawled']);
         $row->target_in_sitemap = $targetPage['in_sitemap'];
         $row->target_is_html = $targetPage['is_html'];
 
@@ -743,10 +743,11 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                     <span class="material-symbols-outlined">view_column</span>
                     <?= __('table.columns') ?>
                 </button>
-                <div id="columnDropdown_<?= $componentId ?>" class="column-dropdown-<?= $componentId ?>" style="display: none; position: absolute; left: 0; top: 100%; margin-top: 0.5rem; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 250px; max-height: 450px; z-index: 1000; flex-direction: column;">
+                <div id="columnDropdown_<?= $componentId ?>" class="column-dropdown-<?= $componentId ?>" style="display: none; position: absolute; left: 0; top: 100%; margin-top: 0.5rem; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 360px; max-height: 450px; z-index: 1000; flex-direction: column;">
                     <!-- Header fixe -->
-                    <div style="padding: 1rem 1rem 0.5rem 1rem; border-bottom: 1px solid var(--border-color); background: white; border-radius: 8px 8px 0 0;">
+                    <div style="padding: 1rem 1rem 0.5rem 1rem; border-bottom: 1px solid #e5e7eb; background: white; border-radius: 8px 8px 0 0;">
                         <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;"><?= __('table.select_columns') ?></div>
+                        <input type="text" class="column-picker-search-<?= $componentId ?>" oninput="filterColumnPicker_<?= $componentId ?>()" autocomplete="off" placeholder="<?= __('table.search_column_placeholder') ?>" onfocus="this.style.borderColor='#94a3b8'" onblur="this.style.borderColor='#e5e7eb'" style="width: 100%; padding: 0.4rem 0.6rem; border: 1px solid #e5e7eb; border-radius: 4px; background: var(--bg-primary); color: var(--text-primary); font-size: 0.85rem; box-sizing: border-box; margin-bottom: 0.5rem; outline: none;">
                         <div style="font-size: 0.85rem; color: var(--text-secondary);">
                             <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(true)" style="color: var(--primary-color); text-decoration: none; cursor: pointer;"><?= __('table.check_all') ?></a>
                             <span style="margin: 0 0.25rem; color: var(--border-color);">|</span>
@@ -760,7 +761,7 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                         <div style="margin-bottom: 0.75rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--border-color);">
                             <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem; text-transform: uppercase;"><?= __('table.link_columns') ?></div>
                             <?php foreach($linkSpecificColumns as $key => $label): ?>
-                            <label style="display: block; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s; background: #f8f9fa;" onmouseover="this.style.background='#e9ecef'" onmouseout="this.style.background='#f8f9fa'">
+                            <label style="display: block; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s; background: #f8f9fa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" onmouseover="this.style.background='#e9ecef'" onmouseout="this.style.background='#f8f9fa'">
                                 <input type="checkbox" class="column-checkbox-<?= $componentId ?>" value="<?= $key ?>" 
                                     <?= in_array($key, $selectedColumnsRaw) ? 'checked' : '' ?>
                                     style="margin-right: 0.5rem; accent-color: var(--primary-color);">
@@ -772,7 +773,7 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                         <!-- Colonnes URL (source/target) -->
                         <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem; text-transform: uppercase;"><?= __('table.url_columns') ?></div>
                         <?php foreach($availableColumns as $key => $label): ?>
-                        <label style="display: block; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='var(--background)'" onmouseout="this.style.background='transparent'">
+                        <label style="display: block; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" onmouseover="this.style.background='var(--background)'" onmouseout="this.style.background='transparent'">
                             <input type="checkbox" class="column-checkbox-<?= $componentId ?>" value="<?= $key ?>" 
                                 <?= in_array($key, $selectedColumnsRaw) ? 'checked' : '' ?>
                                 <?= $key === 'url' ? 'disabled' : '' ?>
@@ -783,9 +784,9 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                     </div>
                     
                     <!-- Footer fixe avec boutons -->
-                    <div style="padding: 1rem; border-top: 1px solid var(--border-color); background: white; border-radius: 0 0 8px 8px; display: flex; gap: 0.5rem;">
-                        <button class="btn" onclick="applyColumns_<?= $componentId ?>()" style="flex: 1; background: var(--primary-color); color: white; border: none; padding: 0.6rem; font-weight: 500;"><?= __('table.apply') ?></button>
-                        <button class="btn" onclick="toggleColumnDropdown_<?= $componentId ?>()" style="flex: 1; background: #95a5a6; color: white; border: none; padding: 0.6rem; font-weight: 500;"><?= __('table.cancel') ?></button>
+                    <div style="padding: 0.75rem; border-top: 1px solid #e5e7eb; background: white; border-radius: 0 0 8px 8px; display: flex; gap: 0.5rem; justify-content: flex-end;">
+                        <button class="btn" onclick="toggleColumnDropdown_<?= $componentId ?>()" style="background: transparent; color: #6b7280; border: none; padding: 0.4rem 0.9rem; font-weight: 500; font-size: 0.85rem; cursor: pointer;"><?= __('table.cancel') ?></button>
+                        <button class="btn" onclick="applyColumns_<?= $componentId ?>()" style="background: var(--primary-color); color: white; border: none; padding: 0.4rem 1.25rem; font-weight: 500; font-size: 0.85rem; cursor: pointer;"><?= __('table.apply') ?></button>
                     </div>
                 </div>
             </div>
@@ -923,7 +924,7 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                             <td class="col-<?= $col ?>" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($link->$col ?? '') ?>">
                                 <?= htmlspecialchars($link->$col ?? '') ?>
                             </td>
-                        <?php elseif(strpos($col, 'compliant') !== false || strpos($col, 'canonical') !== false || strpos($col, 'noindex') !== false || strpos($col, 'blocked') !== false || strpos($col, 'h1_multiple') !== false || strpos($col, 'headings_missing') !== false || strpos($col, '_crawled') !== false || strpos($col, 'in_crawl') !== false || strpos($col, 'in_sitemap') !== false || strpos($col, 'is_html') !== false): ?>
+                        <?php elseif(strpos($col, 'compliant') !== false || strpos($col, 'canonical') !== false || strpos($col, 'noindex') !== false || strpos($col, 'blocked') !== false || strpos($col, 'h1_multiple') !== false || strpos($col, 'headings_missing') !== false || strpos($col, '_crawled') !== false || strpos($col, 'out_of_scope') !== false || strpos($col, 'in_sitemap') !== false || strpos($col, 'is_html') !== false): ?>
                             <td class="col-<?= $col ?>" style="text-align: center;">
                                 <?= ($link->$col ?? 0) ? '<span class="material-symbols-outlined" style="color: #6bd899; font-size: 1.2rem; opacity: 0.8;">check_circle</span>' : '<span class="material-symbols-outlined" style="color: #95a5a6; font-size: 1.2rem; opacity: 0.7;">cancel</span>' ?>
                             </td>
@@ -986,8 +987,9 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                                 </span>
                             </td>
                         <?php elseif(strpos($col, 'cstm_') !== false || strpos($col, 'extract_') !== false): ?>
-                            <td class="col-<?= $col ?>" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($link->$col ?? '') ?>">
-                                <?= $link->$col ? htmlspecialchars($link->$col) : '<span style="color: #95A5A6;">—</span>' ?>
+                            <?php $extVal = $link->$col ?? null; ?>
+                            <td class="col-<?= $col ?>" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars((string)($extVal ?? '')) ?>">
+                                <?= $extVal !== null && $extVal !== '' ? htmlspecialchars((string)$extVal) : '<span style="color: #95A5A6;">—</span>' ?>
                             </td>
                         <?php else: ?>
                             <td class="col-<?= $col ?>"><?= htmlspecialchars($link->$col ?? '') ?></td>
@@ -1386,10 +1388,30 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
         if(dropdown.style.display === 'none' || dropdown.style.display === '') {
             dropdown.style.display = 'flex';
             dropdown.classList.add('show');
+            const search = dropdown.querySelector('.column-picker-search-' + componentId);
+            if (search) {
+                search.value = '';
+                window['filterColumnPicker_' + componentId]();
+                setTimeout(() => search.focus(), 50);
+            }
         } else {
             dropdown.style.display = 'none';
             dropdown.classList.remove('show');
         }
+    };
+
+    // Fuzzy search dans le picker de colonnes
+    window['filterColumnPicker_' + componentId] = function() {
+        const dropdown = document.getElementById('columnDropdown_' + componentId);
+        if (!dropdown) return;
+        const search = dropdown.querySelector('.column-picker-search-' + componentId);
+        const q = (search ? search.value : '').trim().toLowerCase();
+        dropdown.querySelectorAll('label').forEach(label => {
+            const txt = label.textContent.toLowerCase();
+            // 'block' au lieu de '' : un <label> est inline par défaut, donc ''
+            // ferait revenir tous les labels en ligne et casserait la mise en page
+            label.style.display = (!q || txt.includes(q)) ? 'block' : 'none';
+        });
     };
 
     // Tout cocher / Tout décocher

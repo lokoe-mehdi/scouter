@@ -26,6 +26,47 @@ $stmt = $pdo->prepare("SELECT DISTINCT schema_type FROM page_schemas WHERE crawl
 $stmt->execute([':crawl_id' => $crawlId]);
 $availableSchemas = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
+// Récupération des extracteurs custom + détection auto du type (numérique vs texte)
+// via sampling SQL. On liste TOUS les noms d'extracteurs présents (même si toutes
+// leurs valeurs sont vides) ; le type est numérique uniquement si au moins une
+// valeur non-vide existe ET que toutes les valeurs non-vides sont numériques.
+$availableExtractors = [];
+try {
+    $stmt = $pdo->prepare("
+        WITH samples AS (
+            SELECT extracts FROM pages
+            WHERE crawl_id = :crawl_id AND extracts IS NOT NULL
+              AND extracts != '{}'::jsonb AND in_crawl = TRUE
+            LIMIT 500
+        )
+        SELECT j.key,
+               COUNT(*) FILTER (WHERE j.value IS NOT NULL AND j.value != '') AS non_empty_count,
+               COUNT(*) FILTER (
+                   WHERE j.value IS NOT NULL AND j.value != ''
+                     AND j.value !~ '^-?[0-9]+(\\.[0-9]+)?$'
+               ) AS non_numeric_count
+        FROM samples s, jsonb_each_text(s.extracts) j
+        GROUP BY j.key
+        ORDER BY j.key
+    ");
+    $stmt->execute([':crawl_id' => $crawlId]);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $isNumeric = ((int)$row['non_empty_count'] > 0) && ((int)$row['non_numeric_count'] === 0);
+        $availableExtractors[] = [
+            'key'  => $row['key'],
+            'type' => $isNumeric ? 'number' : 'text',
+        ];
+    }
+} catch (Exception $e) {
+    // Pas d'extracteurs ou colonne extracts absente — silencieux
+}
+
+// Map key => type pour accès rapide dans buildFilterConditions (via $GLOBALS)
+$GLOBALS['extractorTypes'] = [];
+foreach ($availableExtractors as $extr) {
+    $GLOBALS['extractorTypes'][$extr['key']] = $extr['type'];
+}
+
 // Construction de la clause WHERE (PostgreSQL)
 $whereConditions = ["1=1"];
 $params = [];
@@ -257,6 +298,40 @@ function buildFilterConditions($items, &$params, &$paramCounter = 0) {
                         }
                     }
                     break;
+
+                default:
+                    // Filtres dynamiques sur les extracteurs custom (`extract_<key>`).
+                    // Le type (number vs text) est déterminé en amont par sampling SQL
+                    // et exposé via $GLOBALS['extractorTypes'].
+                    if (strpos($field, 'extract_') === 0) {
+                        $extKey = substr($field, 8);
+                        $jsonAccess = "c.extracts->>'" . addslashes($extKey) . "'";
+                        $extType = $GLOBALS['extractorTypes'][$extKey] ?? 'text';
+
+                        if ($extType === 'number') {
+                            $sqlOp = in_array($operator, ['=', '>', '<', '>=', '<=', '!=']) ? $operator : '=';
+                            $paramName = ':ext_' . $paramCounter++;
+                            // Cast en NUMERIC pour le test ; les NULL sont implicitement exclus.
+                            $condition = "({$jsonAccess}) ~ '^-?[0-9]+(\\.[0-9]+)?$' AND ({$jsonAccess})::numeric {$sqlOp} {$paramName}";
+                            $params[$paramName] = floatval($value);
+                        } else {
+                            $paramName = ':ext_' . $paramCounter++;
+                            if ($operator === 'contains') {
+                                $condition = "{$jsonAccess} ILIKE {$paramName}";
+                                $params[$paramName] = '%' . $value . '%';
+                            } elseif ($operator === 'not_contains') {
+                                $condition = "({$jsonAccess} NOT ILIKE {$paramName} OR {$jsonAccess} IS NULL)";
+                                $params[$paramName] = '%' . $value . '%';
+                            } elseif ($operator === 'regex') {
+                                $condition = "{$jsonAccess} ~* {$paramName}";
+                                $params[$paramName] = $value;
+                            } elseif ($operator === 'not_regex') {
+                                $condition = "({$jsonAccess} !~* {$paramName} OR {$jsonAccess} IS NULL)";
+                                $params[$paramName] = $value;
+                            }
+                        }
+                    }
+                    break;
             }
             
             if(!empty($condition)) {
@@ -305,7 +380,10 @@ if(!empty($filters)) {
 $whereClause = implode(' AND ', $whereConditions);
 
 // Colonnes sélectionnées par défaut pour le composant
-$selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['url', 'depth', 'code', 'category', 'inlinks', 'compliant', 'title'];
+// Au premier chargement on applique aussi par défaut un filtre external=false :
+// on ajoute donc la colonne `external` aux colonnes affichées par défaut pour
+// rester cohérent (sinon l'utilisateur voit le filtre mais pas la donnée filtrée).
+$selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['url', 'depth', 'code', 'category', 'inlinks', 'compliant', 'external', 'title'];
 ?>
 
 <style>
@@ -531,6 +609,22 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
     display: flex;
 }
 .popover-close:hover { color: var(--text-primary); }
+
+.popover-search { margin-bottom: 0.5rem; }
+.popover-search input {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    box-sizing: border-box;
+}
+.popover-search input:focus {
+    outline: none;
+    border-color: #94a3b8;
+}
 
 .popover-field-list {
     display: flex;
@@ -841,6 +935,9 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
             <span class="material-symbols-outlined">close</span>
         </button>
     </div>
+    <div class="popover-search">
+        <input type="text" id="fieldPickerSearch" oninput="filterFieldPicker()" onkeydown="if(event.key==='Enter'){event.preventDefault();fieldPickerEnter();}" autocomplete="off" placeholder="<?= __('url_explorer.search_filter_placeholder') ?>">
+    </div>
     <div class="popover-field-list">
         <div class="popover-field-item" onclick="selectField('url')">
             <span class="material-symbols-outlined">link</span> URL
@@ -929,6 +1026,11 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
         <div class="popover-field-item" onclick="selectField('domain')">
             <span class="material-symbols-outlined">domain</span> <?= __('url_explorer.field_domain') ?>
         </div>
+        <?php foreach ($availableExtractors as $extr): ?>
+        <div class="popover-field-item" onclick="selectField('extract_<?= htmlspecialchars($extr['key']) ?>')">
+            <span class="material-symbols-outlined">code</span> <?= htmlspecialchars($extr['key']) ?>
+        </div>
+        <?php endforeach; ?>
     </div>
 </div>
 
@@ -999,6 +1101,18 @@ const fieldConfig = {
     domain: { label: __('url_explorer.field_domain'), icon: 'domain', type: 'text', operators: ['contains', 'not_contains', 'regex', 'not_regex'] }
 };
 
+// Étendre fieldConfig avec un filtre dynamique par extracteur custom.
+// Le type (number/text) est détecté côté serveur par sampling et passé ici.
+const availableExtractors = <?= json_encode($availableExtractors) ?>;
+availableExtractors.forEach(extr => {
+    const fieldId = 'extract_' + extr.key;
+    if (extr.type === 'number') {
+        fieldConfig[fieldId] = { label: extr.key, icon: 'code', type: 'number', operators: ['=', '>', '<', '>=', '<=', '!='] };
+    } else {
+        fieldConfig[fieldId] = { label: extr.key, icon: 'code', type: 'text', operators: ['contains', 'not_contains', 'regex', 'not_regex'] };
+    }
+});
+
 const availableSchemas = <?= json_encode($availableSchemas) ?>;
 
 const operatorLabels = {
@@ -1020,6 +1134,9 @@ let editingChipIndex = null; // {groupIndex, chipIndex} si on édite une chip ex
 
 // Charger les filtres depuis l'URL
 const currentFilters = <?= json_encode($filters) ?>;
+// Colonnes actuellement affichées dans le tableau — utilisé pour auto-ajouter
+// la colonne correspondante quand on ajoute un filtre.
+const currentColumns = <?= json_encode($selectedColumns) ?>;
 if (currentFilters && currentFilters.length > 0) {
     // Convertir l'ancien format vers le nouveau
     filterGroups = convertOldFiltersToNew(currentFilters);
@@ -1187,12 +1304,37 @@ function openFieldSelector(event) {
     closeAllPopovers();
     editingChipIndex = null;
     pendingFilterConfig = { addToGroup: null };
-    
+
     const popover = document.getElementById('fieldSelectorPopover');
     const btn = event.currentTarget;
     positionPopover(popover, btn);
     popover.classList.add('active');
     document.getElementById('popoverOverlay').classList.add('active');
+    resetFieldPickerSearch();
+}
+
+// Fuzzy search dans le picker de filtre : matche le texte des .popover-field-item.
+function filterFieldPicker() {
+    const input = document.getElementById('fieldPickerSearch');
+    if (!input) return;
+    const q = input.value.trim().toLowerCase();
+    document.querySelectorAll('#fieldSelectorPopover .popover-field-item').forEach(item => {
+        const txt = item.textContent.toLowerCase();
+        item.style.display = (!q || txt.includes(q)) ? '' : 'none';
+    });
+}
+
+function resetFieldPickerSearch() {
+    const input = document.getElementById('fieldPickerSearch');
+    if (!input) return;
+    input.value = '';
+    filterFieldPicker();
+    setTimeout(() => input.focus(), 50);
+}
+
+function fieldPickerEnter() {
+    const firstVisible = document.querySelector('#fieldSelectorPopover .popover-field-item:not([style*="display: none"])');
+    if (firstVisible) firstVisible.click();
 }
 
 function addOrToGroup(groupIndex, event) {
@@ -1205,6 +1347,7 @@ function addOrToGroup(groupIndex, event) {
     positionPopover(popover, event.currentTarget);
     popover.classList.add('active');
     document.getElementById('popoverOverlay').classList.add('active');
+    resetFieldPickerSearch();
 }
 
 function selectField(field) {
@@ -1690,7 +1833,8 @@ function confirmFilter() {
     }
     
     closeAllPopovers();
-    applyFilters();
+    // Auto-ajoute la colonne correspondant au filtre (sauf en mode édition)
+    applyFilters(editingChipIndex ? null : field);
 }
 
 function removeChip(groupIndex, chipIndex) {
@@ -1742,7 +1886,7 @@ function collectFiltersForURL() {
     return filters;
 }
 
-function applyFilters() {
+function applyFilters(newColumn = null) {
     const filters = collectFiltersForURL();
 
     const params = new URLSearchParams(window.location.search);
@@ -1752,6 +1896,14 @@ function applyFilters() {
     // que l'utilisateur a choisi "aucun filtre" et l'empêche de re-appliquer
     // le default (external = false) au reload.
     params.set('filters', JSON.stringify(filters));
+
+    // Si un nouveau filtre vient d'être ajouté, on ajoute aussi la colonne
+    // correspondante (si elle n'est pas déjà affichée) pour que l'utilisateur
+    // voie la donnée filtrée dans le tableau.
+    if (newColumn && !currentColumns.includes(newColumn)) {
+        const updated = [...currentColumns, newColumn];
+        params.set('columns', updated.join(','));
+    }
 
     window.location.search = params.toString();
 }
