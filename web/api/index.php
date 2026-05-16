@@ -113,7 +113,6 @@ try {
     // =============================================================================
     $router->get('/monitor/preview', [MonitorController::class, 'preview'], ['auth' => true]);
     $router->get('/monitor/system', [MonitorController::class, 'systemMonitor'], ['auth' => true]);
-    $router->post('/monitor/test-crawls', [MonitorController::class, 'launchTestCrawls'], ['auth' => true, 'admin' => true]);
 
     // =============================================================================
     // CATEGORIZATION
