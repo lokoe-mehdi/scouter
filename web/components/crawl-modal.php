@@ -138,6 +138,13 @@
                             <div class="scope-hint"><span class="material-symbols-outlined">auto_awesome</span><?= __('index.modal_allowed_domains_hint') ?></div>
                         </div>
                     </div>
+                    <div class="scope-section" id="sitemapUrlsSection">
+                        <h4 class="scope-section-title"><span class="material-symbols-outlined">map</span><?= __('index.modal_sitemap_urls') ?></h4>
+                        <div class="scope-section-content">
+                            <textarea id="sitemap_urls" name="sitemap_urls" rows="3" placeholder="https://example.com/sitemap.xml&#10;https://example.com/sitemap-news.xml" class="domains-textarea"></textarea>
+                            <div class="scope-hint"><span class="material-symbols-outlined">info</span><?= __('index.modal_sitemap_urls_hint') ?></div>
+                        </div>
+                    </div>
                     <div class="scope-section">
                         <h4 class="scope-section-title"><span class="material-symbols-outlined">rule</span><?= __('index.modal_crawl_rules') ?></h4>
                         <div class="rules-grid">

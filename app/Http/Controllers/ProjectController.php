@@ -244,6 +244,7 @@ class ProjectController extends Controller
                 'follow_redirects' => $followRedirects,
                 'retry_failed_urls' => $request->get('retry_failed_urls', true),
                 'store_html' => $request->get('store_html', true),
+                'sitemap_urls' => array_values(array_filter(array_map('trim', (array)$request->get('sitemap_urls', [])))),
                 'custom_headers' => $request->get('custom_headers', []),
                 'http_auth' => $request->get('http_auth'),
                 'xPathExtractors' => $xPathExtractors,

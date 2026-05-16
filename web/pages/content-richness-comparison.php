@@ -68,7 +68,7 @@ $sqlDistribution = "
             ELSE 8
         END as sort_order
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY word_range, sort_order
     ORDER BY sort_order
 ";
@@ -115,7 +115,7 @@ FROM (
         WHEN word_count BETWEEN 2001 AND 3000 THEN '2001-3000'
         ELSE '3000+'
     END AS word_range, COUNT(*) AS page_count
-    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true
+    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY word_range
 ) r
 FULL OUTER JOIN (
@@ -130,7 +130,7 @@ FULL OUTER JOIN (
         WHEN word_count BETWEEN 2001 AND 3000 THEN '2001-3000'
         ELSE '3000+'
     END AS word_range, COUNT(*) AS page_count
-    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true
+    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY word_range
 ) b ON r.word_range = b.word_range
 ORDER BY r.word_range";
@@ -150,7 +150,7 @@ $sqlQuality = "
         COUNT(CASE WHEN word_count > 500 AND word_count <= 1200 THEN 1 END) as rich,
         COUNT(CASE WHEN word_count > 1200 THEN 1 END) as premium
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
 
 $stmtRef = $pdo->prepare($sqlQuality);
@@ -184,14 +184,14 @@ FROM (
            COUNT(CASE WHEN word_count > 250 AND word_count <= 500 THEN 1 END) AS medium,
            COUNT(CASE WHEN word_count > 500 AND word_count <= 1200 THEN 1 END) AS rich,
            COUNT(CASE WHEN word_count > 1200 THEN 1 END) AS premium
-    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true
+    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE
 ) r,
 (
     SELECT COUNT(CASE WHEN word_count <= 250 THEN 1 END) AS poor,
            COUNT(CASE WHEN word_count > 250 AND word_count <= 500 THEN 1 END) AS medium,
            COUNT(CASE WHEN word_count > 500 AND word_count <= 1200 THEN 1 END) AS rich,
            COUNT(CASE WHEN word_count > 1200 THEN 1 END) AS premium
-    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true
+    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE
 ) b";
 
 // =========================================
@@ -205,7 +205,7 @@ $sqlQualityByCategory = "
         COUNT(CASE WHEN word_count > 500 AND word_count <= 1200 THEN 1 END) as rich,
         COUNT(CASE WHEN word_count > 1200 THEN 1 END) as premium
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY cat_id
 ";
 
@@ -279,7 +279,7 @@ FROM (
         COUNT(CASE WHEN word_count > 250 AND word_count <= 500 THEN 1 END) AS medium,
         COUNT(CASE WHEN word_count > 500 AND word_count <= 1200 THEN 1 END) AS rich,
         COUNT(CASE WHEN word_count > 1200 THEN 1 END) AS premium
-    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true GROUP BY cat_id
+    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
 ) r
 FULL OUTER JOIN (
     SELECT cat_id,
@@ -287,7 +287,7 @@ FULL OUTER JOIN (
         COUNT(CASE WHEN word_count > 250 AND word_count <= 500 THEN 1 END) AS medium,
         COUNT(CASE WHEN word_count > 500 AND word_count <= 1200 THEN 1 END) AS rich,
         COUNT(CASE WHEN word_count > 1200 THEN 1 END) AS premium
-    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true GROUP BY cat_id
+    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
 ) b ON r.cat_id = b.cat_id
 ORDER BY cat_id";
 
@@ -385,9 +385,9 @@ ORDER BY cat_id";
     Component::urlTable([
         'title' => __('comparison.poor_content_regressions_table'),
         'id' => 'poor_content_regressions_table',
-        'whereClause' => "WHERE c.crawled = true AND c.compliant = true AND c.word_count <= 250 AND EXISTS (
+        'whereClause' => "WHERE c.crawled = true AND c.compliant = true AND c.word_count <= 250 AND c.in_crawl = TRUE AND EXISTS (
             SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND b.word_count > 250
+            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND b.word_count > 250 AND b.in_crawl = TRUE
         )",
         'orderBy' => 'ORDER BY c.word_count ASC, c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'word_count', 'depth', 'inlinks'],

@@ -31,7 +31,7 @@ $commonCount = $compCommonCount;
 $sqlDepthRef = "
     SELECT depth, COUNT(*) as total
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND is_html = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
     GROUP BY depth ORDER BY depth
 ";
 $stmtDepthRef = $pdo->prepare($sqlDepthRef);
@@ -66,7 +66,7 @@ foreach (array_keys($allDepths) as $d) {
 $sqlDepthCat = "
     SELECT depth, cat_id, COUNT(*) as count
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND is_html = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
     GROUP BY depth, cat_id ORDER BY depth, cat_id
 ";
 $stmtCatRef = $pdo->prepare($sqlDepthCat);
@@ -166,12 +166,12 @@ $sqlDepthCatDisplay = "SELECT
 {$catColsSql}
 FROM (
     SELECT depth, cat_id, COUNT(*) AS count FROM pages@{$safeCrawlId}
-    WHERE crawled = true AND compliant = true AND is_html = true
+    WHERE crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
     GROUP BY depth, cat_id
 ) r
 FULL OUTER JOIN (
     SELECT depth, cat_id, COUNT(*) AS count FROM pages@{$safeCompareId}
-    WHERE crawled = true AND compliant = true AND is_html = true
+    WHERE crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
     GROUP BY depth, cat_id
 ) b ON r.depth = b.depth AND r.cat_id = b.cat_id
 GROUP BY COALESCE(r.depth, b.depth)
@@ -183,7 +183,7 @@ ORDER BY depth";
 $sqlCodeDist = "
     SELECT code, COUNT(*) as total
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
     GROUP BY code ORDER BY total DESC
 ";
 $stmtCodeRef = $pdo->prepare($sqlCodeDist);
@@ -211,11 +211,11 @@ $sqlCodeDisplay = "SELECT
     COALESCE(b.total, 0) AS baseline
 FROM (
     SELECT code, COUNT(*) AS total FROM pages@{$safeCrawlId}
-    WHERE crawled = true GROUP BY code
+    WHERE crawled = true AND in_crawl = TRUE GROUP BY code
 ) r
 FULL OUTER JOIN (
     SELECT code, COUNT(*) AS total FROM pages@{$safeCompareId}
-    WHERE crawled = true GROUP BY code
+    WHERE crawled = true AND in_crawl = TRUE GROUP BY code
 ) b ON r.code = b.code
 ORDER BY COALESCE(r.total, 0) + COALESCE(b.total, 0) DESC";
 
@@ -225,7 +225,7 @@ ORDER BY COALESCE(r.total, 0) + COALESCE(b.total, 0) DESC";
 $sqlCodeCat = "
     SELECT cat_id, code, COUNT(*) as count
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
     GROUP BY cat_id, code ORDER BY count DESC
 ";
 $stmtCodeCatRef = $pdo->prepare($sqlCodeCat);
@@ -314,11 +314,11 @@ FROM (
         COALESCE(b.count, 0) AS b_count
     FROM (
         SELECT cat_id, code, COUNT(*) AS count FROM pages@{$safeCrawlId}
-        WHERE crawled = true GROUP BY cat_id, code
+        WHERE crawled = true AND in_crawl = TRUE GROUP BY cat_id, code
     ) r
     FULL OUTER JOIN (
         SELECT cat_id, code, COUNT(*) AS count FROM pages@{$safeCompareId}
-        WHERE crawled = true GROUP BY cat_id, code
+        WHERE crawled = true AND in_crawl = TRUE GROUP BY cat_id, code
     ) b ON r.cat_id = b.cat_id AND r.code = b.code
 ) sub
 GROUP BY cat_id
@@ -455,12 +455,12 @@ $kpiRows = [
     COALESCE(b.total, 0) AS baseline
 FROM (
     SELECT depth, COUNT(*) AS total FROM pages@{$safeCrawlId}
-    WHERE crawled = true AND compliant = true AND is_html = true
+    WHERE crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
     GROUP BY depth
 ) r
 FULL OUTER JOIN (
     SELECT depth, COUNT(*) AS total FROM pages@{$safeCompareId}
-    WHERE crawled = true AND compliant = true AND is_html = true
+    WHERE crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
     GROUP BY depth
 ) b ON r.depth = b.depth
 ORDER BY depth"

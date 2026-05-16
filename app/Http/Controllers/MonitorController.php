@@ -74,6 +74,8 @@ class MonitorController extends Controller
         $crawlId = $crawlRecord->id;
         
         // Récupérer l'URL et la date
+        // Single-URL lookup: do NOT filter on in_crawl so admins can still inspect
+        // sitemap-only URLs (mirrors QueryController's URL-details lookups).
         $stmt = $this->db->prepare("SELECT url, date FROM pages WHERE crawl_id = :crawl_id AND id = :id");
         $stmt->execute([':crawl_id' => $crawlId, ':id' => $id]);
         $urlData = $stmt->fetch(PDO::FETCH_OBJ);

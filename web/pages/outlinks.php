@@ -10,7 +10,7 @@ try {
             outlinks,
             COUNT(*) as url_count
         FROM pages
-        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
         GROUP BY outlinks
         ORDER BY outlinks DESC
     ";
@@ -54,7 +54,7 @@ try {
             MAX(outlinks) as max_outlinks,
             SUM(outlinks) as total_outlinks
         FROM pages
-        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
         GROUP BY cat_id
         ORDER BY AVG(outlinks) DESC
     ");
@@ -79,7 +79,7 @@ try {
             MAX(outlinks) as max_outlinks,
             SUM(outlinks) as total_outlinks
         FROM pages
-        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
     ");
     $stmt->execute([':crawl_id' => $crawlId]);
     $outlinksStats = $stmt->fetch(PDO::FETCH_OBJ);
@@ -93,7 +93,7 @@ try {
             code,
             cat_id
         FROM pages
-        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
         ORDER BY outlinks DESC, url ASC
         LIMIT 100
     ");
@@ -308,7 +308,7 @@ try {
 Component::urlTable([
     'title' => __('outlinks.table_top'),
     'id' => 'outlinksTable',
-    'whereClause' => 'WHERE c.compliant = true',
+    'whereClause' => 'WHERE c.compliant = true AND c.in_crawl = TRUE',
     'orderBy' => 'ORDER BY c.outlinks DESC',
     'defaultColumns' => ['url','category', 'code','depth','outlinks','pri'],
     'pdo' => $pdo,

@@ -22,7 +22,7 @@ $stmt = $pdo->prepare("
         AVG(p.inlinks) as avg_inlinks,
         AVG(p.pri) as avg_pagerank
     FROM crawl_categories c
-    LEFT JOIN pages p ON c.id = p.cat_id AND p.crawl_id = :crawl_id2 AND p.crawled = true AND p.is_html = true
+    LEFT JOIN pages p ON c.id = p.cat_id AND p.crawl_id = :crawl_id2 AND p.crawled = true AND p.is_html = true AND p.in_crawl = TRUE
     WHERE c.project_id = :project_id
     GROUP BY c.id, c.cat
     HAVING COUNT(p.id) > 0
@@ -40,7 +40,7 @@ $sqlUrlDistribution = "
         SUM(CASE WHEN external = false AND crawled = false THEN 1 ELSE 0 END) as not_crawled_urls,
         SUM(CASE WHEN external = false AND crawled = true AND (is_html = false OR is_html IS NULL) THEN 1 ELSE 0 END) as media_urls
     FROM pages
-    WHERE crawl_id = :crawl_id
+    WHERE crawl_id = :crawl_id AND in_crawl = TRUE
 ";
 $stmt = $pdo->prepare($sqlUrlDistribution);
 $stmt->execute([':crawl_id' => $crawlId]);
@@ -53,7 +53,7 @@ $sqlNonIndexable = "
         SUM(CASE WHEN code = 200 AND noindex = true THEN 1 ELSE 0 END) as noindex_urls,
         SUM(CASE WHEN code = 200 AND noindex = false AND canonical = false THEN 1 ELSE 0 END) as non_canonical
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = false AND is_html = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = false AND is_html = true AND in_crawl = TRUE
 ";
 $stmt = $pdo->prepare($sqlNonIndexable);
 $stmt->execute([':crawl_id' => $crawlId]);
@@ -67,7 +67,7 @@ $sqlDistributionByCategory = "
         SUM(CASE WHEN external = true THEN 1 ELSE 0 END) as external,
         SUM(CASE WHEN external = false AND crawled = false THEN 1 ELSE 0 END) as blocked
     FROM pages
-    WHERE crawl_id = :crawl_id AND is_html = true
+    WHERE crawl_id = :crawl_id AND is_html = true AND in_crawl = TRUE
     GROUP BY cat_id
     ORDER BY SUM(CASE WHEN external = false AND crawled = true THEN 1 ELSE 0 END) DESC
 ";
@@ -93,7 +93,7 @@ $sqlIndexabilityByCategory = "
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = true THEN 1 ELSE 0 END) as noindex,
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = false AND code != 200 THEN 1 ELSE 0 END) as bad_status
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true AND in_crawl = TRUE
     GROUP BY cat_id
     ORDER BY SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) DESC
 ";

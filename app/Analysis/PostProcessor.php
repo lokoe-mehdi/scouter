@@ -64,6 +64,7 @@ class PostProcessor
             'categorize',
             'duplicateAnalysis',
             'redirectChainAnalysis',
+            'sitemapAnalysis',
         ];
 
         try {
@@ -123,6 +124,7 @@ class PostProcessor
         flush();
 
         // Une seule requête atomique : LEFT JOIN pour avoir 0 quand pas de liens
+        // Filtre in_crawl=true : on n'affecte pas les pages sitemap-only (qui restent à inlinks=0).
         $stmt = $this->db->prepare("
             UPDATE pages p SET inlinks = COALESCE(sub.cnt, 0)
             FROM (
@@ -133,9 +135,9 @@ class PostProcessor
                     FROM links WHERE crawl_id = :crawl_id
                     GROUP BY target
                 ) lc ON p2.id = lc.target
-                WHERE p2.crawl_id = :crawl_id2
+                WHERE p2.crawl_id = :crawl_id2 AND p2.in_crawl = TRUE
             ) sub
-            WHERE p.crawl_id = :crawl_id3 AND p.id = sub.id
+            WHERE p.crawl_id = :crawl_id3 AND p.id = sub.id AND p.in_crawl = TRUE
         ");
         $stmt->execute([
             ':crawl_id' => $this->crawlId,
@@ -161,8 +163,9 @@ class PostProcessor
         $iterations = 30;
         $damping = 0.85;
 
-        // Count pages
-        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :cid");
+        // Count pages — only those discovered by the classic crawl (sitemap-only
+        // pages would otherwise dilute PR by acting as dead-ends with equal share).
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :cid AND in_crawl = TRUE");
         $stmt->execute([':cid' => $this->crawlId]);
         $pagesCount = (int)$stmt->fetchColumn();
 
@@ -206,7 +209,7 @@ class PostProcessor
                 FROM links WHERE crawl_id = :cid
                 GROUP BY src
             ) ol ON p.id = ol.src
-            WHERE p.crawl_id = :cid2
+            WHERE p.crawl_id = :cid2 AND p.in_crawl = TRUE
         ");
         $stmt->execute([':init_pr' => $initPR, ':cid' => $this->crawlId, ':cid2' => $this->crawlId]);
 
@@ -254,7 +257,7 @@ class PostProcessor
         $stmt = $this->db->prepare("
             UPDATE pages p SET pri = t.pr
             FROM tmp_pr t
-            WHERE p.crawl_id = :cid AND p.id = t.id
+            WHERE p.crawl_id = :cid AND p.id = t.id AND p.in_crawl = TRUE
         ");
         $stmt->execute([':cid' => $this->crawlId]);
 
@@ -300,9 +303,9 @@ class PostProcessor
                         ELSE 'unique'
                     END AS metadesc_st
                 FROM pages
-                WHERE crawl_id = :crawl_id AND compliant = true
+                WHERE crawl_id = :crawl_id AND compliant = true AND in_crawl = TRUE
             ) s
-            WHERE p.crawl_id = :crawl_id2 AND p.id = s.id
+            WHERE p.crawl_id = :crawl_id2 AND p.id = s.id AND p.in_crawl = TRUE
         ");
         $stmt->execute([':crawl_id' => $this->crawlId, ':crawl_id2' => $this->crawlId]);
 
@@ -780,6 +783,239 @@ class PostProcessor
 
         echo "\r \033[32m Redirect chains \033[0m : \033[36m$chainsCount chains, $chainsErrors errors\033[0m                    \n";
         flush();
+    }
+
+    /**
+     * Sitemap analysis: parse the configured sitemap URL(s), mark matching pages
+     * with in_sitemap=true, insert sitemap-only URLs with depth=-1/in_crawl=false,
+     * then fetch the new in-scope ones using the existing crawler (multi-thread,
+     * same speed rules), without extracting their outgoing links.
+     */
+    public function sitemapAnalysis(): void
+    {
+        // Load crawl config
+        $stmt = $this->db->prepare("SELECT config, domain FROM crawls WHERE id = :id");
+        $stmt->execute([':id' => $this->crawlId]);
+        $row = $stmt->fetch(PDO::FETCH_OBJ);
+        if (!$row) return;
+
+        $config = is_string($row->config) ? json_decode($row->config, true) : (array)$row->config;
+        $sitemapUrls = $config['advanced']['sitemap_urls'] ?? [];
+        if (!is_array($sitemapUrls)) {
+            $sitemapUrls = [$sitemapUrls];
+        }
+        $sitemapUrls = array_values(array_filter(array_map('trim', $sitemapUrls)));
+
+        if (empty($sitemapUrls)) {
+            // No sitemap configured for this crawl — skip silently (step not shown)
+            return;
+        }
+
+        echo "\r \033[32m Sitemap analysis \033[0m : \033[36mfetching sitemap(s)...\033[0m                    ";
+        flush();
+
+        try {
+            $parser = new \App\Sitemap\SitemapParser();
+            $result = $parser->parse($sitemapUrls);
+        } catch (\Throwable $e) {
+            echo "\r \033[32m Sitemap analysis \033[0m : \033[33mskipped (" . $e->getMessage() . ")\033[0m                    \n";
+            flush();
+            return;
+        }
+
+        $allUrls = $result->urls;
+        $foundCount = count($allUrls);
+        if ($foundCount === 0) {
+            echo "\r \033[32m Sitemap analysis \033[0m : \033[33mno URLs found in sitemap\033[0m                    \n";
+            flush();
+            return;
+        }
+
+        echo "\r \033[32m Sitemap analysis \033[0m : \033[36m$foundCount URLs found, matching...\033[0m                    ";
+        flush();
+
+        // Pre-compute id (CHAR(8) crc32 hex) for each URL — same hash the crawler uses
+        $idToUrl = [];
+        foreach ($allUrls as $u) {
+            $idToUrl[hash('crc32', $u, false)] = $u;
+        }
+        $allIds = array_keys($idToUrl);
+
+        // 1. Find which IDs already exist in pages
+        $existingIds = [];
+        foreach (array_chunk($allIds, 5000) as $chunk) {
+            $stmt = $this->db->prepare(
+                "SELECT id FROM pages WHERE crawl_id = :cid AND id = ANY(:ids)"
+            );
+            $stmt->bindValue(':cid', $this->crawlId, PDO::PARAM_INT);
+            $stmt->bindValue(':ids', '{' . implode(',', $chunk) . '}');
+            $stmt->execute();
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $existingId) {
+                $existingIds[trim($existingId)] = true;
+            }
+        }
+
+        // 2. UPDATE in_sitemap=true on known IDs (preserves their depth/in_crawl)
+        $matched = 0;
+        $matchedIds = array_keys($existingIds);
+        foreach (array_chunk($matchedIds, 5000) as $chunk) {
+            $stmt = $this->db->prepare(
+                "UPDATE pages SET in_sitemap = TRUE WHERE crawl_id = :cid AND id = ANY(:ids)"
+            );
+            $stmt->bindValue(':cid', $this->crawlId, PDO::PARAM_INT);
+            $stmt->bindValue(':ids', '{' . implode(',', $chunk) . '}');
+            $stmt->execute();
+            $matched += $stmt->rowCount();
+        }
+
+        // 3. Classify new URLs by scope
+        $allowedDomains = $config['general']['domains'] ?? [];
+        if (!is_array($allowedDomains) || empty($allowedDomains)) {
+            $allowedDomains = [$row->domain];
+        }
+
+        $newInScope = [];      // URLs to insert + fetch
+        $newOutOfScope = [];   // URLs to insert as external (no fetch)
+        foreach ($idToUrl as $id => $url) {
+            if (isset($existingIds[$id])) continue;
+            if ($this->urlInScope($url, $allowedDomains)) {
+                $newInScope[$id] = $url;
+            } else {
+                $newOutOfScope[$id] = $url;
+            }
+        }
+
+        // 4. INSERT new in-scope as placeholder rows (depth=-1, in_crawl=false, in_sitemap=true, external=false)
+        $insertedInScope = $this->insertSitemapOnly($newInScope, false);
+
+        // 5. INSERT new out-of-scope as external (no fetch — same as classic crawl behaviour)
+        $insertedExternal = $this->insertSitemapOnly($newOutOfScope, true);
+
+        // 6. Fetch the new in-scope URLs via DepthCrawler (multi-thread, same crawl_speed)
+        if (!empty($newInScope)) {
+            echo "\r \033[32m Sitemap analysis \033[0m : \033[36mfetching " . count($newInScope) . " new URLs...\033[0m                    ";
+            flush();
+            $this->fetchSitemapOnlyPages(array_values($newInScope), $config, $allowedDomains);
+        }
+
+        // Build summary — all error/truncation info goes INSIDE the single line.
+        $summary = "$matched matched, $insertedInScope new, $insertedExternal external";
+        $errorCount = count($result->errors);
+        if ($errorCount > 0) {
+            $summary .= ", $errorCount unreachable";
+        }
+        if ($result->truncated) {
+            $summary .= " (truncated)";
+        }
+        echo "\r \033[32m Sitemap analysis \033[0m : \033[36m$summary\033[0m                              \n";
+        flush();
+    }
+
+    /**
+     * Returns true if the URL belongs to one of the allowed domains.
+     * Mirrors PageCrawler::isExternal() semantics so sitemap pages are scoped
+     * the same way as crawl-discovered pages.
+     */
+    private function urlInScope(string $url, array $allowedDomains): bool
+    {
+        foreach ($allowedDomains as $domain) {
+            $pattern = str_replace('.', '\\.', $domain);
+            $pattern = str_replace('*', '[^\\.]*', $pattern);
+            if (preg_match('#^https?://' . $pattern . '#i', trim($url))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Batch-insert sitemap-only URLs as placeholder rows.
+     * Returns the number of rows actually inserted (excluding ON CONFLICT skips).
+     */
+    private function insertSitemapOnly(array $idToUrl, bool $external): int
+    {
+        if (empty($idToUrl)) return 0;
+
+        $date = date('Y-m-d H:i:s');
+        $totalInserted = 0;
+
+        foreach (array_chunk($idToUrl, 500, true) as $chunk) {
+            $values = [];
+            $params = [];
+            $i = 0;
+            foreach ($chunk as $id => $url) {
+                preg_match('#https?://([^/?]+)#i', $url, $m);
+                $domain = mb_substr($m[1] ?? '', 0, 255);
+
+                $values[] = "(:cid{$i}, :id{$i}, :domain{$i}, :url{$i}, -1, 0, FALSE, :external{$i}, FALSE, :date{$i}, FALSE, TRUE)";
+                $params[":cid{$i}"] = $this->crawlId;
+                $params[":id{$i}"] = $id;
+                $params[":domain{$i}"] = $domain;
+                $params[":url{$i}"] = mb_substr($url, 0, 2083);
+                $params[":external{$i}"] = $external ? 'true' : 'false';
+                $params[":date{$i}"] = $date;
+                $i++;
+            }
+
+            $sql = "INSERT INTO pages (crawl_id, id, domain, url, depth, code, crawled, external, blocked, date, in_crawl, in_sitemap) VALUES "
+                 . implode(', ', $values)
+                 . " ON CONFLICT (crawl_id, id) DO NOTHING";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $totalInserted += $stmt->rowCount();
+        }
+
+        return $totalInserted;
+    }
+
+    /**
+     * Fetch sitemap-only in-scope URLs through the existing crawler pipeline.
+     * Reuses DepthCrawler for curl_multi parallelism + throttling, but tells
+     * PageCrawler to skip link extraction so we don't pollute inlinks/PageRank.
+     */
+    private function fetchSitemapOnlyPages(array $urls, array $config, array $allowedDomains): void
+    {
+        // Build a config compatible with DepthCrawler/PageCrawler from the persisted JSONB
+        $advanced = $config['advanced'] ?? [];
+        $general  = $config['general']  ?? [];
+
+        $auth = $advanced['http_auth'] ?? null;
+        $httpAuth = [
+            'enabled'  => !empty($auth['username']),
+            'username' => $auth['username'] ?? '',
+            'password' => $auth['password'] ?? '',
+        ];
+
+        $runtimeConfig = [
+            'crawl_speed'          => $general['crawl_speed'] ?? 'fast',
+            'crawl_mode'           => 'classic', // sitemap-only fetch always uses classic mode (JS rendering of 50k pages is unrealistic)
+            'crawl_type'           => 'spider',
+            'user-agent'           => $general['user-agent'] ?? 'Scouter/0.3',
+            'customHeaders'        => $advanced['custom_headers'] ?? [],
+            'httpAuth'             => $httpAuth,
+            'follow_redirects'     => $advanced['follow_redirects'] ?? true,
+            'retry_failed_urls'    => $advanced['retry_failed_urls'] ?? true,
+            'store_html'           => $advanced['store_html'] ?? true,
+            'respect'              => [
+                'robots'    => $advanced['respect_robots']    ?? true,
+                'nofollow'  => $advanced['respect_nofollow']  ?? false,
+                'canonical' => $advanced['respect_canonical'] ?? true,
+            ],
+            'xPathExtractors'      => $advanced['xPathExtractors'] ?? [],
+            'regexExtractors'      => $advanced['regexExtractors'] ?? [],
+            'skip_link_extraction' => true, // ← THE flag: PageCrawler will skip storeLinks/storeRedirect
+            'silent_progress'      => true, // ← keep the sitemap step on a single log line
+        ];
+
+        $crawlDb = new \App\Database\CrawlDatabase($this->crawlId, $runtimeConfig);
+        $depthCrawler = new \App\Core\DepthCrawler($crawlDb, $allowedDomains, $runtimeConfig);
+        $depthCrawler->run([
+            'depth'           => -1, // sentinel: these pages are not part of the spider walk
+            'urls'            => $urls,
+            'totalForDepth'   => count($urls),
+            'processedOffset' => 0,
+        ]);
     }
 
     /**

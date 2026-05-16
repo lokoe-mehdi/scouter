@@ -55,7 +55,7 @@ if (!empty($allPageIds)) {
     $stmt = $pdo->query("
         SELECT id, url, title, inlinks, cat_id
         FROM pages
-        WHERE crawl_id = $crawlId AND id IN ($placeholders)
+        WHERE crawl_id = $crawlId AND id IN ($placeholders) AND in_crawl = TRUE
     ");
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
         $pagesMap[$row['id']] = $row;
@@ -202,7 +202,7 @@ near_pages AS (
     FROM duplicate_clusters WHERE similarity >= {$minSimilarityPercent} AND similarity < 100
 ),
 totals AS (
-    SELECT COUNT(*) AS indexable FROM pages WHERE crawled = true AND compliant = true
+    SELECT COUNT(*) AS indexable FROM pages WHERE crawled = true AND compliant = true AND in_crawl = TRUE
 )
 SELECT
     totals.indexable - COALESCE(e.cnt, 0) - COALESCE(n.cnt, 0) AS unique_pages,
@@ -243,7 +243,7 @@ FROM totals,
         
         $sqlDupByCategory = "SELECT cat_id, COUNT(*) AS page_count
 FROM pages
-WHERE crawled = true AND compliant = true AND id IN (
+WHERE crawled = true AND compliant = true AND in_crawl = TRUE AND id IN (
     SELECT unnest(page_ids) FROM duplicate_clusters WHERE similarity >= {$minSimilarityPercent}
 )
 GROUP BY cat_id ORDER BY page_count DESC";

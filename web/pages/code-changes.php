@@ -48,7 +48,7 @@ if (!function_exists('hexToRgba')) {
 $sqlCodeDist = "
     SELECT code, COUNT(*) as total
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
     GROUP BY code ORDER BY total DESC
 ";
 $stmtCodeRef = $pdo->prepare($sqlCodeDist);
@@ -76,11 +76,11 @@ $sqlCodeDisplay = "SELECT
     COALESCE(b.total, 0) AS baseline
 FROM (
     SELECT code, COUNT(*) AS total FROM pages@{$safeCrawlId}
-    WHERE crawled = true GROUP BY code
+    WHERE crawled = true AND in_crawl = TRUE GROUP BY code
 ) r
 FULL OUTER JOIN (
     SELECT code, COUNT(*) AS total FROM pages@{$safeCompareId}
-    WHERE crawled = true GROUP BY code
+    WHERE crawled = true AND in_crawl = TRUE GROUP BY code
 ) b ON r.code = b.code
 ORDER BY COALESCE(r.total, 0) + COALESCE(b.total, 0) DESC";
 
@@ -90,7 +90,7 @@ ORDER BY COALESCE(r.total, 0) + COALESCE(b.total, 0) DESC";
 $sqlCodeCat = "
     SELECT cat_id, code, COUNT(*) as count
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
     GROUP BY cat_id, code ORDER BY count DESC
 ";
 $stmtCodeCatRef = $pdo->prepare($sqlCodeCat);
@@ -182,11 +182,11 @@ FROM (
         COALESCE(b.count, 0) AS b_count
     FROM (
         SELECT cat_id, code, COUNT(*) AS count FROM pages@{$safeCrawlId}
-        WHERE crawled = true GROUP BY cat_id, code
+        WHERE crawled = true AND in_crawl = TRUE GROUP BY cat_id, code
     ) r
     FULL OUTER JOIN (
         SELECT cat_id, code, COUNT(*) AS count FROM pages@{$safeCompareId}
-        WHERE crawled = true GROUP BY cat_id, code
+        WHERE crawled = true AND in_crawl = TRUE GROUP BY cat_id, code
     ) b ON r.cat_id = b.cat_id AND r.code = b.code
 ) sub
 GROUP BY cat_id
@@ -268,9 +268,9 @@ foreach ($categoriesMap as $id => $info) {
     Component::urlTable([
         'title' => __('comparison.code_changes_table_title'),
         'id' => 'code_changes_table',
-        'whereClause' => "WHERE c.crawled = true AND EXISTS (
+        'whereClause' => "WHERE c.crawled = true AND c.in_crawl = TRUE AND EXISTS (
             SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.code != c.code
+            WHERE b.url = c.url AND b.crawled = true AND b.in_crawl = TRUE AND b.code != c.code
         )",
         'orderBy' => 'ORDER BY c.code DESC, c.inlinks DESC',
         'defaultColumns' => ['url', 'depth', 'code', 'category', 'inlinks', 'pri'],

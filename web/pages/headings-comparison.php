@@ -49,7 +49,7 @@ $sqlHeadingsStats = "
         SUM(CASE WHEN headings_missing = false THEN 1 ELSE 0 END) as hn_ok_count,
         SUM(CASE WHEN headings_missing = true THEN 1 ELSE 0 END) as hn_missing_count
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
 
 $stmtRef = $pdo->prepare($sqlHeadingsStats);
@@ -92,7 +92,7 @@ $sqlHeadingsByCategory = "
         SUM(CASE WHEN headings_missing = false THEN 1 ELSE 0 END) as hn_ok_count,
         SUM(CASE WHEN headings_missing = true THEN 1 ELSE 0 END) as hn_missing_count
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY cat_id
     ORDER BY cat_id
 ";
@@ -198,7 +198,7 @@ FROM (
         SUM(CASE WHEN h1_multiple = true THEN 1 ELSE 0 END) AS h1_multiple_count,
         SUM(CASE WHEN headings_missing = false THEN 1 ELSE 0 END) AS hn_ok_count,
         SUM(CASE WHEN headings_missing = true THEN 1 ELSE 0 END) AS hn_missing_count
-    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true GROUP BY cat_id
+    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
 ) r
 FULL OUTER JOIN (
     SELECT cat_id,
@@ -206,7 +206,7 @@ FULL OUTER JOIN (
         SUM(CASE WHEN h1_multiple = true THEN 1 ELSE 0 END) AS h1_multiple_count,
         SUM(CASE WHEN headings_missing = false THEN 1 ELSE 0 END) AS hn_ok_count,
         SUM(CASE WHEN headings_missing = true THEN 1 ELSE 0 END) AS hn_missing_count
-    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true GROUP BY cat_id
+    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
 ) b ON r.cat_id = b.cat_id
 ORDER BY cat_id";
 
@@ -305,9 +305,9 @@ ORDER BY cat_id";
     Component::urlTable([
         'title' => __('comparison.headings_regressions_table'),
         'id' => 'headings_regressions_table',
-        'whereClause' => "WHERE c.compliant = true AND (c.h1_multiple = true OR c.headings_missing = true) AND EXISTS (
+        'whereClause' => "WHERE c.compliant = true AND (c.h1_multiple = true OR c.headings_missing = true) AND c.in_crawl = TRUE AND EXISTS (
             SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true
+            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE
             AND b.h1_multiple = false AND b.headings_missing = false
         )",
         'orderBy' => 'ORDER BY c.h1_multiple DESC, c.headings_missing DESC, c.url',

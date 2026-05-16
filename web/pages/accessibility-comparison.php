@@ -49,7 +49,7 @@ $sqlUrlDistribution = "
         SUM(CASE WHEN external = false AND crawled = false THEN 1 ELSE 0 END) as not_crawled_urls,
         SUM(CASE WHEN external = false AND crawled = true AND (is_html = false OR is_html IS NULL) THEN 1 ELSE 0 END) as media_urls
     FROM pages
-    WHERE crawl_id = :crawl_id
+    WHERE crawl_id = :crawl_id AND in_crawl = TRUE
 ";
 
 $stmtRef = $pdo->prepare($sqlUrlDistribution);
@@ -83,7 +83,7 @@ $sqlNonIndexable = "
         SUM(CASE WHEN compliant = false AND code = 200 AND noindex = true THEN 1 ELSE 0 END) as noindex_urls,
         SUM(CASE WHEN compliant = false AND code = 200 AND noindex = false AND canonical = false THEN 1 ELSE 0 END) as non_canonical
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true AND in_crawl = TRUE
 ";
 
 $stmtRef = $pdo->prepare($sqlNonIndexable);
@@ -118,7 +118,7 @@ $sqlIndexabilityByCategory = "
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = true THEN 1 ELSE 0 END) as noindex,
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = false AND code != 200 THEN 1 ELSE 0 END) as bad_status
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true AND in_crawl = TRUE
     GROUP BY cat_id
 ";
 
@@ -196,7 +196,7 @@ FROM (
         SUM(CASE WHEN compliant = false AND canonical = false THEN 1 ELSE 0 END) AS non_canonical,
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = true THEN 1 ELSE 0 END) AS noindex,
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = false AND code != 200 THEN 1 ELSE 0 END) AS bad_status
-    FROM pages@{$safeCrawlId} WHERE crawled = true AND is_html = true GROUP BY cat_id
+    FROM pages@{$safeCrawlId} WHERE crawled = true AND is_html = true AND in_crawl = TRUE GROUP BY cat_id
 ) r
 FULL OUTER JOIN (
     SELECT cat_id,
@@ -204,7 +204,7 @@ FULL OUTER JOIN (
         SUM(CASE WHEN compliant = false AND canonical = false THEN 1 ELSE 0 END) AS non_canonical,
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = true THEN 1 ELSE 0 END) AS noindex,
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = false AND code != 200 THEN 1 ELSE 0 END) AS bad_status
-    FROM pages@{$safeCompareId} WHERE crawled = true AND is_html = true GROUP BY cat_id
+    FROM pages@{$safeCompareId} WHERE crawled = true AND is_html = true AND in_crawl = TRUE GROUP BY cat_id
 ) b ON r.cat_id = b.cat_id
 ORDER BY cat_id";
 
@@ -290,9 +290,9 @@ ORDER BY cat_id";
     Component::urlTable([
         'title' => __('comparison.indexability_changes_table_title'),
         'id' => 'indexability_changes_table',
-        'whereClause' => "WHERE c.crawled = true AND c.is_html = true AND EXISTS (
+        'whereClause' => "WHERE c.crawled = true AND c.is_html = true AND c.in_crawl = TRUE AND EXISTS (
             SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.is_html = true AND b.compliant != c.compliant
+            WHERE b.url = c.url AND b.crawled = true AND b.is_html = true AND b.in_crawl = TRUE AND b.compliant != c.compliant
         )",
         'orderBy' => 'ORDER BY c.compliant ASC, c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'compliant', 'code', 'noindex', 'canonical'],

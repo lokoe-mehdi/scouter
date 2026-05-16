@@ -44,6 +44,7 @@ class DepthCrawler
     private $simultaneousLimit;
     private $targetUrlsPerSecond;
     private $curlOptions;
+    private bool $silentProgress = false;
     private $jsRenderer;
     private int $totalForDepth = 0;
     private int $processedOffset = 0;
@@ -69,6 +70,7 @@ class DepthCrawler
         // Déterminer la vitesse de crawl depuis la config
         $this->crawlSpeed = isset($config['crawl_speed']) ? $config['crawl_speed'] : 'fast';
         $this->crawlMode = isset($config['crawl_mode']) ? $config['crawl_mode'] : 'classic';
+        $this->silentProgress = (bool)($config['silent_progress'] ?? false);
         $this->configureCrawlSpeed();
         
         // Initialiser le renderer JS si mode javascript
@@ -266,10 +268,12 @@ class DepthCrawler
             $jitter = $baseDelay * (mt_rand(-self::JITTER_PERCENT, self::JITTER_PERCENT) / 100);
             $actualDelay = $baseDelay + $jitter;
 
-            echo "\n \033[33m ↻ Retry attempt $attempt/" . self::MAX_RETRIES
-                 . " for " . count($failedUrls) . " URLs (~" . round($actualDelay, 1) . "s pause)\033[0m";
-            flush();
-            if (ob_get_level() > 0) ob_flush();
+            if (!$this->silentProgress) {
+                echo "\n \033[33m ↻ Retry attempt $attempt/" . self::MAX_RETRIES
+                     . " for " . count($failedUrls) . " URLs (~" . round($actualDelay, 1) . "s pause)\033[0m";
+                flush();
+                if (ob_get_level() > 0) ob_flush();
+            }
 
             // Un seul sleep avant le batch entier
             usleep((int)($actualDelay * 1000000));
@@ -332,7 +336,7 @@ class DepthCrawler
             $this->crawlDb->updateCrawlStats();
 
             $resolved = count($failedUrls) - count($stillFailing);
-            if ($resolved > 0) {
+            if ($resolved > 0 && !$this->silentProgress) {
                 echo "\n \033[32m ✓ $resolved URLs resolved on attempt $attempt\033[0m";
                 flush();
                 if (ob_get_level() > 0) ob_flush();
@@ -341,9 +345,11 @@ class DepthCrawler
             $failedUrls = $stillFailing;
         }
 
-        echo "\n";
-        flush();
-        if (ob_get_level() > 0) ob_flush();
+        if (!$this->silentProgress) {
+            echo "\n";
+            flush();
+            if (ob_get_level() > 0) ob_flush();
+        }
     }
 
     /**
@@ -383,10 +389,12 @@ class DepthCrawler
             $this->update++;
             $globalDone = min($this->processedOffset + $this->update, $this->totalForDepth);
             if ($this->update % 10 == 0 || $this->update == count($this->urls)) {
-                echo "\r \033[32m Depth ".$this->depth." : \033[0m".self::$vitesse." URLs/sec \033[36m(".$globalDone."/".$this->totalForDepth.")\033[0m                             ";
-                flush();
-                if (ob_get_level() > 0) {
-                    ob_flush();
+                if (!$this->silentProgress) {
+                    echo "\r \033[32m Depth ".$this->depth." : \033[0m".self::$vitesse." URLs/sec \033[36m(".$globalDone."/".$this->totalForDepth.")\033[0m                             ";
+                    flush();
+                    if (ob_get_level() > 0) {
+                        ob_flush();
+                    }
                 }
                 if (time() - self::$lastStatsUpdate >= 10) {
                     self::$lastStatsUpdate = time();
@@ -404,10 +412,12 @@ class DepthCrawler
         $this->crawlDb->updateCrawlStats();
         self::$lastStatsUpdate = time();
 
-        echo "\n";
-        flush();
-        if (ob_get_level() > 0) {
-            ob_flush();
+        if (!$this->silentProgress) {
+            echo "\n";
+            flush();
+            if (ob_get_level() > 0) {
+                ob_flush();
+            }
         }
     }
 
@@ -461,10 +471,12 @@ class DepthCrawler
                 $this->update++;
                 $globalDone = min($this->processedOffset + $this->update, $this->totalForDepth);
                 if ($this->update % 10 == 0 || $this->update == count($this->urls)) {
-                    echo "\r \033[32m Depth " . $this->depth . " : \033[0m" . self::$vitesse . " URLs/sec \033[36m(" . $globalDone . "/" . $this->totalForDepth . ")\033[0m                             ";
-                    flush();
-                    if (ob_get_level() > 0) {
-                        ob_flush();
+                    if (!$this->silentProgress) {
+                        echo "\r \033[32m Depth " . $this->depth . " : \033[0m" . self::$vitesse . " URLs/sec \033[36m(" . $globalDone . "/" . $this->totalForDepth . ")\033[0m                             ";
+                        flush();
+                        if (ob_get_level() > 0) {
+                            ob_flush();
+                        }
                     }
                     if (time() - self::$lastStatsUpdate >= 10) {
                         self::$lastStatsUpdate = time();
@@ -492,10 +504,12 @@ class DepthCrawler
         $this->crawlDb->updateCrawlStats();
         self::$lastStatsUpdate = time();
 
-        echo "\n";
-        flush();
-        if (ob_get_level() > 0) {
-            ob_flush();
+        if (!$this->silentProgress) {
+            echo "\n";
+            flush();
+            if (ob_get_level() > 0) {
+                ob_flush();
+            }
         }
     }
 

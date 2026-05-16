@@ -13,8 +13,8 @@ $stmt = $pdo->prepare("
         MAX(pri) as max_pr,
         MIN(pri) as min_pr,
         COUNT(CASE WHEN pri > 0 THEN 1 END) as pages_with_pr
-    FROM pages 
-    WHERE crawl_id = :crawl_id AND crawled = true
+    FROM pages
+    WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
 ");
 $stmt->execute([':crawl_id' => $crawlId]);
 $prStats = $stmt->fetch(PDO::FETCH_OBJ);
@@ -25,9 +25,9 @@ $sqlPrByDepth = "
         depth, 
         AVG(pri) as avg_pr, 
         COUNT(*) as count
-    FROM pages 
-    WHERE crawl_id = :crawl_id AND crawled = true AND pri > 0
-    GROUP BY depth 
+    FROM pages
+    WHERE crawl_id = :crawl_id AND crawled = true AND pri > 0 AND in_crawl = TRUE
+    GROUP BY depth
     ORDER BY depth
 ";
 $stmt = $pdo->prepare($sqlPrByDepth);
@@ -42,7 +42,7 @@ $sqlPrByCategory = "
         AVG(pri) as avg_pr,
         COUNT(*) as count
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND pri > 0
+    WHERE crawl_id = :crawl_id AND crawled = true AND pri > 0 AND in_crawl = TRUE
     GROUP BY cat_id
     ORDER BY AVG(pri) DESC
 ";
@@ -72,8 +72,8 @@ $sqlFluxCategories = "
         pt.cat_id as target_cat_id,
         COUNT(*) as link_count
     FROM links l
-    INNER JOIN pages ps ON ps.crawl_id = l.crawl_id AND ps.id = l.src
-    INNER JOIN pages pt ON pt.crawl_id = l.crawl_id AND pt.id = l.target
+    INNER JOIN pages ps ON ps.crawl_id = l.crawl_id AND ps.id = l.src AND ps.in_crawl = TRUE
+    INNER JOIN pages pt ON pt.crawl_id = l.crawl_id AND pt.id = l.target AND pt.in_crawl = TRUE
     WHERE l.crawl_id = {$crawlIdInt}
       AND l.nofollow = false
       AND ps.external = false AND pt.external = false
@@ -90,8 +90,8 @@ $sqlExternalLinks = "
         ps.cat_id as source_cat_id,
         COUNT(*) as link_count
     FROM links l
-    INNER JOIN pages ps ON ps.crawl_id = l.crawl_id AND ps.id = l.src
-    INNER JOIN pages pt ON pt.crawl_id = l.crawl_id AND pt.id = l.target
+    INNER JOIN pages ps ON ps.crawl_id = l.crawl_id AND ps.id = l.src AND ps.in_crawl = TRUE
+    INNER JOIN pages pt ON pt.crawl_id = l.crawl_id AND pt.id = l.target AND pt.in_crawl = TRUE
     WHERE l.crawl_id = {$crawlIdInt}
       AND l.nofollow = false
       AND ps.external = false AND pt.external = true
@@ -330,7 +330,7 @@ usort($sankeyNodes, function($a, $b) use ($linksByCategory) {
     Component::urlTable([
         'title' => __('pagerank.table_top'),
         'id' => 'pagerankTable',
-        'whereClause' => 'WHERE c.crawled = true',
+        'whereClause' => 'WHERE c.crawled = true AND c.in_crawl = TRUE',
         'orderBy' => 'ORDER BY c.pri DESC',
         'defaultColumns' => ['url', 'code', 'depth', 'pri','inlinks', 'outlinks', 'compliant'],
         'pdo' => $pdo,

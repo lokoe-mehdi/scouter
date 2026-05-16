@@ -50,7 +50,7 @@ $sqlOutlinksDistribution = "
         outlinks,
         COUNT(*) as url_count
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY outlinks
     ORDER BY outlinks DESC
 ";
@@ -111,13 +111,13 @@ $sqlDistDisplay = "SELECT
 FROM (
     SELECT outlinks, COUNT(*) AS url_count
     FROM pages@{$safeCrawlId}
-    WHERE crawled = true AND compliant = true
+    WHERE crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY outlinks
 ) r
 FULL OUTER JOIN (
     SELECT outlinks, COUNT(*) AS url_count
     FROM pages@{$safeCompareId}
-    WHERE crawled = true AND compliant = true
+    WHERE crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY outlinks
 ) b ON r.outlinks = b.outlinks
 ORDER BY COALESCE(r.outlinks, b.outlinks) DESC";
@@ -131,7 +131,7 @@ $sqlByCategory = "
         COUNT(id) as url_count,
         ROUND(AVG(outlinks)::numeric, 2) as avg_outlinks
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY cat_id
     ORDER BY AVG(outlinks) DESC
 ";
@@ -175,13 +175,13 @@ $sqlCatDisplay = "SELECT
 FROM (
     SELECT cat_id, ROUND(AVG(outlinks)::numeric, 2) AS avg_outlinks
     FROM pages@{$safeCrawlId}
-    WHERE crawled = true AND compliant = true
+    WHERE crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY cat_id
 ) r
 FULL OUTER JOIN (
     SELECT cat_id, ROUND(AVG(outlinks)::numeric, 2) AS avg_outlinks
     FROM pages@{$safeCompareId}
-    WHERE crawled = true AND compliant = true
+    WHERE crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY cat_id
 ) b ON r.cat_id = b.cat_id
 ORDER BY COALESCE(r.avg_outlinks, 0) DESC";
@@ -276,9 +276,9 @@ ORDER BY COALESCE(r.avg_outlinks, 0) DESC";
     Component::urlTable([
         'title' => __('comparison.outlinks_changes_table'),
         'id' => 'outlinks_changes_table',
-        'whereClause' => "WHERE c.crawled = true AND c.compliant = true AND EXISTS (
+        'whereClause' => "WHERE c.crawled = true AND c.compliant = true AND c.in_crawl = TRUE AND EXISTS (
             SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND b.outlinks < c.outlinks
+            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE AND b.outlinks < c.outlinks
         )",
         'orderBy' => 'ORDER BY c.outlinks DESC',
         'defaultColumns' => ['url', 'category', 'outlinks', 'depth', 'pri'],

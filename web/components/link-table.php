@@ -40,9 +40,9 @@ if(!$crawlId) {
 $customExtractColumns = [];
 try {
     $stmt = $pdo->prepare("
-        SELECT DISTINCT jsonb_object_keys(extracts) as key_name 
-        FROM pages 
-        WHERE crawl_id = :crawl_id AND extracts IS NOT NULL AND extracts != '{}'::jsonb
+        SELECT DISTINCT jsonb_object_keys(extracts) as key_name
+        FROM pages
+        WHERE crawl_id = :crawl_id AND extracts IS NOT NULL AND extracts != '{}'::jsonb AND in_crawl = TRUE
     ");
     $stmt->execute([':crawl_id' => $crawlId]);
     $customExtractColumns = $stmt->fetchAll(PDO::FETCH_COLUMN);
@@ -117,8 +117,8 @@ $tableSqlQuery = "SELECT
     l.external,
     l.nofollow
 FROM links l
-LEFT JOIN pages s ON l.src = s.id
-LEFT JOIN pages t ON l.target = t.id
+LEFT JOIN pages s ON l.src = s.id AND s.in_crawl = TRUE
+LEFT JOIN pages t ON l.target = t.id AND t.in_crawl = TRUE
 " . $cleanedWhere . "
 " . $cleanedOrderBy;
 
@@ -407,21 +407,21 @@ $crawlIdCondition = "l.crawl_id = $crawlIdInt";
 // Construire les jointures nécessaires (pour filtre OU tri)
 $joinClauses = "";
 if ($hasSourceFilter || $needsSourceJoinForSort) {
-    $joinClauses .= " LEFT JOIN pages cs ON l.src = cs.id AND cs.crawl_id = $crawlIdInt";
+    $joinClauses .= " LEFT JOIN pages cs ON l.src = cs.id AND cs.crawl_id = $crawlIdInt AND cs.in_crawl = TRUE";
 }
 if ($hasTargetFilter || $needsTargetJoinForSort) {
-    $joinClauses .= " LEFT JOIN pages ct ON l.target = ct.id AND ct.crawl_id = $crawlIdInt";
+    $joinClauses .= " LEFT JOIN pages ct ON l.target = ct.id AND ct.crawl_id = $crawlIdInt AND ct.in_crawl = TRUE";
 }
 // Jointures sur les catégories si tri par catégorie
 if ($needsSourceCatJoinForSort) {
     if (!$hasSourceFilter && !$needsSourceJoinForSort) {
-        $joinClauses .= " LEFT JOIN pages cs ON l.src = cs.id AND cs.crawl_id = $crawlIdInt";
+        $joinClauses .= " LEFT JOIN pages cs ON l.src = cs.id AND cs.crawl_id = $crawlIdInt AND cs.in_crawl = TRUE";
     }
     $joinClauses .= " LEFT JOIN crawl_categories cats ON cs.cat_id = cats.id";
 }
 if ($needsTargetCatJoinForSort) {
     if (!$hasTargetFilter && !$needsTargetJoinForSort) {
-        $joinClauses .= " LEFT JOIN pages ct ON l.target = ct.id AND ct.crawl_id = $crawlIdInt";
+        $joinClauses .= " LEFT JOIN pages ct ON l.target = ct.id AND ct.crawl_id = $crawlIdInt AND ct.in_crawl = TRUE";
     }
     $joinClauses .= " LEFT JOIN crawl_categories catt ON ct.cat_id = catt.id";
 }
@@ -518,11 +518,11 @@ $pagesMap = [];
 if (!empty($pageIds)) {
     $placeholders = implode(',', array_fill(0, count($pageIds), '?'));
     $pagesQuery = "SELECT id, url, depth, code, cat_id, inlinks, outlinks, response_time, schemas,
-                          compliant, canonical, canonical_value, noindex, blocked, redirect_to, content_type, 
-                          pri, title, title_status, h1, h1_status, metadesc, metadesc_status, 
+                          compliant, canonical, canonical_value, noindex, blocked, redirect_to, content_type,
+                          pri, title, title_status, h1, h1_status, metadesc, metadesc_status,
                           h1_multiple, headings_missing, extracts, word_count
-                   FROM pages 
-                   WHERE crawl_id = ? AND id IN ($placeholders)";
+                   FROM pages
+                   WHERE crawl_id = ? AND id IN ($placeholders) AND in_crawl = TRUE";
     $stmt = $pdo->prepare($pagesQuery);
     $stmt->execute(array_merge([$crawlIdInt], $pageIds));
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {

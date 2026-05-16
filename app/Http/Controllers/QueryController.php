@@ -349,7 +349,7 @@ class QueryController extends Controller
         $stmt = $this->db->prepare("
             SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.pri, c.cat_id
             FROM links l
-            JOIN pages c ON l.src = c.id AND c.crawl_id = :crawl_id
+            JOIN pages c ON l.src = c.id AND c.crawl_id = :crawl_id AND c.in_crawl = TRUE
             WHERE l.crawl_id = :crawl_id2 AND l.target = :id
             ORDER BY c.pri DESC LIMIT 100
         ");
@@ -385,7 +385,7 @@ class QueryController extends Controller
         $stmt = $this->db->prepare("
             SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.external, c.cat_id
             FROM links l
-            JOIN pages c ON l.target = c.id AND c.crawl_id = :crawl_id
+            JOIN pages c ON l.target = c.id AND c.crawl_id = :crawl_id AND c.in_crawl = TRUE
             WHERE l.crawl_id = :crawl_id2 AND l.src = :id
         ");
         $stmt->execute([':crawl_id' => $ctx['crawlId'], ':crawl_id2' => $ctx['crawlId'], ':id' => $ctx['pageId']]);
@@ -429,8 +429,8 @@ class QueryController extends Controller
         $crawlId = $crawlRecord->id;
         
         $stmt = $this->db->prepare("
-            SELECT url, title, code FROM pages 
-            WHERE crawl_id = :crawl_id AND url LIKE :search
+            SELECT url, title, code FROM pages
+            WHERE crawl_id = :crawl_id AND url LIKE :search AND in_crawl = TRUE
             ORDER BY pri DESC LIMIT :limit
         ");
         $stmt->execute([

@@ -1297,6 +1297,10 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
             // Récupérer les domaines autorisés
             const allowedDomainsText = document.getElementById('allowed_domains').value.trim();
             const allowedDomains = allowedDomainsText ? allowedDomainsText.split('\n').map(d => d.trim()).filter(d => d) : [];
+
+            // Récupérer les URLs de sitemap (une par ligne, optionnel)
+            const sitemapUrlsText = document.getElementById('sitemap_urls').value.trim();
+            const sitemapUrls = sitemapUrlsText ? sitemapUrlsText.split('\n').map(u => u.trim()).filter(u => u) : [];
             
             // Récupérer les headers HTTP personnalisés
             const customHeaders = {};
@@ -1345,6 +1349,7 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                 crawl_type: crawlType,
                 user_agent: document.getElementById('user_agent').value,
                 allowed_domains: allowedDomains,
+                sitemap_urls: sitemapUrls,
                 custom_headers: customHeaders,
                 http_auth: httpAuth,
                 extractors: extractors,

@@ -938,6 +938,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             crawl_type: crawlType,
             user_agent: document.getElementById('user_agent').value,
             allowed_domains: document.getElementById('allowed_domains').value.trim().split('\n').filter(d=>d.trim()),
+            sitemap_urls: document.getElementById('sitemap_urls').value.trim().split('\n').map(u=>u.trim()).filter(u=>u),
             custom_headers: customHeaders,
             http_auth: enableAuth ? { username: document.getElementById('auth_username').value.trim(), password: document.getElementById('auth_password').value.trim() } : null,
             extractors: extractors,

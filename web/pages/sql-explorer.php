@@ -7,79 +7,66 @@
 
 use App\Database\PostgresDatabase;
 
-// Structure des tables virtuelles (sans crawl_id qui est masqué)
-$tables = [
-    'pages' => [
-        ['name' => 'id', 'type' => 'CHAR(8)'],
-        ['name' => 'url', 'type' => 'TEXT'],
-        ['name' => 'domain', 'type' => 'VARCHAR(255)'],
-        ['name' => 'code', 'type' => 'INTEGER'],
-        ['name' => 'depth', 'type' => 'INTEGER'],
-        ['name' => 'crawled', 'type' => 'BOOLEAN'],
-        ['name' => 'compliant', 'type' => 'BOOLEAN'],
-        ['name' => 'external', 'type' => 'BOOLEAN'],
-        ['name' => 'blocked', 'type' => 'BOOLEAN'],
-        ['name' => 'noindex', 'type' => 'BOOLEAN'],
-        ['name' => 'nofollow', 'type' => 'BOOLEAN'],
-        ['name' => 'canonical', 'type' => 'BOOLEAN'],
-        ['name' => 'canonical_value', 'type' => 'TEXT'],
-        ['name' => 'redirect_to', 'type' => 'TEXT'],
-        ['name' => 'content_type', 'type' => 'VARCHAR(100)'],
-        ['name' => 'response_time', 'type' => 'FLOAT'],
-        ['name' => 'inlinks', 'type' => 'INTEGER'],
-        ['name' => 'outlinks', 'type' => 'INTEGER'],
-        ['name' => 'pri', 'type' => 'FLOAT'],
-        ['name' => 'title', 'type' => 'TEXT'],
-        ['name' => 'title_status', 'type' => 'VARCHAR(50)'],
-        ['name' => 'h1', 'type' => 'TEXT'],
-        ['name' => 'h1_status', 'type' => 'VARCHAR(50)'],
-        ['name' => 'metadesc', 'type' => 'TEXT'],
-        ['name' => 'metadesc_status', 'type' => 'VARCHAR(50)'],
-        ['name' => 'h1_multiple', 'type' => 'BOOLEAN'],
-        ['name' => 'headings_missing', 'type' => 'BOOLEAN'],
-        ['name' => 'simhash', 'type' => 'BIGINT'],
-        ['name' => 'is_html', 'type' => 'BOOLEAN'],
-        ['name' => 'cat_id', 'type' => 'INTEGER'],
-        ['name' => 'extracts', 'type' => 'JSONB'],
-        ['name' => 'schemas', 'type' => 'TEXT[]'],
-        ['name' => 'date', 'type' => 'TIMESTAMP'],
-    ],
-    'links' => [
-        ['name' => 'src', 'type' => 'CHAR(8)'],
-        ['name' => 'target', 'type' => 'CHAR(8)'],
-        ['name' => 'anchor', 'type' => 'TEXT'],
-        ['name' => 'type', 'type' => 'VARCHAR(50)'],
-        ['name' => 'external', 'type' => 'BOOLEAN'],
-        ['name' => 'nofollow', 'type' => 'BOOLEAN'],
-    ],
-    'categories' => [
-        ['name' => 'id', 'type' => 'SERIAL'],
-        ['name' => 'cat', 'type' => 'VARCHAR(255)'],
-        ['name' => 'color', 'type' => 'VARCHAR(7)'],
-    ],
-    'duplicate_clusters' => [
-        ['name' => 'id', 'type' => 'SERIAL'],
-        ['name' => 'similarity', 'type' => 'INTEGER'],
-        ['name' => 'page_count', 'type' => 'INTEGER'],
-        ['name' => 'page_ids', 'type' => 'TEXT[]'],
-    ],
-    'page_schemas' => [
-        ['name' => 'page_id', 'type' => 'CHAR(8)'],
-        ['name' => 'schema_type', 'type' => 'VARCHAR(100)'],
-    ],
-    'redirect_chains' => [
-        ['name' => 'id', 'type' => 'SERIAL'],
-        ['name' => 'source_id', 'type' => 'CHAR(8)'],
-        ['name' => 'source_url', 'type' => 'TEXT'],
-        ['name' => 'final_id', 'type' => 'CHAR(8)'],
-        ['name' => 'final_url', 'type' => 'TEXT'],
-        ['name' => 'final_code', 'type' => 'INTEGER'],
-        ['name' => 'final_compliant', 'type' => 'BOOLEAN'],
-        ['name' => 'hops', 'type' => 'INTEGER'],
-        ['name' => 'is_loop', 'type' => 'BOOLEAN'],
-        ['name' => 'chain_ids', 'type' => 'TEXT[]'],
-    ]
+/**
+ * Structure des tables virtuelles — lue dynamiquement depuis information_schema.
+ *
+ * Mapping virtuel → réel : `categories` est un alias de `crawl_categories`
+ * (réécriture côté QueryController). Toutes les autres tables portent le même
+ * nom. La colonne `crawl_id` (clé de partitionnement) est masquée dans la vue
+ * virtuelle, comme l'utilisateur n'a pas à la spécifier dans ses requêtes.
+ */
+$virtualToReal = [
+    'pages'              => 'pages',
+    'links'              => 'links',
+    'categories'         => 'crawl_categories',
+    'duplicate_clusters' => 'duplicate_clusters',
+    'page_schemas'       => 'page_schemas',
+    'redirect_chains'    => 'redirect_chains',
 ];
+$hiddenColumns = ['crawl_id'];
+
+$pdoForSchema = PostgresDatabase::getInstance()->getConnection();
+$realNames = array_values($virtualToReal);
+$placeholders = implode(',', array_fill(0, count($realNames), '?'));
+$schemaStmt = $pdoForSchema->prepare("
+    SELECT table_name, column_name, data_type, character_maximum_length, udt_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name IN ($placeholders)
+    ORDER BY table_name, ordinal_position
+");
+$schemaStmt->execute($realNames);
+
+// Format a PostgreSQL data_type/udt_name pair into a SQL-style label
+$formatType = function(string $dataType, ?int $maxLen, string $udt): string {
+    if ($dataType === 'ARRAY') {
+        // udt_name for arrays is "_basetype" → strip underscore, uppercase, append []
+        $base = ltrim($udt, '_');
+        return strtoupper($base) . '[]';
+    }
+    if ($dataType === 'character varying') {
+        return $maxLen ? "VARCHAR($maxLen)" : 'VARCHAR';
+    }
+    if ($dataType === 'character') {
+        return $maxLen ? "CHAR($maxLen)" : 'CHAR';
+    }
+    if ($dataType === 'timestamp without time zone') return 'TIMESTAMP';
+    if ($dataType === 'double precision') return 'FLOAT';
+    return strtoupper(str_replace(' ', '_', $dataType));
+};
+
+$columnsByReal = [];
+while ($row = $schemaStmt->fetch(PDO::FETCH_ASSOC)) {
+    if (in_array($row['column_name'], $hiddenColumns, true)) continue;
+    $columnsByReal[$row['table_name']][] = [
+        'name' => $row['column_name'],
+        'type' => $formatType($row['data_type'], $row['character_maximum_length'], $row['udt_name']),
+    ];
+}
+
+$tables = [];
+foreach ($virtualToReal as $virtual => $real) {
+    $tables[$virtual] = $columnsByReal[$real] ?? [];
+}
 
 // Requête passée en paramètre GET (depuis la modale scope)
 $initialQuery = isset($_GET['query']) ? $_GET['query'] : 'SELECT * FROM pages LIMIT 100';

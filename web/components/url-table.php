@@ -53,7 +53,7 @@ if (!$skipExtractDiscovery) {
         $stmt = $pdo->prepare("
             SELECT DISTINCT jsonb_object_keys(extracts) as key_name
             FROM pages
-            WHERE crawl_id = :crawl_id AND extracts IS NOT NULL AND extracts != '{}'::jsonb
+            WHERE crawl_id = :crawl_id AND extracts IS NOT NULL AND extracts != '{}'::jsonb AND in_crawl = TRUE
         ");
         $stmt->execute([':crawl_id' => $crawlId]);
         $customExtractColumns = $stmt->fetchAll(PDO::FETCH_COLUMN);
@@ -68,7 +68,7 @@ $categoryColors = $GLOBALS['categoryColors'] ?? [];
 
 // Stocker les paramètres pour construction SQL ultérieure
 $useSimplifiedMode = isset($urlTableConfig['whereClause']);
-$whereClause = $urlTableConfig['whereClause'] ?? 'WHERE c.crawled=1';
+$whereClause = $urlTableConfig['whereClause'] ?? 'WHERE c.crawled=1 AND c.in_crawl = TRUE';
 $orderBy = $urlTableConfig['orderBy'] ?? 'ORDER BY c.url';
 $sqlParams = $urlTableConfig['sqlParams'] ?? [];
 $sqlQuery = $urlTableConfig['sqlQuery'] ?? null;
@@ -332,7 +332,7 @@ if($useSimplifiedMode) {
             $compareCols[] = "cmp." . $col . " AS cmp_" . $col;
         }
         $compareSelect = ", " . implode(", ", $compareCols);
-        $compareJoin = " LEFT JOIN pages cmp ON cmp.url = c.url AND cmp.crawl_id = " . $safeCompareCrawlId;
+        $compareJoin = " LEFT JOIN pages cmp ON cmp.url = c.url AND cmp.crawl_id = " . $safeCompareCrawlId . " AND cmp.in_crawl = TRUE";
     }
 
     // OPTIMISATION : Plus de jointure sur categories, on utilise le tableau PHP

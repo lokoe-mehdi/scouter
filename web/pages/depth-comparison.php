@@ -46,7 +46,7 @@ $sqlDepthStats = "
     SELECT depth, COUNT(*) as total,
            SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) as compliant
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true AND in_crawl = TRUE
     GROUP BY depth ORDER BY depth
 ";
 
@@ -99,13 +99,13 @@ FROM (
     SELECT depth, COUNT(*) AS total,
            SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) AS compliant
     FROM pages@{$safeCrawlId}
-    WHERE crawled = true AND is_html = true GROUP BY depth
+    WHERE crawled = true AND is_html = true AND in_crawl = TRUE GROUP BY depth
 ) r
 FULL OUTER JOIN (
     SELECT depth, COUNT(*) AS total,
            SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) AS compliant
     FROM pages@{$safeCompareId}
-    WHERE crawled = true AND is_html = true GROUP BY depth
+    WHERE crawled = true AND is_html = true AND in_crawl = TRUE GROUP BY depth
 ) b ON r.depth = b.depth
 ORDER BY COALESCE(r.depth, b.depth)";
 
@@ -115,7 +115,7 @@ ORDER BY COALESCE(r.depth, b.depth)";
 $sqlDepthCat = "
     SELECT depth, cat_id, COUNT(*) as count
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND is_html = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
     GROUP BY depth, cat_id ORDER BY depth, cat_id
 ";
 
@@ -180,12 +180,12 @@ $sqlDepthCatDisplay = "SELECT
     COALESCE(b.count, 0) AS base_count
 FROM (
     SELECT depth, cat_id, COUNT(*) AS count FROM pages@{$safeCrawlId}
-    WHERE crawled = true AND compliant = true AND is_html = true
+    WHERE crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
     GROUP BY depth, cat_id
 ) r
 FULL OUTER JOIN (
     SELECT depth, cat_id, COUNT(*) AS count FROM pages@{$safeCompareId}
-    WHERE crawled = true AND compliant = true AND is_html = true
+    WHERE crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
     GROUP BY depth, cat_id
 ) b ON r.depth = b.depth AND r.cat_id = b.cat_id
 ORDER BY COALESCE(r.depth, b.depth), cat_id";
@@ -278,9 +278,9 @@ ORDER BY COALESCE(r.depth, b.depth), cat_id";
     Component::urlTable([
         'title' => __('comparison.depth_changes_table_title'),
         'id' => 'depth_changes_table',
-        'whereClause' => "WHERE c.crawled = true AND c.is_html = true AND EXISTS (
+        'whereClause' => "WHERE c.crawled = true AND c.is_html = true AND c.in_crawl = TRUE AND EXISTS (
             SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.is_html = true AND b.depth != c.depth
+            WHERE b.url = c.url AND b.crawled = true AND b.is_html = true AND b.in_crawl = TRUE AND b.depth != c.depth
         )",
         'orderBy' => 'ORDER BY c.depth ASC, c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'depth', 'compliant', 'code'],
