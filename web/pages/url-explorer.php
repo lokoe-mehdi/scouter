@@ -4,6 +4,16 @@
  * $crawlId est défini dans dashboard.php
  */
 
+// AI-assisted filter generation availability — same pattern as the SQL Explorer.
+$urlExplorerAiConfigured = false;
+try {
+    $_ueAiKey   = \App\Settings\AppSettings::get('ai.gemini.api_key');
+    $_ueAiModel = \App\Settings\AppSettings::get('ai.gemini.model');
+    $urlExplorerAiConfigured = $_ueAiKey !== null && $_ueAiKey !== '' && $_ueAiModel !== null && $_ueAiModel !== '';
+} catch (\Throwable $e) {
+    $urlExplorerAiConfigured = false;
+}
+
 // Récupération des filtres. Au premier chargement (aucun filtre dans l'URL) on
 // active par défaut un filtre `external = false` pour ne montrer que les URLs
 // internes — l'utilisateur peut le retirer pour voir les externes.
@@ -444,6 +454,186 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
     background: rgba(78, 205, 196, 0.05);
 }
 .btn-add-filter .material-symbols-outlined { font-size: 18px; }
+
+/* ============================================================
+   AI URL filters — bouton "Demander à l'IA" + popover Copilot-style
+   Reproduit l'UX du SQL Explorer pour la cohérence cross-pages.
+   ============================================================ */
+.ai-url-toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    height: 36px;
+    padding: 0 0.75rem;
+    background: var(--bg-secondary, #f4f6f8);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.ai-url-toolbar-btn:hover:not(:disabled) {
+    background: white;
+    border-color: #667eea;
+}
+.ai-url-toolbar-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.ai-url-toolbar-btn .material-symbols-outlined {
+    font-size: 18px;
+    color: #667eea;
+}
+.ai-url-toolbar-btn:disabled .material-symbols-outlined {
+    color: var(--text-secondary);
+}
+.ai-url-toolbar-btn .shortcut {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    background: white;
+    border: 1px solid var(--border-color);
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-left: 0.25rem;
+}
+
+/* Popover : positionné en fixed, JS l'ancre sous le bouton à l'ouverture */
+.ai-url-popover {
+    position: fixed;
+    width: min(560px, calc(100vw - 2rem));
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+    z-index: 10000;
+    padding: 0.85rem 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    animation: aiUrlPopIn 0.15s ease-out;
+}
+@keyframes aiUrlPopIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.ai-url-popover-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 28px;
+}
+.ai-url-popover-icon {
+    color: #667eea;
+    font-size: 20px;
+    line-height: 1;
+}
+.ai-url-popover-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 1;
+    font-size: 0.95rem;
+    line-height: 1;
+}
+.ai-url-popover-close {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.15s;
+    padding: 0;
+    line-height: 1;
+}
+.ai-url-popover-close:hover {
+    background: var(--bg-secondary, #f4f6f8);
+    color: var(--text-primary);
+}
+.ai-url-popover-close .material-symbols-outlined {
+    font-size: 18px;
+    line-height: 1;
+}
+.ai-url-popover-input {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    background: white;
+    color: var(--text-primary);
+    resize: none;
+    height: 72px;
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+    line-height: 1.4;
+}
+.ai-url-popover-input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+}
+.ai-url-popover-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    min-height: 32px;
+}
+.ai-url-popover-hint {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    background: var(--bg-secondary, #f4f6f8);
+    padding: 4px 8px;
+    border-radius: 4px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+}
+.ai-url-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    height: 32px;
+    padding: 0 0.9rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.ai-url-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+.ai-url-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+.ai-url-btn .material-symbols-outlined { font-size: 18px; }
+.ai-url-btn-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: aiUrlSpin 0.75s linear infinite;
+    display: inline-block;
+}
+@keyframes aiUrlSpin { to { transform: rotate(360deg); } }
 
 /* Chips container */
 .filter-chips-container {
@@ -917,11 +1107,48 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
         <?= __('url_explorer.filter') ?>
     </button>
 
+    <!-- Demander à l'IA — même pattern qu'au SQL Explorer (Copilot-style) -->
+    <button class="ai-url-toolbar-btn"
+            id="aiUrlOpenBtn"
+            onclick="openAiUrlPopover()"
+            <?= $urlExplorerAiConfigured ? '' : 'disabled' ?>
+            title="<?= htmlspecialchars($urlExplorerAiConfigured ? __('url_explorer.ai_button_label') . ' (Ctrl+K)' : __('url_explorer.ai_not_configured')) ?>">
+        <span class="material-symbols-outlined">auto_awesome</span>
+        <span><?= __('url_explorer.ai_button_label') ?></span>
+        <span class="shortcut">Ctrl+K</span>
+    </button>
+
     <!-- Clear All (visible seulement si filtres actifs) -->
     <button class="btn-clear-filters" id="btnClearAll" style="display: none;" onclick="clearFilters()">
         <span class="material-symbols-outlined">close</span>
         <?= __('url_explorer.clear_all') ?>
     </button>
+</div>
+
+<!-- Popover IA "Demander à l'IA" — Copilot style, ancré au-dessus du bouton via JS. -->
+<div id="aiUrlPopover" class="ai-url-popover" style="display: none;">
+    <div class="ai-url-popover-header">
+        <span class="material-symbols-outlined ai-url-popover-icon">auto_awesome</span>
+        <span class="ai-url-popover-title"><?= __('url_explorer.ai_button_label') ?></span>
+        <button type="button" class="ai-url-popover-close" onclick="closeAiUrlPopover()" title="<?= __('common.cancel') ?>">
+            <span class="material-symbols-outlined">close</span>
+        </button>
+    </div>
+    <textarea id="aiUrlInput"
+              class="ai-url-popover-input"
+              placeholder="<?= htmlspecialchars(__('url_explorer.ai_placeholder')) ?>"
+              rows="3"></textarea>
+    <div class="ai-url-popover-footer">
+        <span class="ai-url-popover-hint">Ctrl+Enter</span>
+        <button type="button"
+                id="aiUrlGenerateBtn"
+                class="ai-url-btn"
+                onclick="generateUrlFiltersFromQuestion()">
+            <span class="material-symbols-outlined ai-url-btn-icon">arrow_forward</span>
+            <span class="ai-url-btn-spinner" style="display:none;"></span>
+            <span class="ai-url-btn-label"><?= __('url_explorer.ai_generate') ?></span>
+        </button>
+    </div>
 </div>
 
 <!-- Popover Overlay -->
@@ -1956,10 +2183,187 @@ document.getElementById('globalSearch').addEventListener('keydown', function(e) 
 });
 
 // ============================================
+// AI-assisted filters : NL question → chips + auto-added columns
+//
+// Same Copilot-style popover as the SQL Explorer. The AI returns a list
+// of `{field, operator, value}` objects, we push them as new AND groups
+// into filterGroups, compute which columns need to be added so the user
+// can actually SEE the data they just filtered on, then reload via
+// applyFilters which already handles URL state.
+// ============================================
+function openAiUrlPopover() {
+    const openBtn = document.getElementById('aiUrlOpenBtn');
+    if (openBtn && openBtn.disabled) return;
+    const popover = document.getElementById('aiUrlPopover');
+    const input   = document.getElementById('aiUrlInput');
+    if (!popover || !openBtn) return;
+
+    // Anchor the popover just BELOW the button that opened it.
+    const r = openBtn.getBoundingClientRect();
+    const margin = 8;
+    popover.style.display = 'flex';
+    // Default to right-of-button left edge; clamp inside the viewport.
+    const w = popover.offsetWidth || 560;
+    let left = r.left;
+    if (left + w + margin > window.innerWidth) {
+        left = window.innerWidth - w - margin;
+    }
+    if (left < margin) left = margin;
+    popover.style.left = left + 'px';
+    popover.style.top  = (r.bottom + margin) + 'px';
+
+    if (input) setTimeout(() => input.focus(), 30);
+}
+
+function closeAiUrlPopover() {
+    const popover = document.getElementById('aiUrlPopover');
+    if (popover) popover.style.display = 'none';
+}
+
+async function generateUrlFiltersFromQuestion() {
+    const input   = document.getElementById('aiUrlInput');
+    const btn     = document.getElementById('aiUrlGenerateBtn');
+    const btnIcon = btn ? btn.querySelector('.ai-url-btn-icon') : null;
+    const btnSpin = btn ? btn.querySelector('.ai-url-btn-spinner') : null;
+    if (!input || !btn || btn.disabled) return;
+
+    const question = input.value.trim();
+    if (!question) { input.focus(); return; }
+
+    btn.disabled   = true;
+    input.disabled = true;
+    if (btnIcon) btnIcon.style.display = 'none';
+    if (btnSpin) btnSpin.style.display = 'inline-block';
+
+    try {
+        // Use crawl_id (integer, always in scope on this page) rather than
+        // $projectDir whose local availability is fragile in url-explorer.php.
+        const res = await fetch('../api/url-explorer/ai-filters', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                crawl_id: <?= (int)$crawlId ?>,
+                question: question
+            })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            const msg = data.error || data.message || res.statusText || 'Unknown error';
+            if (typeof showGlobalStatus === 'function') showGlobalStatus('IA : ' + msg, 'error');
+            else alert('IA : ' + msg);
+            return;
+        }
+
+        // The server returns `groups`: an array of arrays of chips.
+        // Outer = AND (each becomes a filterGroup), inner = OR (chips inside it).
+        const newGroups = Array.isArray(data.groups) ? data.groups : [];
+        if (newGroups.length === 0) {
+            if (typeof showGlobalStatus === 'function') {
+                showGlobalStatus('<?= addslashes(__('url_explorer.ai_no_filters')) ?>', 'warning');
+            }
+            return;
+        }
+
+        // 1. Append each group to filterGroups as-is — the JS state already
+        //    treats groups as AND'd, chips inside a group as OR'd.
+        newGroups.forEach(grp => {
+            if (!Array.isArray(grp) || grp.length === 0) return;
+            const chips = grp.map(f => ({
+                field: f.field,
+                operator: f.operator || '=',
+                value: f.value
+            }));
+            filterGroups.push(chips);
+        });
+
+        // 2. Compute new column list = current columns ∪ {every field used
+        //    in the proposed groups}. For SEO fields (title/h1/metadesc),
+        //    when the chip is a STATE filter (no operator, array value like
+        //    ["empty","duplicate"]), the user really wants to see the
+        //    *_status column to understand WHY a row matched — so we add it
+        //    alongside the raw title/h1/metadesc text column.
+        const stateFilterFields = ['title', 'h1', 'metadesc'];
+        const isStateFilter = (chip) => {
+            // STATE = no text operator + value is an array of state strings.
+            const textOps = ['contains', 'not_contains', 'regex', 'not_regex'];
+            return !textOps.includes(chip.operator) && Array.isArray(chip.value);
+        };
+
+        const newCols = [...currentColumns];
+        newGroups.forEach(grp => {
+            grp.forEach(f => {
+                if (!f.field) return;
+                if (!newCols.includes(f.field)) newCols.push(f.field);
+                if (stateFilterFields.includes(f.field) && isStateFilter(f)) {
+                    const statusCol = f.field + '_status';
+                    if (!newCols.includes(statusCol)) newCols.push(statusCol);
+                }
+            });
+        });
+
+        // 3. Persist via URL — same idiom as applyFilters() but with N columns.
+        const params = new URLSearchParams(window.location.search);
+        params.set('page', 'url-explorer');
+        params.delete('p');
+        params.set('filters', JSON.stringify(collectFiltersForURL()));
+        if (newCols.length !== currentColumns.length) {
+            params.set('columns', newCols.join(','));
+        }
+        // Close the popover before reload so it doesn't flash on next render.
+        input.value = '';
+        closeAiUrlPopover();
+        window.location.search = params.toString();
+    } catch (e) {
+        if (typeof showGlobalStatus === 'function') showGlobalStatus('IA : ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        input.disabled = false;
+        if (btnIcon) btnIcon.style.display = '';
+        if (btnSpin) btnSpin.style.display = 'none';
+    }
+}
+
+// ============================================
 // INIT
 // ============================================
 document.addEventListener('DOMContentLoaded', function() {
     renderChips();
+
+    // AI popover wiring : Ctrl+Enter to submit, Ctrl+K to toggle, Esc to close,
+    // click outside to dismiss.
+    const aiInput  = document.getElementById('aiUrlInput');
+    const popover  = document.getElementById('aiUrlPopover');
+    const openBtn  = document.getElementById('aiUrlOpenBtn');
+
+    if (aiInput) {
+        aiInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                generateUrlFiltersFromQuestion();
+            }
+        });
+    }
+    document.addEventListener('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+            if (openBtn && openBtn.disabled) return;
+            e.preventDefault();
+            if (popover && popover.style.display === 'flex') {
+                closeAiUrlPopover();
+            } else {
+                openAiUrlPopover();
+            }
+            return;
+        }
+        if (e.key === 'Escape' && popover && popover.style.display === 'flex') {
+            closeAiUrlPopover();
+        }
+    });
+    document.addEventListener('mousedown', function (e) {
+        if (!popover || popover.style.display !== 'flex') return;
+        if (popover.contains(e.target)) return;
+        if (openBtn && openBtn.contains(e.target)) return;
+        closeAiUrlPopover();
+    });
 });
 
 // Fermer popovers avec Escape

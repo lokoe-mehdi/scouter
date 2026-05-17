@@ -963,12 +963,14 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                         <?php elseif(strpos($col, 'title_status') !== false || strpos($col, 'h1_status') !== false || strpos($col, 'metadesc_status') !== false): ?>
                             <td class="col-<?= $col ?>" style="text-align: center;">
                                 <?php
-                                $status = $link->$col ?? '';
-                                if($status === 'Unique') {
+                                // Lowercase before compare — DB stores 'unique'/'duplicate'/'empty'
+                                // in lowercase. Same logic as url-table.php.
+                                $status = strtolower($link->$col ?? '');
+                                if($status === 'unique') {
                                     echo '<span class="badge badge-success">Unique</span>';
-                                } elseif($status === 'Duplicate') {
+                                } elseif($status === 'duplicate') {
                                     echo '<span class="badge badge-warning">Duplicate</span>';
-                                } elseif($status === 'Empty') {
+                                } elseif($status === 'empty') {
                                     echo '<span class="badge badge-danger">Empty</span>';
                                 } else {
                                     echo '<span style="color: #95a5a6;">—</span>';
@@ -1162,13 +1164,18 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
             if(newTableCard) {
                 const currentTableCard = document.getElementById('tableCard_' + componentId);
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-init scrollbar sync after DOM replacement.
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Réinitialiser currentPage à 1
                 currentPage = 1;
-                
+
                 // Mettre à jour le perPage actuel
                 currentPerPage = newPerPage;
-                
+
                 // Recalculer totalPages avec le nouveau perPage
                 currentTotalPages = Math.ceil(totalResults / newPerPage);
                 
@@ -1533,7 +1540,12 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
             if(newTableCard) {
                 const currentTableCard = document.getElementById('tableCard_' + componentId);
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-init scrollbar sync after DOM replacement.
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Rafraîchir les handlers de la modale
                 if(typeof refreshUrlModalHandlers === 'function') {
                     refreshUrlModalHandlers();
@@ -1580,7 +1592,12 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                 
                 // Remplacer le contenu
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-init scrollbar sync after DOM replacement.
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Fermer le dropdown après remplacement
                 const newDropdown = document.getElementById('columnDropdown_' + componentId);
                 if(newDropdown) {

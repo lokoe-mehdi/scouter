@@ -912,19 +912,25 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
             if(newTableCard) {
                 const currentTableCard = document.getElementById('tableCard_' + componentId);
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-init scrollbar sync after DOM replacement (see explanation
+                // in sortByColumn handler).
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Réinitialiser currentPage à 1
                 currentPage = 1;
-                
+
                 // Mettre à jour le perPage actuel
                 currentPerPage = newPerPage;
-                
+
                 // Recalculer totalPages avec le nouveau perPage
                 currentTotalPages = Math.ceil(totalResults / newPerPage);
-                
+
                 // Mettre à jour les boutons de pagination avec les bonnes valeurs
                 attachPaginationHandlers();
-                
+
                 // Rafraîchir les handlers de la modale
                 if(typeof refreshUrlModalHandlers === 'function') {
                     refreshUrlModalHandlers();
@@ -1299,7 +1305,15 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
             if(newTableCard) {
                 const currentTableCard = document.getElementById('tableCard_' + componentId);
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-initialiser la sync des scrollbars : le innerHTML a recréé
+                // les nœuds DOM (topScrollbar, tableContainer) — les anciens
+                // handlers pointent dans le vide et la largeur du contenu
+                // de la barre du haut est repartie à 1px → barre invisible.
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Rafraîchir les handlers de la modale
                 if(typeof refreshUrlModalHandlers === 'function') {
                     refreshUrlModalHandlers();
@@ -1363,7 +1377,12 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                 
                 // Remplacer le contenu
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-init scrollbar sync after DOM replacement.
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Fermer le dropdown après remplacement
                 const newDropdown = document.getElementById('columnDropdown_' + componentId);
                 if(newDropdown) {

@@ -32,6 +32,8 @@ use App\Http\Controllers\SavedQueryController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\AICategorizationController;
 use App\Http\Controllers\AISqlController;
+use App\Http\Controllers\AIUrlFiltersController;
+use App\Http\Controllers\AILinkFiltersController;
 
 $request = new Request();
 
@@ -145,6 +147,8 @@ try {
 
     $router->post('/categorization/ai-suggest', [AICategorizationController::class, 'suggest'], ['auth' => true]);
     $router->post('/sql/ai-generate', [AISqlController::class, 'generate'], ['auth' => true]);
+    $router->post('/url-explorer/ai-filters', [AIUrlFiltersController::class, 'suggest'], ['auth' => true]);
+    $router->post('/link-explorer/ai-filters', [AILinkFiltersController::class, 'suggest'], ['auth' => true]);
 
     // =============================================================================
     // DISPATCH
