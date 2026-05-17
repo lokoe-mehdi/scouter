@@ -1476,12 +1476,16 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
     document.addEventListener('click', function(e) {
         const dropdown = document.getElementById('perPageDropdown_' + componentId);
         const button = document.getElementById('perPageBtn_' + componentId);
-        
-        if(!button.contains(e.target) && dropdown && !dropdown.contains(e.target)) {
+        // Bail out cleanly if either element is missing on the current page
+        // (e.g. after navigating to a page without this link-table instance) —
+        // otherwise calling .contains on null throws and pollutes every click.
+        if (!button || !dropdown) return;
+
+        if(!button.contains(e.target) && !dropdown.contains(e.target)) {
             dropdown.style.display = 'none';
             dropdown.classList.remove('show');
             const icon = button.querySelector('.material-symbols-outlined');
-            icon.style.transform = 'rotate(0deg)';
+            if (icon) icon.style.transform = 'rotate(0deg)';
         }
     });
 

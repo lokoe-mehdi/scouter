@@ -12,6 +12,19 @@ $categoryColors = $GLOBALS['categoryColors'] ?? [];
 // Récupérer le domaine depuis le crawl
 $crawledDomain = $crawlRecord->domain ?? '';
 
+// AI-assisted categorization availability — read global app settings.
+// The button stays visible for every user but is disabled with a tooltip
+// when the admin has not configured a Gemini key + model.
+$aiConfigured = false;
+try {
+    $aiKey   = \App\Settings\AppSettings::get('ai.gemini.api_key');
+    $aiModel = \App\Settings\AppSettings::get('ai.gemini.model');
+    $aiConfigured = $aiKey !== null && $aiKey !== '' && $aiModel !== null && $aiModel !== '';
+} catch (\Throwable $e) {
+    // app_settings table missing (migration not yet run) → just disable the feature.
+    $aiConfigured = false;
+}
+
 // Lecture de la config de catégorisation depuis PostgreSQL
 $catYmlContent = "# " . __('categorize.yaml_comment_define') . "\n# " . __('categorize.yaml_comment_format') . "\n# " . __('categorize.yaml_comment_cat_name') . "\n#   - pattern1\n#   - pattern2\n";
 $yamlCategories = [];
@@ -1650,6 +1663,11 @@ body {
             <span class="material-symbols-outlined">edit_note</span>
             <?= __('categorize.editor_title') ?>
             <div class="btn-help-group">
+                <button class="btn-help" id="btn-ai-suggest" onclick="aiSuggestCategorization()"
+                        <?= $aiConfigured ? '' : 'disabled' ?>
+                        title="<?= htmlspecialchars($aiConfigured ? __('categorize.btn_ai_suggest') : __('categorize.btn_ai_not_configured')) ?>">
+                    <span class="material-symbols-outlined">auto_awesome</span>
+                </button>
                 <button class="btn-help" onclick="generateColors()" title="<?= __('categorize.btn_generate_colors') ?>">
                     <span class="material-symbols-outlined">palette</span>
                 </button>
@@ -2428,12 +2446,9 @@ async function saveCategorization() {
     .then(response => response.json())
     .then(data => {
         if(data.success) {
-            if (data.async) {
-                showGlobalStatus(__('categorize.msg_saved_async'), 'success');
-            } else {
-                const categorizedCount = data.categorized_count || 0;
-                showGlobalStatus(__('categorize.msg_saved').replace(':count', categorizedCount), 'success');
-            }
+            // Always clear the "Sauvegarde en cours..." warning toast — it has
+            // no auto-hide, so it would stay yellow forever if we don't.
+            showGlobalStatus(null);
 
             // Quitter le mode test immédiatement
             if (isTestMode) {
@@ -2442,30 +2457,19 @@ async function saveCategorization() {
                 isTestMode = false;
             }
 
-            // Mettre à jour les pills immédiatement via test (dry-run avec les nouveaux noms)
-            fetch('../api/categorization/test', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ project: categorizeProjectDir, yaml: yamlContent })
-            })
-            .then(r => r.json())
-            .then(testData => {
-                if (testData.success) {
-                    // Mettre à jour les couleurs globales
-                    testData.stats.forEach(s => {
-                        if (s.color && s.category !== UNCATEGORIZED_LABEL) {
-                            globalCategoryColors[s.category] = s.color;
-                        }
-                    });
-                    renderChart(testData.stats, false);
-                }
-            })
-            .catch(() => {});
-
-            // Démarrer le polling du job batch pour suivre la progression
             if (data.batch_job_created && data.job_id) {
+                // Batch path: the badge at the top conveys progress, and the
+                // polling will call refreshCategorizationView() when the job
+                // is fully complete. We deliberately skip the dry-run /test
+                // here — it would race with the polling refresh and could
+                // overwrite the real DB stats with its own simulation.
                 startBatchPolling(data.job_id);
+            } else if (data.async) {
+                showGlobalStatus(__('categorize.msg_saved_async'), 'success');
+                refreshCategorizationView();
             } else {
+                const categorizedCount = data.categorized_count || 0;
+                showGlobalStatus(__('categorize.msg_saved').replace(':count', categorizedCount), 'success');
                 refreshCategorizationView();
             }
         } else {
@@ -2475,6 +2479,64 @@ async function saveCategorization() {
     .catch(error => {
         showGlobalStatus(__('common.error') + ': ' + error, 'error');
     });
+}
+
+// AI-assisted categorization via Gemini.
+// Sends a server-side sample of up to 200 internal URLs (+ H1 + title) to the
+// configured Gemini model and replaces the YAML editor with the proposed
+// config. Existing content is overwritten — that's expected: Ctrl+Z in
+// CodeMirror still rolls back, and nothing is persisted until the user
+// hits Save.
+async function aiSuggestCategorization() {
+    const btn = document.getElementById('btn-ai-suggest');
+    if (!btn || btn.disabled) return;
+
+    // No confirmation modal — the user explicitly clicked the AI button,
+    // and the existing YAML is restorable via Ctrl+Z in CodeMirror anyway.
+    showGlobalStatus(__('categorize.ai_running'), 'warning');
+    btn.disabled = true;
+
+    try {
+        const res = await fetch('../api/categorization/ai-suggest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project: '<?= $projectDir ?>' })
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            showGlobalStatus(__('common.error') + ': ' + (data.error || data.message || res.statusText), 'error');
+            return;
+        }
+
+        // Inject the AI-proposed YAML into CodeMirror (source of truth).
+        // We do NOT switch editor mode — the user stays in whatever mode they
+        // were in (visual or code). Response::success() merges data at the
+        // root level, hence `data.yaml` and not `data.data.yaml`.
+        yamlEditor.setValue(data.yaml);
+
+        // Apply the user's pastel palette to the freshly-loaded categories.
+        // generateColors() internally syncs code → visual, assigns colors,
+        // regenerates the YAML, and re-renders the visual cards — so both
+        // editor modes show the new content with the user's color scheme.
+        // Wrapped in try/catch so a render glitch never leaves the user
+        // staring at an unresolved "Asking AI..." spinner.
+        try {
+            generateColors();
+        } catch (renderErr) {
+            console.error('[AI categorize] generateColors() threw:', renderErr);
+        }
+
+        const sampled = data.pages_sampled || 0;
+        showGlobalStatus(
+            __('categorize.ai_done').replace(':count', sampled),
+            'success'
+        );
+    } catch (e) {
+        showGlobalStatus(__('common.error') + ': ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 

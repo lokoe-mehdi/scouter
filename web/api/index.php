@@ -29,6 +29,8 @@ use App\Http\Controllers\ExportController;
 use App\Http\Controllers\MonitorController;
 use App\Http\Controllers\CategorizationController;
 use App\Http\Controllers\SavedQueryController;
+use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\AICategorizationController;
 
 $request = new Request();
 
@@ -89,7 +91,7 @@ try {
     // =============================================================================
     $router->get('/jobs/status', [JobController::class, 'status'], ['auth' => true]);
     $router->get('/jobs/logs', [JobController::class, 'logs'], ['auth' => true]);
-    $router->get('/jobs/:id', [JobController::class, 'show'], ['auth' => true]);
+    $router->get('/jobs/{id}', [JobController::class, 'show'], ['auth' => true]);
 
     // =============================================================================
     // QUERIES
@@ -132,6 +134,15 @@ try {
     $router->delete('/saved-queries/category', [SavedQueryController::class, 'deleteCategory'], ['auth' => true]);
     $router->put('/saved-queries/{id}', [SavedQueryController::class, 'update'], ['auth' => true]);
     $router->delete('/saved-queries/{id}', [SavedQueryController::class, 'delete'], ['auth' => true]);
+
+    // =============================================================================
+    // SETTINGS (admin only) + AI categorization (all users with crawl mgmt rights)
+    // =============================================================================
+    $router->get('/settings', [SettingsController::class, 'show'], ['auth' => true, 'admin' => true]);
+    $router->post('/settings/ai/test', [SettingsController::class, 'testAi'], ['auth' => true, 'admin' => true]);
+    $router->post('/settings', [SettingsController::class, 'save'], ['auth' => true, 'admin' => true]);
+
+    $router->post('/categorization/ai-suggest', [AICategorizationController::class, 'suggest'], ['auth' => true]);
 
     // =============================================================================
     // DISPATCH

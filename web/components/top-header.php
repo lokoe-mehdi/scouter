@@ -168,6 +168,10 @@ $userInitials = getUserInitials($currentUserEmail);
                     <span class="material-symbols-outlined">monitoring</span>
                     <?= __('header.system_monitor') ?>
                 </a>
+                <a href="<?= $basePath ?>pages/settings.php" class="user-dropdown-item">
+                    <span class="material-symbols-outlined">settings</span>
+                    <?= __('header.settings') ?>
+                </a>
                 <?php endif; ?>
                 <div class="user-dropdown-divider"></div>
                 <div style="display: flex; gap: 0.5rem; padding: 0.5rem 1rem;">
