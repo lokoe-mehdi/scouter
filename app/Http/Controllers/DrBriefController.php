@@ -66,8 +66,15 @@ class DrBriefController extends Controller
         // Parse & validate input BEFORE we open the SSE stream — easier to
         // surface a clean JSON error here than to send an "error" SSE event
         // on a connection that's already half-open.
-        $crawlId  = (int)$request->get('crawl_id', 0);
-        $messages = $request->get('messages', []);
+        $crawlId     = (int)$request->get('crawl_id', 0);
+        $messages    = $request->get('messages', []);
+        // Page context — DOM snapshot of what the user is currently viewing.
+        // Optional but recommended : lets Dr. Brief answer "summarize this"
+        // type questions without an extra round-trip via run_sql.
+        $pageContext = (string)$request->get('page_context', '');
+        if (mb_strlen($pageContext) > 16000) {
+            $pageContext = mb_substr($pageContext, 0, 16000) . "\n… (truncated)";
+        }
 
         if ($crawlId <= 0)         { $this->error('crawl_id is required', 400); return; }
         if (!is_array($messages))  { $this->error('messages must be an array', 400); return; }
@@ -119,7 +126,17 @@ class DrBriefController extends Controller
         // From here on, output is text/event-stream, NOT JSON.
         $this->startSseResponse();
 
-        $systemPrompt = DrBriefPrompt::build($crawl);
+        // Current UI language — drives the model's reply language. I18n is
+        // initialised by web/api/index.php on boot so it's always available.
+        $uiLang = null;
+        if (class_exists('\\I18n')) {
+            try { $uiLang = \I18n::getInstance()->getLang(); } catch (\Throwable $e) { $uiLang = null; }
+        }
+        $systemPrompt = DrBriefPrompt::build(
+            $crawl,
+            $pageContext !== '' ? $pageContext : null,
+            $uiLang
+        );
         $agent = new ChatAgent();
 
         $totalIn = 0;

@@ -415,6 +415,24 @@ if (!$drBriefAiConfigured) {
 .dr-brief-tool-step.done .material-symbols-outlined {
     color: #10b981;
 }
+/* Failed state: discreet orange/amber, no red — we don't want to alarm the
+   user since the AI will retry on the next iteration. */
+.dr-brief-tool-step.failed .material-symbols-outlined {
+    color: #d97706;
+}
+.dr-brief-tool-step.failed {
+    color: #92400e;
+}
+.dr-brief-tool-error-pre {
+    background: #fef3c7;
+    color: #92400e;
+    padding: 8px 10px;
+    border-radius: 5px;
+    font-size: 0.75rem;
+    margin-top: 6px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
 .dr-brief-tool-purpose {
     font-style: italic;
     color: var(--text-primary, #1f2937);
@@ -514,6 +532,36 @@ if (!$drBriefAiConfigured) {
     0%, 80%, 100% { opacity: 0.3; }
     40% { opacity: 1; }
 }
+
+/* Quick actions — small pill buttons above the composer for common
+   "summarize this page" type intents. Scrollable horizontally if many. */
+.dr-brief-quick-actions {
+    display: flex;
+    gap: 6px;
+    padding: 6px 12px 0;
+    background: white;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+}
+.dr-brief-quick-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #eef2ff;
+    color: #4338ca;
+    border: 1px solid #c7d2fe;
+    border-radius: 14px;
+    padding: 3px 10px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.dr-brief-quick-btn:hover:not(:disabled) {
+    background: #c7d2fe;
+}
+.dr-brief-quick-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.dr-brief-quick-btn .material-symbols-outlined { font-size: 15px; }
 
 /* Composer */
 .dr-brief-composer {
@@ -657,14 +705,16 @@ if (!$drBriefAiConfigured) {
         'tool_error'      => __('dr_brief.tool_error'),
         'show_sql'        => __('dr_brief.show_sql'),
         'show_results'    => __('dr_brief.show_results'),
+        'show_error'      => __('dr_brief.show_error'),
+        'tool_skipped'    => __('dr_brief.tool_skipped'),
         'view_full'       => __('dr_brief.view_full_in_sql_explorer'),
         'error_prefix'    => 'Erreur : ',
-        'sug_count'       => __('dr_brief.example_count'),
-        'sug_404'         => __('dr_brief.example_404'),
-        'sug_thin'        => __('dr_brief.example_thin'),
+        'sug_explain'      => __('dr_brief.example_explain'),
+        'sug_broken_links' => __('dr_brief.example_broken_links'),
+        'sug_seo_tags'     => __('dr_brief.example_seo_tags'),
     ]) ?>;
     const WELCOME = T.welcome;
-    const SUGGESTIONS = [T.sug_count, T.sug_404, T.sug_thin];
+    const SUGGESTIONS = [T.sug_explain, T.sug_broken_links, T.sug_seo_tags];
 
     // === Minimal Markdown renderer ===
     // Supports : **bold**, *italic*, `code`, ```fenced code```, # headers,
@@ -826,15 +876,23 @@ if (!$drBriefAiConfigured) {
     /**
      * Fill an existing tool block (in-flight render path).
      * Used live as SSE arrives.
+     *
+     * On error we soften the visual: no red banner, no SQL error message
+     * dumped in the chat — just a discreet warning text. The actual error
+     * is still sent back to Gemini in the for_model payload so the AI can
+     * try a corrected query on the next iteration.
      */
     function attachToolResult(tool, statusEl, result) {
-        statusEl.classList.add('done');
         statusEl.innerHTML = '';
-        statusEl.appendChild(el('span', { class: 'material-symbols-outlined' }, 'check_circle'));
-        const summary = result.success
-            ? T.rows_returned.replace(':count', result.total_rows || 0)
-            : T.tool_error;
-        statusEl.appendChild(el('span', {}, summary));
+        if (result.success) {
+            statusEl.classList.add('done');
+            statusEl.appendChild(el('span', { class: 'material-symbols-outlined' }, 'check_circle'));
+            statusEl.appendChild(el('span', {}, T.rows_returned.replace(':count', result.total_rows || 0)));
+        } else {
+            statusEl.classList.add('failed');
+            statusEl.appendChild(el('span', { class: 'material-symbols-outlined' }, 'info'));
+            statusEl.appendChild(el('span', {}, T.tool_skipped));
+        }
         appendToolDetails(tool, result);
         scrollToBottom();
     }
@@ -849,12 +907,14 @@ if (!$drBriefAiConfigured) {
             el('span', { class: 'material-symbols-outlined' }, 'database'),
             el('span', { class: 'dr-brief-tool-purpose' }, result.purpose || T.running_query)
         ));
-        const statusEl = el('div', { class: 'dr-brief-tool-step done' });
-        statusEl.appendChild(el('span', { class: 'material-symbols-outlined' }, 'check_circle'));
-        const summary = result.success
-            ? T.rows_returned.replace(':count', result.total_rows || 0)
-            : T.tool_error;
-        statusEl.appendChild(el('span', {}, summary));
+        const statusEl = el('div', { class: 'dr-brief-tool-step ' + (result.success ? 'done' : 'failed') });
+        if (result.success) {
+            statusEl.appendChild(el('span', { class: 'material-symbols-outlined' }, 'check_circle'));
+            statusEl.appendChild(el('span', {}, T.rows_returned.replace(':count', result.total_rows || 0)));
+        } else {
+            statusEl.appendChild(el('span', { class: 'material-symbols-outlined' }, 'info'));
+            statusEl.appendChild(el('span', {}, T.tool_skipped));
+        }
         tool.appendChild(statusEl);
         appendToolDetails(tool, result);
         return tool;
@@ -884,7 +944,13 @@ if (!$drBriefAiConfigured) {
             // the assistant's text answer so that when the model writes
             // "via le bouton ci-dessous" the button really is below.
         } else {
-            tool.appendChild(el('div', { class: 'dr-brief-tool-error' }, result.error || 'Error'));
+            // No prominent red box — the error message is hidden inside the
+            // collapsible "Voir la SQL" block (alongside the failed query),
+            // so curious users can still debug if they want.
+            const errDetails = el('details');
+            errDetails.appendChild(el('summary', {}, T.show_error));
+            errDetails.appendChild(el('pre', { class: 'dr-brief-tool-error-pre' }, result.error || 'Error'));
+            tool.appendChild(errDetails);
         }
     }
 
@@ -962,10 +1028,20 @@ if (!$drBriefAiConfigured) {
         sendBtn.disabled = true;
 
         try {
+            // Collect the current page snapshot fresh on every send — so
+            // Dr. Brief always knows what the user is looking at. The AI
+            // ignores it unless the question is about the current view.
+            let pageContext = '';
+            try { pageContext = collectPageContext(); } catch (_) {}
+
             const res = await fetch('../api/dr-brief/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ crawl_id: crawlId, messages: messages }),
+                body: JSON.stringify({
+                    crawl_id: crawlId,
+                    messages: messages,
+                    page_context: pageContext,
+                }),
             });
             if (!res.ok) {
                 let msg = 'HTTP ' + res.status;
@@ -1181,6 +1257,102 @@ if (!$drBriefAiConfigured) {
         const next = !panel.classList.contains('expanded');
         applyExpanded(next);
         setPanelExpanded(next);
+    }
+
+    // === Summarize current page ===
+    // Scrapes the dashboard DOM (page title, KPI cards, Highcharts data,
+    // visible tables) and asks Dr. Brief to synthesize. Works on any
+    // dashboard page without touching the page itself — that's the whole
+    // point of doing it client-side.
+    function collectPageContext() {
+        const out = [];
+
+        // Page section title (h1.page-title is the convention across views).
+        const h1 = document.querySelector('main h1.page-title, main h1, h1.page-title');
+        const pageTitle = h1 ? h1.textContent.trim() : (document.title || 'Dashboard');
+        out.push('Page: ' + pageTitle);
+
+        // URL params — useful to know which filters are active.
+        const params = new URLSearchParams(window.location.search);
+        const interesting = ['page', 'filters', 'columns', 'search', 'compare', 'filter_cat', 'sort'];
+        const paramBits = [];
+        interesting.forEach(k => {
+            const v = params.get(k);
+            if (v) paramBits.push(k + '=' + (v.length > 80 ? v.slice(0, 80) + '…' : v));
+        });
+        if (paramBits.length) out.push('URL params: ' + paramBits.join(' ; '));
+
+        // Scorecards (KPI tiles). Convention from web/components/card.php :
+        // .card with .card-title / .card-value / .card-desc inside .scorecards.
+        const cards = document.querySelectorAll('.scorecards .card');
+        if (cards.length) {
+            out.push('\nKPIs (' + cards.length + '):');
+            cards.forEach(c => {
+                const title = (c.querySelector('.card-title') || {}).textContent || '';
+                const value = (c.querySelector('.card-value') || {}).textContent || '';
+                const desc  = (c.querySelector('.card-desc')  || {}).textContent || '';
+                const line = '  - ' + title.trim() + ': ' + value.trim()
+                    + (desc.trim() ? ' (' + desc.trim() + ')' : '');
+                out.push(line);
+            });
+        }
+
+        // Highcharts instances — title + subtitle + series compactly.
+        if (typeof Highcharts !== 'undefined' && Array.isArray(Highcharts.charts)) {
+            const charts = Highcharts.charts.filter(c => c && c.renderTo);
+            if (charts.length) {
+                out.push('\nCharts (' + charts.length + '):');
+                charts.forEach((c, idx) => {
+                    const title = c.title ? (c.title.textStr || c.title.text || '') : '';
+                    const subtitle = c.subtitle ? (c.subtitle.textStr || c.subtitle.text || '') : '';
+                    out.push('  · ' + (title || 'Chart ' + (idx + 1))
+                        + (subtitle ? ' — ' + subtitle : ''));
+                    (c.series || []).forEach(s => {
+                        if (!s.options || s.options.showInLegend === false) return;
+                        const name = s.name || 'series';
+                        const data = (s.options.data || s.points || []).slice(0, 30);
+                        const compact = data.map(pt => {
+                            if (pt == null) return '';
+                            if (typeof pt === 'number') return pt;
+                            if (Array.isArray(pt)) return pt.join(':');
+                            const n = pt.name || pt.category || '';
+                            const y = (pt.y !== undefined) ? pt.y : (pt.value !== undefined ? pt.value : '');
+                            return n ? n + '=' + y : y;
+                        }).filter(x => x !== '').join(', ');
+                        if (compact) out.push('      ' + name + ': ' + compact);
+                    });
+                });
+            }
+        }
+
+        // Visible tables — first 20 rows of each, capped to 3 tables to
+        // keep the context size reasonable.
+        const tables = Array.from(document.querySelectorAll('main table'))
+            .filter(t => t.offsetParent !== null) // only visible ones
+            .slice(0, 3);
+        if (tables.length) {
+            out.push('\nTables (' + tables.length + '):');
+            tables.forEach((tbl, idx) => {
+                const heads = Array.from(tbl.querySelectorAll('thead th'))
+                    .map(th => th.textContent.trim().replace(/\s+/g, ' '));
+                if (heads.length) out.push('  Table ' + (idx + 1) + ' columns: ' + heads.join(' | '));
+                const rows = Array.from(tbl.querySelectorAll('tbody tr')).slice(0, 20);
+                rows.forEach(tr => {
+                    const cells = Array.from(tr.querySelectorAll('td'))
+                        .map(td => (td.textContent || '').trim().replace(/\s+/g, ' '));
+                    out.push('    ' + cells.join(' | '));
+                });
+                const total = tbl.querySelectorAll('tbody tr').length;
+                if (total > 20) out.push('    … (' + (total - 20) + ' more rows)');
+            });
+        }
+
+        // Cap total size at ~12k chars to stay reasonable in token cost.
+        let ctx = out.join('\n');
+        if (ctx.length > 12000) {
+            ctx = ctx.slice(0, 12000) + '\n… (page context truncated)';
+        }
+        return ctx;
     }
 
     bubble.addEventListener('click', openPanel);
