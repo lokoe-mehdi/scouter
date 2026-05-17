@@ -7,6 +7,18 @@
 
 use App\Database\PostgresDatabase;
 
+// AI-assisted SQL generation availability — same pattern as categorize.php.
+// Visible to every user but disabled with a tooltip when an admin hasn't
+// configured a Gemini key + model in Settings.
+$sqlAiConfigured = false;
+try {
+    $sqlAiKey   = \App\Settings\AppSettings::get('ai.gemini.api_key');
+    $sqlAiModel = \App\Settings\AppSettings::get('ai.gemini.model');
+    $sqlAiConfigured = $sqlAiKey !== null && $sqlAiKey !== '' && $sqlAiModel !== null && $sqlAiModel !== '';
+} catch (\Throwable $e) {
+    $sqlAiConfigured = false;
+}
+
 /**
  * Structure des tables virtuelles — lue dynamiquement depuis information_schema.
  *
@@ -363,6 +375,217 @@ unset($q);
     flex-direction: column;
     border-bottom: 1px solid var(--border-color);
     flex-shrink: 0;
+}
+
+/* ============================================================
+   AI SQL — Copilot-style popover, no permanent vertical space loss
+   ============================================================ */
+
+/* Bouton dans le toolbar de l'éditeur — neutre, l'icône ✨ porte l'identité IA.
+   Pas de bordure violette flashy : Exécuter (turquoise) reste l'action visuelle
+   principale, "Demander à l'IA" se positionne comme une action secondaire. */
+.ai-sql-toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    height: 32px;
+    padding: 0 0.75rem;
+    background: var(--bg-secondary, #f4f6f8);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-left: 0.5rem;
+}
+.ai-sql-toolbar-btn:hover:not(:disabled) {
+    background: white;
+    border-color: #667eea;
+    color: var(--text-primary);
+}
+.ai-sql-toolbar-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+/* Icône en violet pour signaler l'IA, même quand le bouton est neutre */
+.ai-sql-toolbar-btn .material-symbols-outlined {
+    font-size: 18px;
+    color: #667eea;
+}
+.ai-sql-toolbar-btn:disabled .material-symbols-outlined {
+    color: var(--text-secondary);
+}
+.ai-sql-toolbar-btn .shortcut {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    background: white;
+    border: 1px solid var(--border-color);
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-left: 0.25rem;
+}
+
+/* Popover flottant — ANCRÉ AU-DESSUS du toolbar (donc au-dessus du bouton
+   qui l'a déclenché) pour ne jamais le chevaucher. Utilise `bottom` au lieu
+   de `top` pour s'ouvrir vers le haut. */
+.sql-editor-container {
+    position: relative; /* ancre pour le popover */
+}
+.ai-sql-popover {
+    position: absolute;
+    bottom: 56px; /* hauteur du toolbar + petit gap, le popover flotte juste au-dessus */
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(560px, calc(100% - 2rem));
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    padding: 0.85rem 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    animation: aiPopIn 0.15s ease-out;
+}
+/* Petite flèche pointant vers le bouton qui l'a ouvert (en bas du popover) */
+.ai-sql-popover::after {
+    content: '';
+    position: absolute;
+    bottom: -7px;
+    left: 50%;
+    transform: translateX(-50%) rotate(45deg);
+    width: 12px;
+    height: 12px;
+    background: white;
+    border-right: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+}
+@keyframes aiPopIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.ai-sql-popover-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 28px; /* aligne le titre et le bouton close sur même axe vertical */
+}
+.ai-sql-popover-icon {
+    color: #667eea;
+    font-size: 20px;
+    line-height: 1;
+}
+.ai-sql-popover-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 1;
+    font-size: 0.95rem;
+    line-height: 1;
+}
+.ai-sql-popover-close {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.15s;
+    padding: 0;
+    line-height: 1;
+}
+.ai-sql-popover-close:hover {
+    background: var(--bg-secondary, #f4f6f8);
+    color: var(--text-primary);
+}
+.ai-sql-popover-close .material-symbols-outlined {
+    font-size: 18px;
+    line-height: 1;
+}
+.ai-sql-popover-input {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    background: white;
+    color: var(--text-primary);
+    resize: none; /* on bloque la poignée de redim navigateur, design propre */
+    height: 72px;
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+    line-height: 1.4;
+}
+.ai-sql-popover-input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+}
+.ai-sql-popover-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    min-height: 32px; /* aligne hint et bouton sur même axe vertical */
+}
+.ai-sql-popover-hint {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    background: var(--bg-secondary, #f4f6f8);
+    padding: 4px 8px;
+    border-radius: 4px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+}
+
+/* Bouton "Générer" du popover — accent gradient */
+.ai-sql-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    height: 32px;
+    padding: 0 0.9rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.ai-sql-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+.ai-sql-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+.ai-sql-btn .material-symbols-outlined {
+    font-size: 18px;
+}
+.ai-sql-btn-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: aiSqlSpin 0.75s linear infinite;
+    display: inline-block;
+}
+@keyframes aiSqlSpin {
+    to { transform: rotate(360deg); }
 }
 
 /* Toolbar unifié pour l'éditeur */
@@ -1622,8 +1845,37 @@ unset($q);
                     <span class="material-symbols-outlined">add</span>
                 </div>
             </div>
-            
+
             <textarea id="sqlEditor"><?= htmlspecialchars($initialQuery) ?></textarea>
+
+            <!-- Floating "Ask AI" popover. Hidden by default, shown above the
+                 editor when the user clicks the toolbar button or hits Ctrl+K.
+                 Positioned absolutely inside .sql-editor-container so it
+                 overlays the editor without pushing it down. -->
+            <div id="aiSqlPopover" class="ai-sql-popover" style="display: none;">
+                <div class="ai-sql-popover-header">
+                    <span class="material-symbols-outlined ai-sql-popover-icon">auto_awesome</span>
+                    <span class="ai-sql-popover-title"><?= __('sql_explorer.ai_button_label') ?></span>
+                    <button type="button" class="ai-sql-popover-close" onclick="closeAiSqlPopover()" title="<?= __('common.cancel') ?>">
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+                <textarea id="aiSqlInput"
+                          class="ai-sql-popover-input"
+                          placeholder="<?= htmlspecialchars(__('sql_explorer.ai_placeholder')) ?>"
+                          rows="3"></textarea>
+                <div class="ai-sql-popover-footer">
+                    <span class="ai-sql-popover-hint">Ctrl+Enter</span>
+                    <button type="button"
+                            id="aiSqlGenerateBtn"
+                            class="ai-sql-btn"
+                            onclick="generateSqlFromNaturalLanguage()">
+                        <span class="material-symbols-outlined ai-sql-btn-icon">arrow_forward</span>
+                        <span class="ai-sql-btn-spinner" style="display:none;"></span>
+                        <span class="ai-sql-btn-label"><?= __('sql_explorer.ai_generate') ?></span>
+                    </button>
+                </div>
+            </div>
             
             <!-- Toolbar unifié sous l'éditeur -->
             <div class="sql-editor-toolbar">
@@ -1632,6 +1884,15 @@ unset($q);
                         <span class="material-symbols-outlined">play_arrow</span>
                         <?= __('sql_explorer.execute') ?>
                         <span class="shortcut">Ctrl+Enter</span>
+                    </button>
+                    <button class="ai-sql-toolbar-btn"
+                            id="aiSqlOpenBtn"
+                            onclick="openAiSqlPopover()"
+                            <?= $sqlAiConfigured ? '' : 'disabled' ?>
+                            title="<?= htmlspecialchars($sqlAiConfigured ? __('sql_explorer.ai_button_label') . ' (Ctrl+K)' : __('sql_explorer.ai_not_configured')) ?>">
+                        <span class="material-symbols-outlined">auto_awesome</span>
+                        <span><?= __('sql_explorer.ai_button_label') ?></span>
+                        <span class="shortcut">Ctrl+K</span>
                     </button>
                 </div>
                 <div class="toolbar-right">
@@ -3172,6 +3433,139 @@ function hideSQLHelp() {
     document.getElementById('sqlHelpModal').classList.remove('active');
     document.body.style.overflow = '';
 }
+
+// ============================================================
+// AI SQL generation : NL question → SELECT statement (Copilot-style popover)
+//
+// Popover floats over the editor — no permanent vertical space loss.
+// Triggers : toolbar button, Ctrl+K (Cmd+K on Mac).
+// Closes   : Esc, close icon, click outside, or successful generation.
+//
+// The generated SQL is NOT executed — it's injected into the active
+// CodeMirror tab. The user reviews and clicks Execute as usual.
+// Security (whitelist, SELECT-only) is enforced server-side at execute
+// time, so the AI cannot bypass anything by emitting malicious SQL.
+// ============================================================
+
+function openAiSqlPopover() {
+    const openBtn = document.getElementById('aiSqlOpenBtn');
+    if (openBtn && openBtn.disabled) return;
+    const popover = document.getElementById('aiSqlPopover');
+    const input   = document.getElementById('aiSqlInput');
+    if (!popover) return;
+    popover.style.display = 'flex';
+    if (input) {
+        setTimeout(() => input.focus(), 30);
+    }
+}
+
+function closeAiSqlPopover() {
+    const popover = document.getElementById('aiSqlPopover');
+    if (!popover) return;
+    popover.style.display = 'none';
+}
+
+async function generateSqlFromNaturalLanguage() {
+    const input   = document.getElementById('aiSqlInput');
+    const btn     = document.getElementById('aiSqlGenerateBtn');
+    const btnIcon = btn ? btn.querySelector('.ai-sql-btn-icon') : null;
+    const btnSpin = btn ? btn.querySelector('.ai-sql-btn-spinner') : null;
+    if (!input || !btn || btn.disabled) return;
+
+    const question = input.value.trim();
+    if (!question) {
+        input.focus();
+        return;
+    }
+
+    btn.disabled   = true;
+    input.disabled = true;
+    if (btnIcon) btnIcon.style.display = 'none';
+    if (btnSpin) btnSpin.style.display = 'inline-block';
+
+    try {
+        const res = await fetch('../api/sql/ai-generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            const msg = data.error || data.message || res.statusText || 'Unknown error';
+            if (typeof showGlobalStatus === 'function') {
+                showGlobalStatus('IA : ' + msg, 'error');
+            } else {
+                alert('IA : ' + msg);
+            }
+            return;
+        }
+
+        if (typeof sqlEditor !== 'undefined' && sqlEditor && data.sql) {
+            sqlEditor.setValue(data.sql);
+            sqlEditor.focus();
+            const last = sqlEditor.lineCount() - 1;
+            sqlEditor.setCursor({ line: last, ch: sqlEditor.getLine(last).length });
+        }
+        // Success: clear the prompt and close the popover.
+        input.value = '';
+        closeAiSqlPopover();
+    } catch (e) {
+        if (typeof showGlobalStatus === 'function') {
+            showGlobalStatus('IA : ' + e.message, 'error');
+        }
+    } finally {
+        btn.disabled = false;
+        input.disabled = false;
+        if (btnIcon) btnIcon.style.display = '';
+        if (btnSpin) btnSpin.style.display = 'none';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    const aiInput  = document.getElementById('aiSqlInput');
+    const popover  = document.getElementById('aiSqlPopover');
+    const openBtn  = document.getElementById('aiSqlOpenBtn');
+
+    // Ctrl+Enter inside the textarea triggers generation (Enter alone allows
+    // multi-line questions — they can be long).
+    if (aiInput) {
+        aiInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                generateSqlFromNaturalLanguage();
+            }
+        });
+    }
+
+    // Global shortcuts: Ctrl+K / Cmd+K opens the popover, Esc closes it.
+    document.addEventListener('keydown', function (e) {
+        // Open with Ctrl+K / Cmd+K (skip when typing in another text input
+        // that might already use it — but our use here is benign).
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+            if (openBtn && openBtn.disabled) return;
+            e.preventDefault();
+            if (popover && popover.style.display === 'flex') {
+                closeAiSqlPopover();
+            } else {
+                openAiSqlPopover();
+            }
+            return;
+        }
+        // Close on Esc when popover is open.
+        if (e.key === 'Escape' && popover && popover.style.display === 'flex') {
+            closeAiSqlPopover();
+        }
+    });
+
+    // Click outside the popover closes it (skip clicks on the open button
+    // itself — toggling is already handled by the button's onclick).
+    document.addEventListener('mousedown', function (e) {
+        if (!popover || popover.style.display !== 'flex') return;
+        if (popover.contains(e.target)) return;
+        if (openBtn && openBtn.contains(e.target)) return;
+        closeAiSqlPopover();
+    });
+});
 
 // Fermer les modales avec Escape
 document.addEventListener('keydown', function(e) {
