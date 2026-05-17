@@ -21,6 +21,7 @@ $users = $userRepo->getAll();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= __('admin.page_title') ?> - Scouter</title>
     <link rel="stylesheet" href="../assets/style.css">
+    <link rel="stylesheet" href="../assets/responsive.css">
     <link rel="stylesheet" href="../assets/crawl-panel.css">
     <link rel="icon" type="image/png" href="/logo.png">
     <link rel="stylesheet" href="../assets/vendor/material-symbols/material-symbols.css" />
@@ -350,6 +351,18 @@ $users = $userRepo->getAll();
             background: transparent;
             color: var(--primary-color);
             border-color: var(--primary-color);
+        }
+
+        @media (max-width: 768px) {
+            .container { padding: 1rem !important; margin: 0.5rem auto !important; }
+            .admin-header { flex-direction: column !important; gap: 0.75rem; align-items: flex-start !important; }
+            .admin-header > div:last-child { width: 100%; }
+            .admin-header .btn { width: 100%; justify-content: center; }
+            .users-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .users-table thead, .users-table tbody, .users-table tr { min-width: 600px; }
+            .users-table th, .users-table td { padding: 0.6rem 0.5rem; font-size: 0.85rem; }
+            .action-buttons { gap: 0.25rem; }
+            .user-badge, .role-badge { font-size: 0.75rem; padding: 0.2rem 0.5rem; }
         }
     </style>
 </head>

@@ -9,8 +9,8 @@
 $stmt = $pdo->prepare("
     SELECT 
         COALESCE(SUM(pri), 0) as total_pr
-    FROM pages 
-    WHERE crawl_id = :crawl_id AND crawled = true
+    FROM pages
+    WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
 ");
 $stmt->execute([':crawl_id' => $crawlId]);
 $totalPR = (float)$stmt->fetch(PDO::FETCH_OBJ)->total_pr;
@@ -18,8 +18,8 @@ $totalPR = (float)$stmt->fetch(PDO::FETCH_OBJ)->total_pr;
 // PageRank sur URLs externes
 $sqlExternalPR = "
 SELECT COALESCE(SUM(pri), 0) as pr
-FROM pages 
-WHERE crawl_id = :crawl_id AND external = true";
+FROM pages
+WHERE crawl_id = :crawl_id AND external = true AND in_crawl = TRUE";
 $stmt = $pdo->prepare($sqlExternalPR);
 $stmt->execute([':crawl_id' => $crawlId]);
 $externalPR = (float)$stmt->fetch(PDO::FETCH_OBJ)->pr;
@@ -27,8 +27,8 @@ $externalPR = (float)$stmt->fetch(PDO::FETCH_OBJ)->pr;
 // PageRank sur URLs internes non indexables
 $sqlNonIndexablePR = "
 SELECT COALESCE(SUM(pri), 0) as pr
-FROM pages 
-WHERE crawl_id = :crawl_id AND crawled = true AND external = false AND compliant = false";
+FROM pages
+WHERE crawl_id = :crawl_id AND crawled = true AND external = false AND compliant = false AND in_crawl = TRUE";
 $stmt = $pdo->prepare($sqlNonIndexablePR);
 $stmt->execute([':crawl_id' => $crawlId]);
 $nonIndexablePR = (float)$stmt->fetch(PDO::FETCH_OBJ)->pr;
@@ -36,8 +36,8 @@ $nonIndexablePR = (float)$stmt->fetch(PDO::FETCH_OBJ)->pr;
 // PageRank sur URLs indexables
 $sqlIndexablePR = "
 SELECT COALESCE(SUM(pri), 0) as pr
-FROM pages 
-WHERE crawl_id = :crawl_id AND crawled = true AND external = false AND compliant = true";
+FROM pages
+WHERE crawl_id = :crawl_id AND crawled = true AND external = false AND compliant = true AND in_crawl = TRUE";
 $stmt = $pdo->prepare($sqlIndexablePR);
 $stmt->execute([':crawl_id' => $crawlId]);
 $indexablePR = (float)$stmt->fetch(PDO::FETCH_OBJ)->pr;
@@ -58,8 +58,8 @@ SELECT
     COUNT(*) as url_count,
     COALESCE(SUM(pri), 0) as total_pr,
     COALESCE(SUM(inlinks), 0) as total_inlinks
-FROM pages 
-WHERE crawl_id = :crawl_id AND external = true
+FROM pages
+WHERE crawl_id = :crawl_id AND external = true AND in_crawl = TRUE
 GROUP BY COALESCE(SUBSTRING(url FROM '://([^/]+)'), SUBSTRING(url FROM '^([^/]+)'))
 ORDER BY total_pr DESC
 LIMIT 10";
@@ -123,8 +123,8 @@ SELECT
     SUM(CASE WHEN external = true THEN pri ELSE 0 END) as external_pr,
     SUM(CASE WHEN external = false AND compliant = false THEN pri ELSE 0 END) as non_indexable_pr,
     SUM(CASE WHEN external = false AND compliant = true THEN pri ELSE 0 END) as indexable_pr
-FROM pages 
-WHERE crawl_id = :crawl_id AND (crawled = true OR external = true)";
+FROM pages
+WHERE crawl_id = :crawl_id AND (crawled = true OR external = true) AND in_crawl = TRUE";
     
     Component::chart([
         'type' => 'donut',
@@ -164,7 +164,7 @@ WHERE crawl_id = :crawl_id AND (crawled = true OR external = true)";
     Component::urlTable([
         'title' => __('pagerank_leak.table_title'),
         'id' => 'prLeakTable',
-        'whereClause' => 'WHERE (c.external = true OR (c.crawled = true AND c.compliant = false))',
+        'whereClause' => 'WHERE (c.external = true OR (c.crawled = true AND c.compliant = false)) AND c.in_crawl = TRUE',
         'orderBy' => 'ORDER BY c.pri DESC',
         'defaultColumns' => ['url', 'pri', 'inlinks', 'compliant'],
         'pdo' => $pdo,

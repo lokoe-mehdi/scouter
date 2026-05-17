@@ -24,7 +24,7 @@ $sqlSeoStats = "
         SUM(CASE WHEN metadesc_status = 'duplicate' THEN 1 ELSE 0 END) as meta_desc_duplicate,
         SUM(CASE WHEN metadesc_status = 'unique' THEN 1 ELSE 0 END) as meta_desc_unique
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
 $stmt = $pdo->prepare($sqlSeoStats);
 $stmt->execute([':crawl_id' => $crawlId]);
@@ -67,7 +67,7 @@ $sqlSeoByCategory = "
         SUM(CASE WHEN metadesc_status = 'duplicate' THEN 1 ELSE 0 END) as meta_desc_duplicate,
         SUM(CASE WHEN metadesc_status = 'unique' THEN 1 ELSE 0 END) as meta_desc_unique
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY cat_id
     ORDER BY cat_id
 ";
@@ -318,7 +318,7 @@ foreach ($categoryStatsData as $cat) {
 $urlTableConfig = [
     'title' => __('seo_tags.table_issues'),
     'id' => 'seoTagsTable',
-    'whereClause' => "WHERE c.compliant = true AND (c.title_status IN ('empty', 'duplicate') OR c.h1_status IN ('empty', 'duplicate') OR c.metadesc_status IN ('empty', 'duplicate'))",
+    'whereClause' => "WHERE c.compliant = true AND (c.title_status IN ('empty', 'duplicate') OR c.h1_status IN ('empty', 'duplicate') OR c.metadesc_status IN ('empty', 'duplicate')) AND c.in_crawl = TRUE",
     'orderBy' => 'ORDER BY c.url ASC',
     'defaultColumns' => ['url', 'category', 'title', 'title_status', 'h1', 'h1_status', 'metadesc', 'metadesc_status'],
     'pdo' => $pdo,

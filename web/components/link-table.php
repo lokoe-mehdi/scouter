@@ -40,9 +40,9 @@ if(!$crawlId) {
 $customExtractColumns = [];
 try {
     $stmt = $pdo->prepare("
-        SELECT DISTINCT jsonb_object_keys(extracts) as key_name 
-        FROM pages 
-        WHERE crawl_id = :crawl_id AND extracts IS NOT NULL AND extracts != '{}'::jsonb
+        SELECT DISTINCT jsonb_object_keys(extracts) as key_name
+        FROM pages
+        WHERE crawl_id = :crawl_id AND extracts IS NOT NULL AND extracts != '{}'::jsonb AND in_crawl = TRUE
     ");
     $stmt->execute([':crawl_id' => $crawlId]);
     $customExtractColumns = $stmt->fetchAll(PDO::FETCH_COLUMN);
@@ -115,10 +115,12 @@ $tableSqlQuery = "SELECT
     l.anchor,
     l.type,
     l.external,
-    l.nofollow
+    l.nofollow,
+    l.position,
+    l.xpath
 FROM links l
-LEFT JOIN pages s ON l.src = s.id
-LEFT JOIN pages t ON l.target = t.id
+LEFT JOIN pages s ON l.src = s.id AND s.in_crawl = TRUE
+LEFT JOIN pages t ON l.target = t.id AND t.in_crawl = TRUE
 " . $cleanedWhere . "
 " . $cleanedOrderBy;
 
@@ -155,12 +157,15 @@ $linkSpecificColumns = [
     'anchor' => 'Anchor',
     'external' => __('columns.external'),
     'nofollow' => 'Follow',
-    'type' => __('columns.link_type')
+    'type' => __('columns.link_type'),
+    'position' => __('link_explorer.field_position'),
+    'xpath' => __('link_explorer.field_xpath')
 ];
 
 // Colonnes disponibles (seront dupliquées en source_ et target_)
 $availableColumns = [
     'url' => 'URL',
+    'domain' => __('url_explorer.field_domain'),
     'depth' => __('columns.depth'),
     'code' => __('columns.http_code'),
     'category' => __('columns.category'),
@@ -173,6 +178,10 @@ $availableColumns = [
     'canonical_value' => __('columns.canonical_url'),
     'noindex' => 'Noindex',
     'blocked' => __('columns.blocked'),
+    'crawled' => __('url_explorer.field_crawled'),
+    'out_of_scope' => __('url_explorer.field_out_of_scope'),
+    'in_sitemap' => __('url_explorer.field_in_sitemap'),
+    'is_html' => __('url_explorer.field_is_html'),
     'redirect_to' => __('columns.redirect_to'),
     'content_type' => __('columns.content_type'),
     'pri' => 'PageRank',
@@ -290,7 +299,9 @@ $columnMapping = [
     'anchor' => 'l.anchor',
     'external' => 'l.external',
     'nofollow' => 'l.nofollow',
-    'type' => 'l.type'
+    'type' => 'l.type',
+    'position' => 'l.position',
+    'xpath' => 'l.xpath'
 ];
 
 // Ajouter les colonnes SOURCE avec préfixe source_
@@ -319,6 +330,11 @@ $columnMapping['source_h1_multiple'] = 'cs.h1_multiple';
 $columnMapping['source_headings_missing'] = 'cs.headings_missing';
 $columnMapping['source_word_count'] = 'cs.word_count';
 $columnMapping['source_category'] = 'cats.cat';
+$columnMapping['source_domain'] = 'cs.domain';
+$columnMapping['source_crawled'] = 'cs.crawled';
+$columnMapping['source_out_of_scope'] = '(cs.external = false AND cs.blocked = false AND cs.crawled = false)';
+$columnMapping['source_in_sitemap'] = 'cs.in_sitemap';
+$columnMapping['source_is_html'] = 'cs.is_html';
 
 // Ajouter les colonnes TARGET avec préfixe target_
 $columnMapping['target_url'] = 'ct.url';
@@ -346,6 +362,11 @@ $columnMapping['target_h1_multiple'] = 'ct.h1_multiple';
 $columnMapping['target_headings_missing'] = 'ct.headings_missing';
 $columnMapping['target_word_count'] = 'ct.word_count';
 $columnMapping['target_category'] = 'catt.cat';
+$columnMapping['target_domain'] = 'ct.domain';
+$columnMapping['target_crawled'] = 'ct.crawled';
+$columnMapping['target_out_of_scope'] = '(ct.external = false AND ct.blocked = false AND ct.crawled = false)';
+$columnMapping['target_in_sitemap'] = 'ct.in_sitemap';
+$columnMapping['target_is_html'] = 'ct.is_html';
 
 // Ajouter les colonnes extract_* au mapping pour le tri (JSONB)
 foreach($customExtractColumns as $col) {
@@ -407,21 +428,21 @@ $crawlIdCondition = "l.crawl_id = $crawlIdInt";
 // Construire les jointures nécessaires (pour filtre OU tri)
 $joinClauses = "";
 if ($hasSourceFilter || $needsSourceJoinForSort) {
-    $joinClauses .= " LEFT JOIN pages cs ON l.src = cs.id AND cs.crawl_id = $crawlIdInt";
+    $joinClauses .= " LEFT JOIN pages cs ON l.src = cs.id AND cs.crawl_id = $crawlIdInt AND cs.in_crawl = TRUE";
 }
 if ($hasTargetFilter || $needsTargetJoinForSort) {
-    $joinClauses .= " LEFT JOIN pages ct ON l.target = ct.id AND ct.crawl_id = $crawlIdInt";
+    $joinClauses .= " LEFT JOIN pages ct ON l.target = ct.id AND ct.crawl_id = $crawlIdInt AND ct.in_crawl = TRUE";
 }
 // Jointures sur les catégories si tri par catégorie
 if ($needsSourceCatJoinForSort) {
     if (!$hasSourceFilter && !$needsSourceJoinForSort) {
-        $joinClauses .= " LEFT JOIN pages cs ON l.src = cs.id AND cs.crawl_id = $crawlIdInt";
+        $joinClauses .= " LEFT JOIN pages cs ON l.src = cs.id AND cs.crawl_id = $crawlIdInt AND cs.in_crawl = TRUE";
     }
     $joinClauses .= " LEFT JOIN crawl_categories cats ON cs.cat_id = cats.id";
 }
 if ($needsTargetCatJoinForSort) {
     if (!$hasTargetFilter && !$needsTargetJoinForSort) {
-        $joinClauses .= " LEFT JOIN pages ct ON l.target = ct.id AND ct.crawl_id = $crawlIdInt";
+        $joinClauses .= " LEFT JOIN pages ct ON l.target = ct.id AND ct.crawl_id = $crawlIdInt AND ct.in_crawl = TRUE";
     }
     $joinClauses .= " LEFT JOIN crawl_categories catt ON ct.cat_id = catt.id";
 }
@@ -454,7 +475,7 @@ if ($hasSourceFilter || $hasTargetFilter) {
     }
     
     // Requête liens avec jointure(s) minimale(s)
-    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external, l.nofollow, l.type 
+    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external, l.nofollow, l.type, l.position, l.xpath
                    FROM links l $joinClauses
                    $fullWhereClause 
                    $linksOrderBy 
@@ -487,7 +508,9 @@ if ($hasSourceFilter || $hasTargetFilter) {
             'anchor' => 'l.anchor',
             'external' => 'l.external',
             'nofollow' => 'l.nofollow',
-            'type' => 'l.type'
+            'type' => 'l.type',
+            'position' => 'l.position',
+            'xpath' => 'l.xpath'
         ];
         if(isset($linkSortMap[$sortColumn])) {
             $linksOrderBy = 'ORDER BY ' . $linkSortMap[$sortColumn] . ' ' . $sortDirection;
@@ -495,7 +518,7 @@ if ($hasSourceFilter || $hasTargetFilter) {
     }
     
     // Requête liens simple
-    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external, l.nofollow, l.type 
+    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external, l.nofollow, l.type, l.position, l.xpath
                    FROM links l 
                    $linksWhereClause 
                    $linksOrderBy 
@@ -517,12 +540,13 @@ $pageIds = array_keys($pageIds);
 $pagesMap = [];
 if (!empty($pageIds)) {
     $placeholders = implode(',', array_fill(0, count($pageIds), '?'));
-    $pagesQuery = "SELECT id, url, depth, code, cat_id, inlinks, outlinks, response_time, schemas,
-                          compliant, canonical, canonical_value, noindex, blocked, redirect_to, content_type, 
-                          pri, title, title_status, h1, h1_status, metadesc, metadesc_status, 
-                          h1_multiple, headings_missing, extracts, word_count
-                   FROM pages 
-                   WHERE crawl_id = ? AND id IN ($placeholders)";
+    $pagesQuery = "SELECT id, url, domain, depth, code, cat_id, inlinks, outlinks, response_time, schemas,
+                          compliant, canonical, canonical_value, noindex, blocked, redirect_to, content_type,
+                          pri, title, title_status, h1, h1_status, metadesc, metadesc_status,
+                          h1_multiple, headings_missing, extracts, word_count,
+                          crawled, external, in_crawl, in_sitemap, is_html
+                   FROM pages
+                   WHERE crawl_id = ? AND id IN ($placeholders) AND in_crawl = TRUE";
     $stmt = $pdo->prepare($pagesQuery);
     $stmt->execute(array_merge([$crawlIdInt], $pageIds));
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
@@ -543,6 +567,8 @@ foreach ($linksRaw as $link) {
     $row->external = $link['external'];
     $row->nofollow = $link['nofollow'];
     $row->type = $link['type'];
+    $row->position = $link['position'] ?? 'Content';
+    $row->xpath = $link['xpath'] ?? null;
     
     // Colonnes SOURCE
     if ($srcPage) {
@@ -570,7 +596,12 @@ foreach ($linksRaw as $link) {
         $row->source_h1_multiple = $srcPage['h1_multiple'];
         $row->source_headings_missing = $srcPage['headings_missing'];
         $row->source_word_count = $srcPage['word_count'];
-        
+        $row->source_domain = $srcPage['domain'];
+        $row->source_crawled = $srcPage['crawled'];
+        $row->source_out_of_scope = (!$srcPage['external'] && !$srcPage['blocked'] && !$srcPage['crawled']);
+        $row->source_in_sitemap = $srcPage['in_sitemap'];
+        $row->source_is_html = $srcPage['is_html'];
+
         // Catégorie source
         $srcCatId = $srcPage['cat_id'];
         $row->source_category = isset($categoriesMap[$srcCatId]) ? $categoriesMap[$srcCatId]['cat'] : __('common.uncategorized');
@@ -618,7 +649,12 @@ foreach ($linksRaw as $link) {
         $row->target_h1_multiple = $targetPage['h1_multiple'];
         $row->target_headings_missing = $targetPage['headings_missing'];
         $row->target_word_count = $targetPage['word_count'];
-        
+        $row->target_domain = $targetPage['domain'];
+        $row->target_crawled = $targetPage['crawled'];
+        $row->target_out_of_scope = (!$targetPage['external'] && !$targetPage['blocked'] && !$targetPage['crawled']);
+        $row->target_in_sitemap = $targetPage['in_sitemap'];
+        $row->target_is_html = $targetPage['is_html'];
+
         // Catégorie target
         $targetCatId = $targetPage['cat_id'];
         $row->target_category = isset($categoriesMap[$targetCatId]) ? $categoriesMap[$targetCatId]['cat'] : __('common.uncategorized');
@@ -717,10 +753,11 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                     <span class="material-symbols-outlined">view_column</span>
                     <?= __('table.columns') ?>
                 </button>
-                <div id="columnDropdown_<?= $componentId ?>" class="column-dropdown-<?= $componentId ?>" style="display: none; position: absolute; left: 0; top: 100%; margin-top: 0.5rem; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 250px; max-height: 450px; z-index: 1000; flex-direction: column;">
+                <div id="columnDropdown_<?= $componentId ?>" class="column-dropdown-<?= $componentId ?>" style="display: none; position: absolute; left: 0; top: 100%; margin-top: 0.5rem; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 360px; max-height: 450px; z-index: 1000; flex-direction: column;">
                     <!-- Header fixe -->
-                    <div style="padding: 1rem 1rem 0.5rem 1rem; border-bottom: 1px solid var(--border-color); background: white; border-radius: 8px 8px 0 0;">
+                    <div style="padding: 1rem 1rem 0.5rem 1rem; border-bottom: 1px solid #e5e7eb; background: white; border-radius: 8px 8px 0 0;">
                         <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;"><?= __('table.select_columns') ?></div>
+                        <input type="text" class="column-picker-search-<?= $componentId ?>" oninput="filterColumnPicker_<?= $componentId ?>()" autocomplete="off" placeholder="<?= __('table.search_column_placeholder') ?>" onfocus="this.style.borderColor='#94a3b8'" onblur="this.style.borderColor='#e5e7eb'" style="width: 100%; padding: 0.4rem 0.6rem; border: 1px solid #e5e7eb; border-radius: 4px; background: var(--bg-primary); color: var(--text-primary); font-size: 0.85rem; box-sizing: border-box; margin-bottom: 0.5rem; outline: none;">
                         <div style="font-size: 0.85rem; color: var(--text-secondary);">
                             <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(true)" style="color: var(--primary-color); text-decoration: none; cursor: pointer;"><?= __('table.check_all') ?></a>
                             <span style="margin: 0 0.25rem; color: var(--border-color);">|</span>
@@ -734,7 +771,7 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                         <div style="margin-bottom: 0.75rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--border-color);">
                             <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem; text-transform: uppercase;"><?= __('table.link_columns') ?></div>
                             <?php foreach($linkSpecificColumns as $key => $label): ?>
-                            <label style="display: block; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s; background: #f8f9fa;" onmouseover="this.style.background='#e9ecef'" onmouseout="this.style.background='#f8f9fa'">
+                            <label style="display: block; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s; background: #f8f9fa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" onmouseover="this.style.background='#e9ecef'" onmouseout="this.style.background='#f8f9fa'">
                                 <input type="checkbox" class="column-checkbox-<?= $componentId ?>" value="<?= $key ?>" 
                                     <?= in_array($key, $selectedColumnsRaw) ? 'checked' : '' ?>
                                     style="margin-right: 0.5rem; accent-color: var(--primary-color);">
@@ -746,7 +783,7 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                         <!-- Colonnes URL (source/target) -->
                         <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem; text-transform: uppercase;"><?= __('table.url_columns') ?></div>
                         <?php foreach($availableColumns as $key => $label): ?>
-                        <label style="display: block; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='var(--background)'" onmouseout="this.style.background='transparent'">
+                        <label style="display: block; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" onmouseover="this.style.background='var(--background)'" onmouseout="this.style.background='transparent'">
                             <input type="checkbox" class="column-checkbox-<?= $componentId ?>" value="<?= $key ?>" 
                                 <?= in_array($key, $selectedColumnsRaw) ? 'checked' : '' ?>
                                 <?= $key === 'url' ? 'disabled' : '' ?>
@@ -757,9 +794,9 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                     </div>
                     
                     <!-- Footer fixe avec boutons -->
-                    <div style="padding: 1rem; border-top: 1px solid var(--border-color); background: white; border-radius: 0 0 8px 8px; display: flex; gap: 0.5rem;">
-                        <button class="btn" onclick="applyColumns_<?= $componentId ?>()" style="flex: 1; background: var(--primary-color); color: white; border: none; padding: 0.6rem; font-weight: 500;"><?= __('table.apply') ?></button>
-                        <button class="btn" onclick="toggleColumnDropdown_<?= $componentId ?>()" style="flex: 1; background: #95a5a6; color: white; border: none; padding: 0.6rem; font-weight: 500;"><?= __('table.cancel') ?></button>
+                    <div style="padding: 0.75rem; border-top: 1px solid #e5e7eb; background: white; border-radius: 0 0 8px 8px; display: flex; gap: 0.5rem; justify-content: flex-end;">
+                        <button class="btn" onclick="toggleColumnDropdown_<?= $componentId ?>()" style="background: transparent; color: #6b7280; border: none; padding: 0.4rem 0.9rem; font-weight: 500; font-size: 0.85rem; cursor: pointer;"><?= __('table.cancel') ?></button>
+                        <button class="btn" onclick="applyColumns_<?= $componentId ?>()" style="background: var(--primary-color); color: white; border: none; padding: 0.4rem 1.25rem; font-weight: 500; font-size: 0.85rem; cursor: pointer;"><?= __('table.apply') ?></button>
                     </div>
                 </div>
             </div>
@@ -893,11 +930,17 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                             </td>
                         <?php elseif($col === 'type'): ?>
                             <td class="col-type" style="background: #f8f9fa;"><?= htmlspecialchars($link->type ?? '') ?></td>
-                        <?php elseif(strpos($col, 'canonical_value') !== false || strpos($col, 'redirect_to') !== false): ?>
+                        <?php elseif($col === 'position'): ?>
+                            <td class="col-position" style="background: #f8f9fa;"><?= htmlspecialchars($link->position ?? 'Content') ?></td>
+                        <?php elseif($col === 'xpath'): ?>
+                            <td class="col-xpath" style="background: #f8f9fa; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 0.85em;" title="<?= htmlspecialchars($link->xpath ?? '') ?>">
+                                <?= $link->xpath !== null && $link->xpath !== '' ? htmlspecialchars($link->xpath) : '<span style="color: #95A5A6;">—</span>' ?>
+                            </td>
+                        <?php elseif(strpos($col, 'canonical_value') !== false || strpos($col, 'redirect_to') !== false || strpos($col, '_domain') !== false): ?>
                             <td class="col-<?= $col ?>" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($link->$col ?? '') ?>">
                                 <?= htmlspecialchars($link->$col ?? '') ?>
                             </td>
-                        <?php elseif(strpos($col, 'compliant') !== false || strpos($col, 'canonical') !== false || strpos($col, 'noindex') !== false || strpos($col, 'blocked') !== false || strpos($col, 'h1_multiple') !== false || strpos($col, 'headings_missing') !== false): ?>
+                        <?php elseif(strpos($col, 'compliant') !== false || strpos($col, 'canonical') !== false || strpos($col, 'noindex') !== false || strpos($col, 'blocked') !== false || strpos($col, 'h1_multiple') !== false || strpos($col, 'headings_missing') !== false || strpos($col, '_crawled') !== false || strpos($col, 'out_of_scope') !== false || strpos($col, 'in_sitemap') !== false || strpos($col, 'is_html') !== false): ?>
                             <td class="col-<?= $col ?>" style="text-align: center;">
                                 <?= ($link->$col ?? 0) ? '<span class="material-symbols-outlined" style="color: #6bd899; font-size: 1.2rem; opacity: 0.8;">check_circle</span>' : '<span class="material-symbols-outlined" style="color: #95a5a6; font-size: 1.2rem; opacity: 0.7;">cancel</span>' ?>
                             </td>
@@ -960,8 +1003,9 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                                 </span>
                             </td>
                         <?php elseif(strpos($col, 'cstm_') !== false || strpos($col, 'extract_') !== false): ?>
-                            <td class="col-<?= $col ?>" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($link->$col ?? '') ?>">
-                                <?= $link->$col ? htmlspecialchars($link->$col) : '<span style="color: #95A5A6;">—</span>' ?>
+                            <?php $extVal = $link->$col ?? null; ?>
+                            <td class="col-<?= $col ?>" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars((string)($extVal ?? '')) ?>">
+                                <?= $extVal !== null && $extVal !== '' ? htmlspecialchars((string)$extVal) : '<span style="color: #95A5A6;">—</span>' ?>
                             </td>
                         <?php else: ?>
                             <td class="col-<?= $col ?>"><?= htmlspecialchars($link->$col ?? '') ?></td>
@@ -1360,10 +1404,30 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
         if(dropdown.style.display === 'none' || dropdown.style.display === '') {
             dropdown.style.display = 'flex';
             dropdown.classList.add('show');
+            const search = dropdown.querySelector('.column-picker-search-' + componentId);
+            if (search) {
+                search.value = '';
+                window['filterColumnPicker_' + componentId]();
+                setTimeout(() => search.focus(), 50);
+            }
         } else {
             dropdown.style.display = 'none';
             dropdown.classList.remove('show');
         }
+    };
+
+    // Fuzzy search dans le picker de colonnes
+    window['filterColumnPicker_' + componentId] = function() {
+        const dropdown = document.getElementById('columnDropdown_' + componentId);
+        if (!dropdown) return;
+        const search = dropdown.querySelector('.column-picker-search-' + componentId);
+        const q = (search ? search.value : '').trim().toLowerCase();
+        dropdown.querySelectorAll('label').forEach(label => {
+            const txt = label.textContent.toLowerCase();
+            // 'block' au lieu de '' : un <label> est inline par défaut, donc ''
+            // ferait revenir tous les labels en ligne et casserait la mise en page
+            label.style.display = (!q || txt.includes(q)) ? 'block' : 'none';
+        });
     };
 
     // Tout cocher / Tout décocher

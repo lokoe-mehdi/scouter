@@ -6,16 +6,16 @@
  */
 
 // Comptage des pages crawlées
-$stmt = $pdo->prepare("SELECT COUNT(*) as total FROM pages WHERE crawl_id = :crawl_id AND crawled = true");
+$stmt = $pdo->prepare("SELECT COUNT(*) as total FROM pages WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE");
 $stmt->execute([':crawl_id' => $crawlId]);
 $totalCrawled = $stmt->fetch(PDO::FETCH_OBJ)->total ?? 0;
 
 // Récupérer les clés d'extracteurs personnalisés depuis JSONB
 $customColumns = [];
 $stmt = $pdo->prepare("
-    SELECT DISTINCT jsonb_object_keys(extracts) as key_name 
-    FROM pages 
-    WHERE crawl_id = :crawl_id AND extracts IS NOT NULL AND extracts != '{}'::jsonb
+    SELECT DISTINCT jsonb_object_keys(extracts) as key_name
+    FROM pages
+    WHERE crawl_id = :crawl_id AND extracts IS NOT NULL AND extracts != '{}'::jsonb AND in_crawl = TRUE
 ");
 $stmt->execute([':crawl_id' => $crawlId]);
 $keys = $stmt->fetchAll(PDO::FETCH_COLUMN);
@@ -38,8 +38,8 @@ if ($hasCustomExtractions) {
                 cat_id,
                 COUNT(*) as total,
                 SUM(CASE WHEN extracts->>:col_name IS NOT NULL AND extracts->>:col_name != '' THEN 1 ELSE 0 END) as filled
-            FROM pages 
-            WHERE crawl_id = :crawl_id AND crawled = true
+            FROM pages
+            WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
             GROUP BY cat_id
             ORDER BY COUNT(*) DESC
         ");
@@ -120,8 +120,8 @@ SELECT
     cat_id,
     COUNT(*) as total,
     SUM(CASE WHEN extracts IS NOT NULL AND extracts != '{}'::jsonb AND extracts::text != '{}' THEN 1 ELSE 0 END) as filled
-FROM pages 
-WHERE crawl_id = :crawl_id AND crawled = true
+FROM pages
+WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
 GROUP BY cat_id
 ORDER BY COUNT(*) DESC";
     
@@ -150,7 +150,7 @@ ORDER BY COUNT(*) DESC";
     $urlTableConfig = [
         'title' => __('extractions.table_title'),
         'id' => 'extractionsTable',
-        'whereClause' => 'WHERE c.crawled = true',
+        'whereClause' => 'WHERE c.crawled = true AND c.in_crawl = TRUE',
         'orderBy' => 'ORDER BY c.url ASC',
         'defaultColumns' => $defaultCols,
         'customExtractColumns' => $customColumns,

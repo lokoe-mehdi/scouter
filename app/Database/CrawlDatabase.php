@@ -261,14 +261,15 @@ class CrawlDatabase
             ':anchor' => $data['anchor'] ?? '',
             ':type' => $data['type'] ?? 'ahref',
             ':external' => $this->toBool($data['external'] ?? false),
-            ':nofollow' => $this->toBool($data['nofollow'] ?? false)
+            ':nofollow' => $this->toBool($data['nofollow'] ?? false),
+            ':xpath' => $data['xpath'] ?? null,
+            ':position' => $data['position'] ?? 'Content',
         ];
-        
+
         $this->executeWithRetry($this->db, function($pdo) use ($params) {
             $stmt = $pdo->prepare("
-                INSERT INTO links (crawl_id, src, target, anchor, type, external, nofollow)
-                VALUES (:crawl_id, :src, :target, :anchor, :type, :external, :nofollow)
-                ON CONFLICT (crawl_id, src, target) DO NOTHING
+                INSERT INTO links (crawl_id, src, target, anchor, type, external, nofollow, xpath, position)
+                VALUES (:crawl_id, :src, :target, :anchor, :type, :external, :nofollow, :xpath, :position)
             ");
             $stmt->execute($params);
         });
@@ -291,7 +292,7 @@ class CrawlDatabase
             $i = 0;
             
             foreach ($chunk as $link) {
-                $values[] = "(:crawl_id{$i}, :src{$i}, :target{$i}, :anchor{$i}, :type{$i}, :external{$i}, :nofollow{$i})";
+                $values[] = "(:crawl_id{$i}, :src{$i}, :target{$i}, :anchor{$i}, :type{$i}, :external{$i}, :nofollow{$i}, :xpath{$i}, :position{$i})";
                 $params[":crawl_id{$i}"] = $this->crawlId;
                 $params[":src{$i}"] = $link['src'];
                 $params[":target{$i}"] = $link['target'];
@@ -299,12 +300,14 @@ class CrawlDatabase
                 $params[":type{$i}"] = $link['type'] ?? 'ahref';
                 $params[":external{$i}"] = $this->toBool($link['external'] ?? false);
                 $params[":nofollow{$i}"] = $this->toBool($link['nofollow'] ?? false);
+                $params[":xpath{$i}"] = $link['xpath'] ?? null;
+                $params[":position{$i}"] = $link['position'] ?? 'Content';
                 $i++;
             }
-            
-            $sql = "INSERT INTO links (crawl_id, src, target, anchor, type, external, nofollow) VALUES " 
-                 . implode(', ', $values) 
-                 . " ON CONFLICT (crawl_id, src, target) DO NOTHING";
+
+            $sql = "INSERT INTO links (crawl_id, src, target, anchor, type, external, nofollow, xpath, position) VALUES "
+                 . implode(', ', $values)
+                 ;
             
             // Retry sur deadlock
             $this->executeWithRetry($this->db, function($pdo) use ($sql, $params) {
@@ -395,7 +398,7 @@ class CrawlDatabase
      */
     public function getUrlsToCrawl(bool $respectRobots = true, int $limit = 0, int $maxDepth = -1): array
     {
-        $sql = "SELECT url FROM pages WHERE crawl_id = :crawl_id AND crawled = false AND external = false";
+        $sql = "SELECT url FROM pages WHERE crawl_id = :crawl_id AND crawled = false AND external = false AND in_crawl = TRUE";
         if ($respectRobots) {
             $sql .= " AND blocked = false";
         }
@@ -419,7 +422,7 @@ class CrawlDatabase
      */
     public function countUrlsToCrawl(bool $respectRobots = true, int $maxDepth = -1): int
     {
-        $sql = "SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id AND crawled = false AND external = false";
+        $sql = "SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id AND crawled = false AND external = false AND in_crawl = TRUE";
         if ($respectRobots) {
             $sql .= " AND blocked = false";
         }
@@ -442,8 +445,8 @@ class CrawlDatabase
     public function getAndLockUrlsToCrawl(int $batchSize = 10, bool $respectRobots = true): array
     {
         return $this->executeTransactionWithRetry($this->db, function($pdo) use ($batchSize, $respectRobots) {
-            $sql = "SELECT id, url FROM pages 
-                    WHERE crawl_id = :crawl_id AND crawled = false AND external = false";
+            $sql = "SELECT id, url FROM pages
+                    WHERE crawl_id = :crawl_id AND crawled = false AND external = false AND in_crawl = TRUE";
             if ($respectRobots) {
                 $sql .= " AND blocked = false";
             }
@@ -482,8 +485,8 @@ class CrawlDatabase
     public function getCurrentDepth(): int
     {
         $stmt = $this->db->prepare("
-            SELECT depth FROM pages 
-            WHERE crawl_id = :crawl_id AND crawled = false AND external = false AND blocked = false 
+            SELECT depth FROM pages
+            WHERE crawl_id = :crawl_id AND crawled = false AND external = false AND blocked = false AND in_crawl = TRUE
             LIMIT 1
         ");
         $stmt->execute([':crawl_id' => $this->crawlId]);
@@ -497,7 +500,7 @@ class CrawlDatabase
      */
     public function isNewCrawl(): bool
     {
-        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id");
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id AND in_crawl = TRUE");
         $stmt->execute([':crawl_id' => $this->crawlId]);
         return (int)$stmt->fetchColumn() === 0;
     }
@@ -508,37 +511,37 @@ class CrawlDatabase
     public function updateCrawlStats(): void
     {
         // Total URLs
-        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id");
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id AND in_crawl = TRUE");
         $stmt->execute([':crawl_id' => $this->crawlId]);
         $urls = (int)$stmt->fetchColumn();
-        
+
         // URLs crawlées
-        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id AND crawled = true");
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE");
         $stmt->execute([':crawl_id' => $this->crawlId]);
         $crawled = (int)$stmt->fetchColumn();
-        
+
         // URLs compliant
-        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id AND compliant = true");
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id AND compliant = true AND in_crawl = TRUE");
         $stmt->execute([':crawl_id' => $this->crawlId]);
         $compliant = (int)$stmt->fetchColumn();
-        
+
         // Duplicates (URLs non canoniques)
-        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id AND canonical = false");
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id AND canonical = false AND in_crawl = TRUE");
         $stmt->execute([':crawl_id' => $this->crawlId]);
         $duplicates = (int)$stmt->fetchColumn();
-        
+
         // Temps de réponse moyen (uniquement sur les URLs code 200)
-        $stmt = $this->db->prepare("SELECT AVG(response_time) FROM pages WHERE crawl_id = :crawl_id AND code = 200 AND response_time > 0");
+        $stmt = $this->db->prepare("SELECT AVG(response_time) FROM pages WHERE crawl_id = :crawl_id AND code = 200 AND response_time > 0 AND in_crawl = TRUE");
         $stmt->execute([':crawl_id' => $this->crawlId]);
         $responseTime = (float)$stmt->fetchColumn() ?: 0;
-        
+
         // Profondeur max (uniquement sur les URLs crawlées)
-        $stmt = $this->db->prepare("SELECT MAX(depth) FROM pages WHERE crawl_id = :crawl_id AND crawled = true");
+        $stmt = $this->db->prepare("SELECT MAX(depth) FROM pages WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE");
         $stmt->execute([':crawl_id' => $this->crawlId]);
         $depthMax = (int)$stmt->fetchColumn();
-        
+
         // URLs en cours
-        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id AND crawled = false AND external = false");
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :crawl_id AND crawled = false AND external = false AND in_crawl = TRUE");
         $stmt->execute([':crawl_id' => $this->crawlId]);
         $inProgress = (int)$stmt->fetchColumn();
         

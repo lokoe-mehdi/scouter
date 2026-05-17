@@ -4,8 +4,16 @@
  * $crawlId est défini dans dashboard.php
  */
 
-// Récupération des filtres
-$filters = isset($_GET['filters']) ? json_decode($_GET['filters'], true) : [];
+// Récupération des filtres. Au premier chargement (aucun filtre dans l'URL) on
+// active par défaut un filtre `external = false` pour ne montrer que les URLs
+// internes — l'utilisateur peut le retirer pour voir les externes.
+$filtersInUrl = isset($_GET['filters']);
+$defaultFilterGroups = [[
+    'type'  => 'group',
+    'logic' => 'AND',
+    'items' => [['field' => 'external', 'operator' => '=', 'value' => 'false']],
+]];
+$filters = $filtersInUrl ? json_decode($_GET['filters'], true) : $defaultFilterGroups;
 $search = isset($_GET['search']) ? $_GET['search'] : '';
 
 // Récupération des catégories disponibles
@@ -18,8 +26,49 @@ $stmt = $pdo->prepare("SELECT DISTINCT schema_type FROM page_schemas WHERE crawl
 $stmt->execute([':crawl_id' => $crawlId]);
 $availableSchemas = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
+// Récupération des extracteurs custom + détection auto du type (numérique vs texte)
+// via sampling SQL. On liste TOUS les noms d'extracteurs présents (même si toutes
+// leurs valeurs sont vides) ; le type est numérique uniquement si au moins une
+// valeur non-vide existe ET que toutes les valeurs non-vides sont numériques.
+$availableExtractors = [];
+try {
+    $stmt = $pdo->prepare("
+        WITH samples AS (
+            SELECT extracts FROM pages
+            WHERE crawl_id = :crawl_id AND extracts IS NOT NULL
+              AND extracts != '{}'::jsonb AND in_crawl = TRUE
+            LIMIT 500
+        )
+        SELECT j.key,
+               COUNT(*) FILTER (WHERE j.value IS NOT NULL AND j.value != '') AS non_empty_count,
+               COUNT(*) FILTER (
+                   WHERE j.value IS NOT NULL AND j.value != ''
+                     AND j.value !~ '^-?[0-9]+(\\.[0-9]+)?$'
+               ) AS non_numeric_count
+        FROM samples s, jsonb_each_text(s.extracts) j
+        GROUP BY j.key
+        ORDER BY j.key
+    ");
+    $stmt->execute([':crawl_id' => $crawlId]);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $isNumeric = ((int)$row['non_empty_count'] > 0) && ((int)$row['non_numeric_count'] === 0);
+        $availableExtractors[] = [
+            'key'  => $row['key'],
+            'type' => $isNumeric ? 'number' : 'text',
+        ];
+    }
+} catch (Exception $e) {
+    // Pas d'extracteurs ou colonne extracts absente — silencieux
+}
+
+// Map key => type pour accès rapide dans buildFilterConditions (via $GLOBALS)
+$GLOBALS['extractorTypes'] = [];
+foreach ($availableExtractors as $extr) {
+    $GLOBALS['extractorTypes'][$extr['key']] = $extr['type'];
+}
+
 // Construction de la clause WHERE (PostgreSQL)
-$whereConditions = ["c.crawled = true"];
+$whereConditions = ["1=1"];
 $params = [];
 
 // Recherche globale
@@ -166,9 +215,50 @@ function buildFilterConditions($items, &$params, &$paramCounter = 0) {
                 case 'blocked':
                 case 'h1_multiple':
                 case 'headings_missing':
+                case 'external':
+                case 'in_sitemap':
+                case 'is_html':
+                case 'crawled':
                     $condition = "c.{$field} = " . ($value === 'true' ? 'true' : 'false');
                     break;
-                    
+
+                case 'out_of_scope':
+                    // Filtre composé : URLs internes découvertes mais non visitées
+                    // (ni externes, ni bloquées, ni crawlées) — alignée sur la même
+                    // définition que la vue Accessibility.
+                    $expr = '(c.external = false AND c.blocked = false AND c.crawled = false)';
+                    $condition = ($value === 'true') ? $expr : "NOT $expr";
+                    break;
+
+                case 'pri':
+                    // PageRank : valeur flottante
+                    $paramName = ':pri_' . $paramCounter++;
+                    $sqlOperator = in_array($operator, ['=', '>', '<', '>=', '<=', '!=']) ? $operator : '=';
+                    $condition = "c.pri {$sqlOperator} {$paramName}";
+                    $params[$paramName] = floatval($value);
+                    break;
+
+                case 'content_type':
+                case 'redirect_to':
+                case 'canonical_value':
+                case 'domain':
+                    // Filtres texte simples (contains / not_contains / regex / not_regex)
+                    $paramName = ':txt_' . $paramCounter++;
+                    if($operator === 'contains') {
+                        $condition = "c.{$field} ILIKE {$paramName}";
+                        $params[$paramName] = '%' . $value . '%';
+                    } elseif($operator === 'not_contains') {
+                        $condition = "(c.{$field} NOT ILIKE {$paramName} OR c.{$field} IS NULL)";
+                        $params[$paramName] = '%' . $value . '%';
+                    } elseif($operator === 'regex') {
+                        $condition = "c.{$field} ~* {$paramName}";
+                        $params[$paramName] = $value;
+                    } elseif($operator === 'not_regex') {
+                        $condition = "(c.{$field} !~* {$paramName} OR c.{$field} IS NULL)";
+                        $params[$paramName] = $value;
+                    }
+                    break;
+
                 case 'title':
                 case 'h1':
                 case 'metadesc':
@@ -205,6 +295,40 @@ function buildFilterConditions($items, &$params, &$paramCounter = 0) {
                     } else {
                         if(in_array($value, ['empty', 'duplicate', 'unique'])) {
                             $condition = "c.{$colName}_status = '{$value}'";
+                        }
+                    }
+                    break;
+
+                default:
+                    // Filtres dynamiques sur les extracteurs custom (`extract_<key>`).
+                    // Le type (number vs text) est déterminé en amont par sampling SQL
+                    // et exposé via $GLOBALS['extractorTypes'].
+                    if (strpos($field, 'extract_') === 0) {
+                        $extKey = substr($field, 8);
+                        $jsonAccess = "c.extracts->>'" . addslashes($extKey) . "'";
+                        $extType = $GLOBALS['extractorTypes'][$extKey] ?? 'text';
+
+                        if ($extType === 'number') {
+                            $sqlOp = in_array($operator, ['=', '>', '<', '>=', '<=', '!=']) ? $operator : '=';
+                            $paramName = ':ext_' . $paramCounter++;
+                            // Cast en NUMERIC pour le test ; les NULL sont implicitement exclus.
+                            $condition = "({$jsonAccess}) ~ '^-?[0-9]+(\\.[0-9]+)?$' AND ({$jsonAccess})::numeric {$sqlOp} {$paramName}";
+                            $params[$paramName] = floatval($value);
+                        } else {
+                            $paramName = ':ext_' . $paramCounter++;
+                            if ($operator === 'contains') {
+                                $condition = "{$jsonAccess} ILIKE {$paramName}";
+                                $params[$paramName] = '%' . $value . '%';
+                            } elseif ($operator === 'not_contains') {
+                                $condition = "({$jsonAccess} NOT ILIKE {$paramName} OR {$jsonAccess} IS NULL)";
+                                $params[$paramName] = '%' . $value . '%';
+                            } elseif ($operator === 'regex') {
+                                $condition = "{$jsonAccess} ~* {$paramName}";
+                                $params[$paramName] = $value;
+                            } elseif ($operator === 'not_regex') {
+                                $condition = "({$jsonAccess} !~* {$paramName} OR {$jsonAccess} IS NULL)";
+                                $params[$paramName] = $value;
+                            }
                         }
                     }
                     break;
@@ -256,7 +380,10 @@ if(!empty($filters)) {
 $whereClause = implode(' AND ', $whereConditions);
 
 // Colonnes sélectionnées par défaut pour le composant
-$selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['url', 'depth', 'code', 'category', 'inlinks', 'compliant', 'title'];
+// Au premier chargement on applique aussi par défaut un filtre external=false :
+// on ajoute donc la colonne `external` aux colonnes affichées par défaut pour
+// rester cohérent (sinon l'utilisateur voit le filtre mais pas la donnée filtrée).
+$selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['url', 'depth', 'code', 'category', 'inlinks', 'compliant', 'external', 'title'];
 ?>
 
 <style>
@@ -482,6 +609,22 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
     display: flex;
 }
 .popover-close:hover { color: var(--text-primary); }
+
+.popover-search { margin-bottom: 0.5rem; }
+.popover-search input {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    box-sizing: border-box;
+}
+.popover-search input:focus {
+    outline: none;
+    border-color: #94a3b8;
+}
 
 .popover-field-list {
     display: flex;
@@ -792,6 +935,9 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
             <span class="material-symbols-outlined">close</span>
         </button>
     </div>
+    <div class="popover-search">
+        <input type="text" id="fieldPickerSearch" oninput="filterFieldPicker()" onkeydown="if(event.key==='Enter'){event.preventDefault();fieldPickerEnter();}" autocomplete="off" placeholder="<?= __('url_explorer.search_filter_placeholder') ?>">
+    </div>
     <div class="popover-field-list">
         <div class="popover-field-item" onclick="selectField('url')">
             <span class="material-symbols-outlined">link</span> URL
@@ -850,6 +996,41 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
         <div class="popover-field-item" onclick="selectField('word_count')">
             <span class="material-symbols-outlined">format_size</span> <?= __('url_explorer.field_word_count') ?>
         </div>
+        <div class="popover-field-item" onclick="selectField('pri')">
+            <span class="material-symbols-outlined">star</span> <?= __('url_explorer.field_pagerank') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('external')">
+            <span class="material-symbols-outlined">public</span> <?= __('url_explorer.field_external') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('crawled')">
+            <span class="material-symbols-outlined">task_alt</span> <?= __('url_explorer.field_crawled') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('in_sitemap')">
+            <span class="material-symbols-outlined">map</span> <?= __('url_explorer.field_in_sitemap') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('is_html')">
+            <span class="material-symbols-outlined">html</span> <?= __('url_explorer.field_is_html') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('out_of_scope')">
+            <span class="material-symbols-outlined">explore_off</span> <?= __('url_explorer.field_out_of_scope') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('content_type')">
+            <span class="material-symbols-outlined">draft</span> <?= __('url_explorer.field_content_type') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('redirect_to')">
+            <span class="material-symbols-outlined">redo</span> <?= __('url_explorer.field_redirect_to') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('canonical_value')">
+            <span class="material-symbols-outlined">north_east</span> <?= __('url_explorer.field_canonical_value') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('domain')">
+            <span class="material-symbols-outlined">domain</span> <?= __('url_explorer.field_domain') ?>
+        </div>
+        <?php foreach ($availableExtractors as $extr): ?>
+        <div class="popover-field-item" onclick="selectField('extract_<?= htmlspecialchars($extr['key']) ?>')">
+            <span class="material-symbols-outlined">code</span> <?= htmlspecialchars($extr['key']) ?>
+        </div>
+        <?php endforeach; ?>
     </div>
 </div>
 
@@ -907,8 +1088,30 @@ const fieldConfig = {
     headings_missing: { label: __('url_explorer.field_bad_headings'), icon: 'format_list_numbered', type: 'boolean' },
     schemas: { label: __('url_explorer.field_structured_data'), icon: 'data_object', type: 'schemas', operators: ['=', '>', '<', '>=', '<=', 'contains', 'not_contains'] },
     response_time: { label: 'TTFB (ms)', icon: 'speed', type: 'number', operators: ['>', '<', '>=', '<='] },
-    word_count: { label: __('url_explorer.field_word_count'), icon: 'format_size', type: 'number', operators: ['=', '>', '<', '>=', '<=', '!='] }
+    word_count: { label: __('url_explorer.field_word_count'), icon: 'format_size', type: 'number', operators: ['=', '>', '<', '>=', '<=', '!='] },
+    pri: { label: __('url_explorer.field_pagerank'), icon: 'star', type: 'number', operators: ['>', '<', '>=', '<=', '=', '!='] },
+    external: { label: __('url_explorer.field_external'), icon: 'public', type: 'boolean' },
+    crawled: { label: __('url_explorer.field_crawled'), icon: 'task_alt', type: 'boolean' },
+    in_sitemap: { label: __('url_explorer.field_in_sitemap'), icon: 'map', type: 'boolean' },
+    is_html: { label: __('url_explorer.field_is_html'), icon: 'html', type: 'boolean' },
+    out_of_scope: { label: __('url_explorer.field_out_of_scope'), icon: 'explore_off', type: 'boolean' },
+    content_type: { label: __('url_explorer.field_content_type'), icon: 'draft', type: 'text', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
+    redirect_to: { label: __('url_explorer.field_redirect_to'), icon: 'redo', type: 'text', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
+    canonical_value: { label: __('url_explorer.field_canonical_value'), icon: 'north_east', type: 'text', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
+    domain: { label: __('url_explorer.field_domain'), icon: 'domain', type: 'text', operators: ['contains', 'not_contains', 'regex', 'not_regex'] }
 };
+
+// Étendre fieldConfig avec un filtre dynamique par extracteur custom.
+// Le type (number/text) est détecté côté serveur par sampling et passé ici.
+const availableExtractors = <?= json_encode($availableExtractors) ?>;
+availableExtractors.forEach(extr => {
+    const fieldId = 'extract_' + extr.key;
+    if (extr.type === 'number') {
+        fieldConfig[fieldId] = { label: extr.key, icon: 'code', type: 'number', operators: ['=', '>', '<', '>=', '<=', '!='] };
+    } else {
+        fieldConfig[fieldId] = { label: extr.key, icon: 'code', type: 'text', operators: ['contains', 'not_contains', 'regex', 'not_regex'] };
+    }
+});
 
 const availableSchemas = <?= json_encode($availableSchemas) ?>;
 
@@ -931,6 +1134,9 @@ let editingChipIndex = null; // {groupIndex, chipIndex} si on édite une chip ex
 
 // Charger les filtres depuis l'URL
 const currentFilters = <?= json_encode($filters) ?>;
+// Colonnes actuellement affichées dans le tableau — utilisé pour auto-ajouter
+// la colonne correspondante quand on ajoute un filtre.
+const currentColumns = <?= json_encode($selectedColumns) ?>;
 if (currentFilters && currentFilters.length > 0) {
     // Convertir l'ancien format vers le nouveau
     filterGroups = convertOldFiltersToNew(currentFilters);
@@ -1098,12 +1304,37 @@ function openFieldSelector(event) {
     closeAllPopovers();
     editingChipIndex = null;
     pendingFilterConfig = { addToGroup: null };
-    
+
     const popover = document.getElementById('fieldSelectorPopover');
     const btn = event.currentTarget;
     positionPopover(popover, btn);
     popover.classList.add('active');
     document.getElementById('popoverOverlay').classList.add('active');
+    resetFieldPickerSearch();
+}
+
+// Fuzzy search dans le picker de filtre : matche le texte des .popover-field-item.
+function filterFieldPicker() {
+    const input = document.getElementById('fieldPickerSearch');
+    if (!input) return;
+    const q = input.value.trim().toLowerCase();
+    document.querySelectorAll('#fieldSelectorPopover .popover-field-item').forEach(item => {
+        const txt = item.textContent.toLowerCase();
+        item.style.display = (!q || txt.includes(q)) ? '' : 'none';
+    });
+}
+
+function resetFieldPickerSearch() {
+    const input = document.getElementById('fieldPickerSearch');
+    if (!input) return;
+    input.value = '';
+    filterFieldPicker();
+    setTimeout(() => input.focus(), 50);
+}
+
+function fieldPickerEnter() {
+    const firstVisible = document.querySelector('#fieldSelectorPopover .popover-field-item:not([style*="display: none"])');
+    if (firstVisible) firstVisible.click();
 }
 
 function addOrToGroup(groupIndex, event) {
@@ -1116,6 +1347,7 @@ function addOrToGroup(groupIndex, event) {
     positionPopover(popover, event.currentTarget);
     popover.classList.add('active');
     document.getElementById('popoverOverlay').classList.add('active');
+    resetFieldPickerSearch();
 }
 
 function selectField(field) {
@@ -1601,7 +1833,8 @@ function confirmFilter() {
     }
     
     closeAllPopovers();
-    applyFilters();
+    // Auto-ajoute la colonne correspondant au filtre (sauf en mode édition)
+    applyFilters(editingChipIndex ? null : field);
 }
 
 function removeChip(groupIndex, chipIndex) {
@@ -1653,18 +1886,25 @@ function collectFiltersForURL() {
     return filters;
 }
 
-function applyFilters() {
+function applyFilters(newColumn = null) {
     const filters = collectFiltersForURL();
-    
+
     const params = new URLSearchParams(window.location.search);
     params.set('page', 'url-explorer');
     params.delete('p');
-    if (filters.length > 0) {
-        params.set('filters', JSON.stringify(filters));
-    } else {
-        params.delete('filters');
+    // On écrit toujours le paramètre, même vide (`[]`) : ça signale au backend
+    // que l'utilisateur a choisi "aucun filtre" et l'empêche de re-appliquer
+    // le default (external = false) au reload.
+    params.set('filters', JSON.stringify(filters));
+
+    // Si un nouveau filtre vient d'être ajouté, on ajoute aussi la colonne
+    // correspondante (si elle n'est pas déjà affichée) pour que l'utilisateur
+    // voie la donnée filtrée dans le tableau.
+    if (newColumn && !currentColumns.includes(newColumn)) {
+        const updated = [...currentColumns, newColumn];
+        params.set('columns', updated.join(','));
     }
-    
+
     window.location.search = params.toString();
 }
 
@@ -1672,7 +1912,9 @@ function clearFilters() {
     filterGroups = [];
     const params = new URLSearchParams(window.location.search);
     params.set('page', 'url-explorer');
-    params.delete('filters');
+    // Idem : on écrit `filters=[]` plutôt que de supprimer la clé, pour ne pas
+    // ré-injecter le default côté PHP au prochain chargement.
+    params.set('filters', '[]');
     params.delete('search');
     params.delete('p');
     window.location.search = params.toString();

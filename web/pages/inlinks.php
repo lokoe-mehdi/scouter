@@ -10,7 +10,7 @@ try {
             inlinks,
             COUNT(*) as url_count
         FROM pages
-        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
         GROUP BY inlinks
         ORDER BY inlinks ASC
     ";
@@ -52,7 +52,7 @@ try {
             MAX(inlinks) as max_inlinks,
             SUM(inlinks) as total_inlinks
         FROM pages
-        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
         GROUP BY cat_id
         ORDER BY AVG(inlinks) DESC
     ");
@@ -77,7 +77,7 @@ try {
             MAX(inlinks) as max_inlinks,
             SUM(inlinks) as total_inlinks
         FROM pages
-        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
     ");
     $stmt->execute([':crawl_id' => $crawlId]);
     $inlinksStats = $stmt->fetch(PDO::FETCH_OBJ);
@@ -91,7 +91,7 @@ try {
             code,
             cat_id
         FROM pages
-        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND inlinks <= 1
+        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND inlinks <= 1 AND in_crawl = TRUE
         ORDER BY inlinks ASC, url ASC
         LIMIT 100
     ");
@@ -306,7 +306,7 @@ try {
     Component::urlTable([
         'title' => __('inlinks.table_low'),
         'id' => 'inlinkstable',
-        'whereClause' => 'WHERE c.compliant = true AND c.inlinks <= 5',
+        'whereClause' => 'WHERE c.compliant = true AND c.inlinks <= 5 AND c.in_crawl = TRUE',
         'orderBy' => 'ORDER BY c.inlinks ASC, c.pri ASC',
         'defaultColumns' => ['url','category', 'code','depth','inlinks','pri'],
         'pdo' => $pdo,

@@ -83,7 +83,7 @@ $totalErrors = (int)($globalStats->redirect_chains_errors ?? 0);
         'id' => 'redirectchainstable',
         'pdo' => $pdo,
         'crawlId' => $crawlId,
-        'perPage' => 100,
+        'perPage' => 10,
         'defaultColumns' => ['source_url', 'source_code', 'hops', 'final_url', 'final_code', 'compliant'],
         'projectDir' => $_GET['project'] ?? ''
     ]);

@@ -44,6 +44,7 @@ class DepthCrawler
     private $simultaneousLimit;
     private $targetUrlsPerSecond;
     private $curlOptions;
+    private bool $silentProgress = false;
     private $jsRenderer;
     private int $totalForDepth = 0;
     private int $processedOffset = 0;
@@ -69,6 +70,7 @@ class DepthCrawler
         // Déterminer la vitesse de crawl depuis la config
         $this->crawlSpeed = isset($config['crawl_speed']) ? $config['crawl_speed'] : 'fast';
         $this->crawlMode = isset($config['crawl_mode']) ? $config['crawl_mode'] : 'classic';
+        $this->silentProgress = (bool)($config['silent_progress'] ?? false);
         $this->configureCrawlSpeed();
         
         // Initialiser le renderer JS si mode javascript
@@ -266,10 +268,12 @@ class DepthCrawler
             $jitter = $baseDelay * (mt_rand(-self::JITTER_PERCENT, self::JITTER_PERCENT) / 100);
             $actualDelay = $baseDelay + $jitter;
 
-            echo "\n \033[33m ↻ Retry attempt $attempt/" . self::MAX_RETRIES
-                 . " for " . count($failedUrls) . " URLs (~" . round($actualDelay, 1) . "s pause)\033[0m";
-            flush();
-            if (ob_get_level() > 0) ob_flush();
+            if (!$this->silentProgress) {
+                echo "\n \033[33m ↻ Retry attempt $attempt/" . self::MAX_RETRIES
+                     . " for " . count($failedUrls) . " URLs (~" . round($actualDelay, 1) . "s pause)\033[0m";
+                flush();
+                if (ob_get_level() > 0) ob_flush();
+            }
 
             // Un seul sleep avant le batch entier
             usleep((int)($actualDelay * 1000000));
@@ -279,8 +283,16 @@ class DepthCrawler
             $handles = [];
 
             foreach ($failedUrls as $url) {
+                // Anti-SSRF : skip les URLs qui résolvent vers IP privée/loopback/metadata
+                try {
+                    \App\Util\SafeHttp::validate($url);
+                } catch (\RuntimeException $e) {
+                    error_log('[DepthCrawler] SSRF block: ' . $e->getMessage());
+                    continue;
+                }
                 $ch = curl_init($url);
                 curl_setopt_array($ch, $this->curlOptions);
+                \App\Util\SafeHttp::applyCurlSecurity($ch);  // restrict protocoles à http(s)
                 curl_multi_add_handle($mh, $ch);
                 $handles[(int)$ch] = ['handle' => $ch, 'url' => $url];
             }
@@ -314,8 +326,12 @@ class DepthCrawler
                 } else {
                     // Succes OU derniere tentative : stocker en base
                     $request = new RetryRequest($url, $response ?: '', $info, $errno, $error);
-                    $pageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
-                    $pageCrawler->run($request);
+                    try {
+                        $pageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
+                        $pageCrawler->run($request);
+                    } catch (\Exception $e) {
+                        error_log("PageCrawler error on " . $request->getUrl() . ": " . $e->getMessage());
+                    }
                 }
 
                 curl_multi_remove_handle($mh, $ch);
@@ -328,7 +344,7 @@ class DepthCrawler
             $this->crawlDb->updateCrawlStats();
 
             $resolved = count($failedUrls) - count($stillFailing);
-            if ($resolved > 0) {
+            if ($resolved > 0 && !$this->silentProgress) {
                 echo "\n \033[32m ✓ $resolved URLs resolved on attempt $attempt\033[0m";
                 flush();
                 if (ob_get_level() > 0) ob_flush();
@@ -337,9 +353,11 @@ class DepthCrawler
             $failedUrls = $stillFailing;
         }
 
-        echo "\n";
-        flush();
-        if (ob_get_level() > 0) ob_flush();
+        if (!$this->silentProgress) {
+            echo "\n";
+            flush();
+            if (ob_get_level() > 0) ob_flush();
+        }
     }
 
     /**
@@ -357,8 +375,12 @@ class DepthCrawler
             if ($retryEnabled && $this->isRetryableResponse($request)) {
                 $failedUrls[] = $request->getUrl();
             } else {
-                $PageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
-                $PageCrawler->run($request);
+                try {
+                    $PageCrawler = new PageCrawler($this->crawlDb, $this->depth, $this->domains, $this->config);
+                    $PageCrawler->run($request);
+                } catch (\Exception $e) {
+                    error_log("PageCrawler error on " . $request->getUrl() . ": " . $e->getMessage());
+                }
             }
 
             self::$iterations++;
@@ -375,10 +397,12 @@ class DepthCrawler
             $this->update++;
             $globalDone = min($this->processedOffset + $this->update, $this->totalForDepth);
             if ($this->update % 10 == 0 || $this->update == count($this->urls)) {
-                echo "\r \033[32m Depth ".$this->depth." : \033[0m".self::$vitesse." URLs/sec \033[36m(".$globalDone."/".$this->totalForDepth.")\033[0m                             ";
-                flush();
-                if (ob_get_level() > 0) {
-                    ob_flush();
+                if (!$this->silentProgress) {
+                    echo "\r \033[32m Depth ".$this->depth." : \033[0m".self::$vitesse." URLs/sec \033[36m(".$globalDone."/".$this->totalForDepth.")\033[0m                             ";
+                    flush();
+                    if (ob_get_level() > 0) {
+                        ob_flush();
+                    }
                 }
                 if (time() - self::$lastStatsUpdate >= 10) {
                     self::$lastStatsUpdate = time();
@@ -396,10 +420,12 @@ class DepthCrawler
         $this->crawlDb->updateCrawlStats();
         self::$lastStatsUpdate = time();
 
-        echo "\n";
-        flush();
-        if (ob_get_level() > 0) {
-            ob_flush();
+        if (!$this->silentProgress) {
+            echo "\n";
+            flush();
+            if (ob_get_level() > 0) {
+                ob_flush();
+            }
         }
     }
 
@@ -453,10 +479,12 @@ class DepthCrawler
                 $this->update++;
                 $globalDone = min($this->processedOffset + $this->update, $this->totalForDepth);
                 if ($this->update % 10 == 0 || $this->update == count($this->urls)) {
-                    echo "\r \033[32m Depth " . $this->depth . " : \033[0m" . self::$vitesse . " URLs/sec \033[36m(" . $globalDone . "/" . $this->totalForDepth . ")\033[0m                             ";
-                    flush();
-                    if (ob_get_level() > 0) {
-                        ob_flush();
+                    if (!$this->silentProgress) {
+                        echo "\r \033[32m Depth " . $this->depth . " : \033[0m" . self::$vitesse . " URLs/sec \033[36m(" . $globalDone . "/" . $this->totalForDepth . ")\033[0m                             ";
+                        flush();
+                        if (ob_get_level() > 0) {
+                            ob_flush();
+                        }
                     }
                     if (time() - self::$lastStatsUpdate >= 10) {
                         self::$lastStatsUpdate = time();
@@ -484,10 +512,12 @@ class DepthCrawler
         $this->crawlDb->updateCrawlStats();
         self::$lastStatsUpdate = time();
 
-        echo "\n";
-        flush();
-        if (ob_get_level() > 0) {
-            ob_flush();
+        if (!$this->silentProgress) {
+            echo "\n";
+            flush();
+            if (ob_get_level() > 0) {
+                ob_flush();
+            }
         }
     }
 
@@ -518,7 +548,7 @@ class DepthCrawler
         
         // Préparer les headers pour le renderer
         $headers = [
-            'User-Agent' => isset($this->config['user-agent']) ? $this->config['user-agent'] : 'Scouter/0.3'
+            'User-Agent' => isset($this->config['user-agent']) ? $this->config['user-agent'] : 'Scouter/0.6'
         ];
         
         if (isset($this->config['customHeaders']) && is_array($this->config['customHeaders'])) {
@@ -539,13 +569,20 @@ class DepthCrawler
         $rendererUrls = array_map('trim', explode(',', $rendererUrlsEnv));
         $rendererCount = count($rendererUrls);
         
-        // Préparer les URLs
+        // Préparer les URLs (+ filtrage anti-SSRF : on ne passe pas au renderer
+        // les URLs qui résolvent vers IP privée/loopback/AWS metadata)
         $urlsToProcess = [];
         foreach ($this->urls as $url) {
             $url = trim($url);
             if (empty($url)) continue;
             if (HtmlParser::regexMatch("#^https?://[^/]+$#", $url) == true) {
                 $url = $url . "/";
+            }
+            try {
+                \App\Util\SafeHttp::validate($url);
+            } catch (\RuntimeException $e) {
+                error_log('[DepthCrawler] SSRF block: ' . $e->getMessage());
+                continue;
             }
             $urlsToProcess[] = $url;
         }

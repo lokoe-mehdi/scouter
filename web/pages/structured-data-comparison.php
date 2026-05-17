@@ -48,7 +48,7 @@ $sqlSchemaDistribution = "
         ps.schema_type,
         COUNT(DISTINCT ps.page_id) as page_count
     FROM page_schemas ps
-    INNER JOIN pages p ON p.crawl_id = ps.crawl_id AND p.id = ps.page_id
+    INNER JOIN pages p ON p.crawl_id = ps.crawl_id AND p.id = ps.page_id AND p.in_crawl = TRUE
     WHERE ps.crawl_id = :crawl_id AND p.compliant = true
     GROUP BY ps.schema_type
     ORDER BY page_count DESC
@@ -95,14 +95,14 @@ $sqlSchemaDistDisplay = "SELECT
 FROM (
     SELECT ps.schema_type, COUNT(DISTINCT ps.page_id) AS page_count
     FROM page_schemas ps
-    INNER JOIN pages p ON p.crawl_id = ps.crawl_id AND p.id = ps.page_id
+    INNER JOIN pages p ON p.crawl_id = ps.crawl_id AND p.id = ps.page_id AND p.in_crawl = TRUE
     WHERE ps.crawl_id = {$safeCrawlId} AND p.compliant = true
     GROUP BY ps.schema_type
 ) r
 FULL OUTER JOIN (
     SELECT ps.schema_type, COUNT(DISTINCT ps.page_id) AS page_count
     FROM page_schemas ps
-    INNER JOIN pages p ON p.crawl_id = ps.crawl_id AND p.id = ps.page_id
+    INNER JOIN pages p ON p.crawl_id = ps.crawl_id AND p.id = ps.page_id AND p.in_crawl = TRUE
     WHERE ps.crawl_id = {$safeCompareId} AND p.compliant = true
     GROUP BY ps.schema_type
 ) b ON r.schema_type = b.schema_type
@@ -144,7 +144,7 @@ $sqlSchemaByCategory = "
         p.cat_id,
         COALESCE(AVG(array_length(p.schemas, 1)), 0) as avg_schemas
     FROM pages p
-    WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.compliant = true
+    WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.compliant = true AND p.in_crawl = TRUE
     GROUP BY p.cat_id
     ORDER BY avg_schemas DESC
 ";
@@ -190,11 +190,11 @@ $sqlSchemaCatDisplay = "SELECT
     COALESCE(b.avg_schemas, 0) AS base_avg_schemas
 FROM (
     SELECT cat_id, COALESCE(AVG(array_length(schemas, 1)), 0) AS avg_schemas
-    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true GROUP BY cat_id
+    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
 ) r
 FULL OUTER JOIN (
     SELECT cat_id, COALESCE(AVG(array_length(schemas, 1)), 0) AS avg_schemas
-    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true GROUP BY cat_id
+    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
 ) b ON r.cat_id = b.cat_id
 ORDER BY COALESCE(r.avg_schemas, 0) + COALESCE(b.avg_schemas, 0) DESC";
 
@@ -296,9 +296,9 @@ ORDER BY COALESCE(r.avg_schemas, 0) + COALESCE(b.avg_schemas, 0) DESC";
     Component::urlTable([
         'title' => __('comparison.lost_schemas_table'),
         'id' => 'lost_schemas_table',
-        'whereClause' => "WHERE c.crawled = true AND c.compliant = true AND (array_length(c.schemas, 1) IS NULL OR array_length(c.schemas, 1) = 0) AND EXISTS (
+        'whereClause' => "WHERE c.crawled = true AND c.compliant = true AND (array_length(c.schemas, 1) IS NULL OR array_length(c.schemas, 1) = 0) AND c.in_crawl = TRUE AND EXISTS (
             SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND array_length(b.schemas, 1) > 0
+            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE AND array_length(b.schemas, 1) > 0
         )",
         'orderBy' => 'ORDER BY c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'depth', 'inlinks'],

@@ -53,7 +53,7 @@ if (!$skipExtractDiscovery) {
         $stmt = $pdo->prepare("
             SELECT DISTINCT jsonb_object_keys(extracts) as key_name
             FROM pages
-            WHERE crawl_id = :crawl_id AND extracts IS NOT NULL AND extracts != '{}'::jsonb
+            WHERE crawl_id = :crawl_id AND extracts IS NOT NULL AND extracts != '{}'::jsonb AND in_crawl = TRUE
         ");
         $stmt->execute([':crawl_id' => $crawlId]);
         $customExtractColumns = $stmt->fetchAll(PDO::FETCH_COLUMN);
@@ -68,7 +68,7 @@ $categoryColors = $GLOBALS['categoryColors'] ?? [];
 
 // Stocker les paramètres pour construction SQL ultérieure
 $useSimplifiedMode = isset($urlTableConfig['whereClause']);
-$whereClause = $urlTableConfig['whereClause'] ?? 'WHERE c.crawled=1';
+$whereClause = $urlTableConfig['whereClause'] ?? 'WHERE c.crawled=1 AND c.in_crawl = TRUE';
 $orderBy = $urlTableConfig['orderBy'] ?? 'ORDER BY c.url';
 $sqlParams = $urlTableConfig['sqlParams'] ?? [];
 $sqlQuery = $urlTableConfig['sqlQuery'] ?? null;
@@ -131,6 +131,7 @@ $orderBy = preg_replace('/\bcategory\b/', 'c.cat_id', $orderBy);
 // Colonnes disponibles
 $availableColumns = [
     'url' => 'URL',
+    'domain' => __('url_explorer.field_domain'),
     'depth' => __('columns.depth'),
     'code' => __('columns.http_code'),
     'category' => __('columns.category'),
@@ -144,6 +145,11 @@ $availableColumns = [
     'noindex' => 'Noindex',
     'nofollow' => 'Nofollow',
     'blocked' => __('columns.blocked'),
+    'external' => __('url_explorer.field_external'),
+    'crawled' => __('url_explorer.field_crawled'),
+    'out_of_scope' => __('url_explorer.field_out_of_scope'),
+    'in_sitemap' => __('url_explorer.field_in_sitemap'),
+    'is_html' => __('url_explorer.field_is_html'),
     'redirect_to' => __('columns.redirect_to'),
     'content_type' => __('columns.content_type'),
     'pri' => 'PageRank',
@@ -258,6 +264,7 @@ if($componentId === 'main_explorer' && isset($_GET['sort'])) {
 // Mapper les colonnes vers leurs vraies colonnes SQL
 $columnMapping = [
     'url' => 'c.url',
+    'domain' => 'c.domain',
     'depth' => 'c.depth',
     'code' => 'c.code',
     'inlinks' => 'c.inlinks',
@@ -270,6 +277,11 @@ $columnMapping = [
     'noindex' => 'c.noindex',
     'nofollow' => 'c.nofollow',
     'blocked' => 'c.blocked',
+    'external' => 'c.external',
+    'crawled' => 'c.crawled',
+    'out_of_scope' => '(c.external = false AND c.blocked = false AND c.crawled = false)',
+    'in_sitemap' => 'c.in_sitemap',
+    'is_html' => 'c.is_html',
     'redirect_to' => 'c.redirect_to',
     'content_type' => 'c.content_type',
     'pri' => 'c.pri',
@@ -332,12 +344,13 @@ if($useSimplifiedMode) {
             $compareCols[] = "cmp." . $col . " AS cmp_" . $col;
         }
         $compareSelect = ", " . implode(", ", $compareCols);
-        $compareJoin = " LEFT JOIN pages cmp ON cmp.url = c.url AND cmp.crawl_id = " . $safeCompareCrawlId;
+        $compareJoin = " LEFT JOIN pages cmp ON cmp.url = c.url AND cmp.crawl_id = " . $safeCompareCrawlId . " AND cmp.in_crawl = TRUE";
     }
 
     // OPTIMISATION : Plus de jointure sur categories, on utilise le tableau PHP
     $sqlQuery = "SELECT
         c.url,
+        c.domain,
         c.depth,
         c.code,
         c.inlinks,
@@ -350,6 +363,11 @@ if($useSimplifiedMode) {
         c.noindex,
         c.nofollow,
         c.blocked,
+        c.external,
+        c.crawled,
+        (c.external = false AND c.blocked = false AND c.crawled = false) AS out_of_scope,
+        c.in_sitemap,
+        c.is_html,
         c.redirect_to,
         c.content_type,
         c.pri,
@@ -457,10 +475,11 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                     <span class="material-symbols-outlined">view_column</span>
                     <?= __('table.columns') ?>
                 </button>
-                <div id="columnDropdown_<?= $componentId ?>" class="column-dropdown-<?= $componentId ?>" style="display: none; position: absolute; left: 0; top: 100%; margin-top: 0.5rem; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 250px; max-height: 450px; z-index: 1000; flex-direction: column;">
+                <div id="columnDropdown_<?= $componentId ?>" class="column-dropdown-<?= $componentId ?>" style="display: none; position: absolute; left: 0; top: 100%; margin-top: 0.5rem; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 360px; max-height: 450px; z-index: 1000; flex-direction: column;">
                     <!-- Header fixe -->
-                    <div style="padding: 1rem 1rem 0.5rem 1rem; border-bottom: 1px solid var(--border-color); background: white; border-radius: 8px 8px 0 0;">
+                    <div style="padding: 1rem 1rem 0.5rem 1rem; border-bottom: 1px solid #e5e7eb; background: white; border-radius: 8px 8px 0 0;">
                         <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;"><?= __('table.select_columns') ?></div>
+                        <input type="text" class="column-picker-search-<?= $componentId ?>" oninput="filterColumnPicker_<?= $componentId ?>()" autocomplete="off" placeholder="<?= __('table.search_column_placeholder') ?>" onfocus="this.style.borderColor='#94a3b8'" onblur="this.style.borderColor='#e5e7eb'" style="width: 100%; padding: 0.4rem 0.6rem; border: 1px solid #e5e7eb; border-radius: 4px; background: var(--bg-primary); color: var(--text-primary); font-size: 0.85rem; box-sizing: border-box; margin-bottom: 0.5rem; outline: none;">
                         <div style="font-size: 0.85rem; color: var(--text-secondary);">
                             <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(true)" style="color: var(--primary-color); text-decoration: none; cursor: pointer;"><?= __('table.check_all') ?></a>
                             <span style="margin: 0 0.25rem; color: var(--border-color);">|</span>
@@ -471,7 +490,7 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                     <!-- Liste scrollable des colonnes -->
                     <div style="flex: 1; overflow-y: auto; padding: 0.5rem 1rem; max-height: 280px;">
                         <?php foreach($availableColumns as $key => $label): ?>
-                        <label style="display: block; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='var(--background)'" onmouseout="this.style.background='transparent'">
+                        <label style="display: block; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" onmouseover="this.style.background='var(--background)'" onmouseout="this.style.background='transparent'">
                             <input type="checkbox" class="column-checkbox-<?= $componentId ?>" value="<?= $key ?>" 
                                 <?= in_array($key, $selectedColumns) ? 'checked' : '' ?>
                                 <?= $key === 'url' ? 'disabled' : '' ?>
@@ -482,9 +501,9 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                     </div>
                     
                     <!-- Footer fixe avec boutons -->
-                    <div style="padding: 1rem; border-top: 1px solid var(--border-color); background: white; border-radius: 0 0 8px 8px; display: flex; gap: 0.5rem;">
-                        <button class="btn" onclick="applyColumns_<?= $componentId ?>()" style="flex: 1; background: var(--primary-color); color: white; border: none; padding: 0.6rem; font-weight: 500;"><?= __('table.apply') ?></button>
-                        <button class="btn" onclick="toggleColumnDropdown_<?= $componentId ?>()" style="flex: 1; background: #95a5a6; color: white; border: none; padding: 0.6rem; font-weight: 500;"><?= __('table.cancel') ?></button>
+                    <div style="padding: 0.75rem; border-top: 1px solid #e5e7eb; background: white; border-radius: 0 0 8px 8px; display: flex; gap: 0.5rem; justify-content: flex-end;">
+                        <button class="btn" onclick="toggleColumnDropdown_<?= $componentId ?>()" style="background: transparent; color: #6b7280; border: none; padding: 0.4rem 0.9rem; font-weight: 500; font-size: 0.85rem; cursor: pointer;"><?= __('table.cancel') ?></button>
+                        <button class="btn" onclick="applyColumns_<?= $componentId ?>()" style="background: var(--primary-color); color: white; border: none; padding: 0.4rem 1.25rem; font-weight: 500; font-size: 0.85rem; cursor: pointer;"><?= __('table.apply') ?></button>
                     </div>
                 </div>
             </div>
@@ -618,9 +637,13 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                             <td class="col-<?= $col ?>" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->$dataField ?? '') ?>">
                                 <?= htmlspecialchars($url->$dataField ?? '') ?>
                             </td>
-                        <?php elseif($renderCol === 'compliant' || $renderCol === 'canonical' || $renderCol === 'noindex' || $renderCol === 'nofollow' || $renderCol === 'blocked' || $renderCol === 'h1_multiple' || $renderCol === 'headings_missing'): ?>
+                        <?php elseif($renderCol === 'compliant' || $renderCol === 'canonical' || $renderCol === 'noindex' || $renderCol === 'nofollow' || $renderCol === 'blocked' || $renderCol === 'h1_multiple' || $renderCol === 'headings_missing' || $renderCol === 'external' || $renderCol === 'crawled' || $renderCol === 'out_of_scope' || $renderCol === 'in_sitemap' || $renderCol === 'is_html'): ?>
                             <td class="col-<?= $col ?>" style="text-align: center;">
                                 <?= $url->$dataField ? '<span class="material-symbols-outlined" style="color: #6bd899; font-size: 1.2rem; opacity: 0.8;">check_circle</span>' : '<span class="material-symbols-outlined" style="color: #95a5a6; font-size: 1.2rem; opacity: 0.7;">cancel</span>' ?>
+                            </td>
+                        <?php elseif($renderCol === 'domain'): ?>
+                            <td class="col-<?= $col ?>" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->$dataField ?? '') ?>">
+                                <?= htmlspecialchars($url->$dataField ?? '') ?>
                             </td>
                         <?php elseif($renderCol === 'pri'): ?>
                             <td class="col-<?= $col ?>"><?= number_format(($url->$dataField ?? 0) * 100, 4) ?>%</td>
@@ -707,8 +730,8 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                     <span class="material-symbols-outlined">view_column</span>
                     <?= __('table.columns') ?>
                 </button>
-                <div id="columnDropdown_<?= $componentId ?>" class="column-dropdown-<?= $componentId ?>" style="display: none; position: absolute; left: 0; bottom: 100%; margin-bottom: 0.5rem; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 250px; max-height: 450px; z-index: 1000; flex-direction: column;">
-                    <div style="padding: 1rem 1rem 0.5rem 1rem; border-bottom: 1px solid var(--border-color); background: white; border-radius: 8px 8px 0 0;">
+                <div id="columnDropdown_<?= $componentId ?>" class="column-dropdown-<?= $componentId ?>" style="display: none; position: absolute; left: 0; bottom: 100%; margin-bottom: 0.5rem; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 360px; max-height: 450px; z-index: 1000; flex-direction: column;">
+                    <div style="padding: 1rem 1rem 0.5rem 1rem; border-bottom: 1px solid #e5e7eb; background: white; border-radius: 8px 8px 0 0;">
                         <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;"><?= __('table.select_columns') ?></div>
                         <div style="font-size: 0.85rem; color: var(--text-secondary);">
                             <a href="javascript:void(0)" onclick="toggleAllColumns_<?= $componentId ?>(true)" style="color: var(--primary-color); text-decoration: none; cursor: pointer;"><?= __('table.check_all') ?></a>
@@ -718,7 +741,7 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                     </div>
                     <div style="flex: 1; overflow-y: auto; padding: 0.5rem 1rem; max-height: 280px;">
                         <?php foreach($availableColumns as $key => $label): ?>
-                        <label style="display: block; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='var(--background)'" onmouseout="this.style.background='transparent'">
+                        <label style="display: block; padding: 0.5rem; cursor: pointer; border-radius: 4px; transition: background 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" onmouseover="this.style.background='var(--background)'" onmouseout="this.style.background='transparent'">
                             <input type="checkbox" class="column-checkbox-<?= $componentId ?>" value="<?= $key ?>" 
                                 <?= in_array($key, $selectedColumns) ? 'checked' : '' ?>
                                 <?= $key === 'url' ? 'disabled' : '' ?>
@@ -727,9 +750,9 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                         </label>
                         <?php endforeach; ?>
                     </div>
-                    <div style="padding: 1rem; border-top: 1px solid var(--border-color); background: white; border-radius: 0 0 8px 8px; display: flex; gap: 0.5rem;">
-                        <button class="btn" onclick="applyColumns_<?= $componentId ?>()" style="flex: 1; background: var(--primary-color); color: white; border: none; padding: 0.6rem; font-weight: 500;"><?= __('table.apply') ?></button>
-                        <button class="btn" onclick="toggleColumnDropdown_<?= $componentId ?>()" style="flex: 1; background: #95a5a6; color: white; border: none; padding: 0.6rem; font-weight: 500;"><?= __('table.cancel') ?></button>
+                    <div style="padding: 0.75rem; border-top: 1px solid #e5e7eb; background: white; border-radius: 0 0 8px 8px; display: flex; gap: 0.5rem; justify-content: flex-end;">
+                        <button class="btn" onclick="toggleColumnDropdown_<?= $componentId ?>()" style="background: transparent; color: #6b7280; border: none; padding: 0.4rem 0.9rem; font-weight: 500; font-size: 0.85rem; cursor: pointer;"><?= __('table.cancel') ?></button>
+                        <button class="btn" onclick="applyColumns_<?= $componentId ?>()" style="background: var(--primary-color); color: white; border: none; padding: 0.4rem 1.25rem; font-weight: 500; font-size: 0.85rem; cursor: pointer;"><?= __('table.apply') ?></button>
                     </div>
                 </div>
             </div>
@@ -1144,10 +1167,31 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
         if(dropdown.style.display === 'none' || dropdown.style.display === '') {
             dropdown.style.display = 'flex';
             dropdown.classList.add('show');
+            // Reset + focus du champ de recherche à l'ouverture
+            const search = dropdown.querySelector('.column-picker-search-' + componentId);
+            if (search) {
+                search.value = '';
+                window['filterColumnPicker_' + componentId]();
+                setTimeout(() => search.focus(), 50);
+            }
         } else {
             dropdown.style.display = 'none';
             dropdown.classList.remove('show');
         }
+    };
+
+    // Fuzzy search dans le picker de colonnes
+    window['filterColumnPicker_' + componentId] = function() {
+        const dropdown = document.getElementById('columnDropdown_' + componentId);
+        if (!dropdown) return;
+        const search = dropdown.querySelector('.column-picker-search-' + componentId);
+        const q = (search ? search.value : '').trim().toLowerCase();
+        dropdown.querySelectorAll('label').forEach(label => {
+            const txt = label.textContent.toLowerCase();
+            // 'block' au lieu de '' : un <label> est inline par défaut, donc ''
+            // ferait revenir tous les labels en ligne et casserait la mise en page
+            label.style.display = (!q || txt.includes(q)) ? 'block' : 'none';
+        });
     };
 
     // Tout cocher / Tout décocher

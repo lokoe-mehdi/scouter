@@ -74,6 +74,8 @@ class MonitorController extends Controller
         $crawlId = $crawlRecord->id;
         
         // Récupérer l'URL et la date
+        // Single-URL lookup: do NOT filter on in_crawl so admins can still inspect
+        // sitemap-only URLs (mirrors QueryController's URL-details lookups).
         $stmt = $this->db->prepare("SELECT url, date FROM pages WHERE crawl_id = :crawl_id AND id = :id");
         $stmt->execute([':crawl_id' => $crawlId, ':id' => $id]);
         $urlData = $stmt->fetch(PDO::FETCH_OBJ);
@@ -243,88 +245,6 @@ class MonitorController extends Controller
         }
         
         return $html;
-    }
-
-    /**
-     * Lance plusieurs crawls de test simultanés (pour debug)
-     * 
-     * @param Request $request Requête HTTP (count, url)
-     * 
-     * @return void
-     */
-    public function launchTestCrawls(Request $request): void
-    {
-        $count = (int)($request->get('count') ?? 5);
-        $url = $request->get('url') ?? 'https://lokoe.fr';
-        
-        if ($count < 1 || $count > 20) {
-            $this->error('Count doit être entre 1 et 20');
-        }
-        
-        // Utiliser l'utilisateur connecté
-        $userId = $this->auth->getCurrentUserId();
-        
-        // Récupérer ou créer le projet pour lokoe.fr
-        $domain = parse_url($url, PHP_URL_HOST);
-        $projectRepo = new \App\Database\ProjectRepository();
-        $projectId = $projectRepo->getOrCreate($userId, $domain);
-        
-        $jobManager = new \App\Job\JobManager();
-        $crawlRepo = new \App\Database\CrawlRepository();
-        $created = [];
-        
-        for ($i = 1; $i <= $count; $i++) {
-            // Format exact du path comme dans ProjectController::create
-            $projectDir = $domain . '-' . date('Ymd') . '-' . date('His') . '-' . $i;
-            
-            // Config exacte comme dans ProjectController::create
-            $config = [
-                'general' => [
-                    'start' => $url,
-                    'depthMax' => 3,
-                    'domains' => [$domain],
-                    'crawl_speed' => 'fast',
-                    'crawl_mode' => 'classic',
-                    'user-agent' => 'Scouter/2.0 (Test Crawler)'
-                ],
-                'advanced' => [
-                    'respect_robots' => true,
-                    'respect_nofollow' => false,
-                    'respect_canonical' => true,
-                    'xPathExtractors' => [],
-                    'regexExtractors' => []
-                ]
-            ];
-            
-            // Créer le crawl via CrawlRepository (comme ProjectController)
-            $crawlId = $crawlRepo->insert([
-                'domain' => $domain,
-                'path' => $projectDir,
-                'status' => 'pending',
-                'config' => $config,
-                'depth_max' => 3,
-                'in_progress' => 0,
-                'project_id' => $projectId
-            ]);
-            
-            // Créer le job et le mettre en queue
-            $jobId = $jobManager->createJob($projectDir, $domain, 'crawl');
-            $jobManager->updateJobStatus($jobId, 'queued');
-            $jobManager->addLog($jobId, "Test crawl queued", 'info');
-            
-            // Mettre le crawl en queued aussi
-            $crawlRepo->update($crawlId, ['status' => 'queued']);
-            
-            $created[] = ['crawl_id' => $crawlId, 'job_id' => $jobId, 'path' => $projectDir];
-            
-            // Petit délai pour éviter les collisions de timestamp
-            usleep(100000); // 100ms
-        }
-        
-        $this->success([
-            'message' => "$count crawls de test créés",
-            'crawls' => $created
-        ]);
     }
 
     /**

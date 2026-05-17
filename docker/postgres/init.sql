@@ -26,11 +26,13 @@ CREATE TABLE projects (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     categorization_config TEXT DEFAULT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP DEFAULT NULL
 );
 
 CREATE INDEX idx_projects_user_id ON projects(user_id);
 CREATE INDEX idx_projects_has_config ON projects(id) WHERE categorization_config IS NOT NULL;
+CREATE INDEX idx_projects_deleted ON projects(id) WHERE deleted_at IS NOT NULL;
 
 -- Table des partages de projets (lecture seule)
 CREATE TABLE project_shares (
@@ -69,7 +71,7 @@ CREATE TABLE crawls (
     project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
     domain VARCHAR(255) NOT NULL,
     path TEXT UNIQUE,
-    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'queued', 'running', 'stopping', 'stopped', 'finished', 'error', 'failed')),
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'queued', 'running', 'stopping', 'stopped', 'finished', 'error', 'failed', 'deleting')),
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     finished_at TIMESTAMP,
     config JSONB,
@@ -127,6 +129,20 @@ CREATE TABLE crawl_schedules (
 CREATE INDEX idx_crawl_schedules_due ON crawl_schedules(enabled, next_run_at);
 CREATE INDEX idx_crawl_schedules_project ON crawl_schedules(project_id);
 
+-- Requêtes SQL sauvegardées par l'utilisateur (saved snippets dans SQL Explorer)
+-- Catégorie libre (texte simple) : l'utilisateur regroupe ses requêtes comme il veut.
+CREATE TABLE user_saved_queries (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    category VARCHAR(100),
+    query TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_user_saved_queries_user ON user_saved_queries(user_id);
+
 -- ============================================
 -- TABLES PARTITIONNÉES
 -- ============================================
@@ -178,10 +194,18 @@ CREATE TABLE pages (
     headings_missing BOOLEAN DEFAULT FALSE,
     schemas TEXT[] DEFAULT '{}',
     word_count INTEGER DEFAULT 0,
+    in_crawl BOOLEAN DEFAULT TRUE,
+    in_sitemap BOOLEAN DEFAULT FALSE,
     PRIMARY KEY (crawl_id, id)
 ) PARTITION BY LIST (crawl_id);
 
 -- Table links partitionnée par crawl_id
+-- Pas de PRIMARY KEY volontairement : on stocke TOUS les <a> tels qu'ils
+-- apparaissent dans le HTML (un même couple src/target peut exister plusieurs
+-- fois avec des ancres / positions / xpath différents). Les indexes ci-dessous
+-- couvrent les besoins de filtrage / agrégation.
+-- xpath    : XPath enrichi du <a> (tags + class/id des ancêtres) ; NULL si l'extraction a échoué
+-- position : classification sémantique (Navigation, Header, Footer, Aside, Content)
 CREATE TABLE links (
     crawl_id INTEGER NOT NULL REFERENCES crawls(id) ON DELETE CASCADE,
     src CHAR(8) NOT NULL,
@@ -190,7 +214,8 @@ CREATE TABLE links (
     external BOOLEAN DEFAULT FALSE,
     nofollow BOOLEAN DEFAULT FALSE,
     type VARCHAR(50),
-    PRIMARY KEY (crawl_id, src, target)
+    xpath TEXT,
+    position VARCHAR(20) NOT NULL DEFAULT 'Content'
 ) PARTITION BY LIST (crawl_id);
 
 -- Table html partitionnée par crawl_id
@@ -308,6 +333,7 @@ BEGIN
         EXECUTE format('CREATE INDEX IF NOT EXISTS idx_links_%s_external ON links_%s(external)', p_crawl_id, p_crawl_id);
         EXECUTE format('CREATE INDEX IF NOT EXISTS idx_links_%s_nofollow ON links_%s(nofollow)', p_crawl_id, p_crawl_id);
         EXECUTE format('CREATE INDEX IF NOT EXISTS idx_links_%s_type ON links_%s(type)', p_crawl_id, p_crawl_id);
+        EXECUTE format('CREATE INDEX IF NOT EXISTS idx_links_%s_position ON links_%s(position)', p_crawl_id, p_crawl_id);
         
         -- Partition pour html
         EXECUTE format('CREATE TABLE IF NOT EXISTS html_%s PARTITION OF html FOR VALUES IN (%s)', p_crawl_id, p_crawl_id);

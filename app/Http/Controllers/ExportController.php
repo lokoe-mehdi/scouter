@@ -82,7 +82,7 @@ class ExportController extends Controller
         }
         
         // Construction de la requête
-        $whereConditions = ["c.crawl_id = " . intval($crawlId), "c.crawled = true"];
+        $whereConditions = ["c.crawl_id = " . intval($crawlId), "c.crawled = true", "c.in_crawl = TRUE"];
         $params = [];
         
         if (!empty($search)) {
@@ -164,8 +164,8 @@ class ExportController extends Controller
                 l.type,
                 l.nofollow
             FROM links l
-            JOIN pages cs ON l.src = cs.id AND cs.crawl_id = :crawl_id
-            JOIN pages ct ON l.target = ct.id AND ct.crawl_id = :crawl_id2
+            JOIN pages cs ON l.src = cs.id AND cs.crawl_id = :crawl_id AND cs.in_crawl = TRUE
+            JOIN pages ct ON l.target = ct.id AND ct.crawl_id = :crawl_id2 AND ct.in_crawl = TRUE
             WHERE l.crawl_id = :crawl_id3
             ORDER BY cs.url
         ";

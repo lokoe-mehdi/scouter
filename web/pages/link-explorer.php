@@ -18,6 +18,44 @@ $stmt = $pdo->prepare("SELECT DISTINCT schema_type FROM page_schemas WHERE crawl
 $stmt->execute([':crawl_id' => $crawlId]);
 $availableSchemas = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
+// Récupération des extracteurs custom + détection auto du type (numérique vs texte).
+// Voir url-explorer.php pour la logique du sampling.
+$availableExtractors = [];
+try {
+    $stmt = $pdo->prepare("
+        WITH samples AS (
+            SELECT extracts FROM pages
+            WHERE crawl_id = :crawl_id AND extracts IS NOT NULL
+              AND extracts != '{}'::jsonb AND in_crawl = TRUE
+            LIMIT 500
+        )
+        SELECT j.key,
+               COUNT(*) FILTER (WHERE j.value IS NOT NULL AND j.value != '') AS non_empty_count,
+               COUNT(*) FILTER (
+                   WHERE j.value IS NOT NULL AND j.value != ''
+                     AND j.value !~ '^-?[0-9]+(\\.[0-9]+)?$'
+               ) AS non_numeric_count
+        FROM samples s, jsonb_each_text(s.extracts) j
+        GROUP BY j.key
+        ORDER BY j.key
+    ");
+    $stmt->execute([':crawl_id' => $crawlId]);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $isNumeric = ((int)$row['non_empty_count'] > 0) && ((int)$row['non_numeric_count'] === 0);
+        $availableExtractors[] = [
+            'key'  => $row['key'],
+            'type' => $isNumeric ? 'number' : 'text',
+        ];
+    }
+} catch (Exception $e) {
+    // Silencieux
+}
+
+$GLOBALS['extractorTypes'] = [];
+foreach ($availableExtractors as $extr) {
+    $GLOBALS['extractorTypes'][$extr['key']] = $extr['type'];
+}
+
 // Construction de la clause WHERE
 $whereConditions = ["1=1"];
 $params = [];
@@ -103,6 +141,41 @@ function buildFilterConditions($items, &$params, &$paramCounter = 0) {
                     } else {
                         $paramName = ':type_' . $paramCounter++;
                         $condition = "l.type = {$paramName}";
+                        $params[$paramName] = $value;
+                    }
+                    break;
+
+                case 'position':
+                    // Enum link-level (Navigation/Header/Footer/Aside/Content), multi-valeurs
+                    if(is_array($value)) {
+                        $placeholders = [];
+                        foreach($value as $v) {
+                            $paramName = ':pos_' . $paramCounter++;
+                            $placeholders[] = $paramName;
+                            $params[$paramName] = $v;
+                        }
+                        $condition = "l.position IN (" . implode(',', $placeholders) . ")";
+                    } else {
+                        $paramName = ':pos_' . $paramCounter++;
+                        $condition = "l.position = {$paramName}";
+                        $params[$paramName] = $value;
+                    }
+                    break;
+
+                case 'xpath':
+                    // Filtre texte sur l'XPath du lien (contains / regex)
+                    $paramName = ':xpath_' . $paramCounter++;
+                    if($operator === 'contains') {
+                        $condition = "l.xpath ILIKE {$paramName}";
+                        $params[$paramName] = '%' . $value . '%';
+                    } elseif($operator === 'not_contains') {
+                        $condition = "(l.xpath NOT ILIKE {$paramName} OR l.xpath IS NULL)";
+                        $params[$paramName] = '%' . $value . '%';
+                    } elseif($operator === 'regex') {
+                        $condition = "l.xpath ~* {$paramName}";
+                        $params[$paramName] = $value;
+                    } elseif($operator === 'not_regex') {
+                        $condition = "(l.xpath !~* {$paramName} OR l.xpath IS NULL)";
                         $params[$paramName] = $value;
                     }
                     break;
@@ -220,9 +293,46 @@ function buildFilterConditions($items, &$params, &$paramCounter = 0) {
                 case 'blocked':
                 case 'h1_multiple':
                 case 'headings_missing':
+                case 'in_sitemap':
+                case 'is_html':
+                case 'crawled':
                     $condition = "{$tablePrefix}.{$field} = " . ($value === 'true' ? 'true' : 'false');
                     break;
-                    
+
+                case 'out_of_scope':
+                    $expr = "({$tablePrefix}.external = false AND {$tablePrefix}.blocked = false AND {$tablePrefix}.crawled = false)";
+                    $condition = ($value === 'true') ? $expr : "NOT $expr";
+                    break;
+
+                case 'pri':
+                    // PageRank : valeur flottante
+                    $paramName = ':pri_' . $paramCounter++;
+                    $sqlOperator = in_array($operator, ['=', '>', '<', '>=', '<=', '!=']) ? $operator : '=';
+                    $condition = "{$tablePrefix}.pri {$sqlOperator} {$paramName}";
+                    $params[$paramName] = floatval($value);
+                    break;
+
+                case 'content_type':
+                case 'redirect_to':
+                case 'canonical_value':
+                case 'domain':
+                    // Filtres texte simples (contains / not_contains / regex / not_regex)
+                    $paramName = ':txt_' . $paramCounter++;
+                    if($operator === 'contains') {
+                        $condition = "{$tablePrefix}.{$field} ILIKE {$paramName}";
+                        $params[$paramName] = '%' . $value . '%';
+                    } elseif($operator === 'not_contains') {
+                        $condition = "({$tablePrefix}.{$field} NOT ILIKE {$paramName} OR {$tablePrefix}.{$field} IS NULL)";
+                        $params[$paramName] = '%' . $value . '%';
+                    } elseif($operator === 'regex') {
+                        $condition = "{$tablePrefix}.{$field} ~* {$paramName}";
+                        $params[$paramName] = $value;
+                    } elseif($operator === 'not_regex') {
+                        $condition = "({$tablePrefix}.{$field} !~* {$paramName} OR {$tablePrefix}.{$field} IS NULL)";
+                        $params[$paramName] = $value;
+                    }
+                    break;
+
                 case 'title':
                 case 'h1':
                 case 'metadesc':
@@ -259,6 +369,37 @@ function buildFilterConditions($items, &$params, &$paramCounter = 0) {
                     } else {
                         if(in_array($value, ['empty', 'duplicate', 'unique'])) {
                             $condition = "{$tablePrefix}.{$colName}_status = '{$value}'";
+                        }
+                    }
+                    break;
+
+                default:
+                    // Filtres dynamiques sur les extracteurs custom (`extract_<key>`).
+                    if (strpos($field, 'extract_') === 0) {
+                        $extKey = substr($field, 8);
+                        $jsonAccess = "{$tablePrefix}.extracts->>'" . addslashes($extKey) . "'";
+                        $extType = $GLOBALS['extractorTypes'][$extKey] ?? 'text';
+
+                        if ($extType === 'number') {
+                            $sqlOp = in_array($operator, ['=', '>', '<', '>=', '<=', '!=']) ? $operator : '=';
+                            $paramName = ':ext_' . $paramCounter++;
+                            $condition = "({$jsonAccess}) ~ '^-?[0-9]+(\\.[0-9]+)?$' AND ({$jsonAccess})::numeric {$sqlOp} {$paramName}";
+                            $params[$paramName] = floatval($value);
+                        } else {
+                            $paramName = ':ext_' . $paramCounter++;
+                            if ($operator === 'contains') {
+                                $condition = "{$jsonAccess} ILIKE {$paramName}";
+                                $params[$paramName] = '%' . $value . '%';
+                            } elseif ($operator === 'not_contains') {
+                                $condition = "({$jsonAccess} NOT ILIKE {$paramName} OR {$jsonAccess} IS NULL)";
+                                $params[$paramName] = '%' . $value . '%';
+                            } elseif ($operator === 'regex') {
+                                $condition = "{$jsonAccess} ~* {$paramName}";
+                                $params[$paramName] = $value;
+                            } elseif ($operator === 'not_regex') {
+                                $condition = "({$jsonAccess} !~* {$paramName} OR {$jsonAccess} IS NULL)";
+                                $params[$paramName] = $value;
+                            }
                         }
                     }
                     break;
@@ -572,6 +713,22 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
 }
 .popover-close:hover { color: var(--text-primary); }
 
+.popover-search { margin-bottom: 0.5rem; }
+.popover-search input {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    box-sizing: border-box;
+}
+.popover-search input:focus {
+    outline: none;
+    border-color: #94a3b8;
+}
+
 /* Field list with sections */
 .popover-section-title {
     font-size: 0.7rem;
@@ -815,6 +972,9 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
             <span class="material-symbols-outlined">close</span>
         </button>
     </div>
+    <div class="popover-search">
+        <input type="text" id="fieldPickerSearch" oninput="filterFieldPicker()" onkeydown="if(event.key==='Enter'){event.preventDefault();fieldPickerEnter();}" autocomplete="off" placeholder="<?= __('url_explorer.search_filter_placeholder') ?>">
+    </div>
     <div class="popover-field-list">
         <div class="popover-section-title"><?= __('link_explorer.section_link_props') ?></div>
         <div class="popover-field-item" onclick="selectField('anchor', 'link')">
@@ -831,6 +991,12 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
         </div>
         <div class="popover-field-item" onclick="addSelfLinkFilter()">
             <span class="material-symbols-outlined">sync</span> <?= __('link_explorer.field_self_link') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('position', 'link')">
+            <span class="material-symbols-outlined">my_location</span> <?= __('link_explorer.field_position') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('xpath', 'link')">
+            <span class="material-symbols-outlined">account_tree</span> <?= __('link_explorer.field_xpath') ?>
         </div>
 
         <div class="popover-section-title"><?= __('link_explorer.section_page_source_target') ?></div>
@@ -891,6 +1057,38 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
         <div class="popover-field-item" onclick="selectField('word_count', 'page')">
             <span class="material-symbols-outlined">format_size</span> <?= __('link_explorer.field_word_count') ?>
         </div>
+        <div class="popover-field-item" onclick="selectField('pri', 'page')">
+            <span class="material-symbols-outlined">star</span> <?= __('url_explorer.field_pagerank') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('crawled', 'page')">
+            <span class="material-symbols-outlined">task_alt</span> <?= __('url_explorer.field_crawled') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('in_sitemap', 'page')">
+            <span class="material-symbols-outlined">map</span> <?= __('url_explorer.field_in_sitemap') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('is_html', 'page')">
+            <span class="material-symbols-outlined">html</span> <?= __('url_explorer.field_is_html') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('out_of_scope', 'page')">
+            <span class="material-symbols-outlined">explore_off</span> <?= __('url_explorer.field_out_of_scope') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('content_type', 'page')">
+            <span class="material-symbols-outlined">draft</span> <?= __('url_explorer.field_content_type') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('redirect_to', 'page')">
+            <span class="material-symbols-outlined">redo</span> <?= __('url_explorer.field_redirect_to') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('canonical_value', 'page')">
+            <span class="material-symbols-outlined">north_east</span> <?= __('url_explorer.field_canonical_value') ?>
+        </div>
+        <div class="popover-field-item" onclick="selectField('domain', 'page')">
+            <span class="material-symbols-outlined">domain</span> <?= __('url_explorer.field_domain') ?>
+        </div>
+        <?php foreach ($availableExtractors as $extr): ?>
+        <div class="popover-field-item" onclick="selectField('extract_<?= htmlspecialchars($extr['key']) ?>', 'page')">
+            <span class="material-symbols-outlined">code</span> <?= htmlspecialchars($extr['key']) ?>
+        </div>
+        <?php endforeach; ?>
     </div>
 </div>
 
@@ -936,6 +1134,9 @@ const fieldConfig = {
     link_nofollow: { label: __('link_explorer.field_dofollow_nofollow'), icon: 'link_off', type: 'dofollow_nofollow', scope: 'link' },
     type: { label: __('link_explorer.field_link_type'), icon: 'category', type: 'link_type', scope: 'link', values: ['ahref', 'canonical', 'redirect'] },
     self_link: { label: 'Self-link', icon: 'sync', type: 'instant', scope: 'link' },
+    // Position sémantique du lien dans la page (réutilise le widget enum multi-select de `link_type`)
+    position: { label: __('link_explorer.field_position'), icon: 'my_location', type: 'link_type', scope: 'link', values: ['Navigation', 'Header', 'Footer', 'Aside', 'Content'] },
+    xpath: { label: __('link_explorer.field_xpath'), icon: 'account_tree', type: 'text', scope: 'link', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
     // Champs liés à la page (source ou target)
     url: { label: 'URL', icon: 'link', type: 'text', scope: 'page', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
     category: { label: __('link_explorer.field_category'), icon: 'label', type: 'category', scope: 'page', operators: ['in', 'not_in'] },
@@ -955,8 +1156,28 @@ const fieldConfig = {
     headings_missing: { label: __('link_explorer.field_headings_missing'), icon: 'format_list_numbered', type: 'boolean', scope: 'page' },
     schemas: { label: __('link_explorer.field_structured_data'), icon: 'data_object', type: 'schemas', scope: 'page', operators: ['=', '>', '<', '>=', '<=', 'contains', 'not_contains'] },
     response_time: { label: 'TTFB (ms)', icon: 'speed', type: 'number', scope: 'page', operators: ['>', '<', '>=', '<='] },
-    word_count: { label: __('link_explorer.field_word_count'), icon: 'format_size', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] }
+    word_count: { label: __('link_explorer.field_word_count'), icon: 'format_size', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] },
+    pri: { label: __('url_explorer.field_pagerank'), icon: 'star', type: 'number', scope: 'page', operators: ['>', '<', '>=', '<=', '=', '!='] },
+    crawled: { label: __('url_explorer.field_crawled'), icon: 'task_alt', type: 'boolean', scope: 'page' },
+    in_sitemap: { label: __('url_explorer.field_in_sitemap'), icon: 'map', type: 'boolean', scope: 'page' },
+    is_html: { label: __('url_explorer.field_is_html'), icon: 'html', type: 'boolean', scope: 'page' },
+    out_of_scope: { label: __('url_explorer.field_out_of_scope'), icon: 'explore_off', type: 'boolean', scope: 'page' },
+    content_type: { label: __('url_explorer.field_content_type'), icon: 'draft', type: 'text', scope: 'page', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
+    redirect_to: { label: __('url_explorer.field_redirect_to'), icon: 'redo', type: 'text', scope: 'page', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
+    canonical_value: { label: __('url_explorer.field_canonical_value'), icon: 'north_east', type: 'text', scope: 'page', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
+    domain: { label: __('url_explorer.field_domain'), icon: 'domain', type: 'text', scope: 'page', operators: ['contains', 'not_contains', 'regex', 'not_regex'] }
 };
+
+// Étendre fieldConfig avec un filtre dynamique par extracteur custom.
+const availableExtractors = <?= json_encode($availableExtractors) ?>;
+availableExtractors.forEach(extr => {
+    const fieldId = 'extract_' + extr.key;
+    if (extr.type === 'number') {
+        fieldConfig[fieldId] = { label: extr.key, icon: 'code', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] };
+    } else {
+        fieldConfig[fieldId] = { label: extr.key, icon: 'code', type: 'text', scope: 'page', operators: ['contains', 'not_contains', 'regex', 'not_regex'] };
+    }
+});
 
 const availableSchemas = <?= json_encode($availableSchemas) ?>;
 
@@ -980,6 +1201,9 @@ let editingChipIndex = null;
 
 // Charger les filtres depuis l'URL
 const currentFilters = <?= json_encode($filters) ?>;
+// Colonnes actuellement sélectionnées (avant transformation source_/target_ par
+// link-table). Utilisé pour auto-ajouter la colonne quand on ajoute un filtre.
+const currentColumns = <?= json_encode($selectedColumnsRaw ?? []) ?>;
 if (currentFilters && currentFilters.length > 0) {
     filterGroups = convertOldFiltersToNew(currentFilters);
 }
@@ -1138,11 +1362,12 @@ function addOrToChip(groupIndex, event) {
     closeAllPopovers();
     editingChipIndex = null;
     pendingFilterConfig = { addToGroup: groupIndex };
-    
+
     const popover = document.getElementById('fieldSelectorPopover');
     positionPopover(popover, event.currentTarget);
     popover.classList.add('active');
     document.getElementById('popoverOverlay').classList.add('active');
+    resetFieldPickerSearch();
 }
 
 // ============================================
@@ -1153,11 +1378,57 @@ function openFieldSelector(event) {
     closeAllPopovers();
     editingChipIndex = null;
     pendingFilterConfig = { addToGroup: null };
-    
+
     const popover = document.getElementById('fieldSelectorPopover');
     positionPopover(popover, event.currentTarget);
     popover.classList.add('active');
     document.getElementById('popoverOverlay').classList.add('active');
+    resetFieldPickerSearch();
+}
+
+// Fuzzy search dans le picker de filtre : matche le texte des .popover-field-item,
+// et masque les .popover-section-title qui n'ont plus aucun item visible en dessous.
+function filterFieldPicker() {
+    const input = document.getElementById('fieldPickerSearch');
+    if (!input) return;
+    const q = input.value.trim().toLowerCase();
+    const list = document.querySelector('#fieldSelectorPopover .popover-field-list');
+    if (!list) return;
+
+    // Première passe : items
+    list.querySelectorAll('.popover-field-item').forEach(item => {
+        const txt = item.textContent.toLowerCase();
+        item.style.display = (!q || txt.includes(q)) ? '' : 'none';
+    });
+
+    // Deuxième passe : section titles — visible si au moins un item suivant
+    // (avant le prochain section-title) est visible
+    const children = Array.from(list.children);
+    children.forEach((node, i) => {
+        if (!node.classList.contains('popover-section-title')) return;
+        let hasVisibleItem = false;
+        for (let j = i + 1; j < children.length; j++) {
+            if (children[j].classList.contains('popover-section-title')) break;
+            if (children[j].classList.contains('popover-field-item') && children[j].style.display !== 'none') {
+                hasVisibleItem = true;
+                break;
+            }
+        }
+        node.style.display = hasVisibleItem ? '' : 'none';
+    });
+}
+
+function resetFieldPickerSearch() {
+    const input = document.getElementById('fieldPickerSearch');
+    if (!input) return;
+    input.value = '';
+    filterFieldPicker();
+    setTimeout(() => input.focus(), 50);
+}
+
+function fieldPickerEnter() {
+    const firstVisible = document.querySelector('#fieldSelectorPopover .popover-field-item:not([style*="display: none"])');
+    if (firstVisible) firstVisible.click();
 }
 
 // Ajoute directement le filtre self-link sans boîte de dialogue
@@ -1371,15 +1642,19 @@ function openConfigPopover(field, existingChip = null) {
         `;
     } else if (config.type === 'link_type') {
         const selectedValues = Array.isArray(existingChip?.value) ? existingChip.value : (existingChip?.value ? [existingChip.value] : []);
+        // Le widget link_type est aussi réutilisé par d'autres enums (e.g. position) :
+        // on adapte le label de section et on garde un fallback sur la valeur brute
+        // si elle n'a pas d'entrée dans linkTypeLabels.
+        const sectionLabel = (field === 'position') ? config.label : __('link_explorer.label_link_types');
         html += `
             <div class="popover-row">
-                <label class="popover-label">${__('link_explorer.label_link_types')}</label>
+                <label class="popover-label">${sectionLabel}</label>
                 <div class="styled-checkbox-list" style="max-height: 140px;">
                     ${config.values.map(v => `
                         <label class="styled-checkbox-item">
                             <input type="checkbox" class="link-type-checkbox" value="${v}" ${selectedValues.includes(v) ? 'checked' : ''}>
                             <span class="checkbox-box"><span class="material-symbols-outlined">check</span></span>
-                            <span class="checkbox-label">${linkTypeLabels[v]}</span>
+                            <span class="checkbox-label">${linkTypeLabels[v] || v}</span>
                         </label>
                     `).join('')}
                 </div>
@@ -1694,7 +1969,10 @@ function confirmFilter() {
     }
     
     closeAllPopovers();
-    applyFilters();
+    // Auto-ajoute la colonne correspondant au filtre (sauf en mode édition).
+    // Note : pour les fields page-scope, link-table dupliquera automatiquement
+    // en source_/target_, donc on passe juste le nom brut.
+    applyFilters(editingChipIndex ? null : field);
 }
 
 function removeChip(groupIndex, chipIndex) {
@@ -1767,16 +2045,22 @@ function collectFiltersForURL() {
     return filters;
 }
 
-function applyFilters() {
+function applyFilters(newColumn = null) {
     const filters = collectFiltersForURL();
     const params = new URLSearchParams(window.location.search);
     params.set('page', 'link-explorer');
     params.delete('p');
-    if (filters.length > 0) {
-        params.set('filters', JSON.stringify(filters));
-    } else {
-        params.delete('filters');
+    // On écrit toujours le paramètre, même vide (`[]`), pour respecter le choix
+    // utilisateur "aucun filtre" et éviter qu'un éventuel default backend soit
+    // réinjecté au reload.
+    params.set('filters', JSON.stringify(filters));
+
+    // Auto-ajoute la colonne correspondant au filtre ajouté (si pas déjà là).
+    if (newColumn && !currentColumns.includes(newColumn)) {
+        const updated = [...currentColumns, newColumn];
+        params.set('columns', updated.join(','));
     }
+
     window.location.search = params.toString();
 }
 
@@ -1784,7 +2068,7 @@ function clearFilters() {
     filterGroups = [];
     const params = new URLSearchParams(window.location.search);
     params.set('page', 'link-explorer');
-    params.delete('filters');
+    params.set('filters', '[]');
     params.delete('search');
     params.delete('p');
     window.location.search = params.toString();

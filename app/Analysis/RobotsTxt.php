@@ -40,6 +40,16 @@ class RobotsTxt
 
     static function get_file($url)
     {
+        // Anti-SSRF : refuse les URLs qui résolvent vers une IP privée/loopback/metadata.
+        // En cas de rejet on retourne string vide (= aucun robots.txt) → comportement
+        // équivalent à un domaine sans robots.txt → tout est autorisé par défaut.
+        try {
+            \App\Util\SafeHttp::validate($url);
+        } catch (\RuntimeException $e) {
+            error_log('[RobotsTxt] SSRF block: ' . $e->getMessage());
+            return '';
+        }
+
         // Utiliser Googlebot comme User-Agent pour télécharger robots.txt
         $user_agent='Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
         $options = array(
@@ -56,7 +66,15 @@ class RobotsTxt
 
         $ch      = curl_init($url);
         curl_setopt_array( $ch, $options );
+        \App\Util\SafeHttp::applyCurlSecurity($ch);  // restrict protocoles à http(s)
         $content = curl_exec( $ch );
+        try {
+            \App\Util\SafeHttp::validateFinalIp($ch);  // catch redirect vers IP privée
+        } catch (\RuntimeException $e) {
+            error_log('[RobotsTxt] SSRF block (after redirect): ' . $e->getMessage());
+            curl_close($ch);
+            return '';
+        }
         curl_close( $ch );
 
         return $content;

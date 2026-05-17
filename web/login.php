@@ -92,6 +92,7 @@ $needsSetup = !$auth->hasUsers();
     <title><?= $needsSetup ? __('login.page_title_setup') : __('login.page_title_login') ?> - Scouter</title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/responsive.css">
     <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
     <style>
         .login-container {
@@ -351,7 +352,7 @@ $needsSetup = !$auth->hasUsers();
         </div>
     </div>
 <div style="position: fixed; bottom: 1rem; right: 1rem; display: flex; align-items: center; gap: 0.75rem; font-size: 0.85rem;">
-    <span style="font-size: 0.9rem; color: rgba(255,255,255,0.3); letter-spacing: 0.3px;">Scouter v0.5</span>
+    <span style="font-size: 0.9rem; color: rgba(255,255,255,0.3); letter-spacing: 0.3px;">Scouter v0.6</span>
     <?php foreach (I18n::getInstance()->getSupportedLanguages() as $lang): ?>
         <a href="?lang=<?= $lang ?><?= $redirect ? '&redirect=' . urlencode($redirect) : '' ?>"
            style="color: <?= $lang === I18n::getInstance()->getLang() ? '#2C3E50' : 'rgba(255,255,255,0.7)' ?>; background: <?= $lang === I18n::getInstance()->getLang() ? 'white' : 'rgba(255,255,255,0.2)' ?>; padding: 0.3rem 0.6rem; border-radius: 4px; text-decoration: none; font-weight: <?= $lang === I18n::getInstance()->getLang() ? '600' : '400' ?>; text-transform: uppercase;">

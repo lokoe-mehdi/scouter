@@ -261,7 +261,7 @@ $compNewCount = 0;
 $compLostCount = 0;
 $compCommonCount = 0;
 
-$comparisonPages = ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison', 'accessibility-comparison', 'seo-tags-comparison', 'headings-comparison', 'content-richness-comparison', 'duplication-comparison', 'structured-data-comparison', 'inlinks-comparison', 'outlinks-comparison', 'pagerank-comparison', 'pagerank-leak-comparison'];
+$comparisonPages = ['comparison-overview', 'new-urls', 'lost-urls', 'code-changes', 'depth-comparison', 'accessibility-comparison', 'sitemap-comparison', 'seo-tags-comparison', 'headings-comparison', 'content-richness-comparison', 'duplication-comparison', 'structured-data-comparison', 'inlinks-comparison', 'outlinks-comparison', 'pagerank-comparison', 'pagerank-leak-comparison'];
 
 if ($compareId && in_array($page ?? '', $comparisonPages)) {
     $comparisonScorecardsComputed = true;
@@ -271,8 +271,8 @@ if ($compareId && in_array($page ?? '', $comparisonPages)) {
     // New URLs: dans current, pas dans compare (NOT EXISTS est O(n) vs NOT IN qui est O(n²))
     $stmt = $pdo->prepare("
         SELECT COUNT(*) FROM pages a
-        WHERE a.crawl_id = :current AND a.crawled = true
-        AND NOT EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :compare AND b.crawled = true AND b.url = a.url)
+        WHERE a.crawl_id = :current AND a.crawled = true AND a.in_crawl = TRUE
+        AND NOT EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :compare AND b.crawled = true AND b.in_crawl = TRUE AND b.url = a.url)
     ");
     $stmt->execute([':current' => $safeCrId, ':compare' => $safeCompId]);
     $compNewCount = (int)$stmt->fetchColumn();
@@ -280,8 +280,8 @@ if ($compareId && in_array($page ?? '', $comparisonPages)) {
     // Lost URLs: dans compare, pas dans current
     $stmt = $pdo->prepare("
         SELECT COUNT(*) FROM pages a
-        WHERE a.crawl_id = :compare AND a.crawled = true
-        AND NOT EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :current AND b.crawled = true AND b.url = a.url)
+        WHERE a.crawl_id = :compare AND a.crawled = true AND a.in_crawl = TRUE
+        AND NOT EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :current AND b.crawled = true AND b.in_crawl = TRUE AND b.url = a.url)
     ");
     $stmt->execute([':compare' => $safeCompId, ':current' => $safeCrId]);
     $compLostCount = (int)$stmt->fetchColumn();
@@ -289,8 +289,8 @@ if ($compareId && in_array($page ?? '', $comparisonPages)) {
     // Common URLs
     $stmt = $pdo->prepare("
         SELECT COUNT(*) FROM pages a
-        WHERE a.crawl_id = :current AND a.crawled = true
-        AND EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :compare AND b.crawled = true AND b.url = a.url)
+        WHERE a.crawl_id = :current AND a.crawled = true AND a.in_crawl = TRUE
+        AND EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :compare AND b.crawled = true AND b.in_crawl = TRUE AND b.url = a.url)
     ");
     $stmt->execute([':current' => $safeCrId, ':compare' => $safeCompId]);
     $compCommonCount = (int)$stmt->fetchColumn();
@@ -311,6 +311,7 @@ function isSectionCollapsed($sectionName) {
     <title>Scouter - <?= htmlspecialchars($projectName) ?></title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="assets/style.css?v=<?= time() ?>">
+    <link rel="stylesheet" href="assets/responsive.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/crawl-panel.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
     <script src="assets/i18n.js"></script>
@@ -351,7 +352,7 @@ function isSectionCollapsed($sectionName) {
     <?php
     // Déterminer la section active basée sur la page actuelle
     $activeSection = null; // Pas de défaut, on détermine précisément
-    $reportPages = ['home', 'categories', 'codes', 'response-time', 'depth', 'redirect-chains', 'inlinks', 'outlinks', 'pagerank', 'seo-tags', 'headings', 'duplication', 'extractions', 'structured-data'];
+    $reportPages = ['home', 'categories', 'codes', 'response-time', 'depth', 'redirect-chains', 'sitemap', 'inlinks', 'outlinks', 'pagerank', 'seo-tags', 'headings', 'duplication', 'extractions', 'structured-data'];
     $explorerPages = ['url-explorer', 'link-explorer', 'sql-explorer'];
 
     if (in_array($page, $reportPages)) {
@@ -429,6 +430,9 @@ function isSectionCollapsed($sectionName) {
                 case 'redirect-chains':
                     include 'pages/redirect-chains.php';
                     break;
+                case 'sitemap':
+                    include 'pages/sitemap.php';
+                    break;
                 case 'duplication':
                     include 'pages/duplication.php';
                     break;
@@ -481,6 +485,9 @@ function isSectionCollapsed($sectionName) {
                     break;
                 case 'depth-comparison':
                     include 'pages/depth-comparison.php';
+                    break;
+                case 'sitemap-comparison':
+                    include 'pages/sitemap-comparison.php';
                     break;
                 case 'accessibility-comparison':
                     include 'pages/accessibility-comparison.php';

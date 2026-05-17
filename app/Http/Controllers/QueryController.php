@@ -110,12 +110,6 @@ class QueryController extends Controller
             }
         }
 
-        // Block access to system/auth tables (including quoted identifiers)
-        $cleanForTableCheck = str_replace('"', '', $queryClean); // strip quotes to catch "users"
-        if (preg_match('/\b(pg_catalog|information_schema|pg_roles|pg_authid|pg_shadow|users)\b/i', $cleanForTableCheck)) {
-            Response::forbidden('Accès aux tables système interdit.');
-        }
-
         // Block PREPARE/EXECUTE, WITH RECURSIVE, EXPLAIN, COPY TO PROGRAM
         if (preg_match('/\b(PREPARE|EXECUTE|EXPLAIN|WITH\s+RECURSIVE)\b/i', $queryClean)) {
             Response::forbidden('Instruction interdite.');
@@ -123,7 +117,7 @@ class QueryController extends Controller
         if (preg_match('/COPY\s+.*\s+TO\s+PROGRAM/i', $queryClean)) {
             Response::forbidden('COPY TO PROGRAM interdit.');
         }
-        
+
         // Transformer les références multi-crawl (syntaxe table@ID)
         // categories@ID is a no-op since categories are now project-level
         $referencedCrawlIds = [];
@@ -155,6 +149,41 @@ class QueryController extends Controller
         $transformedQuery = preg_replace('/\bduplicate_clusters\b(?!_\d)/i', "duplicate_clusters_{$crawlId}", $transformedQuery);
         $transformedQuery = preg_replace('/\bpage_schemas\b(?!_\d)/i', "page_schemas_{$crawlId}", $transformedQuery);
         
+        // === SÉCURITÉ : whitelist stricte des tables accessibles ===
+        //
+        // On n'autorise QUE les tables de données crawlées et leurs partitions.
+        // Toutes les autres tables (users, crawls, jobs, projects, project_shares,
+        // crawl_schedules, user_saved_queries, schémas pg_*/information_schema...)
+        // sont inaccessibles — elles contiennent soit des secrets (HTTP Basic Auth
+        // dans crawls.config, hash de mot de passe dans users), soit des données
+        // cross-tenant qui ne doivent pas fuiter via le SQL Explorer.
+        //
+        // Le check se fait APRÈS les transformations (pages → pages_<id>, etc.),
+        // donc à ce stade on voit les vrais noms physiques qui partiront vers PG.
+        $allowedTables = [
+            'crawl_categories',
+            'pages', 'links',
+            'duplicate_clusters', 'page_schemas', 'redirect_chains',
+        ];
+        // Extrait tous les noms de tables après FROM / JOIN, en gérant "schema.table",
+        // les quoted identifiers, et en isolant le dernier segment (= nom de table).
+        preg_match_all(
+            '/\b(?:FROM|JOIN)\s+(?:"?[a-zA-Z_][a-zA-Z0-9_]*"?\s*\.\s*)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?/i',
+            $transformedQuery,
+            $tableMatches
+        );
+        foreach (array_unique($tableMatches[1] ?? []) as $tableName) {
+            $tableLower = strtolower($tableName);
+            $isAllowed = in_array($tableLower, $allowedTables, true)
+                || preg_match('/^(pages|links|duplicate_clusters|page_schemas|redirect_chains)_\d+$/i', $tableLower);
+            if (!$isAllowed) {
+                Response::forbidden(
+                    "Table « {$tableName} » non autorisée depuis le SQL Explorer. " .
+                    "Tables accessibles : " . implode(', ', $allowedTables) . '.'
+                );
+            }
+        }
+
         // Force a LIMIT if none present (max 10000 rows)
         if (!preg_match('/\bLIMIT\s+\d/i', $transformedQuery)) {
             $transformedQuery .= ' LIMIT 10000';
@@ -349,7 +378,7 @@ class QueryController extends Controller
         $stmt = $this->db->prepare("
             SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.pri, c.cat_id
             FROM links l
-            JOIN pages c ON l.src = c.id AND c.crawl_id = :crawl_id
+            JOIN pages c ON l.src = c.id AND c.crawl_id = :crawl_id AND c.in_crawl = TRUE
             WHERE l.crawl_id = :crawl_id2 AND l.target = :id
             ORDER BY c.pri DESC LIMIT 100
         ");
@@ -385,7 +414,7 @@ class QueryController extends Controller
         $stmt = $this->db->prepare("
             SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.external, c.cat_id
             FROM links l
-            JOIN pages c ON l.target = c.id AND c.crawl_id = :crawl_id
+            JOIN pages c ON l.target = c.id AND c.crawl_id = :crawl_id AND c.in_crawl = TRUE
             WHERE l.crawl_id = :crawl_id2 AND l.src = :id
         ");
         $stmt->execute([':crawl_id' => $ctx['crawlId'], ':crawl_id2' => $ctx['crawlId'], ':id' => $ctx['pageId']]);
@@ -429,8 +458,8 @@ class QueryController extends Controller
         $crawlId = $crawlRecord->id;
         
         $stmt = $this->db->prepare("
-            SELECT url, title, code FROM pages 
-            WHERE crawl_id = :crawl_id AND url LIKE :search
+            SELECT url, title, code FROM pages
+            WHERE crawl_id = :crawl_id AND url LIKE :search AND in_crawl = TRUE
             ORDER BY pri DESC LIMIT :limit
         ");
         $stmt->execute([

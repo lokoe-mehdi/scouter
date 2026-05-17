@@ -108,26 +108,36 @@
 let batchJobPollInterval = null;
 let batchJobId = null;
 
+let batchJobFirstCheck = true;
+
 function checkBatchJobStatus() {
     if (!batchJobId) return;
 
-    fetch(`/api/jobs/${batchJobId}`)
+    const apiBase = window.location.pathname.includes('/pages/') ? '../api' : 'api';
+    fetch(`${apiBase}/jobs/${batchJobId}`)
         .then(res => res.json())
         .then(data => {
             if (data.success && data.job) {
                 const job = data.job;
 
+                // If the job is already terminal on first check, it's stale — ignore it
+                if (batchJobFirstCheck && (job.status === 'completed' || job.status === 'failed' || job.status === 'stopped')) {
+                    batchJobFirstCheck = false;
+                    stopBatchPolling();
+                    return;
+                }
+                batchJobFirstCheck = false;
+
                 if (job.status === 'running' || job.status === 'queued') {
                     showBatchNotification(job);
                 } else if (job.status === 'completed') {
                     showCompletionNotification();
+                    stopBatchPolling();
+                    if (typeof refreshCategorizationView === 'function') {
+                        refreshCategorizationView();
+                    }
                     setTimeout(() => {
                         hideBatchNotification();
-                        stopBatchPolling();
-                        // Refresh categorization view
-                        if (typeof refreshCategorizationView === 'function') {
-                            refreshCategorizationView();
-                        }
                     }, 3000);
                 } else if (job.status === 'failed') {
                     showErrorNotification(job.error);
@@ -191,6 +201,7 @@ function dismissBatchNotification() {
 
 function startBatchPolling(jobId) {
     batchJobId = jobId;
+    batchJobFirstCheck = true;
     checkBatchJobStatus();
     batchJobPollInterval = setInterval(checkBatchJobStatus, 3000);
 }
@@ -208,6 +219,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const urlParams = new URLSearchParams(window.location.search);
     const jobId = urlParams.get('batch_job_id');
     if (jobId) {
+        // Clean URL param to prevent re-triggering on reload
+        urlParams.delete('batch_job_id');
+        const cleanUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
+        window.history.replaceState({}, '', cleanUrl);
         startBatchPolling(jobId);
     }
 });

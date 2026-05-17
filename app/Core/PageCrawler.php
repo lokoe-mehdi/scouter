@@ -59,10 +59,20 @@ class PageCrawler
         // Transaction avec retry automatique sur deadlock (40P01)
         $db = $this->crawlDb->getDb();
         
-        $this->executeTransactionWithRetry($db, function($pdo) {
+        $skipLinkExtraction = (bool)($this->config['skip_link_extraction'] ?? false);
+
+        $this->executeTransactionWithRetry($db, function($pdo) use ($skipLinkExtraction) {
             // OPTIMISATION: Un seul updatePage() au lieu de 2
             $this->storePageComplete();
-            
+
+            // En mode sitemap-only: on remplit les colonnes de la page mais on
+            // n'écrit RIEN dans `links` et on n'enfile aucune URL à crawler.
+            // Cela évite de polluer inlinks/outlinks/PageRank des autres pages.
+            if ($skipLinkExtraction) {
+                $this->storeRaw();
+                return;
+            }
+
             if (!empty(trim($this->page->headers->redirect_to))) {
                 $external = $this->isExternal($this->page->headers->redirect_to);
                 $this->storeRedirect($this->page->headers->redirect_to, $external);
@@ -271,7 +281,9 @@ class PageCrawler
                     'anchor' => $link->anchor ?? '',
                     'type' => 'ahref',
                     'external' => (bool)$link->external,
-                    'nofollow' => (bool)$link->nofollow
+                    'nofollow' => (bool)$link->nofollow,
+                    'xpath' => $link->xpath ?? null,
+                    'position' => $link->position ?? 'Content',
                 ];
 
                 preg_match("#https?:\/\/([^/\?]+)#i", $link->target, $dom);

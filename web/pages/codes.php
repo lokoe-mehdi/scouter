@@ -12,9 +12,9 @@ $search = isset($_GET['search']) ? $_GET['search'] : '';
 
 // Codes disponibles
 $stmt = $pdo->prepare("
-    SELECT DISTINCT code 
-    FROM pages 
-    WHERE crawl_id = :crawl_id AND crawled = true
+    SELECT DISTINCT code
+    FROM pages
+    WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
     ORDER BY code
 ");
 $stmt->execute([':crawl_id' => $crawlId]);
@@ -29,8 +29,8 @@ $stmt = $pdo->prepare("
         SUM(CASE WHEN code >= 300 AND code < 400 THEN 1 ELSE 0 END) as code_3xx,
         SUM(CASE WHEN code >= 400 AND code < 500 THEN 1 ELSE 0 END) as code_4xx,
         SUM(CASE WHEN code >= 500 AND code < 600 THEN 1 ELSE 0 END) as code_5xx
-    FROM pages 
-    WHERE crawl_id = :crawl_id AND crawled = true
+    FROM pages
+    WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
 ");
 $stmt->execute([':crawl_id' => $crawlId]);
 $codeFamilyStats = $stmt->fetch(PDO::FETCH_OBJ);
@@ -43,9 +43,9 @@ $sqlCodeStats = "
         AVG(response_time) as avg_time,
         AVG(inlinks) as avg_inlinks,
         AVG(outlinks) as avg_outlinks
-    FROM pages 
-    WHERE crawl_id = :crawl_id AND crawled = true
-    GROUP BY code 
+    FROM pages
+    WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
+    GROUP BY code
     ORDER BY COUNT(*) DESC
 ";
 $stmt = $pdo->prepare($sqlCodeStats);
@@ -59,7 +59,7 @@ $sqlCodeByCategory = "
         p.code,
         COUNT(*) as count
     FROM pages p
-    WHERE p.crawl_id = :crawl_id AND p.crawled = true
+    WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.in_crawl = TRUE
     GROUP BY p.cat_id, p.code
     ORDER BY count DESC, p.cat_id, p.code
 ";
@@ -328,7 +328,7 @@ foreach ($codeByCategory as $row) {
     Component::urlTable([
         'title' => __('codes.table_non200'),
         'id' => 'codes_urls',
-        'whereClause' => 'WHERE c.code != 200 AND c.crawled = true ',
+        'whereClause' => 'WHERE c.code != 200 AND c.crawled = true AND c.in_crawl = TRUE ',
         'orderBy' => 'ORDER BY c.code DESC, c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'code', 'depth', 'inlinks', 'pri'],
         'pdo' => $pdo,
@@ -345,9 +345,9 @@ foreach ($codeByCategory as $row) {
     Component::linkTable([
         'title' => __('codes.table_links_non200'),
         'id' => 'codes_links',
-        'whereClause' => 'WHERE ct.code != 200 AND ct.crawled = true',
+        'whereClause' => 'WHERE ct.code != 200 AND ct.crawled = true AND ct.in_crawl = TRUE',
         'orderBy' => 'ORDER BY ct.code DESC, ct.inlinks DESC',
-        'defaultColumns' => ['url', 'code', 'type', 'anchor', 'nofollow'],
+        'defaultColumns' => ['url', 'code', 'type', 'position', 'anchor', 'nofollow'],
         'pdo' => $pdo,
         'crawlId' => $crawlId,
         'perPage' => 10,

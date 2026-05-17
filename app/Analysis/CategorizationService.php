@@ -94,12 +94,14 @@ class CategorizationService
         $caseWhen = $this->buildCaseWhenSql($rules);
 
         // Stats par catégorie via CTE
+        // NB: on inclut toutes les URLs internes (external = false), y compris celles
+        // bloquées par robots.txt — elles doivent être catégorisées même non crawlées.
         $sql = "
             WITH pages_with_path AS (
                 SELECT url, depth, code,
                        regexp_replace(url, '^https?://[^/]+', '') AS url_path
                 FROM pages
-                WHERE crawl_id = :crawl_id AND crawled = true
+                WHERE crawl_id = :crawl_id AND external = false
             ),
             categorized AS (
                 SELECT url, depth, code, {$caseWhen['sql']} AS cat_name
@@ -122,7 +124,7 @@ class CategorizationService
                 SELECT url, depth, code,
                        regexp_replace(url, '^https?://[^/]+', '') AS url_path
                 FROM pages
-                WHERE crawl_id = :crawl_id AND crawled = true
+                WHERE crawl_id = :crawl_id AND external = false
             )
             SELECT url, depth, code, {$caseWhen['sql']} AS category
             FROM pages_with_path
@@ -189,7 +191,7 @@ class CategorizationService
                 UPDATE pages SET cat_id = :cat_id
                 WHERE crawl_id = :crawl_id
                   AND cat_id IS NULL
-                  AND crawled = true
+                  AND external = false
                   AND url ~* :domain
                   AND regexp_replace(url, '^https?://[^/]+', '') ~* :include
             ";
@@ -210,6 +212,43 @@ class CategorizationService
             $stmt->execute($params);
             $totalCategorized += $stmt->rowCount();
         }
+
+        // Cleanup categories that are no longer in the current YAML config.
+        // Without this, every renamed/removed category survives forever in the
+        // crawl_categories table and pollutes the filter dropdowns in URL/Link
+        // Explorer. We scope the cleanup to the whole project (categories are
+        // project-level, shared across crawls) and also NULL out pages.cat_id
+        // on every crawl of the project that pointed at a deleted category —
+        // there is no FK so we must do it explicitly to avoid phantom cat_ids.
+        $currentCatNames = array_map(fn($r) => $r['name'], $rules);
+        $cleanupParams = [':project_id' => $projectId];
+
+        if (!empty($currentCatNames)) {
+            $placeholders = [];
+            foreach ($currentCatNames as $i => $name) {
+                $key = ':cat_keep_' . $i;
+                $placeholders[] = $key;
+                $cleanupParams[$key] = $name;
+            }
+            $keepClause = 'AND cat NOT IN (' . implode(',', $placeholders) . ')';
+        } else {
+            // No rule = wipe everything for this project
+            $keepClause = '';
+        }
+
+        $this->db->prepare("
+            UPDATE pages SET cat_id = NULL
+            WHERE crawl_id IN (SELECT id FROM crawls WHERE project_id = :project_id)
+              AND cat_id IN (
+                  SELECT id FROM crawl_categories
+                  WHERE project_id = :project_id $keepClause
+              )
+        ")->execute($cleanupParams);
+
+        $this->db->prepare("
+            DELETE FROM crawl_categories
+            WHERE project_id = :project_id $keepClause
+        ")->execute($cleanupParams);
 
         return $totalCategorized;
     }

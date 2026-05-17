@@ -48,7 +48,7 @@ $sqlPrDist = "
         COALESCE(SUM(CASE WHEN external = false AND compliant = false THEN pri ELSE 0 END), 0) as non_indexable_pr,
         COALESCE(SUM(CASE WHEN external = false AND compliant = true THEN pri ELSE 0 END), 0) as indexable_pr
     FROM pages
-    WHERE crawl_id = :crawl_id AND (crawled = true OR external = true)
+    WHERE crawl_id = :crawl_id AND (crawled = true OR external = true) AND in_crawl = TRUE
 ";
 
 $stmtRef = $pdo->prepare($sqlPrDist);
@@ -83,12 +83,19 @@ $donutBaseData = [
     ['name' => __('pagerank_leak.series_external') . ' (' . __('comparison.badge_baseline') . ')', 'y' => $baseExternalPct, 'color' => hexToRgba('#d86b6b', 0.5)],
 ];
 
-$sqlDistDisplay = "SELECT
-    SUM(CASE WHEN external = true THEN pri ELSE 0 END) AS external_pr,
-    SUM(CASE WHEN external = false AND compliant = false THEN pri ELSE 0 END) AS non_indexable_pr,
-    SUM(CASE WHEN external = false AND compliant = true THEN pri ELSE 0 END) AS indexable_pr
-FROM pages
-WHERE (crawled = true OR external = true)";
+$sqlDistDisplay = "-- Reference crawl
+SELECT 'reference' AS source,
+       SUM(CASE WHEN external = true THEN pri ELSE 0 END) AS external_pr,
+       SUM(CASE WHEN external = false AND compliant = false THEN pri ELSE 0 END) AS non_indexable_pr,
+       SUM(CASE WHEN external = false AND compliant = true THEN pri ELSE 0 END) AS indexable_pr
+FROM pages@{$safeCrawlId} WHERE (crawled = true OR external = true) AND in_crawl = TRUE
+UNION ALL
+-- Baseline crawl
+SELECT 'baseline' AS source,
+       SUM(CASE WHEN external = true THEN pri ELSE 0 END) AS external_pr,
+       SUM(CASE WHEN external = false AND compliant = false THEN pri ELSE 0 END) AS non_indexable_pr,
+       SUM(CASE WHEN external = false AND compliant = true THEN pri ELSE 0 END) AS indexable_pr
+FROM pages@{$safeCompareId} WHERE (crawled = true OR external = true) AND in_crawl = TRUE";
 
 // =========================================
 // Top 10 external domains for both crawls
@@ -99,7 +106,7 @@ $sqlTopDomains = "
         COUNT(*) as url_count,
         COALESCE(SUM(pri), 0) as total_pr
     FROM pages
-    WHERE crawl_id = :crawl_id AND external = true
+    WHERE crawl_id = :crawl_id AND external = true AND in_crawl = TRUE
     GROUP BY COALESCE(SUBSTRING(url FROM '://([^/]+)'), SUBSTRING(url FROM '^([^/]+)'))
     ORDER BY total_pr DESC
     LIMIT 10
@@ -133,12 +140,22 @@ foreach ($allDomains as $domain) {
     $baseDomainValues[] = $baseDomainMap[$domain] ?? 0;
 }
 
-$sqlTopDomainsDisplay = "SELECT
-    COALESCE(SUBSTRING(url FROM '://([^/]+)'), SUBSTRING(url FROM '^([^/]+)')) AS domain,
-    COUNT(*) AS url_count,
-    SUM(pri) AS total_pr
-FROM pages
-WHERE external = true
+$sqlTopDomainsDisplay = "-- Reference crawl
+SELECT 'reference' AS source,
+       COALESCE(SUBSTRING(url FROM '://([^/]+)'), SUBSTRING(url FROM '^([^/]+)')) AS domain,
+       COUNT(*) AS url_count,
+       SUM(pri) AS total_pr
+FROM pages@{$safeCrawlId} WHERE external = true AND in_crawl = TRUE
+GROUP BY domain
+ORDER BY total_pr DESC
+LIMIT 10
+;
+-- Baseline crawl
+SELECT 'baseline' AS source,
+       COALESCE(SUBSTRING(url FROM '://([^/]+)'), SUBSTRING(url FROM '^([^/]+)')) AS domain,
+       COUNT(*) AS url_count,
+       SUM(pri) AS total_pr
+FROM pages@{$safeCompareId} WHERE external = true AND in_crawl = TRUE
 GROUP BY domain
 ORDER BY total_pr DESC
 LIMIT 10";
@@ -215,9 +232,9 @@ LIMIT 10";
     Component::urlTable([
         'title' => __('comparison.pagerank_leak_regressions_table'),
         'id' => 'pr_leak_regressions_table',
-        'whereClause' => "WHERE (c.external = true OR (c.crawled = true AND c.compliant = false)) AND c.pri > 0 AND EXISTS (
+        'whereClause' => "WHERE (c.external = true OR (c.crawled = true AND c.compliant = false)) AND c.pri > 0 AND c.in_crawl = TRUE AND EXISTS (
             SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.pri < c.pri
+            WHERE b.url = c.url AND b.in_crawl = TRUE AND b.pri < c.pri
         )",
         'orderBy' => 'ORDER BY c.pri DESC',
         'defaultColumns' => ['url', 'category', 'pri', 'inlinks', 'compliant'],

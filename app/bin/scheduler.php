@@ -26,7 +26,7 @@ try {
 $stmt = $db->query("
     SELECT cs.*, p.name AS project_domain
     FROM crawl_schedules cs
-    JOIN projects p ON p.id = cs.project_id
+    JOIN projects p ON p.id = cs.project_id AND p.deleted_at IS NULL
     WHERE cs.enabled = TRUE
       AND cs.next_run_at IS NOT NULL
       AND cs.next_run_at <= NOW()

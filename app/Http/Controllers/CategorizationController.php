@@ -224,19 +224,27 @@ class CategorizationController extends Controller
         $crawlId = $crawlRecord->id;
         
         $stmt = $this->db->prepare("
-            SELECT 
-                COALESCE(c.cat, 'Non catégorisé') as category,
+            SELECT
+                c.cat as category,
                 COALESCE(c.color, '#95a5a6') as color,
                 COUNT(p.id) as count
             FROM pages p
             LEFT JOIN crawl_categories c ON p.cat_id = c.id
-            WHERE p.crawl_id = :crawl_id2 AND p.crawled = true
+            WHERE p.crawl_id = :crawl_id2 AND p.external = false
             GROUP BY c.cat, c.color
             ORDER BY count DESC
         ");
         $stmt->execute([':crawl_id2' => $crawlId]);
-        
-        $this->success(['stats' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+        $stats = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Replace NULL category with translated label (instead of hardcoded French)
+        foreach ($stats as &$s) {
+            if ($s['category'] === null) {
+                $s['category'] = __('categorize.uncategorized');
+            }
+        }
+
+        $this->success(['stats' => $stats]);
     }
 
     /**
@@ -281,7 +289,7 @@ class CategorizationController extends Controller
         $GLOBALS['categoryColors'] = $categoryColors;
         
         // Construire le WHERE avec le filtre de catégorie
-        $catWhereConditions = ["c.crawled = true"];
+        $catWhereConditions = ["c.external = false"];
         $catParams = [];
         
         if (!empty($filterCat)) {

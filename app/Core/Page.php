@@ -463,34 +463,34 @@ class Page
             $configuration->setSubstituteEntities(false);
             
             // Parser avec Readability
+            // Strip HTML comments: readability.php v3.3.3 crashes (TypeError) on DOMComment nodes
+            $htmlForReadability = preg_replace('/<!--.*?-->/s', '', $this->dom);
             $readability = new Readability($configuration);
-            $readability->parse($this->dom);
-            
+            $readability->parse($htmlForReadability);
+
             // Récupérer le contenu texte
             $content = $readability->getContent();
             if (empty($content)) {
                 return 0;
             }
-            
+
             // Nettoyer le HTML pour ne garder que le texte
             $text = strip_tags($content);
             $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            
+
             // Nettoyer les espaces multiples et compter les mots
             $text = preg_replace('/\s+/', ' ', trim($text));
-            
+
             if (empty($text)) {
                 return 0;
             }
-            
+
             // Compter les mots
             $wordCount = str_word_count($text, 0);
-            
+
             return $wordCount > 0 ? $wordCount : 0;
-            
-        } catch (ParseException $e) {
-            return 0;
-        } catch (\Exception $e) {
+
+        } catch (\Throwable $e) {
             return 0;
         }
     }
@@ -500,7 +500,7 @@ class Page
         $this->dom = preg_replace_callback(
             '/href=["\'](.*)["\']/isU',
             function ($matches) {
-                return 'href="'.$this->rel2abs($this->base,$matches[1]).'"';
+                return 'href="'.$this->rel2abs($this->base, trim($matches[1])).'"';
             },
             $this->dom
         );
@@ -526,12 +526,15 @@ class Page
     private function parse()
     {
         $time = microtime(true);
-        // Utiliser le DOM UTF-8 directement pour préserver les caractères internationaux
-        $links = HtmlParser::xpathExtractTree("//a", ["target"=>"@href","anchor"=>".","rel"=>"@rel"], $this->dom);
+        // Utiliser le DOM UTF-8 directement pour préserver les caractères internationaux.
+        // extractLinksWithPosition retourne aussi l'XPath enrichi et la position
+        // sémantique du lien (Navigation/Header/Footer/Aside/Content).
+        $links = HtmlParser::extractLinksWithPosition($this->dom);
         $extracts = [];
         foreach($links as $link)
         {
-            $target = explode("#",$link['target']);
+            $target = trim($link['target']);
+            $target = explode("#",$target);
             $target = $target[0];
             
             // S'assurer que l'URL est absolue
@@ -582,7 +585,9 @@ class Page
                     "external" => $external,
                     "anchor" => $link["anchor"],
                     "nofollow" => $nofollow,
-                    "blocked" => $blocked
+                    "blocked" => $blocked,
+                    "xpath" => $link["xpath"] ?? null,
+                    "position" => $link["position"] ?? 'Content'
                 ];
             }
         }
@@ -846,8 +851,10 @@ class Page
             $configuration->setFixRelativeURLs(false);
             $configuration->setSubstituteEntities(false);
 
+            // Strip HTML comments: readability.php v3.3.3 crashes (TypeError) on DOMComment nodes
+            $htmlForReadability = preg_replace('/<!--.*?-->/s', '', $this->dom);
             $readability = new Readability($configuration);
-            $readability->parse($this->dom);
+            $readability->parse($htmlForReadability);
             $readabilityContent = $readability->getContent();
 
             if (!empty($readabilityContent)) {
@@ -859,7 +866,7 @@ class Page
                     $useReadability = true;
                 }
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $content = null;
         }
 

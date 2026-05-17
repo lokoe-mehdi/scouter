@@ -28,7 +28,7 @@ $stmt = $pdo->prepare("
         COUNT(CASE WHEN word_count > 500 AND word_count <= 1200 THEN 1 END) as riche_pages,
         COUNT(CASE WHEN word_count > 1200 THEN 1 END) as premium_pages
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ");
 $stmt->execute([':crawl_id' => $crawlId]);
 $globalStats = $stmt->fetch(PDO::FETCH_OBJ);
@@ -60,7 +60,7 @@ $sqlDistribution = "
             ELSE 8
         END as sort_order
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY word_range, sort_order
     ORDER BY sort_order
 ";
@@ -84,7 +84,7 @@ $sqlByCategory = "
         COUNT(CASE WHEN word_count > 500 AND word_count <= 1200 THEN 1 END) as riche_pages,
         COUNT(CASE WHEN word_count > 1200 THEN 1 END) as premium_pages
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY cat_id
     ORDER BY avg_words DESC
 ";
@@ -225,7 +225,7 @@ $premiumPercent = round(($globalStats->premium_pages / max(1, $totalPages)) * 10
     COUNT(CASE WHEN word_count > 500 AND word_count <= 1200 THEN 1 END) AS rich,
     COUNT(CASE WHEN word_count > 1200 THEN 1 END) AS premium
 FROM pages
-WHERE crawled = true AND compliant = true";
+WHERE crawled = true AND compliant = true AND in_crawl = TRUE";
 
         Component::chart([
             'type' => 'donut',
@@ -364,7 +364,7 @@ WHERE crawled = true AND compliant = true";
     Component::urlTable([
         'title' => __('content_richness.table_poor'),
         'id' => 'pauvre_content_pages',
-        'whereClause' => 'WHERE c.crawled = true AND c.compliant = true AND c.word_count <= 250',
+        'whereClause' => 'WHERE c.crawled = true AND c.compliant = true AND c.word_count <= 250 AND c.in_crawl = TRUE',
         'orderBy' => 'ORDER BY c.word_count ASC',
         'defaultColumns' => ['url', 'word_count', 'depth', 'category', 'inlinks'],
         'pdo' => $pdo,
@@ -381,7 +381,7 @@ WHERE crawled = true AND compliant = true";
     Component::urlTable([
         'title' => __('content_richness.table_rich'),
         'id' => 'rich_content_pages',
-        'whereClause' => 'WHERE c.crawled = true AND c.compliant = true AND c.word_count > 0',
+        'whereClause' => 'WHERE c.crawled = true AND c.compliant = true AND c.word_count > 0 AND c.in_crawl = TRUE',
         'orderBy' => 'ORDER BY c.word_count DESC',
         'defaultColumns' => ['url', 'word_count', 'depth', 'category', 'inlinks'],
         'pdo' => $pdo,

@@ -226,11 +226,15 @@ while ($running) {
             $jobManager = new JobManager();
             $command = $job->command;
             $isBatchCategorize = strpos($command, 'batch-categorize-project:') === 0;
+            $isDeleteJob = strpos($command, 'delete-crawl:') === 0 || strpos($command, 'delete-project:') === 0;
             $isResume = ($command === 'resume');
 
             if ($isResume) {
                 $jobManager->addLog($job->id, "Worker $workerId resuming crawl", 'info');
                 file_put_contents($logFile, "\n🔄 Reprise du crawl\n=== WORKER STARTED CRAWL ===\n", FILE_APPEND);
+            } elseif ($isDeleteJob) {
+                $jobManager->addLog($job->id, "Worker $workerId starting async deletion", 'info');
+                file_put_contents($logFile, "\n🗑️ Async deletion\n=== WORKER STARTED JOB ===\n", FILE_APPEND);
             } elseif ($isBatchCategorize) {
                 $jobManager->addLog($job->id, "Worker $workerId starting batch categorization", 'info');
                 file_put_contents($logFile, "\n📂 Batch categorization\n=== WORKER STARTED JOB ===\n", FILE_APPEND);
@@ -252,7 +256,25 @@ while ($running) {
                 2 => ['file', $logFile, 'a']   // stderr -> log file
             ];
 
-            if ($isBatchCategorize) {
+            if ($isDeleteJob) {
+                // Async deletion job
+                $deleteModule = strpos($command, 'delete-crawl:') === 0 ? 'delete-crawl' : 'delete-project';
+                echo "[Worker $workerId] Executing async deletion: $command\n";
+
+                $env = [
+                    'DATABASE_URL' => getenv('DATABASE_URL'),
+                    'PATH' => getenv('PATH'),
+                    'JOB_ID' => $job->id
+                ];
+
+                $process = proc_open(
+                    [$phpBin, $scouterScript, $deleteModule, $command],
+                    $descriptors,
+                    $pipes,
+                    $basePath,
+                    $env
+                );
+            } elseif ($isBatchCategorize) {
                 // Batch categorization job
                 echo "[Worker $workerId] Executing batch categorization: $command\n";
 

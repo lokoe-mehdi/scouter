@@ -456,8 +456,8 @@ async function deleteCrawl() {
             throw new Error(result.error || __('config.delete_error'));
         }
         
-        // Redirect to home page
-        window.location.href = '../index.php';
+        // Redirect to parent project
+        window.location.href = '../project.php?id=<?= $crawlRecord->project_id ?>';
         
     } catch (error) {
         alert(`${__('common.error')}: ${error.message}`);

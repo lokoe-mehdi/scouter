@@ -127,7 +127,7 @@ class JobManager
         $jobStmt->execute([':job_id' => $jobId]);
         $jobRow = $jobStmt->fetch(PDO::FETCH_OBJ);
 
-        if ($jobRow && $jobRow->project_dir && strpos($jobRow->command, 'batch-') !== 0) {
+        if ($jobRow && $jobRow->project_dir && strpos($jobRow->command, 'batch-') !== 0 && strpos($jobRow->command, 'delete-') !== 0) {
             $crawlStatusMap = [
                 'queued' => 'queued',
                 'running' => 'running',

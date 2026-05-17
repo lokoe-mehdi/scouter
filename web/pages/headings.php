@@ -17,7 +17,7 @@ $sqlHeadingsStats = "
         SUM(CASE WHEN headings_missing = true THEN 1 ELSE 0 END) as hn_missing_count,
         SUM(CASE WHEN headings_missing = false THEN 1 ELSE 0 END) as hn_ok_count
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
 $stmt = $pdo->prepare($sqlHeadingsStats);
 $stmt->execute([':crawl_id' => $crawlId]);
@@ -39,7 +39,7 @@ $sqlHeadingsByCategory = "
         SUM(CASE WHEN headings_missing = true THEN 1 ELSE 0 END) as hn_missing_count,
         SUM(CASE WHEN headings_missing = false THEN 1 ELSE 0 END) as hn_ok_count
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
     GROUP BY cat_id
     ORDER BY cat_id
 ";
@@ -84,7 +84,7 @@ foreach ($categoryStatsRaw as $row) {
     $sqlProblemCount = "
         SELECT COUNT(*) as problem_count
         FROM pages
-        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+        WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
         AND (h1_multiple = true OR headings_missing = true)
     ";
     $stmtProb = $pdo->prepare($sqlProblemCount);
@@ -225,7 +225,7 @@ foreach ($categoryStatsRaw as $row) {
 $urlTableConfig = [
     'title' => __('headings.table_problems'),
     'id' => 'headingsTable',
-    'whereClause' => "WHERE c.compliant = true AND (c.h1_multiple = true OR c.headings_missing = true)",
+    'whereClause' => "WHERE c.compliant = true AND (c.h1_multiple = true OR c.headings_missing = true) AND c.in_crawl = TRUE",
     'orderBy' => 'ORDER BY c.h1_multiple DESC, c.headings_missing DESC, c.url',
     'defaultColumns' => ['url', 'category', 'h1_multiple', 'headings_missing'],
     'pdo' => $pdo,

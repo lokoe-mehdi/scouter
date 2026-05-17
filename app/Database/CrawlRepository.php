@@ -130,6 +130,7 @@ class CrawlRepository
         $stmt = $this->db->query("
             SELECT c.*
             FROM crawls c
+            WHERE c.status != 'deleting'
             ORDER BY c.started_at DESC
         ");
         return $stmt->fetchAll(PDO::FETCH_OBJ);
@@ -141,7 +142,7 @@ class CrawlRepository
     public function getDomainsGrouped(): array
     {
         $result = [];
-        $stmt = $this->db->query("SELECT * FROM crawls ORDER BY domain ASC, started_at DESC");
+        $stmt = $this->db->query("SELECT * FROM crawls WHERE status != 'deleting' ORDER BY domain ASC, started_at DESC");
         $crawls = $stmt->fetchAll(PDO::FETCH_OBJ);
         
         foreach ($crawls as $crawl) {
@@ -170,7 +171,7 @@ class CrawlRepository
     public function getAllWithDetails(): array
     {
         $stmt = $this->db->query("
-            SELECT 
+            SELECT
                 c.id as crawl_id,
                 c.domain,
                 c.path,
@@ -185,6 +186,7 @@ class CrawlRepository
                 c.status,
                 c.config
             FROM crawls c
+            WHERE c.status != 'deleting'
             ORDER BY c.started_at DESC
         ");
         return $stmt->fetchAll(PDO::FETCH_OBJ);
@@ -198,7 +200,7 @@ class CrawlRepository
         $stmt = $this->db->prepare("
             SELECT c.*
             FROM crawls c
-            WHERE c.project_id = :project_id
+            WHERE c.project_id = :project_id AND c.status != 'deleting'
             ORDER BY c.started_at DESC
         ");
         $stmt->execute([':project_id' => $projectId]);

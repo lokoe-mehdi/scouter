@@ -60,7 +60,7 @@ try {
         cat_id,
         COUNT(*) as count
         FROM pages
-        WHERE crawl_id = :crawl_id AND crawled = true
+        WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
         GROUP BY cat_id
         ORDER BY count DESC");
     $stmt->execute([':crawl_id' => $crawlId]);
@@ -1719,7 +1719,7 @@ body {
         <div class="table-container-wrapper">
         <?php
         // Construire le WHERE avec le filtre de catégorie
-        $catWhereConditions = ["c.crawled = true"];
+        $catWhereConditions = ["c.crawled = true", "c.in_crawl = TRUE"];
         $catParams = [];
         
         if(!empty($filterCat)) {
@@ -2246,7 +2246,7 @@ function refreshCategorizationView() {
     activeFilter = null;
     
     // Récupérer les nouvelles stats
-    fetch(`../api/categorization/stats?project=${encodeURIComponent(categorizeProjectDir)}&crawl_id=${encodeURIComponent(categorizeCrawlId)}`)
+    fetch(`../api/categorization/stats?project=${encodeURIComponent(categorizeProjectDir)}&crawl_id=${encodeURIComponent(categorizeCrawlId)}&_=${Date.now()}`)
         .then(response => response.json())
         .then(data => {
             if (data.success) {
@@ -2442,11 +2442,30 @@ async function saveCategorization() {
                 isTestMode = false;
             }
 
+            // Mettre à jour les pills immédiatement via test (dry-run avec les nouveaux noms)
+            fetch('../api/categorization/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project: categorizeProjectDir, yaml: yamlContent })
+            })
+            .then(r => r.json())
+            .then(testData => {
+                if (testData.success) {
+                    // Mettre à jour les couleurs globales
+                    testData.stats.forEach(s => {
+                        if (s.color && s.category !== UNCATEGORIZED_LABEL) {
+                            globalCategoryColors[s.category] = s.color;
+                        }
+                    });
+                    renderChart(testData.stats, false);
+                }
+            })
+            .catch(() => {});
+
             // Démarrer le polling du job batch pour suivre la progression
             if (data.batch_job_created && data.job_id) {
                 startBatchPolling(data.job_id);
             } else {
-                // Rafraîchir le graphique et le tableau en AJAX
                 refreshCategorizationView();
             }
         } else {

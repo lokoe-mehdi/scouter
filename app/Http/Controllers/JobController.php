@@ -158,16 +158,17 @@ class JobController extends Controller
         $inlinksProgress = null;
         $pagerankIterations = [];
         $redirectChainsProgress = null;
+        $sitemapProgress = null;
         $staticLogs = [];
-        
+
         foreach ($lines as $line) {
             if (trim($line)) {
                 $cleanLine = preg_replace('/\x1b\[[0-9;]*m/', '', $line);
                 $cleanLine = str_replace("\r", '', $cleanLine);
                 $cleanLine = trim($cleanLine);
-                
+
                 if (empty($cleanLine)) continue;
-                
+
                 if (preg_match('/Depth (\d+) : ([\d.]+) URLs\/sec \((\d+)\/(\d+)\)/', $cleanLine, $matches)) {
                     $depthProgress[$matches[1]] = $cleanLine;
                 } elseif (preg_match('/Inlinks calcul\s*:\s*(\d+)/', $cleanLine)) {
@@ -176,6 +177,8 @@ class JobController extends Controller
                     $pagerankIterations[$matches[1]] = $cleanLine;
                 } elseif (preg_match('/Redirect chains\s*:/', $cleanLine)) {
                     $redirectChainsProgress = $cleanLine;
+                } elseif (preg_match('/Sitemap analysis\s*:/', $cleanLine)) {
+                    $sitemapProgress = $cleanLine;
                 } elseif (!in_array($cleanLine, $staticLogs)) {
                     $staticLogs[] = $cleanLine;
                 }
@@ -205,6 +208,10 @@ class JobController extends Controller
 
         if ($redirectChainsProgress) {
             $fileLogs[] = ['message' => $redirectChainsProgress, 'type' => 'progress', 'created_at' => $now];
+        }
+
+        if ($sitemapProgress) {
+            $fileLogs[] = ['message' => $sitemapProgress, 'type' => 'progress', 'created_at' => $now];
         }
 
         return $fileLogs;

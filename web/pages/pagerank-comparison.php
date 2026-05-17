@@ -50,7 +50,7 @@ $sqlPrByDepth = "
         AVG(pri) as avg_pr,
         COUNT(*) as count
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND pri > 0
+    WHERE crawl_id = :crawl_id AND crawled = true AND pri > 0 AND in_crawl = TRUE
     GROUP BY depth
     ORDER BY depth
 ";
@@ -95,12 +95,12 @@ $sqlPrByDepthDisplay = "SELECT
 FROM (
     SELECT depth, AVG(pri) AS avg_pr, COUNT(*) AS count
     FROM pages@{$safeCrawlId}
-    WHERE crawled = true AND pri > 0 GROUP BY depth
+    WHERE crawled = true AND pri > 0 AND in_crawl = TRUE GROUP BY depth
 ) r
 FULL OUTER JOIN (
     SELECT depth, AVG(pri) AS avg_pr, COUNT(*) AS count
     FROM pages@{$safeCompareId}
-    WHERE crawled = true AND pri > 0 GROUP BY depth
+    WHERE crawled = true AND pri > 0 AND in_crawl = TRUE GROUP BY depth
 ) b ON r.depth = b.depth
 ORDER BY COALESCE(r.depth, b.depth)";
 
@@ -114,7 +114,7 @@ $sqlPrByCategory = "
         AVG(pri) as avg_pr,
         COUNT(*) as count
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND pri > 0
+    WHERE crawl_id = :crawl_id AND crawled = true AND pri > 0 AND in_crawl = TRUE
     GROUP BY cat_id
     ORDER BY AVG(pri) DESC
 ";
@@ -172,12 +172,12 @@ $sqlPrByCatDisplay = "SELECT
 FROM (
     SELECT cat_id, SUM(pri) AS total_pr, AVG(pri) AS avg_pr, COUNT(*) AS count
     FROM pages@{$safeCrawlId}
-    WHERE crawled = true AND pri > 0 GROUP BY cat_id
+    WHERE crawled = true AND pri > 0 AND in_crawl = TRUE GROUP BY cat_id
 ) r
 FULL OUTER JOIN (
     SELECT cat_id, SUM(pri) AS total_pr, AVG(pri) AS avg_pr, COUNT(*) AS count
     FROM pages@{$safeCompareId}
-    WHERE crawled = true AND pri > 0 GROUP BY cat_id
+    WHERE crawled = true AND pri > 0 AND in_crawl = TRUE GROUP BY cat_id
 ) b ON r.cat_id = b.cat_id
 ORDER BY COALESCE(r.avg_pr, b.avg_pr) DESC";
 
@@ -292,9 +292,9 @@ $catBarSeries[] = [
     Component::urlTable([
         'title' => __('comparison.pagerank_lost_table'),
         'id' => 'pagerank_lost_table',
-        'whereClause' => "WHERE c.crawled = true AND c.pri > 0 AND EXISTS (
+        'whereClause' => "WHERE c.crawled = true AND c.pri > 0 AND c.in_crawl = TRUE AND EXISTS (
             SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.pri > c.pri
+            WHERE b.url = c.url AND b.crawled = true AND b.in_crawl = TRUE AND b.pri > c.pri
         )",
         'orderBy' => 'ORDER BY c.pri DESC',
         'defaultColumns' => ['url', 'category', 'pri', 'depth', 'inlinks', 'compliant'],

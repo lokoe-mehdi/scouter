@@ -28,6 +28,7 @@ use App\Http\Controllers\QueryController;
 use App\Http\Controllers\ExportController;
 use App\Http\Controllers\MonitorController;
 use App\Http\Controllers\CategorizationController;
+use App\Http\Controllers\SavedQueryController;
 
 $request = new Request();
 
@@ -81,6 +82,7 @@ try {
     $router->post('/crawls/resume', [CrawlController::class, 'resume'], ['auth' => true]);
     $router->post('/crawls/delete', [CrawlController::class, 'delete'], ['auth' => true]);
     $router->get('/crawls/running', [CrawlController::class, 'runningCrawls'], ['auth' => true]);
+    $router->get('/crawls/fetch-sitemaps', [CrawlController::class, 'fetchSitemaps'], ['auth' => true]);
 
     // =============================================================================
     // JOBS
@@ -111,7 +113,6 @@ try {
     // =============================================================================
     $router->get('/monitor/preview', [MonitorController::class, 'preview'], ['auth' => true]);
     $router->get('/monitor/system', [MonitorController::class, 'systemMonitor'], ['auth' => true]);
-    $router->post('/monitor/test-crawls', [MonitorController::class, 'launchTestCrawls'], ['auth' => true, 'admin' => true]);
 
     // =============================================================================
     // CATEGORIZATION
@@ -120,6 +121,17 @@ try {
     $router->post('/categorization/test', [CategorizationController::class, 'test'], ['auth' => true]);
     $router->get('/categorization/stats', [CategorizationController::class, 'stats'], ['auth' => true]);
     $router->get('/categorization/table', [CategorizationController::class, 'table'], ['auth' => true]);
+
+    // =============================================================================
+    // SAVED QUERIES (per-user SQL snippets dans SQL Explorer)
+    // =============================================================================
+    $router->get('/saved-queries', [SavedQueryController::class, 'index'], ['auth' => true]);
+    $router->post('/saved-queries', [SavedQueryController::class, 'create'], ['auth' => true]);
+    // Routes catégorie déclarées AVANT les routes /{id} pour ne pas matcher par erreur
+    $router->put('/saved-queries/category/rename', [SavedQueryController::class, 'renameCategory'], ['auth' => true]);
+    $router->delete('/saved-queries/category', [SavedQueryController::class, 'deleteCategory'], ['auth' => true]);
+    $router->put('/saved-queries/{id}', [SavedQueryController::class, 'update'], ['auth' => true]);
+    $router->delete('/saved-queries/{id}', [SavedQueryController::class, 'delete'], ['auth' => true]);
 
     // =============================================================================
     // DISPATCH

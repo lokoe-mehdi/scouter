@@ -9,10 +9,10 @@
 
 // Distribution des URLs par profondeur (pour le bar chart)
 $sqlDepth = "
-    SELECT depth, COUNT(*) as count 
-    FROM pages 
-    WHERE crawl_id = :crawl_id AND crawled = true 
-    GROUP BY depth 
+    SELECT depth, COUNT(*) as count
+    FROM pages
+    WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
+    GROUP BY depth
     ORDER BY depth
 ";
 $stmt = $pdo->prepare($sqlDepth);
@@ -32,8 +32,8 @@ $sqlCodes = "
             ELSE 999
         END as code_family,
         COUNT(*) as count 
-    FROM pages 
-    WHERE crawl_id = :crawl_id AND crawled = true 
+    FROM pages
+    WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
     GROUP BY code_family
     ORDER BY code_family
 ";
@@ -81,11 +81,11 @@ foreach ($codeDataRaw as $row) {
 
 // Distribution des catégories (sans jointure, on utilise le tableau PHP)
 $sqlCategories = "
-    SELECT cat_id, COUNT(*) as count 
-    FROM pages 
-    WHERE crawl_id = :crawl_id AND crawled = true 
-    GROUP BY cat_id 
-    ORDER BY count DESC 
+    SELECT cat_id, COUNT(*) as count
+    FROM pages
+    WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
+    GROUP BY cat_id
+    ORDER BY count DESC
     LIMIT 20
 ";
 $stmt = $pdo->prepare($sqlCategories);
@@ -109,7 +109,7 @@ $sqlPageRank = "
         cat_id,
         SUM(pri) as total_pr
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND pri > 0
+    WHERE crawl_id = :crawl_id AND crawled = true AND pri > 0 AND in_crawl = TRUE
     GROUP BY cat_id
     ORDER BY total_pr DESC
 ";
@@ -140,7 +140,7 @@ $sqlContentStats = "
         SUM(CASE WHEN metadesc_status = 'duplicate' THEN 1 ELSE 0 END) as meta_duplicate,
         SUM(CASE WHEN metadesc_status = 'empty' OR metadesc_status IS NULL THEN 1 ELSE 0 END) as meta_empty
     FROM pages
-    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true
+    WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
 $stmt = $pdo->prepare($sqlContentStats);
 $stmt->execute([':crawl_id' => $crawlId]);

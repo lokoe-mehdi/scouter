@@ -70,19 +70,16 @@ $projectSize = '—';
 try {
     $crawlIds = array_map(fn($c) => (int)$c->crawl_id, $crawls);
     if (!empty($crawlIds)) {
+        $idsPattern = implode('|', $crawlIds);
+        $sizeStmt = $pdo->query("
+            SELECT pg_total_relation_size(tablename::regclass) AS s
+            FROM pg_tables
+            WHERE schemaname = 'public'
+              AND tablename ~ '^(pages|links|html|page_schemas|duplicate_clusters|redirect_chains)_({$idsPattern})$'
+        ");
         $totalBytes = 0;
-        foreach ($crawlIds as $cid) {
-            $tables = ['pages', 'links', 'html', 'page_schemas', 'duplicate_clusters', 'redirect_chains'];
-            foreach ($tables as $t) {
-                $tname = $t . '_' . $cid;
-                try {
-                    $stmt = $pdo->query("SELECT pg_total_relation_size('{$tname}') AS s");
-                    $row = $stmt->fetch(PDO::FETCH_OBJ);
-                    if ($row) $totalBytes += (int)$row->s;
-                } catch (Exception $e) {
-                    // Partition doesn't exist (failed crawl), skip
-                }
-            }
+        foreach ($sizeStmt->fetchAll(PDO::FETCH_OBJ) as $row) {
+            $totalBytes += (int)$row->s;
         }
         if ($totalBytes >= 1073741824) $projectSize = round($totalBytes / 1073741824, 2) . ' GB';
         elseif ($totalBytes >= 1048576) $projectSize = round($totalBytes / 1048576, 1) . ' MB';
@@ -176,6 +173,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     <title>Scouter - <?= htmlspecialchars($domainName) ?></title>
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="assets/style.css?v=<?= time() ?>">
+    <link rel="stylesheet" href="assets/responsive.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/crawl-panel.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
     <script src="assets/i18n.js"></script>
@@ -606,7 +604,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             const data = await resp.json();
             if (data.success) {
                 CrawlPanel.start(data.project_dir, data.domain || 'Crawl', data.crawl_id);
-                setTimeout(() => window.location.reload(), 2000);
+                // Rafraîchit la liste des crawls sans recharger la page (sinon ça
+                // fermerait la sidebar CrawlPanel qui vient de démarrer)
+                setTimeout(() => refreshCrawlList(), 1500);
             } else { alert(__('common.error') + ': ' + (data.error || '')); button.disabled = false; button.innerHTML = originalHTML; }
         } catch (e) { alert(__('common.error') + ': ' + e.message); button.disabled = false; button.innerHTML = originalHTML; }
     }
@@ -793,7 +793,52 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         setTimeout(() => { if (startUrl) startUrl.focus(); }, 100);
         switchCrawlTab('general');
         initDefaultExtractors();
+        // Auto-remplir le sitemap depuis /robots.txt (async, silencieux si échec)
+        if (startUrl && startUrl.value) autoFillSitemapFromRobots(startUrl.value);
     }
+
+    // Récupère l'instruction Sitemap du /robots.txt via l'endpoint backend (évite CORS)
+    // et préremplit le textarea correspondant. Silencieux en cas d'échec.
+    let _robotsSitemapLastOrigin = null;
+    let _robotsSitemapController = null;
+    async function autoFillSitemapFromRobots(url) {
+        const sitemapField = document.getElementById('sitemap_urls');
+        if (!sitemapField || sitemapField.value.trim()) return;
+        let origin;
+        try { origin = new URL(url.trim()).origin; } catch (err) { return; }
+        if (origin === _robotsSitemapLastOrigin) return;
+        _robotsSitemapLastOrigin = origin;
+        if (_robotsSitemapController) _robotsSitemapController.abort();
+        _robotsSitemapController = new AbortController();
+        try {
+            const resp = await fetch('api/crawls/fetch-sitemaps?url=' + encodeURIComponent(origin), {
+                signal: _robotsSitemapController.signal,
+                credentials: 'same-origin',
+                cache: 'no-store'
+            });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const sitemaps = (data && Array.isArray(data.sitemaps)) ? data.sitemaps : [];
+            if (sitemaps.length && !sitemapField.value.trim()) {
+                sitemapField.value = sitemaps.join('\n');
+            }
+        } catch (error) {
+            // Silencieux
+        }
+    }
+
+    // Si l'utilisateur modifie le start_url, on retente le fetch (débouncé)
+    (function() {
+        const startUrlEl = document.getElementById('start_url');
+        if (!startUrlEl) return;
+        let debounceTimer = null;
+        startUrlEl.addEventListener('input', function(e) {
+            const v = e.target.value.trim();
+            if (!v) return;
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => autoFillSitemapFromRobots(v), 600);
+        });
+    })();
     function closeNewProjectModal() {
         document.getElementById('newProjectModal').style.display = 'none';
         document.getElementById('newProjectForm').reset();
@@ -819,25 +864,78 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         btn.classList.add('active');
         document.getElementById('crawl_mode').value = mode;
     }
-    function toggleSpeedDropdown(e) { e.stopPropagation(); document.getElementById('speedDropdown').classList.toggle('show'); }
-    function selectSpeedOption(value, name, desc, icon) {
-        document.getElementById('crawl_speed').value = value;
-        const trigger = document.querySelector('.speed-select-trigger');
-        trigger.querySelector('.speed-select-name').textContent = name;
-        trigger.querySelector('.speed-select-desc').textContent = desc;
-        trigger.querySelector('.speed-icon').textContent = icon;
-        trigger.querySelector('.speed-icon').className = 'material-symbols-outlined speed-icon speed-icon-' + value;
-        document.getElementById('speedDropdown').classList.remove('show');
+    function toggleSpeedDropdown(event) {
+        event.stopPropagation();
+        const select = document.getElementById('speedSelect');
+        const dropdown = document.getElementById('speedDropdown');
+        const trigger = select.querySelector('.speed-select-trigger');
+
+        if (select.classList.contains('open')) {
+            select.classList.remove('open');
+            dropdown.style.display = 'none';
+        } else {
+            // Déplacer le dropdown dans le body pour échapper aux overflow:hidden parents
+            if (dropdown.parentElement !== document.body) {
+                document.body.appendChild(dropdown);
+            }
+            const rect = trigger.getBoundingClientRect();
+            dropdown.style.position = 'fixed';
+            dropdown.style.top = (rect.bottom + 2) + 'px';
+            dropdown.style.left = rect.left + 'px';
+            dropdown.style.width = rect.width + 'px';
+            dropdown.style.display = 'block';
+            dropdown.style.zIndex = '2147483647';
+            select.classList.add('open');
+        }
     }
-    function toggleUADropdown() { document.getElementById('uaDropdown').classList.toggle('show'); }
+    function selectSpeedOption(value, name, desc, icon) {
+        const select = document.getElementById('speedSelect');
+        const dropdown = document.getElementById('speedDropdown');
+        document.getElementById('crawl_speed').value = value;
+        const triggerValue = select.querySelector('.speed-select-value');
+        triggerValue.innerHTML = '<span class="material-symbols-outlined speed-icon speed-icon-' + value + '">' + icon + '</span>'
+            + '<div class="speed-select-text"><span class="speed-select-name">' + name + '</span><span class="speed-select-desc">' + desc + '</span></div>';
+        dropdown.querySelectorAll('.speed-select-option').forEach(opt => {
+            opt.classList.toggle('selected', opt.dataset.value === value);
+        });
+        select.classList.remove('open');
+        dropdown.style.display = 'none';
+    }
+    // Presets UA (alignés sur index.php) : utilisés par selectUAOption et applyCustomUA
+    const uaPresets = {
+        'scouter': 'Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)',
+        'googlebot-mobile': 'Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2272.96 Mobile Safari/537.36 (compatible; Googlebot/2.1; +https://www.google.com/bot.html)',
+        'googlebot-desktop': 'Mozilla/5.0 (compatible; Googlebot/2.1; +https://www.google.com/bot.html)',
+        'chrome': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'
+    };
+
+    function toggleUADropdown() {
+        const select = document.getElementById('uaSelect');
+        const dropdown = document.getElementById('uaDropdown');
+        const trigger = select.querySelector('.ua-select-trigger');
+        if (select.classList.contains('open')) {
+            select.classList.remove('open');
+        } else {
+            const rect = trigger.getBoundingClientRect();
+            dropdown.style.top = (rect.bottom + 2) + 'px';
+            dropdown.style.left = rect.left + 'px';
+            dropdown.style.width = rect.width + 'px';
+            select.classList.add('open');
+        }
+    }
     function selectUAOption(value, name, desc, icon) {
-        const presets = { 'scouter': 'Scouter/0.3 (Crawler developed by Lokoé SASU; +https://lokoe.fr/scouter-crawler)', 'googlebot-mobile': 'Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2272.96 Mobile Safari/537.36 (compatible; Googlebot/2.1; +https://www.google.com/bot.html)', 'googlebot-desktop': 'Mozilla/5.0 (compatible; Googlebot/2.1; +https://www.google.com/bot.html)', 'chrome': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36' };
-        document.getElementById('user_agent').value = presets[value] || presets['scouter'];
-        const trigger = document.querySelector('.ua-select-trigger');
-        trigger.querySelector('.ua-select-name').textContent = name;
-        trigger.querySelector('.ua-select-desc').textContent = desc;
-        trigger.querySelector('.ua-icon').textContent = icon;
-        document.getElementById('uaDropdown').classList.remove('show');
+        const select = document.getElementById('uaSelect');
+        const trigger = select.querySelector('.ua-select-value');
+        document.getElementById('user_agent').value = uaPresets[value] || uaPresets['scouter'];
+        let iconClass = 'ua-icon-scouter';
+        if (value.includes('googlebot')) iconClass = 'ua-icon-googlebot';
+        if (value === 'chrome') iconClass = 'ua-icon-chrome';
+        trigger.innerHTML = '<span class="material-symbols-outlined ua-icon ' + iconClass + '">' + icon + '</span>'
+            + '<div class="ua-select-text"><span class="ua-select-name">' + name + '</span><span class="ua-select-desc">' + desc + '</span></div>';
+        select.querySelectorAll('.ua-select-option').forEach(opt => {
+            opt.classList.toggle('selected', opt.dataset.value === value);
+        });
+        select.classList.remove('open');
     }
     function applyCustomUA() { const v = document.getElementById('custom_ua_input').value.trim(); if (v) document.getElementById('user_agent').value = v; }
     function toggleAuthFields() { document.getElementById('authFields').style.display = document.getElementById('enable_auth').checked ? '' : 'none'; }
@@ -915,6 +1013,21 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     function updateUrlCounter() { const t = document.getElementById('url_list'); const c = t.value.split('\n').filter(l => l.trim()).length; document.getElementById('urlCounter').textContent = c + ' URLs'; }
 
     // Create project (submit form)
+    // Rafraîchit la liste des crawls (#pjCrawlList) sans recharger toute la page.
+    // Fetch la page courante, extrait juste le div #pjCrawlList et remplace.
+    // Simple, pas d'endpoint partial à maintenir.
+    async function refreshCrawlList() {
+        try {
+            const resp = await fetch(window.location.href, { credentials: 'same-origin' });
+            if (!resp.ok) return;
+            const html = await resp.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const fresh = doc.getElementById('pjCrawlList');
+            const current = document.getElementById('pjCrawlList');
+            if (fresh && current) current.innerHTML = fresh.innerHTML;
+        } catch (e) { /* silencieux */ }
+    }
+
     async function createProject(event) {
         event.preventDefault();
         const submitBtn = document.getElementById('submitBtn');
@@ -940,6 +1053,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             crawl_type: crawlType,
             user_agent: document.getElementById('user_agent').value,
             allowed_domains: document.getElementById('allowed_domains').value.trim().split('\n').filter(d=>d.trim()),
+            sitemap_urls: document.getElementById('sitemap_urls').value.trim().split('\n').map(u=>u.trim()).filter(u=>u),
             custom_headers: customHeaders,
             http_auth: enableAuth ? { username: document.getElementById('auth_username').value.trim(), password: document.getElementById('auth_password').value.trim() } : null,
             extractors: extractors,
@@ -971,7 +1085,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
 
             closeNewProjectModal();
             CrawlPanel.start(result.project_dir, '<?= htmlspecialchars($domainName) ?>', crawlResult.crawl_id);
-            setTimeout(() => window.location.reload(), 2000);
+            // Rafraîchit la liste des crawls sans recharger toute la page
+            // (le crawl s'affiche dans l'historique au bout de quelques secondes)
+            setTimeout(() => refreshCrawlList(), 1500);
         } catch(e) {
             document.getElementById('formMessage').innerHTML = '<div class="error">' + e.message + '</div>';
         }
@@ -1027,8 +1143,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     // Close modal on outside click
     document.addEventListener('click', function(e) {
         if (e.target.id === 'newProjectModal') closeNewProjectModal();
-        const sd = document.getElementById('speedDropdown'); if (sd && !e.target.closest('.custom-speed-select')) sd.classList.remove('show');
-        const ud = document.getElementById('uaDropdown'); if (ud && !e.target.closest('.custom-ua-select')) ud.classList.remove('show');
+        const ss = document.getElementById('speedSelect');
+        const sd = document.getElementById('speedDropdown');
+        if (ss && sd && !ss.contains(e.target) && !sd.contains(e.target)) {
+            ss.classList.remove('open');
+            sd.style.display = 'none';
+        }
+        const us = document.getElementById('uaSelect');
+        if (us && !us.contains(e.target)) us.classList.remove('open');
     });
 
     // Pagination

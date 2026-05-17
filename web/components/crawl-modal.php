@@ -138,6 +138,13 @@
                             <div class="scope-hint"><span class="material-symbols-outlined">auto_awesome</span><?= __('index.modal_allowed_domains_hint') ?></div>
                         </div>
                     </div>
+                    <div class="scope-section" id="sitemapUrlsSection">
+                        <h4 class="scope-section-title"><span class="material-symbols-outlined">map</span><?= __('index.modal_sitemap_urls') ?></h4>
+                        <div class="scope-section-content">
+                            <textarea id="sitemap_urls" name="sitemap_urls" rows="3" placeholder="https://example.com/sitemap.xml&#10;https://example.com/sitemap-news.xml" class="domains-textarea"></textarea>
+                            <div class="scope-hint"><span class="material-symbols-outlined">info</span><?= __('index.modal_sitemap_urls_hint') ?></div>
+                        </div>
+                    </div>
                     <div class="scope-section">
                         <h4 class="scope-section-title"><span class="material-symbols-outlined">rule</span><?= __('index.modal_crawl_rules') ?></h4>
                         <div class="rules-grid">
@@ -185,7 +192,7 @@
                 <div class="crawl-tab-pane" id="tab-advanced">
                     <div class="advanced-section">
                         <h4 class="advanced-section-title"><span class="material-symbols-outlined">smart_toy</span>User-Agent</h4>
-                        <input type="hidden" id="user_agent" name="user_agent" value="Scouter/0.3 (Crawler developed by Lokoé SASU; +https://lokoe.fr/scouter-crawler)" required>
+                        <input type="hidden" id="user_agent" name="user_agent" value="Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)" required>
                         <div class="custom-ua-select" id="uaSelect">
                             <div class="ua-select-trigger" onclick="toggleUADropdown()">
                                 <div class="ua-select-value"><span class="material-symbols-outlined ua-icon ua-icon-scouter">smart_toy</span><div class="ua-select-text"><span class="ua-select-name">Scouter</span><span class="ua-select-desc"><?= __('index.ua_default') ?></span></div></div>

@@ -1,0 +1,6 @@
+# comment line should be ignored
+https://example.com/p1
+https://example.com/p2
+
+https://example.com/p3
+not-a-url
