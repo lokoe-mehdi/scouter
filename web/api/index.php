@@ -34,6 +34,7 @@ use App\Http\Controllers\AICategorizationController;
 use App\Http\Controllers\AISqlController;
 use App\Http\Controllers\AIUrlFiltersController;
 use App\Http\Controllers\AILinkFiltersController;
+use App\Http\Controllers\DrBriefController;
 
 $request = new Request();
 
@@ -149,6 +150,7 @@ try {
     $router->post('/sql/ai-generate', [AISqlController::class, 'generate'], ['auth' => true]);
     $router->post('/url-explorer/ai-filters', [AIUrlFiltersController::class, 'suggest'], ['auth' => true]);
     $router->post('/link-explorer/ai-filters', [AILinkFiltersController::class, 'suggest'], ['auth' => true]);
+    $router->post('/dr-brief/chat', [DrBriefController::class, 'chat'], ['auth' => true]);
 
     // =============================================================================
     // DISPATCH

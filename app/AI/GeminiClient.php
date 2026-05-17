@@ -145,24 +145,31 @@ class GeminiClient
     public static function generateContent(string $apiKey, string $model, string $prompt): array
     {
         $url = self::BASE . '/models/' . rawurlencode($model) . ':generateContent?key=' . rawurlencode($apiKey);
-        // Disable "thinking" mode on models that support it (Gemini 2.5 Flash/Pro,
-        // 3.x). For URL categorization we want pattern matching, not deep
-        // reasoning — and thinking can add 30–60s of latency before the first
-        // token is emitted. thinkingBudget=0 forces an immediate answer.
-        // Models without thinking support silently ignore this field.
-        $payload = json_encode([
+        // Disable "thinking" mode by default — for our use cases (categorize,
+        // filter, SQL gen) we want pattern matching, not deep reasoning, and
+        // thinking can add 30–60s of latency before any output. Some models
+        // (deep-research-*, certain preview models) REQUIRE thinking and will
+        // reject thinkingBudget=0 with HTTP 400 — handled below with a retry.
+        $base = [
             'contents' => [
                 ['parts' => [['text' => $prompt]]],
             ],
             'generationConfig' => [
                 'temperature' => 0.2,
-                'thinkingConfig' => [
-                    'thinkingBudget' => 0,
-                ],
+                'thinkingConfig' => ['thinkingBudget' => 0],
             ],
-        ]);
+        ];
 
-        $response = self::httpPost($url, $payload, self::TIMEOUT_GENERATE);
+        $response = self::httpPost($url, json_encode($base), self::TIMEOUT_GENERATE);
+
+        // Auto-fallback: if the model requires thinking, drop thinkingConfig
+        // and retry. This way we keep the fast no-thinking path as default
+        // and only pay the latency on models that have no choice.
+        if (self::isThinkingRequiredError($response)) {
+            unset($base['generationConfig']['thinkingConfig']);
+            $response = self::httpPost($url, json_encode($base), self::TIMEOUT_GENERATE);
+        }
+
         if (!$response['ok']) {
             return $response;
         }
@@ -192,6 +199,29 @@ class GeminiClient
     // -------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------
+
+    /**
+     * Detect the specific 400 we get from models that don't support
+     * thinkingBudget=0 (deep-research, some preview models). Message looks
+     * like "Budget 0 is invalid. This model only works in thinking mode."
+     */
+    public static function isThinkingRequiredError(array $response): bool
+    {
+        // Either we got an HTTP error and the error message is in $response['error'],
+        // or we got a 200 with an error embedded in the body — check both.
+        $msg = '';
+        if (!empty($response['error'])) {
+            $msg = (string)$response['error'];
+        } elseif (!empty($response['body'])) {
+            $decoded = json_decode($response['body'], true);
+            $msg = (string)($decoded['error']['message'] ?? '');
+        }
+        if ($msg === '') return false;
+        $low = strtolower($msg);
+        return (strpos($low, 'thinking mode') !== false)
+            || (strpos($low, 'budget 0 is invalid') !== false)
+            || (strpos($low, 'thinkingbudget') !== false && strpos($low, 'invalid') !== false);
+    }
 
     private static function httpGet(string $url): array
     {

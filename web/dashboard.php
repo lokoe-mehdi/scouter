@@ -544,5 +544,7 @@ function isSectionCollapsed($sectionName) {
     <?php include 'components/url-details-modal.php'; ?>
     <?php include 'components/quick-search.php'; ?>
     <?php include 'components/crawl-panel.php'; ?>
+    <?php /* Dr. Brief chat assistant. Renders nothing if AI is not configured. */ ?>
+    <?php include 'components/dr-brief-widget.php'; ?>
 </body>
 </html>

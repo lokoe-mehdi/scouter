@@ -81,7 +81,17 @@ foreach ($virtualToReal as $virtual => $real) {
 }
 
 // Requête passée en paramètre GET (depuis la modale scope)
-$initialQuery = isset($_GET['query']) ? $_GET['query'] : 'SELECT * FROM pages LIMIT 100';
+// Initial SQL : accept either `?query=<raw>` (legacy) or `?q=<base64url>` (Dr. Brief
+// deeplinks — base64 lets us pack complex SQL with quotes / newlines through the URL).
+$initialQuery = 'SELECT * FROM pages LIMIT 100';
+if (isset($_GET['q']) && $_GET['q'] !== '') {
+    $decoded = base64_decode(strtr($_GET['q'], '-_', '+/'), true);
+    if ($decoded !== false && $decoded !== '') {
+        $initialQuery = $decoded;
+    }
+} elseif (isset($_GET['query']) && $_GET['query'] !== '') {
+    $initialQuery = $_GET['query'];
+}
 
 // Requêtes pré-enregistrées (adaptées pour PostgreSQL)
 // Convention : chaque entrée porte un `category_key` machine-friendly (utilisé
@@ -3522,6 +3532,22 @@ async function generateSqlFromNaturalLanguage() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
+    // If we landed here with ?run=1 (typically from a Dr. Brief deeplink),
+    // auto-execute the prefilled query once the editor is initialised.
+    // We strip the param from the URL afterwards so a refresh doesn't re-run.
+    try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('run') === '1' && typeof executeQuery === 'function') {
+            // Give CodeMirror one tick to mount, then run.
+            setTimeout(() => {
+                try { executeQuery(); } catch (e) { console.error('Auto-run failed:', e); }
+            }, 100);
+            params.delete('run');
+            const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+            window.history.replaceState({}, '', newUrl);
+        }
+    } catch (e) { /* non-blocking */ }
+
     const aiInput  = document.getElementById('aiSqlInput');
     const popover  = document.getElementById('aiSqlPopover');
     const openBtn  = document.getElementById('aiSqlOpenBtn');
