@@ -526,7 +526,7 @@
     "dashboard.no_indexable_pages_desc": "Questa scansione non ha trovato pagine indicizzabili. I dati per questa sezione non sono disponibili.",
     "dr_brief.collapse": "Riduci",
     "dr_brief.example_broken_links": "Puoi elencarmi tutti i link rotti così posso correggerli?",
-    "dr_brief.example_explain": "Puoi spiegarmi il report che sto guardando?",
+    "dr_brief.example_explain": "Puoi analizzare il report che sto guardando e dirmi quali azioni dovrei mettere in atto?",
     "dr_brief.example_seo_tags": "Mostrami le pagine i cui tag semantici (h1, title, meta description) non sono ottimizzati — voglio vedere lo stato e il contenuto dei tag",
     "dr_brief.executing": "Esecuzione…",
     "dr_brief.expand": "Ingrandisci",

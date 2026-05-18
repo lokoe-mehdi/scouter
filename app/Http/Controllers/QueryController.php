@@ -77,8 +77,12 @@ class QueryController extends Controller
         $queryClean = preg_replace('/--.*$/m', ' ', $queryClean);  // strip line comments
         $queryUpper = strtoupper(trim($queryClean));
 
-        if (strpos($queryUpper, 'SELECT') !== 0) {
-            Response::forbidden('Seules les requêtes SELECT sont autorisées.');
+        // Accept SELECT or WITH (CTE) at the start. WITH RECURSIVE stays
+        // blocked further down. Any write op inside a CTE (e.g. `WITH x AS
+        // (INSERT ...) ...`) is caught by the FORBIDDEN_KEYWORDS scan + the
+        // READ ONLY transaction.
+        if (strpos($queryUpper, 'SELECT') !== 0 && strpos($queryUpper, 'WITH') !== 0) {
+            Response::forbidden('Seules les requêtes SELECT ou WITH … SELECT sont autorisées.');
         }
 
         // Block multi-statement attacks
@@ -165,6 +169,23 @@ class QueryController extends Controller
             'pages', 'links',
             'duplicate_clusters', 'page_schemas', 'redirect_chains',
         ];
+        // Extract CTE names so the whitelist doesn't flag them. A query like
+        // `WITH ranked AS (SELECT ...) SELECT * FROM ranked` would otherwise
+        // fail on `ranked` because it appears after FROM. We collect all CTE
+        // identifiers and treat them as valid local table names for this
+        // query only. The `AS\s*\(` (parenthesis required) avoids matching
+        // column aliases like `AS rk`.
+        $cteNames = [];
+        if (preg_match_all(
+            '/(?:\bWITH\s+|,\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(/i',
+            $transformedQuery,
+            $cteMatches
+        )) {
+            foreach ($cteMatches[1] as $name) {
+                $cteNames[] = strtolower($name);
+            }
+        }
+
         // Extrait tous les noms de tables après FROM / JOIN, en gérant "schema.table",
         // les quoted identifiers, et en isolant le dernier segment (= nom de table).
         preg_match_all(
@@ -175,6 +196,7 @@ class QueryController extends Controller
         foreach (array_unique($tableMatches[1] ?? []) as $tableName) {
             $tableLower = strtolower($tableName);
             $isAllowed = in_array($tableLower, $allowedTables, true)
+                || in_array($tableLower, $cteNames, true)
                 || preg_match('/^(pages|links|duplicate_clusters|page_schemas|redirect_chains)_\d+$/i', $tableLower);
             if (!$isAllowed) {
                 Response::forbidden(

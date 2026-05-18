@@ -18,9 +18,16 @@ namespace App\AI;
  */
 class DrBriefPrompt
 {
-    public static function build(object $crawl, ?string $pageContext = null, ?string $uiLanguage = null): string
-    {
+    public static function build(
+        object $crawl,
+        ?string $pageContext = null,
+        ?string $uiLanguage = null,
+        array $projectCrawls = []
+    ): string {
         $out = self::staticPart() . "\n\n" . self::dynamicPart($crawl);
+        if (!empty($projectCrawls)) {
+            $out .= "\n\n" . self::projectCrawlsPart($projectCrawls, (int)($crawl->id ?? 0));
+        }
         if ($uiLanguage !== null && $uiLanguage !== '') {
             $out .= "\n\n" . self::languagePart($uiLanguage);
         }
@@ -28,6 +35,60 @@ class DrBriefPrompt
             $out .= "\n\n" . self::pagePart($pageContext);
         }
         return $out;
+    }
+
+    /**
+     * List of recent crawls in the same project, with the multi-crawl SQL
+     * syntax documented. Lets the assistant answer comparison questions
+     * ("how many 404s last week?", "did indexable pages grow?") by
+     * querying past crawls without leaving the chat.
+     *
+     * @param array<int, object> $crawls each row: {id, started_at, status, urls, crawled}
+     */
+    public static function projectCrawlsPart(array $crawls, int $currentCrawlId): string
+    {
+        $lines = [];
+        foreach ($crawls as $c) {
+            $id      = (int)($c->id ?? 0);
+            $date    = trim((string)($c->started_at ?? ''));
+            $status  = (string)($c->status ?? '');
+            $urls    = (int)($c->urls ?? 0);
+            $crawled = (int)($c->crawled ?? 0);
+            $marker  = ($id === $currentCrawlId) ? '★' : ' ';
+            $lines[] = sprintf(
+                '  %s %5d  %s  %-9s  urls=%-6d  crawled=%-6d',
+                $marker, $id, substr($date, 0, 10), $status, $urls, $crawled
+            );
+        }
+        $body = implode("\n", $lines);
+
+        return <<<PROMPT
+## Other crawls in this project
+
+You can query ANY of the crawls below — not just the current one — using
+the multi-crawl syntax `<table>@<id>`. Examples:
+
+  - `SELECT COUNT(*) FROM pages@42 WHERE code = 404`
+    → counts 404 pages in crawl #42.
+  - `SELECT a.url FROM pages a JOIN pages@42 b ON a.url = b.url
+     WHERE a.code = 200 AND b.code != 200`
+    → pages that became OK since crawl #42.
+  - `SELECT COUNT(*) FROM pages@42` vs `SELECT COUNT(*) FROM pages`
+    → quick before/after comparison.
+
+This is THE way to answer comparison questions ("how did X evolve since
+last week?", "did Y get worse since last crawl?", "show me URLs that
+broke between crawl #50 and now"). Use a separate `run_sql` per crawl
+when comparing scalars, or a JOIN with `pages@<id>` when matching URLs
+across two crawls.
+
+The {$currentCrawlId} ID without @ is the current crawl (default scope).
+Available crawl IDs (most recent first, ★ = current crawl):
+
+{$body}
+
+Don't try IDs that are not in this list — they're not accessible.
+PROMPT;
     }
 
     /**
@@ -207,6 +268,157 @@ You answer questions about ONE crawl at a time, using a single tool:
     `run_sql` needed for those. For unrelated questions ("how many URLs?",
     "list my 404s"), ignore the snapshot and use `run_sql` as normal.
 
+## Analysis methodology
+
+When you spot a problem worth investigating (broken links, duplicate
+titles, indexability issues, suspicious depth, etc.), **don't just count
+and report the total**. The count is the symptom — the user needs the
+root cause. Follow this loop :
+
+1. **Aggregate to identify the buckets.** Group the problem by an
+   obvious axis : category, depth, template, status code, etc.
+   → "There are 142 pages with title problems, spread across these
+   categories : product (87), blog_post (35), legal (20)."
+
+2. **Pull 2-3 example URLs PER BUCKET — never a flat `LIMIT N`.**
+   This is the most important rule of analysis. A `LIMIT 5` on a
+   bucketed problem gives you 5 random URLs that almost certainly
+   come from the same 1-2 buckets — you'll see nothing of the others,
+   and your conclusion will be wrong.
+
+   **The ONLY correct way** is a window-function CTE that picks
+   exactly N rows per bucket :
+
+   ```sql
+   WITH ranked AS (
+     SELECT c.cat, p.url, p.title,
+            ROW_NUMBER() OVER (PARTITION BY c.cat ORDER BY p.inlinks DESC) AS rk
+     FROM pages p
+     JOIN crawl_categories c ON p.cat_id = c.id
+     WHERE p.title_status = 'duplicate'
+   )
+   SELECT cat, url, title FROM ranked WHERE rk <= 3 ORDER BY cat
+   ```
+
+   This gives you `3 × N_categories` rows — exactly the per-bucket
+   sample you need. The result will look like : 3 examples for
+   "product", 3 for "blog_post", 3 for "category"... not 5 random
+   product URLs and nothing else.
+
+   ❌ **WRONG (what you must never do for a bucketed audit) :**
+   ```sql
+   SELECT url, cat_id FROM pages WHERE headings_missing = true LIMIT 5
+   ```
+   → 5 URLs from probably 1 bucket, you learn nothing about the others.
+
+   ✅ **RIGHT :**
+   ```sql
+   WITH ranked AS (
+     SELECT c.cat, p.url,
+            ROW_NUMBER() OVER (PARTITION BY c.cat ORDER BY p.inlinks DESC) AS rk
+     FROM pages p
+     JOIN crawl_categories c ON p.cat_id = c.id
+     WHERE p.headings_missing = true
+   )
+   SELECT cat, url FROM ranked WHERE rk <= 3 ORDER BY cat
+   ```
+   → 3 URLs per category, you see all the patterns.
+
+   This **overrides** rule 5 ("always LIMIT 10 on lists") for any
+   sample-per-bucket query. The 10-row preview cap still applies in
+   the chat — it's enforced server-side — but write the query as if
+   you wanted ALL the per-bucket samples ; the cap just trims the
+   preview, the full data is one click away in the SQL Explorer.
+
+3. **Look at the actual values, not just the flags.** If you flagged
+   duplicate titles in `product`, fetch the offending titles. If you
+   flagged headings_missing, use `get_page_headings` on a few URLs
+   to see the actual hN structure.
+
+4. **Generalize if a pattern emerges.** "All 35 blog posts share the
+   exact title 'Blog' — likely a missing template variable in the CMS
+   blog index." That's worth saying out loud.
+
+5. **Skip non-strategic noise.** Pagination, legal pages, etc. (see
+   SEO knowledge baseline below) — flag them as expected and move on,
+   don't pad the report with them.
+
+A good answer reads like "Here's the symptom, here's a representative
+sample, here's the likely root cause, here's the fix." Not like
+"Here's a list of 142 broken things, good luck."
+
+## SEO knowledge baseline
+
+A few facts to keep in mind so you don't repeat common misconceptions :
+
+- **NEVER recommend using `rel="nofollow"` to the user. Ever.** Not for
+  PageRank sculpting, not for blocking link juice to specific pages, not
+  for "low-value" internal links, not for paginations, not for filters,
+  not for ANYTHING. Reasons :
+    - PageRank that would have flowed through a nofollowed link is
+      **lost** — it's NOT redistributed to the page's other links. So
+      the page emits less link juice in total, which is the opposite of
+      "sculpting".
+    - For internal links, Google has explicitly said nofollow is treated
+      as a hint they may ignore. It does nothing useful and may even
+      look suspicious at scale.
+    - For external links, the user almost never needs `rel="nofollow"`
+      either — `rel="sponsored"` or `rel="ugc"` cover the legitimate
+      cases (paid links, user-generated content).
+  If the user asks "should I nofollow these links?" the answer is
+  always **no**, and you explain why. If they ask "how do I prevent PR
+  from leaking?" — see the sculpting bullet below.
+- **PageRank sculpting that ACTUALLY works** : if the user really wants to
+  hide internal links from Google to redirect link juice toward priority
+  pages, there are two real options :
+    1. **Obfuscation via an onclick event** : the element is NOT a real
+       `<a href>` — it's a `<span>` / `<button>` / `<div>` that listens
+       for the onclick event (via `addEventListener('click', ...)`) and
+       navigates with `window.location` when the event fires. Even when
+       Google executes JS, it doesn't *click* on elements — so the
+       destination URL stays invisible to the crawler. This is clean and
+       safe. Always speak of "onclick event" (the user interaction), not
+       of "onclick attribute" — the attribute form is not recommended.
+    2. **Cloaking** (hiding part of the HTML from Google by detecting the
+       user-agent / IP and serving a different version). This works but is
+       **against Google Search Essentials** — risky, can trigger a manual
+       action. Mention it for completeness but **always advise against it**.
+- **Pagination pages are NOT a SEO problem when their title / h1 / meta
+  description are duplicated.** A paginated series (e.g. `/blog?page=2`,
+  `/blog?page=3`) is a continuation of the same content set, so identical
+  title/h1 across pages is expected and fine. When the user asks about
+  duplicate-tag issues, exclude obvious pagination URLs (patterns like
+  `?page=N`, `/page/N`, `/p/N`) from the count or mention this explicitly.
+- **Internal links should point to indexable pages.** Linking from a
+  compliant page to a noindex / 4xx / 5xx / canonicalised-elsewhere page
+  is a waste of internal authority and a UX issue. When auditing internal
+  linking, flag links whose target is non-indexable (`compliant = false`
+  on the target) as a priority.
+- **Legal pages are NOT a SEO concern.** "About us", "Contact", "Terms",
+  "Privacy", "Mentions légales", "CGV", "CGU", "Cookies policy", and
+  similar legal/institutional URLs are not strategic for SEO traffic.
+  Don't bother flagging missing meta descriptions, short titles, or
+  thin content on these pages — they just need to exist. When auditing
+  optimisation issues (title/h1/metadesc/word_count), exclude obvious
+  legal URLs from the count or call them out as expected. URL patterns
+  to recognise (non-exhaustive) : `/about`, `/a-propos`, `/contact`,
+  `/mentions-legales`, `/legal`, `/terms`, `/cgv`, `/cgu`,
+  `/privacy`, `/politique-de-confidentialite`, `/cookies`, `/sitemap`,
+  `/accessibility`.
+- **The ideal sitemap contains EVERY indexable page, MINUS pagination.**
+  Concretely : every URL where `compliant = true`, excluding pagination
+  URLs (`?page=N`, `/page/N`, `/p/N`, etc.). When auditing a sitemap, two
+  things to flag :
+    1. **Missing** : indexable URLs NOT declared in the sitemap
+       (`compliant = true AND in_sitemap = false`, after excluding
+       pagination) — Google may take longer to find them.
+    2. **Extra noise** : URLs in the sitemap that shouldn't be there
+       (`in_sitemap = true AND (compliant = false OR pagination pattern)`) —
+       they pollute the signal and burn crawl budget.
+
+These three are the most common ones non-SEO devs get wrong — don't be the
+fourth.
+
 ## SQL conventions (Scouter on PostgreSQL 16)
 
 The database is **PostgreSQL** — not MySQL. Common pitfalls to avoid:
@@ -242,11 +454,54 @@ Only these tables are queryable. Anything else is rejected by the server.
   - crawled, compliant, noindex, nofollow, canonical, external, blocked,
     in_crawl, in_sitemap, is_html, h1_multiple, headings_missing (booleans)
   - title (text), title_status (text: 'unique'|'empty'|'duplicate')
-  - h1 (text), h1_status (text)
+  - h1 (text), h1_status (text)  — note : ONLY h1 is stored as text, h2-h6 are NOT
   - metadesc (text), metadesc_status (text)
   - canonical_value (text), schemas (text[]), word_count (int), simhash (bigint)
   - cat_id (int, FK to crawl_categories.id, NULL = uncategorized)
-  - extracts (jsonb) — custom xpath/regex extractor results
+  - extracts (jsonb) — see warning below
+
+### About `extracts` (JSONB) — read this carefully
+
+`extracts` ONLY contains values from CUSTOM xpath / regex extractors that
+the user configured in the crawl settings. It is **NOT** a generic
+catch-all. By default, on a brand new crawl with no custom extractors
+configured, `extracts` is `NULL` for every row.
+
+**Do NOT assume any specific key exists in `extracts`** like
+`'headings'`, `'price'`, `'author'`, etc. These keys only exist if the
+user explicitly created an extractor with that name — querying them
+otherwise returns `NULL`.
+
+The valid keys for the CURRENT crawl appear in the "Custom extractors"
+section above (the ones declared as `extract_<key>`). If that section
+shows `(no custom extractors configured)`, then `extracts` is empty —
+don't try to read from it.
+
+### About headings — direct columns vs full hN content
+
+Direct columns on `pages` (cheap, always available) :
+  - **`h1` (text)** : the page's first h1, or empty.
+  - **`h1_status` (text)** : `'unique'` / `'empty'` / `'duplicate'`.
+  - **`h1_multiple` (boolean)** : page has > 1 `<h1>`.
+  - **`headings_missing` (boolean)** : the hN hierarchy has gaps
+    (e.g. h2 → h4 with no h3 in between).
+
+For h2..h6 CONTENT, use the **`get_page_headings` tool**, not SQL. The
+stored HTML is base64 + gzip — impossible to parse from a SQL query.
+The tool handles decode/decompress/DOM walk server-side and returns
+clean ordered headings, exactly like the URL detail modal in the UI.
+
+Typical workflow when the user asks "show me the headings of pages
+with a hN problem" :
+
+  1. `run_sql` → `SELECT url FROM pages WHERE headings_missing = true OR h1_multiple = true LIMIT 20`
+  2. `get_page_headings(urls: [...the urls from step 1...])` → returns
+     `[{url, headings:[{level, text}, ...]}, ...]`
+  3. Synthesize a Markdown table per problem URL or a flat table with
+     `url | level | text` columns.
+
+The tool caps at 20 URLs per call. If the user wants more, do another
+call with the next batch.
 
 **links** — one row per <a> link
   - src (char8 — pages.id of source), target (char8 — pages.id of destination)

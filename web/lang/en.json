@@ -525,7 +525,7 @@
     "dashboard.no_indexable_pages_causes": "Possible causes: interrupted crawl, all pages in error/redirect, robots.txt blocking, or unreachable start URL.",
     "dashboard.no_indexable_pages_desc": "This crawl found no indexable pages. Data for this section is not available.",
     "dr_brief.example_broken_links": "Can you list all the broken links so I can fix them?",
-    "dr_brief.example_explain": "Can you explain the report I'm looking at?",
+    "dr_brief.example_explain": "Can you analyze the report I'm looking at and tell me what actions I should take?",
     "dr_brief.example_seo_tags": "Show me the pages whose semantic tags (h1, title, meta description) are not optimized — I want to see the status and the content of each tag",
     "dr_brief.collapse": "Collapse",
     "dr_brief.executing": "Executing…",

@@ -526,7 +526,7 @@
     "dashboard.no_indexable_pages_desc": "Dieser Crawl hat keine indexierbaren Seiten gefunden. Daten für diesen Abschnitt sind nicht verfügbar.",
     "dr_brief.collapse": "Verkleinern",
     "dr_brief.example_broken_links": "Kannst du mir alle defekten Links auflisten, damit ich sie beheben kann?",
-    "dr_brief.example_explain": "Kannst du mir den Bericht erklären, den ich gerade sehe?",
+    "dr_brief.example_explain": "Kannst du den Bericht analysieren, den ich gerade ansehe, und mir sagen, welche Maßnahmen ich ergreifen sollte?",
     "dr_brief.example_seo_tags": "Zeig mir die Seiten, deren semantische Tags (h1, title, meta description) nicht optimiert sind — ich will Status und Inhalt der Tags sehen",
     "dr_brief.executing": "Wird ausgeführt…",
     "dr_brief.expand": "Vergrößern",

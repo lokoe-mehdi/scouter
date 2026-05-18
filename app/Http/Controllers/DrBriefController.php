@@ -132,10 +132,18 @@ class DrBriefController extends Controller
         if (class_exists('\\I18n')) {
             try { $uiLang = \I18n::getInstance()->getLang(); } catch (\Throwable $e) { $uiLang = null; }
         }
+
+        // Recent crawls of the same project — feeds the multi-crawl section
+        // of the prompt so Dr. Brief can compare current vs past via the
+        // `pages@<id>` syntax. SqlExecutor already enforces same-project
+        // boundary on those @id references, so we're safe.
+        $projectCrawls = $this->fetchRecentProjectCrawls((int)$crawl->project_id, 20);
+
         $systemPrompt = DrBriefPrompt::build(
             $crawl,
             $pageContext !== '' ? $pageContext : null,
-            $uiLang
+            $uiLang,
+            $projectCrawls
         );
         $agent = new ChatAgent();
 
@@ -199,6 +207,40 @@ class DrBriefController extends Controller
         echo 'data: ' . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n\n";
         @ob_flush();
         @flush();
+    }
+
+    // -------------------------------------------------------------------------
+    // Project crawls — used by the multi-crawl prompt section
+    // -------------------------------------------------------------------------
+
+    /**
+     * Most recent crawls of a project that have usable data
+     * (terminal status, not currently being deleted). Capped to N because
+     * the AI doesn't need more than that to answer comparison questions —
+     * and keeps the prompt small.
+     *
+     * @return array<int, object>
+     */
+    private function fetchRecentProjectCrawls(int $projectId, int $limit = 20): array
+    {
+        if ($projectId <= 0) return [];
+        try {
+            $stmt = $this->db->prepare("
+                SELECT id, started_at, status, urls, crawled, depth_max
+                FROM crawls
+                WHERE project_id = :pid
+                  AND status IN ('finished', 'stopped')
+                ORDER BY started_at DESC
+                LIMIT :lim
+            ");
+            $stmt->bindValue(':pid', $projectId, PDO::PARAM_INT);
+            $stmt->bindValue(':lim', $limit,     PDO::PARAM_INT);
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_OBJ) ?: [];
+        } catch (\Throwable $e) {
+            error_log('[DrBrief] fetchRecentProjectCrawls failed: ' . $e->getMessage());
+            return [];
+        }
     }
 
     // -------------------------------------------------------------------------

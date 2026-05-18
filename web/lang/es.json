@@ -526,7 +526,7 @@
     "dashboard.no_indexable_pages_desc": "Este rastreo no encontró páginas indexables. Los datos de esta sección no están disponibles.",
     "dr_brief.collapse": "Reducir",
     "dr_brief.example_broken_links": "¿Puedes listarme todos los enlaces rotos para que los corrija?",
-    "dr_brief.example_explain": "¿Puedes explicarme el informe que estoy viendo?",
+    "dr_brief.example_explain": "¿Puedes analizar el informe que estoy viendo y decirme qué acciones debería implementar?",
     "dr_brief.example_seo_tags": "Muéstrame las páginas cuyas etiquetas semánticas (h1, title, meta description) no están optimizadas — quiero ver el estado y el contenido de las etiquetas",
     "dr_brief.executing": "Ejecutando…",
     "dr_brief.expand": "Ampliar",

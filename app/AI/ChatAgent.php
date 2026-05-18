@@ -3,6 +3,7 @@
 namespace App\AI;
 
 use App\AI\Tools\SqlQueryTool;
+use App\AI\Tools\HeadingsTool;
 
 /**
  * The conversation engine behind Dr. Brief.
@@ -69,7 +70,12 @@ class ChatAgent
         object $crawl
     ): \Generator {
         $contents = $this->historyToContents($history);
-        $tools = [['functionDeclarations' => [SqlQueryTool::declaration()]]];
+        $tools = [[
+            'functionDeclarations' => [
+                SqlQueryTool::declaration(),
+                HeadingsTool::declaration(),
+            ],
+        ]];
 
         $totalInputTokens = 0;
         $totalOutputTokens = 0;
@@ -170,8 +176,36 @@ class ChatAgent
             // functionResponse part to the next user message for Gemini.
             $functionResponseParts = [];
             foreach ($pendingToolCalls as $call) {
-                if ($call['name'] !== SqlQueryTool::NAME) {
-                    // Unknown tool — tell Gemini.
+                $crawlIdArg   = (int)($crawl->id ?? 0);
+                $crawlPathArg = (string)($crawl->path ?? '');
+                $exec = null;
+                $purpose = '';
+                $queryPreview = '';
+
+                if ($call['name'] === SqlQueryTool::NAME) {
+                    $purpose      = (string)($call['args']['purpose'] ?? '');
+                    $queryPreview = (string)($call['args']['query']   ?? '');
+                    yield ['event' => 'tool_call_ready', 'data' => [
+                        'purpose' => $purpose,
+                        'query'   => $queryPreview,
+                    ]];
+                    yield ['event' => 'tool_executing', 'data' => []];
+                    $exec = SqlQueryTool::execute($call['args'], $crawlIdArg, $crawlPathArg);
+
+                } elseif ($call['name'] === HeadingsTool::NAME) {
+                    $urlsCount = isset($call['args']['urls']) && is_array($call['args']['urls'])
+                        ? count($call['args']['urls']) : 0;
+                    $purpose      = 'Extract h1..h6 from ' . $urlsCount . ' page(s)';
+                    $queryPreview = HeadingsTool::NAME . ': ' . $urlsCount . ' url(s)';
+                    yield ['event' => 'tool_call_ready', 'data' => [
+                        'purpose' => $purpose,
+                        'query'   => $queryPreview,
+                    ]];
+                    yield ['event' => 'tool_executing', 'data' => []];
+                    $exec = HeadingsTool::execute($call['args'], $crawlIdArg, $crawlPathArg);
+
+                } else {
+                    // Unknown tool — tell Gemini, no UI event.
                     $functionResponseParts[] = ['functionResponse' => [
                         'name'     => $call['name'],
                         'response' => ['error' => 'Unknown tool: ' . $call['name']],
@@ -179,23 +213,9 @@ class ChatAgent
                     continue;
                 }
 
-                yield ['event' => 'tool_call_ready', 'data' => [
-                    'purpose' => (string)($call['args']['purpose'] ?? ''),
-                    'query'   => (string)($call['args']['query']   ?? ''),
-                ]];
-
-                yield ['event' => 'tool_executing', 'data' => []];
-
-                $exec = SqlQueryTool::execute(
-                    $call['args'],
-                    (int)($crawl->id ?? 0),
-                    (string)($crawl->path ?? '')
-                );
-
                 yield ['event' => 'tool_result', 'data' => $exec['for_ui']];
-
                 $functionResponseParts[] = ['functionResponse' => [
-                    'name'     => SqlQueryTool::NAME,
+                    'name'     => $call['name'],
                     'response' => $exec['for_model'],
                 ]];
             }

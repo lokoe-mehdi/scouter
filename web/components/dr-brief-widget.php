@@ -168,7 +168,9 @@ if (!$drBriefAiConfigured) {
     to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Header */
+/* Header — the whole violet band acts as a "close panel" surface.
+   Buttons inside keep their own handlers thanks to event delegation
+   (see JS : the click handler ignores clicks landing on .dr-brief-header-actions). */
 .dr-brief-header {
     display: flex;
     align-items: center;
@@ -177,6 +179,7 @@ if (!$drBriefAiConfigured) {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     flex-shrink: 0;
+    cursor: pointer;
 }
 .dr-brief-header-left {
     display: flex;
@@ -727,22 +730,27 @@ if (!$drBriefAiConfigured) {
     }
     function renderMarkdown(md) {
         if (!md) return '';
-        let s = md;
+        // STEP 1 — pre-escape ALL HTML special chars in the source.
+        // Reason: when the LLM occasionally writes raw HTML (a stray
+        // `<table>`, an `<a href>`, even a `<script>`), we don't want it
+        // interpreted by the browser when we set innerHTML. Pre-escaping
+        // means everything not produced by the transforms below stays as
+        // literal text. The markdown markers (`**`, `|`, `#`, `-`, etc.)
+        // aren't HTML-special, so they survive the escape and still match.
+        let s = escapeHtml(md);
 
-        // Code blocks ```lang ... ```
+        // Code blocks ```lang ... ``` — content is ALREADY escaped by step 1
+        // so we just wrap; no re-escape (would double-encode `&lt;` → `&amp;lt;`).
         s = s.replace(/```([\w-]*)\n?([\s\S]*?)```/g,
-            (_, lang, code) => '<pre><code>' + escapeHtml(code.replace(/\n$/, '')) + '</code></pre>');
+            (_, lang, code) => '<pre><code>' + code.replace(/\n$/, '') + '</code></pre>');
 
-        // Tables (very simple : | h | h |  /  | --- | --- |  /  | c | c |)
-        // Trailing \n is OPTIONAL on the last line — otherwise a table at
-        // the end of the response loses its last row. Wrapped in a div with
-        // overflow-x so wide tables don't blow up the panel layout.
+        // Tables — same idea, cells are pre-escaped.
         s = s.replace(/((?:^\|[^\n]+\|\n?)+)/gm, (block) => {
             const rows = block.trim().split('\n').map(r => r.trim()).filter(r => r);
             if (rows.length < 2 || !/^\|[\s\-:|]+\|$/.test(rows[1])) return block;
-            const head = rows[0].slice(1, -1).split('|').map(c => '<th>' + escapeHtml(c.trim()) + '</th>').join('');
+            const head = rows[0].slice(1, -1).split('|').map(c => '<th>' + c.trim() + '</th>').join('');
             const body = rows.slice(2).map(r => {
-                const cells = r.slice(1, -1).split('|').map(c => '<td>' + escapeHtml(c.trim()) + '</td>').join('');
+                const cells = r.slice(1, -1).split('|').map(c => '<td>' + c.trim() + '</td>').join('');
                 return '<tr>' + cells + '</tr>';
             }).join('');
             return '<div class="dr-brief-md-tablewrap"><table><thead><tr>'
@@ -921,14 +929,20 @@ if (!$drBriefAiConfigured) {
     }
 
     /**
-     * Common tail used by both render paths: collapsible SQL, result table,
-     * "View all" deeplink, error block.
+     * Common tail used by both render paths: collapsible SQL (only for SQL
+     * tool), result table, "View all" deeplink, error block.
      */
     function appendToolDetails(tool, result) {
-        const details = el('details');
-        details.appendChild(el('summary', {}, T.show_sql));
-        details.appendChild(el('pre', {}, result.query || ''));
-        tool.appendChild(details);
+        // The "Voir le SQL" collapsible only makes sense for the SQL tool.
+        // For other tools (extraction, etc.) we skip it — they have nothing
+        // SQL-like to show.
+        const isSql = result.tool_kind === 'sql';
+        if (isSql && result.query) {
+            const details = el('details');
+            details.appendChild(el('summary', {}, T.show_sql));
+            details.appendChild(el('pre', {}, result.query));
+            tool.appendChild(details);
+        }
 
         if (result.success) {
             if (result.rows && result.rows.length) {
@@ -1126,6 +1140,11 @@ if (!$drBriefAiConfigured) {
                 if (toolStep) {
                     if (!toolStep.queryShown && data.query) toolStep.queryShown = data.query;
                     const result = {
+                        // tool_kind ('sql' | 'headings' | ...) drives which
+                        // collapsibles & deeplinks appear in the UI. Default
+                        // to 'sql' for backward-compat with older SSE payloads
+                        // that didn't carry the field.
+                        tool_kind:  data.tool_kind || 'sql',
                         success:    data.success,
                         purpose:    toolStep.purpose || '',
                         total_rows: data.total_rows,
@@ -1326,24 +1345,51 @@ if (!$drBriefAiConfigured) {
         }
 
         // Visible tables — first 20 rows of each, capped to 3 tables to
-        // keep the context size reasonable.
+        // keep the context size reasonable. Each table is also tagged with
+        // its HUMAN TITLE (h3.table-title in the table-card, or fallback
+        // to the nearest preceding heading). Without this, when a page
+        // has two tables with opposite meanings ("missing from sitemap"
+        // vs "in sitemap but non-indexable"), the AI can't tell them
+        // apart and inverts the rows.
         const tables = Array.from(document.querySelectorAll('main table'))
             .filter(t => t.offsetParent !== null) // only visible ones
             .slice(0, 3);
         if (tables.length) {
             out.push('\nTables (' + tables.length + '):');
             tables.forEach((tbl, idx) => {
+                // Look for a meaningful title near the table.
+                let title = '';
+                const card = tbl.closest('.table-card');
+                if (card) {
+                    const t = card.querySelector('.table-title');
+                    if (t) title = t.textContent.trim().replace(/\s+/g, ' ');
+                }
+                if (!title) {
+                    // Fallback: nearest preceding h2/h3 in the DOM.
+                    let n = tbl.previousElementSibling;
+                    let hops = 0;
+                    while (n && hops < 6) {
+                        if (n.matches && n.matches('h2, h3, .table-title')) {
+                            title = n.textContent.trim().replace(/\s+/g, ' ');
+                            break;
+                        }
+                        n = n.previousElementSibling;
+                        hops++;
+                    }
+                }
+                out.push('  Table ' + (idx + 1) + (title ? ' — "' + title + '"' : '') + ':');
+
                 const heads = Array.from(tbl.querySelectorAll('thead th'))
                     .map(th => th.textContent.trim().replace(/\s+/g, ' '));
-                if (heads.length) out.push('  Table ' + (idx + 1) + ' columns: ' + heads.join(' | '));
+                if (heads.length) out.push('    columns: ' + heads.join(' | '));
                 const rows = Array.from(tbl.querySelectorAll('tbody tr')).slice(0, 20);
                 rows.forEach(tr => {
                     const cells = Array.from(tr.querySelectorAll('td'))
                         .map(td => (td.textContent || '').trim().replace(/\s+/g, ' '));
-                    out.push('    ' + cells.join(' | '));
+                    out.push('      ' + cells.join(' | '));
                 });
                 const total = tbl.querySelectorAll('tbody tr').length;
-                if (total > 20) out.push('    … (' + (total - 20) + ' more rows)');
+                if (total > 20) out.push('      … (' + (total - 20) + ' more rows)');
             });
         }
 
@@ -1358,6 +1404,17 @@ if (!$drBriefAiConfigured) {
     bubble.addEventListener('click', openPanel);
     closeBtn.addEventListener('click', closePanel);
     expandBtn.addEventListener('click', toggleExpanded);
+
+    // Make the whole violet header a "click to minimize" zone, but ignore
+    // clicks that landed on the action buttons (reset / expand / close)
+    // — those have their own handlers.
+    const header = panel.querySelector('.dr-brief-header');
+    if (header) {
+        header.addEventListener('click', function (e) {
+            if (e.target.closest('.dr-brief-header-actions')) return;
+            closePanel();
+        });
+    }
 
     // Restore expanded state immediately (no race with openPanel — the class
     // is applied to the panel element whether it's visible or not).

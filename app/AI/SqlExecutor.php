@@ -80,8 +80,12 @@ class SqlExecutor
             $clean = preg_replace('/--.*$/m', ' ', $clean);
             $cleanUpper = strtoupper(trim($clean));
 
-            if (strpos($cleanUpper, 'SELECT') !== 0) {
-                return ['ok' => false, 'error' => 'Only SELECT statements are allowed.'];
+            // Accept SELECT or WITH (CTE) at the start. WITH RECURSIVE stays
+            // blocked further down — that's the actual runaway-loop risk.
+            // Write CTEs like `WITH x AS (INSERT ...) ...` are caught by the
+            // FORBIDDEN_KEYWORDS scan below + the READ ONLY transaction.
+            if (strpos($cleanUpper, 'SELECT') !== 0 && strpos($cleanUpper, 'WITH') !== 0) {
+                return ['ok' => false, 'error' => 'Only SELECT or WITH … SELECT statements are allowed.'];
             }
 
             // === Multi-statement attack ===
@@ -118,7 +122,7 @@ class SqlExecutor
 
             $referencedCrawlIds = [];
             $transformed = preg_replace_callback(
-                '/\b(pages|links|duplicate_clusters|page_schemas|redirect_chains)@(\d+)\b/i',
+                '/\b(pages|links|duplicate_clusters|page_schemas|redirect_chains|html)@(\d+)\b/i',
                 function ($m) use (&$referencedCrawlIds) {
                     $referencedCrawlIds[] = (int)$m[2];
                     return $m[1] . '_' . $m[2];
@@ -142,6 +146,22 @@ class SqlExecutor
             $transformed = preg_replace('/\bpage_schemas\b(?!_\d)/i',       "page_schemas_{$crawlId}",       $transformed);
             $transformed = preg_replace('/\bredirect_chains\b(?!_\d)/i',    "redirect_chains_{$crawlId}",    $transformed);
 
+            // === Extract CTE names so the whitelist doesn't flag them ===
+            // A query like `WITH ranked AS (SELECT ...) SELECT * FROM ranked`
+            // would otherwise fail the whitelist on `ranked` because it appears
+            // after FROM. We collect all CTE identifiers and treat them as
+            // valid local table names for this query only.
+            $cteNames = [];
+            if (preg_match_all(
+                '/(?:\bWITH\s+|,\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(/i',
+                $transformed,
+                $cteMatches
+            )) {
+                foreach ($cteMatches[1] as $name) {
+                    $cteNames[] = strtolower($name);
+                }
+            }
+
             // === Whitelist check on the final table names ===
             preg_match_all(
                 '/\b(?:FROM|JOIN)\s+(?:"?[a-zA-Z_][a-zA-Z0-9_]*"?\s*\.\s*)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?/i',
@@ -150,8 +170,13 @@ class SqlExecutor
             );
             foreach (array_unique($tableMatches[1] ?? []) as $tableName) {
                 $low = strtolower($tableName);
+                // `html_<id>` is whitelisted in suffix form only — there's no
+                // unqualified `html` table at the project level (and `.html`
+                // would clash with URL patterns in regex literals if we did
+                // a bare-name substitution).
                 $allowed = in_array($low, self::ALLOWED_BASE_TABLES, true)
-                    || preg_match('/^(pages|links|duplicate_clusters|page_schemas|redirect_chains)_\d+$/i', $low);
+                    || in_array($low, $cteNames, true)
+                    || preg_match('/^(pages|links|duplicate_clusters|page_schemas|redirect_chains|html)_\d+$/i', $low);
                 if (!$allowed) {
                     return [
                         'ok' => false,

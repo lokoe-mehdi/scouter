@@ -28,8 +28,13 @@ class SqlQueryTool
             'description' =>
                 "Execute a read-only PostgreSQL SELECT against the current crawl's data " .
                 "and return the rows. Use this whenever you need actual numbers, lists, " .
-                "or comparisons from the crawl. Always set LIMIT 10 on lists. No LIMIT " .
-                "needed on aggregates (COUNT, SUM, AVG).",
+                "or comparisons from the crawl. For a flat list, LIMIT 10. No LIMIT needed " .
+                "on aggregates (COUNT, SUM, AVG). " .
+                "CRITICAL — when sampling examples per category/bucket, NEVER use a flat " .
+                "LIMIT N : that gives N rows from 1-2 buckets only. Use a CTE with " .
+                "`ROW_NUMBER() OVER (PARTITION BY <bucket> ORDER BY ...)` then filter " .
+                "`rank <= 3` to get 2-3 examples PER bucket (3 × N_buckets rows total). " .
+                "A flat LIMIT on a bucketed problem = wrong conclusion.",
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
@@ -77,10 +82,11 @@ class SqlQueryTool
                     'hint'          => 'Look at the error message and try a corrected query.',
                 ],
                 'for_ui' => [
-                    'success' => false,
-                    'purpose' => $purpose,
-                    'query'   => $query,
-                    'error'   => $err,
+                    'success'   => false,
+                    'tool_kind' => 'sql',
+                    'purpose'   => $purpose,
+                    'query'     => $query,
+                    'error'     => $err,
                 ],
             ];
         }
@@ -115,6 +121,7 @@ class SqlQueryTool
             'for_model' => $forModel,
             'for_ui' => [
                 'success'   => true,
+                'tool_kind' => 'sql',
                 'purpose'   => $purpose,
                 'query'     => $query,
                 'rows'      => $rows,
