@@ -63,6 +63,18 @@ class DrBriefController extends Controller
 
     private function doChat(Request $request): void
     {
+        // === Abort handling ===
+        // Take control of user-abort handling so we can cleanup gracefully
+        // (log the partial turn, close the curl to OpenRouter, …) when the
+        // user clicks Stop or closes the tab. Without this, PHP-FPM would
+        // either die abruptly at the next echo (default `ignore_user_abort(false)`)
+        // or keep running until the upstream finished — burning a worker
+        // and tokens for nothing. We set it to TRUE here, then poll
+        // connection_aborted() after every SSE flush below : as soon as
+        // the client is gone, we break the loop, log, and exit.
+        ignore_user_abort(true);
+
+
         // Parse & validate input BEFORE we open the SSE stream — easier to
         // surface a clean JSON error here than to send an "error" SSE event
         // on a connection that's already half-open.
@@ -114,6 +126,25 @@ class DrBriefController extends Controller
             $this->auth->requireCrawlAccessById($crawlId, true);
         }
 
+        // === CRITICAL : release the PHP session lock ===
+        //
+        // PHP's default session handler holds an EXCLUSIVE FILE LOCK on the
+        // session file from `session_start()` until the script ends. While
+        // this lock is held, every other authenticated request from the SAME
+        // user (other tabs, sql explorer, project page, navigation, …) calls
+        // session_start() and SITS WAITING for the lock — for the entire
+        // duration of this chat turn, which can be minutes with tool calls.
+        //
+        // The result, before this fix : a single in-flight chat froze the
+        // whole app for the user (other tabs spin forever). The fix is
+        // standard PHP : auth is already verified above, we don't need to
+        // write back to the session, so we can close it immediately and
+        // release the lock. Session data stays available in $_SESSION for
+        // read access if the rest of the request needs it.
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+
         // AI configuration — Dr. Brief uses the "strong" model because it
         // needs tool calling (run_sql, get_page_headings) and multi-turn
         // reasoning. The settings UI already filters this dropdown to
@@ -156,9 +187,23 @@ class DrBriefController extends Controller
         $finalError = null;
         $sawDone = false;
 
+        $aborted = false;
         try {
             foreach ($agent->run($apiKey, $model, $systemPrompt, $messages, $crawl) as $event) {
                 $this->sendSseEvent($event['event'], $event['data'] ?? []);
+                // After every flush, check if the client is still there.
+                // connection_aborted() returns true only after a write
+                // attempt has failed — which sendSseEvent just did — so
+                // this is the reliable detection point. If gone, break
+                // out of the agent loop : the foreach itself will then
+                // unwind, closing the active curl to OpenRouter as the
+                // generator is garbage-collected, and the worker is freed.
+                if (connection_aborted()) {
+                    $aborted    = true;
+                    $finalError = 'client_disconnected';
+                    error_log('[DrBrief] Client disconnected mid-turn, aborting agent loop.');
+                    break;
+                }
                 if ($event['event'] === 'done') {
                     $totalIn  = (int)($event['data']['input_tokens']  ?? 0);
                     $totalOut = (int)($event['data']['output_tokens'] ?? 0);
@@ -170,7 +215,9 @@ class DrBriefController extends Controller
             }
         } catch (\Throwable $e) {
             $finalError = $e->getMessage();
-            $this->sendSseEvent('error', ['message' => $finalError]);
+            if (!connection_aborted()) {
+                $this->sendSseEvent('error', ['message' => $finalError]);
+            }
         }
 
         // Audit log (no content)

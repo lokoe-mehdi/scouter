@@ -74,6 +74,9 @@ if (!$drBriefAiConfigured) {
             <button type="submit" class="dr-brief-send-btn" id="drBriefSend" title="<?= __('dr_brief.send') ?>">
                 <span class="material-symbols-outlined">arrow_upward</span>
             </button>
+            <button type="button" class="dr-brief-stop-btn" id="drBriefStop" title="<?= __('dr_brief.stop') ?>" hidden>
+                <span class="material-symbols-outlined">stop</span>
+            </button>
         </form>
     </div>
 </div>
@@ -261,7 +264,48 @@ if (!$drBriefAiConfigured) {
     max-width: 92%;
     line-height: 1.4;
     font-size: 0.9rem;
+    position: relative;
 }
+
+/* Per-message Markdown-copy button. Sits inside the bubble (top-right),
+   appears on hover so it doesn't clutter the conversation. The "Copied!"
+   confirmation flips the icon to a green checkmark for ~1.5s. */
+.dr-brief-copy-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.08);
+    color: #475569;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+    padding: 0;
+}
+.dr-brief-msg:hover .dr-brief-copy-btn,
+.dr-brief-copy-btn:focus-visible { opacity: 1; }
+.dr-brief-copy-btn:hover {
+    background: rgba(15, 23, 42, 0.15);
+    color: #0f172a;
+}
+.dr-brief-copy-btn .material-symbols-outlined { font-size: 16px; }
+.dr-brief-copy-btn.copied {
+    opacity: 1;
+    background: rgba(22, 163, 74, 0.15);
+    color: #15803d;
+}
+/* On the user bubble (gradient background) the button needs more contrast. */
+.dr-brief-msg.user .dr-brief-copy-btn {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+}
+.dr-brief-msg.user .dr-brief-copy-btn:hover { background: rgba(255, 255, 255, 0.35); }
 .dr-brief-msg.user {
     align-self: flex-end;
 }
@@ -632,6 +676,23 @@ if (!$drBriefAiConfigured) {
     cursor: not-allowed;
 }
 .dr-brief-send-btn .material-symbols-outlined { font-size: 20px; }
+.dr-brief-stop-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: #dc2626;
+    color: white;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: opacity 0.15s, transform 0.1s;
+}
+.dr-brief-stop-btn[hidden] { display: none; }
+.dr-brief-stop-btn:hover { background: #b91c1c; transform: translateY(-1px); }
+.dr-brief-stop-btn .material-symbols-outlined { font-size: 20px; }
 
 /* Responsive — on small screens, the panel fills the viewport */
 @media (max-width: 600px) {
@@ -712,6 +773,10 @@ if (!$drBriefAiConfigured) {
     const form     = document.getElementById('drBriefForm');
     const input    = document.getElementById('drBriefInput');
     const sendBtn  = document.getElementById('drBriefSend');
+    const stopBtn  = document.getElementById('drBriefStop');
+    // Active fetch's AbortController, kept here so the stop button can abort
+    // the in-flight request. Reset to null between turns.
+    let currentAbortController = null;
 
     // === All i18n strings centralized + JSON-encoded ===
     // Going through json_encode is the ONLY safe way to inject PHP strings
@@ -727,6 +792,8 @@ if (!$drBriefAiConfigured) {
         'show_sql'        => __('dr_brief.show_sql'),
         'show_results'    => __('dr_brief.show_results'),
         'show_error'      => __('dr_brief.show_error'),
+        'stopped'         => __('dr_brief.stopped'),
+        'copy_md'         => __('dr_brief.copy_md'),
         'tool_html_no_html'   => __('dr_brief.tool_html_no_html'),
         'tool_html_truncated' => __('dr_brief.tool_html_truncated'),
         'tool_skipped'    => __('dr_brief.tool_skipped'),
@@ -862,15 +929,65 @@ if (!$drBriefAiConfigured) {
     }
 
     // === UI append helpers ===
+
+    /**
+     * Attach a small "copy as Markdown" button to a message bubble. `source`
+     * can be a string (fixed text) or a function returning the current text
+     * — the latter is useful for live-streaming assistant replies where the
+     * markdown is still accumulating and we want each click to grab the
+     * latest snapshot.
+     */
+    function attachCopyBtn(wrapEl, source) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'dr-brief-copy-btn';
+        btn.title = T.copy_md || 'Copier en Markdown';
+        btn.innerHTML = '<span class="material-symbols-outlined">content_copy</span>';
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const text = typeof source === 'function' ? source() : source;
+            if (text == null || text === '') return;
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    // Fallback for older browsers / non-HTTPS contexts.
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                }
+                btn.classList.add('copied');
+                btn.innerHTML = '<span class="material-symbols-outlined">check</span>';
+                setTimeout(() => {
+                    btn.classList.remove('copied');
+                    btn.innerHTML = '<span class="material-symbols-outlined">content_copy</span>';
+                }, 1500);
+            } catch (err) {
+                console.warn('[DrBrief] clipboard copy failed:', err);
+            }
+        });
+        wrapEl.appendChild(btn);
+        return btn;
+    }
+
     function appendUserMsg(text) {
         const node = el('div', { class: 'dr-brief-msg user' },
             el('div', { class: 'dr-brief-msg-content' }, text)
         );
+        attachCopyBtn(node, text);
         msgsEl.appendChild(node);
         scrollToBottom();
     }
     function appendAssistantContainer() {
         // Returns the content element so we can incrementally update it.
+        // The copy button is attached by the caller once the markdown is
+        // available (either right away for restored history, or at the
+        // end of the live stream when textBuffer is final).
         const wrap = el('div', { class: 'dr-brief-msg assistant' });
         const content = el('div', { class: 'dr-brief-msg-content' });
         wrap.appendChild(content);
@@ -1089,12 +1206,17 @@ if (!$drBriefAiConfigured) {
         let textBuffer = '';      // raw markdown so far
         let toolStep = null;      // current tool step (if any)
         let typingEl = appendTypingIndicator(contentEl);
+        // Live copy button : closure over textBuffer so each click grabs
+        // the latest snapshot (partial during streaming, final after done).
+        attachCopyBtn(contentEl.parentElement, () => textBuffer);
         // Collect all tool results from this turn — saved alongside the
         // assistant text so a full UI restore is possible after navigation.
         const turnTools = [];
 
         isStreaming = true;
-        sendBtn.disabled = true;
+        sendBtn.hidden = true;
+        stopBtn.hidden = false;
+        currentAbortController = new AbortController();
 
         try {
             // Collect the current page snapshot fresh on every send — so
@@ -1111,6 +1233,7 @@ if (!$drBriefAiConfigured) {
                     messages: messages,
                     page_context: pageContext,
                 }),
+                signal: currentAbortController.signal,
             });
             if (!res.ok) {
                 let msg = 'HTTP ' + res.status;
@@ -1139,13 +1262,26 @@ if (!$drBriefAiConfigured) {
                 }
             }
         } catch (e) {
-            contentEl.innerHTML = '';
-            contentEl.appendChild(el('div', {
-                style: 'color:#dc2626;'
-            }, T.error_prefix + (e.message || e)));
+            // Differentiate a user-initiated abort from a real error :
+            // the AbortController surfaces as `AbortError` / `name === 'AbortError'`,
+            // we don't want to scream a scary red message just because the
+            // user clicked Stop. Append a discreet "(arrêté)" note instead.
+            if (e && e.name === 'AbortError') {
+                if (typingEl && typingEl.remove) typingEl.remove();
+                contentEl.appendChild(el('div', {
+                    style: 'color:#94a3b8; font-style:italic; font-size:0.85rem; margin-top:4px;'
+                }, T.stopped || '(arrêté)'));
+            } else {
+                contentEl.innerHTML = '';
+                contentEl.appendChild(el('div', {
+                    style: 'color:#dc2626;'
+                }, T.error_prefix + (e.message || e)));
+            }
         } finally {
             isStreaming = false;
-            sendBtn.disabled = false;
+            sendBtn.hidden = false;
+            stopBtn.hidden = true;
+            currentAbortController = null;
             input.focus();
         }
 
@@ -1293,6 +1429,8 @@ if (!$drBriefAiConfigured) {
                 // Deeplinks footer LAST, below the assistant's text answer.
                 if (Array.isArray(m.tools)) syncDeeplinksFooter(content, m.tools);
                 wrap.appendChild(content);
+                // Copy-as-Markdown button on the restored bubble too.
+                if (m.content && m.content.trim()) attachCopyBtn(wrap, m.content);
                 msgsEl.appendChild(wrap);
             }
         });
@@ -1489,6 +1627,12 @@ if (!$drBriefAiConfigured) {
     form.addEventListener('submit', e => {
         e.preventDefault();
         sendMessage(input.value);
+    });
+    stopBtn.addEventListener('click', () => {
+        // Aborts the in-flight fetch — the AbortError is caught in
+        // sendMessage's catch block, which appends an "(arrêté)" hint
+        // and re-toggles the buttons via the finally block.
+        if (currentAbortController) currentAbortController.abort();
     });
     input.addEventListener('keydown', e => {
         if (e.key === 'Enter' && !e.shiftKey) {

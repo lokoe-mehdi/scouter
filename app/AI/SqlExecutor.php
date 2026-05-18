@@ -191,6 +191,31 @@ class SqlExecutor
                 }
             }
 
+            // === Project-scope guard on crawl_categories ===
+            //
+            // crawl_categories is a shared, project-level table (no partition
+            // per crawl_id like pages/links/...). Without a WHERE clause, a
+            // SELECT against it leaks rows from every project on the instance.
+            // We shadow the real table with a same-named CTE that pre-filters
+            // on the current project — PostgreSQL resolves every reference
+            // to `crawl_categories` (FROM, JOIN, subquery) against the CTE
+            // instead of the underlying table, so it's impossible for the
+            // model to fetch categories from another project, regardless of
+            // how the query is phrased.
+            //
+            // Same idea (and same fix) as in QueryController::execute().
+            $pid = (int)($crawlRecord->project_id ?? 0);
+            if ($pid > 0) {
+                $catScope = "crawl_categories AS (SELECT * FROM crawl_categories WHERE project_id = {$pid})";
+                if (preg_match('/^\s*WITH\s+/i', $transformed)) {
+                    $transformed = preg_replace(
+                        '/^\s*WITH\s+/i', "WITH {$catScope}, ", $transformed, 1
+                    );
+                } else {
+                    $transformed = "WITH {$catScope} " . ltrim($transformed);
+                }
+            }
+
             // === Cap rows ===
             // The "preview" cap is the chat row limit; the absolute hard cap
             // prevents accidental gigabyte selects. We always rewrite LIMIT

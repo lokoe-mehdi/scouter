@@ -206,6 +206,35 @@ class QueryController extends Controller
             }
         }
 
+        // === SÉCURITÉ : project-scope sur crawl_categories ===
+        //
+        // crawl_categories est une table partagée entre tous les projets (pas
+        // de partitionnement par crawl_id, contrairement à pages/links/...).
+        // Sans filtre supplémentaire, un `SELECT * FROM crawl_categories`
+        // dans le SQL Explorer renvoie les catégories de TOUS les projets de
+        // l'instance, ce qui est une fuite cross-tenant.
+        //
+        // Solution : on préfixe la requête avec une CTE du même nom qui
+        // pré-filtre sur le project_id courant. PostgreSQL résout alors
+        // toute référence à `crawl_categories` (FROM, JOIN, subquery) vers
+        // la CTE — l'utilisateur ne peut techniquement plus voir les rows
+        // des autres projets, peu importe la forme de sa requête.
+        //
+        // Coût : nul en pratique (PG inline la CTE en query plan ; si la
+        // table n'est pas référencée, c'est juste une CTE inutilisée).
+        $pid = (int)$crawlRecord->project_id;
+        if ($pid > 0) {
+            $catScope = "crawl_categories AS (SELECT * FROM crawl_categories WHERE project_id = {$pid})";
+            if (preg_match('/^\s*WITH\s+/i', $transformedQuery)) {
+                // Fusion avec la CTE existante de l'utilisateur.
+                $transformedQuery = preg_replace(
+                    '/^\s*WITH\s+/i', "WITH {$catScope}, ", $transformedQuery, 1
+                );
+            } else {
+                $transformedQuery = "WITH {$catScope} " . ltrim($transformedQuery);
+            }
+        }
+
         // Force a LIMIT if none present (max 10000 rows)
         if (!preg_match('/\bLIMIT\s+\d/i', $transformedQuery)) {
             $transformedQuery .= ' LIMIT 10000';
