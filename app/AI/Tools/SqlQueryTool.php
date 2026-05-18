@@ -5,10 +5,10 @@ namespace App\AI\Tools;
 use App\AI\SqlExecutor;
 
 /**
- * The `run_sql` tool exposed to Gemini.
+ * The `run_sql` tool exposed to the model via OpenRouter.
  *
- * - declaration() returns the Function Declaration JSON that goes in the
- *   Gemini API request's `tools` field.
+ * - declaration() returns the bare function declaration — ChatAgent wraps it
+ *   in the OpenAI {type:'function',function:{...}} envelope before sending.
  * - execute() runs the call via SqlExecutor and shapes the response for
  *   both the model (compact JSON it can reason on) and the browser (full
  *   preview rows + deeplink for the SSE UI).
@@ -20,7 +20,7 @@ class SqlQueryTool
 {
     public const NAME = 'run_sql';
 
-    /** Function Declaration for Gemini. */
+    /** Bare function declaration — ChatAgent wraps it in OpenAI's {type:'function',function:...} envelope. */
     public static function declaration(): array
     {
         return [
@@ -28,8 +28,12 @@ class SqlQueryTool
             'description' =>
                 "Execute a read-only PostgreSQL SELECT against the current crawl's data " .
                 "and return the rows. Use this whenever you need actual numbers, lists, " .
-                "or comparisons from the crawl. For a flat list, LIMIT 10. No LIMIT needed " .
-                "on aggregates (COUNT, SUM, AVG). " .
+                "or comparisons from the crawl. For a flat list, LIMIT 100. No LIMIT " .
+                "needed on aggregates (COUNT, SUM, AVG). The server caps every result at " .
+                "100 rows for the chat preview — if the cap kicks in (truncated=true), " .
+                "treat what you see as a SAMPLE, never as the full set, and tell the user " .
+                "so. They have a button below the table to open the full query in the " .
+                "SQL Explorer. " .
                 "CRITICAL — when sampling examples per category/bucket, NEVER use a flat " .
                 "LIMIT N : that gives N rows from 1-2 buckets only. Use a CTE with " .
                 "`ROW_NUMBER() OVER (PARTITION BY <bucket> ORDER BY ...)` then filter " .
@@ -61,7 +65,7 @@ class SqlQueryTool
      * Execute a call from the model.
      *
      * @return array{
-     *     for_model: array,   // compact payload to send back to Gemini
+     *     for_model: array,   // compact payload to send back to the model
      *     for_ui:    array    // full payload to stream to the browser
      * }
      */
@@ -112,9 +116,15 @@ class SqlQueryTool
             'truncated'        => $truncated,
         ];
         if ($truncated) {
-            $forModel['note'] = 'This result was capped at ' . count($rows)
-                . ' rows. The TRUE total of matching rows is unknown — run a '
-                . 'SELECT COUNT(*) query if you need the exact number.';
+            $forModel['note'] = 'IMPORTANT: this result was CAPPED at ' . count($rows)
+                . ' rows by the chat preview limit — the actual matching set is '
+                . 'larger and unknown to you. Treat these rows as a SAMPLE, never '
+                . 'as exhaustive. When you reference them in your reply, say things '
+                . 'like "here are ' . count($rows) . ' examples (more exist)" or '
+                . 'pair them with a SELECT COUNT(*) so the user knows the true total. '
+                . 'The UI auto-renders a "see full result in SQL Explorer" button '
+                . 'below the table — refer to it naturally as "the button below" '
+                . '(do not try to write the URL yourself).';
         }
 
         return [

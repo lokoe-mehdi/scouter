@@ -36,7 +36,7 @@ class AppSettings
     private static function sensitiveKeys(): array
     {
         return [
-            'ai.gemini.api_key',
+            'ai.openrouter.api_key',
         ];
     }
 

@@ -12,11 +12,12 @@
  * Renders nothing if AI is not configured for this instance.
  */
 
-// AI availability check — match the pattern used in other pages.
+// AI availability check — Dr. Brief specifically needs the "strong" model
+// (function calling required for run_sql + get_page_headings).
 $drBriefAiConfigured = false;
 try {
-    $_dbAiKey   = \App\Settings\AppSettings::get('ai.gemini.api_key');
-    $_dbAiModel = \App\Settings\AppSettings::get('ai.gemini.model');
+    $_dbAiKey   = \App\Settings\AppSettings::get('ai.openrouter.api_key');
+    $_dbAiModel = \App\Settings\AppSettings::get('ai.openrouter.model_strong');
     $drBriefAiConfigured = $_dbAiKey !== null && $_dbAiKey !== '' && $_dbAiModel !== null && $_dbAiModel !== '';
 } catch (\Throwable $e) {
     $drBriefAiConfigured = false;
@@ -485,6 +486,23 @@ if (!$drBriefAiConfigured) {
     position: sticky;
     top: 0;
 }
+.dr-brief-tool-pages-list {
+    margin: 6px 0 0;
+    padding: 6px 10px 6px 22px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 5px;
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+.dr-brief-tool-pages-list li { margin: 0; word-break: break-all; }
+.dr-brief-tool-page-url {
+    color: #1d4ed8;
+    text-decoration: none;
+}
+.dr-brief-tool-page-url:hover { text-decoration: underline; }
+.dr-brief-tool-page-meta { color: #6b7280; }
+.dr-brief-tool-page-meta-warn { color: #b45309; }
 .dr-brief-tool-error {
     color: #dc2626;
     background: #fef2f2;
@@ -709,6 +727,8 @@ if (!$drBriefAiConfigured) {
         'show_sql'        => __('dr_brief.show_sql'),
         'show_results'    => __('dr_brief.show_results'),
         'show_error'      => __('dr_brief.show_error'),
+        'tool_html_no_html'   => __('dr_brief.tool_html_no_html'),
+        'tool_html_truncated' => __('dr_brief.tool_html_truncated'),
         'tool_skipped'    => __('dr_brief.tool_skipped'),
         'view_full'       => __('dr_brief.view_full_in_sql_explorer'),
         'error_prefix'    => 'Erreur : ',
@@ -887,7 +907,7 @@ if (!$drBriefAiConfigured) {
      *
      * On error we soften the visual: no red banner, no SQL error message
      * dumped in the chat — just a discreet warning text. The actual error
-     * is still sent back to Gemini in the for_model payload so the AI can
+     * is still sent back to the model in the for_model payload so the AI can
      * try a corrected query on the next iteration.
      */
     function attachToolResult(tool, statusEl, result) {
@@ -936,7 +956,8 @@ if (!$drBriefAiConfigured) {
         // The "Voir le SQL" collapsible only makes sense for the SQL tool.
         // For other tools (extraction, etc.) we skip it — they have nothing
         // SQL-like to show.
-        const isSql = result.tool_kind === 'sql';
+        const isSql  = result.tool_kind === 'sql';
+        const isHtml = result.tool_kind === 'html';
         if (isSql && result.query) {
             const details = el('details');
             details.appendChild(el('summary', {}, T.show_sql));
@@ -945,6 +966,40 @@ if (!$drBriefAiConfigured) {
         }
 
         if (result.success) {
+            // HTML inspection tool : compact list of pages + char counts.
+            // We don't dump the raw markup in the chat (too noisy and the
+            // user can already see their own pages) — the metadata is what
+            // makes the tool block readable to a human.
+            if (isHtml && Array.isArray(result.pages) && result.pages.length) {
+                const list = el('ul', { class: 'dr-brief-tool-pages-list' });
+                result.pages.forEach(p => {
+                    const li = el('li');
+                    const a  = el('a', {
+                        href:   p.url,
+                        target: '_blank',
+                        rel:    'noopener noreferrer',
+                        class:  'dr-brief-tool-page-url',
+                    }, p.url);
+                    li.appendChild(a);
+                    if (p.has_html === false) {
+                        li.appendChild(el('span', { class: 'dr-brief-tool-page-meta dr-brief-tool-page-meta-warn' },
+                            ' — ' + (T.tool_html_no_html || 'no HTML stored')));
+                    } else {
+                        const kBefore = Math.round((p.original_chars  || 0) / 1024);
+                        const kAfter  = Math.round((p.chars_returned || 0) / 1024);
+                        let metaText = ' — ' + kAfter + ' KB';
+                        if (p.original_chars && p.chars_returned !== p.original_chars) {
+                            metaText += ' / ' + kBefore + ' KB';
+                        }
+                        if (p.truncated) {
+                            metaText += ' (' + (T.tool_html_truncated || 'truncated') + ')';
+                        }
+                        li.appendChild(el('span', { class: 'dr-brief-tool-page-meta' }, metaText));
+                    }
+                    list.appendChild(li);
+                });
+                tool.appendChild(list);
+            }
             if (result.rows && result.rows.length) {
                 // Collapsible — keeps the chat compact. Click "Voir les
                 // résultats" to expand the preview table.
@@ -1095,7 +1150,7 @@ if (!$drBriefAiConfigured) {
         }
 
         // Persist assistant turn — text + tool snapshots.
-        // The server only reads {role, content} when re-sending to Gemini,
+        // The server only reads {role, content} when re-sending to the model,
         // so the extra `tools` key is ignored on the wire. It lets us
         // rebuild the FULL UI (SQL block + result table + deeplink) when the
         // user navigates away and back.
@@ -1140,10 +1195,10 @@ if (!$drBriefAiConfigured) {
                 if (toolStep) {
                     if (!toolStep.queryShown && data.query) toolStep.queryShown = data.query;
                     const result = {
-                        // tool_kind ('sql' | 'headings' | ...) drives which
-                        // collapsibles & deeplinks appear in the UI. Default
-                        // to 'sql' for backward-compat with older SSE payloads
-                        // that didn't carry the field.
+                        // tool_kind ('sql' | 'headings' | 'html' | ...) drives
+                        // which collapsibles & deeplinks appear in the UI.
+                        // Default to 'sql' for backward-compat with older SSE
+                        // payloads that didn't carry the field.
                         tool_kind:  data.tool_kind || 'sql',
                         success:    data.success,
                         purpose:    toolStep.purpose || '',
@@ -1154,6 +1209,9 @@ if (!$drBriefAiConfigured) {
                         columns:    data.columns || [],
                         deeplink:   data.deeplink || '',
                         error:      data.error || '',
+                        // get_page_html payload — list of inspected pages with
+                        // byte counts. Stays empty for other tool kinds.
+                        pages:      data.pages || [],
                     };
                     attachToolResult(toolStep.tool, toolStep.statusEl, result);
                     // Snapshot for the persisted history.
@@ -1165,7 +1223,7 @@ if (!$drBriefAiConfigured) {
                     syncDeeplinksFooter(contentEl, turnTools);
                     toolStep = null;
                 }
-                // Show typing dots again while Gemini formulates the answer.
+                // Show typing dots again while the model formulates the answer.
                 typingEl = appendTypingIndicator(contentEl);
                 return;
             }

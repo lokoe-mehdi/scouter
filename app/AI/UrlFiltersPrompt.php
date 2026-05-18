@@ -3,7 +3,7 @@
 namespace App\AI;
 
 /**
- * Build the Gemini prompt for natural-language → URL Explorer filters.
+ * Build the prompt (sent via OpenRouter) for natural-language → URL Explorer filters.
  *
  * The output schema is a list of GROUPS (AND between groups, OR between chips
  * inside a group) — mirroring the JS `filterGroups` state of URL Explorer

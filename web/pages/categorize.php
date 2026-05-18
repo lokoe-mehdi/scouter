@@ -14,11 +14,11 @@ $crawledDomain = $crawlRecord->domain ?? '';
 
 // AI-assisted categorization availability — read global app settings.
 // The button stays visible for every user but is disabled with a tooltip
-// when the admin has not configured a Gemini key + model.
+// when the admin has not configured an OpenRouter key + light model.
 $aiConfigured = false;
 try {
-    $aiKey   = \App\Settings\AppSettings::get('ai.gemini.api_key');
-    $aiModel = \App\Settings\AppSettings::get('ai.gemini.model');
+    $aiKey   = \App\Settings\AppSettings::get('ai.openrouter.api_key');
+    $aiModel = \App\Settings\AppSettings::get('ai.openrouter.model_light');
     $aiConfigured = $aiKey !== null && $aiKey !== '' && $aiModel !== null && $aiModel !== '';
 } catch (\Throwable $e) {
     // app_settings table missing (migration not yet run) → just disable the feature.
@@ -2652,9 +2652,9 @@ async function saveCategorization() {
     });
 }
 
-// AI-assisted categorization via Gemini.
+// AI-assisted categorization via OpenRouter.
 // Sends a server-side sample of up to 200 internal URLs (+ H1 + title) to the
-// configured Gemini model and replaces the YAML editor with the proposed
+// configured light model and replaces the YAML editor with the proposed
 // config. Existing content is overwritten — that's expected: Ctrl+Z in
 // CodeMirror still rolls back, and nothing is persisted until the user
 // hits Save.

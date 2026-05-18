@@ -3,7 +3,7 @@
 namespace App\AI;
 
 /**
- * Build the Gemini prompt for natural-language → Link Explorer filters.
+ * Build the prompt (sent via OpenRouter) for natural-language → Link Explorer filters.
  *
  * Like UrlFiltersPrompt but for the Links table — each row represents one
  * <a> link between a SOURCE page and a TARGET page. Most page-level fields

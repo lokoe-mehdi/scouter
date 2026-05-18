@@ -7,7 +7,7 @@ use App\Http\Request;
 use App\Database\PostgresDatabase;
 use App\Database\CrawlDatabase;
 use App\Settings\AppSettings;
-use App\AI\GeminiClient;
+use App\AI\OpenRouterClient;
 use App\AI\UrlFiltersPrompt;
 use PDO;
 
@@ -19,7 +19,7 @@ use PDO;
  *   2. Resolve the crawl + project so we can give the AI the right context
  *      (categories of this project, schema types found in this crawl,
  *      custom extractors).
- *   3. Ask Gemini, extract the JSON filter list from the <filters> tag.
+ *   3. Ask the model via OpenRouter, extract the JSON filter list from the <filters> tag.
  *   4. Normalize: map category NAMES → IDs (the JS state expects IDs).
  *   5. Return { filters: [...] } — the frontend pushes them into filterGroups,
  *      adds missing columns, and reloads.
@@ -90,8 +90,8 @@ class AIUrlFiltersController extends Controller
         }
         $projectId = (int)$crawl->project_id;
 
-        $apiKey = (string)AppSettings::get('ai.gemini.api_key');
-        $model  = (string)AppSettings::get('ai.gemini.model');
+        $apiKey = (string)AppSettings::get('ai.openrouter.api_key');
+        $model  = (string)AppSettings::get('ai.openrouter.model_light');
         if ($apiKey === '' || $model === '') {
             $this->error('AI provider is not configured. Ask an admin to set it up in Settings.', 400);
             return;
@@ -105,7 +105,7 @@ class AIUrlFiltersController extends Controller
 
         // Attempt 1
         $prompt   = UrlFiltersPrompt::build($question, $categories, $schemaTypes, $extractors);
-        $response = GeminiClient::generateContent($apiKey, $model, $prompt);
+        $response = OpenRouterClient::chatCompletion($apiKey, $model, [['role' => 'user', 'content' => $prompt]]);
         $totalIn  = (int)($response['input_tokens'] ?? 0);
         $totalOut = (int)($response['output_tokens'] ?? 0);
 
@@ -122,7 +122,7 @@ class AIUrlFiltersController extends Controller
 
         if ($groups === null && $error !== null) {
             $retryPrompt = UrlFiltersPrompt::build($question, $categories, $schemaTypes, $extractors, $error);
-            $retry = GeminiClient::generateContent($apiKey, $model, $retryPrompt);
+            $retry = OpenRouterClient::chatCompletion($apiKey, $model, [['role' => 'user', 'content' => $retryPrompt]]);
             $totalIn  += (int)($retry['input_tokens']  ?? 0);
             $totalOut += (int)($retry['output_tokens'] ?? 0);
 

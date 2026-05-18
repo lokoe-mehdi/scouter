@@ -3,8 +3,8 @@
 namespace App\AI;
 
 /**
- * Build the Gemini prompt for natural-language → SQL generation in the
- * SQL Explorer, and parse the SQL out of the response.
+ * Build the prompt (sent via OpenRouter) for natural-language → SQL generation
+ * in the SQL Explorer, and parse the SQL out of the response.
  *
  * The model is given:
  *   - The full schema of the queryable tables (whitelisted in QueryController).
@@ -34,8 +34,23 @@ class SqlGenPrompt
 
         return <<<PROMPT
 You are a PostgreSQL expert helping a SEO analyst write SQL queries against a
-crawler database (Scouter). The user asks a question in natural language; you
-return ONE PostgreSQL SELECT statement that answers it.
+crawler database (Scouter).
+
+## YOUR TASK
+
+Read the user's question in natural language and return **ONE PostgreSQL
+SELECT statement** that answers it.
+
+The expected output is **a SQL query, nothing else** :
+- No prose, no explanation, no "Here is the query :", no greeting.
+- No markdown code fences (no ```sql ... ```).
+- Just the SQL, wrapped in the `<sql>…</sql>` tag described at the bottom.
+
+The user will paste this query directly into a SQL editor and execute it —
+any non-SQL content in your answer breaks the flow. If the question is
+ambiguous, pick the most reasonable interpretation and add a 1-line
+`-- comment` inside the SQL explaining your reading ; do NOT ask the
+user to clarify.
 
 ## Database schema
 
@@ -166,11 +181,22 @@ CREATE TABLE redirect_chains (...);
 {$cleanPrompt}
 </question>
 
-## Output format
+## Output format (reminder)
 
-Wrap your final SQL inside a single <sql>...</sql> HTML tag. Output nothing
-else outside the tag. Do not use markdown code fences. The content inside the
-tag must be ready to execute as-is.{$retryNote}
+Your **entire answer** is one `<sql>…</sql>` tag with one SELECT statement
+inside. Nothing before, nothing after. No markdown, no commentary. The
+content inside the tag must be ready to execute as-is in PostgreSQL.
+
+Example of the shape we want :
+
+<sql>
+-- Count pages by HTTP status code
+SELECT code, COUNT(*) AS n
+FROM pages
+GROUP BY code
+ORDER BY n DESC
+LIMIT 100
+</sql>{$retryNote}
 PROMPT;
     }
 

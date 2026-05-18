@@ -9,11 +9,11 @@ use App\Database\PostgresDatabase;
 
 // AI-assisted SQL generation availability — same pattern as categorize.php.
 // Visible to every user but disabled with a tooltip when an admin hasn't
-// configured a Gemini key + model in Settings.
+// configured an OpenRouter key + light model in Settings.
 $sqlAiConfigured = false;
 try {
-    $sqlAiKey   = \App\Settings\AppSettings::get('ai.gemini.api_key');
-    $sqlAiModel = \App\Settings\AppSettings::get('ai.gemini.model');
+    $sqlAiKey   = \App\Settings\AppSettings::get('ai.openrouter.api_key');
+    $sqlAiModel = \App\Settings\AppSettings::get('ai.openrouter.model_light');
     $sqlAiConfigured = $sqlAiKey !== null && $sqlAiKey !== '' && $sqlAiModel !== null && $sqlAiModel !== '';
 } catch (\Throwable $e) {
     $sqlAiConfigured = false;

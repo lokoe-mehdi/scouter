@@ -7,8 +7,8 @@
 // AI-assisted filter generation availability — same pattern as the SQL Explorer.
 $urlExplorerAiConfigured = false;
 try {
-    $_ueAiKey   = \App\Settings\AppSettings::get('ai.gemini.api_key');
-    $_ueAiModel = \App\Settings\AppSettings::get('ai.gemini.model');
+    $_ueAiKey   = \App\Settings\AppSettings::get('ai.openrouter.api_key');
+    $_ueAiModel = \App\Settings\AppSettings::get('ai.openrouter.model_light');
     $urlExplorerAiConfigured = $_ueAiKey !== null && $_ueAiKey !== '' && $_ueAiModel !== null && $_ueAiModel !== '';
 } catch (\Throwable $e) {
     $urlExplorerAiConfigured = false;

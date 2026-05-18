@@ -7,8 +7,8 @@
 // AI-assisted filter generation availability — same pattern as the URL Explorer.
 $linkExplorerAiConfigured = false;
 try {
-    $_leAiKey   = \App\Settings\AppSettings::get('ai.gemini.api_key');
-    $_leAiModel = \App\Settings\AppSettings::get('ai.gemini.model');
+    $_leAiKey   = \App\Settings\AppSettings::get('ai.openrouter.api_key');
+    $_leAiModel = \App\Settings\AppSettings::get('ai.openrouter.model_light');
     $linkExplorerAiConfigured = $_leAiKey !== null && $_leAiKey !== '' && $_leAiModel !== null && $_leAiModel !== '';
 } catch (\Throwable $e) {
     $linkExplorerAiConfigured = false;

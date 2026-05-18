@@ -96,30 +96,79 @@ class CategorizationController extends Controller
             ':config2' => $yamlContent
         ]);
 
-        // PHASE 3: Create async job for ALL crawls (including current)
-        // Never run heavy categorization in the HTTP request
+        // PHASE 3: Apply SYNCHRONOUSLY to the current crawl so the user sees
+        //          the new categories in the filters / dropdowns immediately
+        //          on next page load. Categorization is just a few regex
+        //          UPDATE statements + a cleanup pass; takes <5s on crawls
+        //          up to ~100k pages. We pay the HTTP latency once on save
+        //          rather than leaving a stale UI for an arbitrary worker delay.
+        //
+        //          The previous fully-async flow led to a confusing UX: the
+        //          editor showed the new YAML right away, but the URL/Link
+        //          Explorer filters kept the old categories until the worker
+        //          picked the job — which could be minutes if the queue was
+        //          busy. Worth the trade-off for accurate immediate feedback.
+        $currentCategorized = 0;
+        $currentError = null;
+        try {
+            $service = new CategorizationService($this->db);
+            $currentCategorized = $service->applyCategorization($crawlId, $yamlContent, $projectId);
+        } catch (\Throwable $e) {
+            $currentError = $e->getMessage();
+            error_log('[Categorization] Sync apply on crawl ' . $crawlId . ' failed: ' . $e->getMessage());
+        }
+
+        // PHASE 4: Async job for the OTHER crawls of the project (history
+        //          versions the user isn't currently looking at). Skip when
+        //          there are none — most projects have a single active crawl.
         $crawlRepo = new \App\Database\CrawlRepository();
         $allCrawls = $crawlRepo->getByProjectId($projectId);
+        $otherCrawls = array_filter($allCrawls, fn($c) => (int)$c->id !== (int)$crawlId);
 
-        $jobManager = new \App\Job\JobManager();
-        $jobId = $jobManager->createJob(
-            $projectDir,
-            "Batch Categorization",
-            "batch-categorize-project:{$projectId}"
-        );
-        $jobManager->updateJobStatus($jobId, 'queued');
-        $jobManager->addLog($jobId,
-            "Queued categorization for " . count($allCrawls) . " crawl(s)",
-            'info'
-        );
+        $jobId = null;
+        if (!empty($otherCrawls)) {
+            $jobManager = new \App\Job\JobManager();
+            $jobId = $jobManager->createJob(
+                $projectDir,
+                "Batch Categorization",
+                "batch-categorize-project:{$projectId}"
+            );
+            $jobManager->updateJobStatus($jobId, 'queued');
+            $jobManager->addLog($jobId,
+                "Queued categorization for " . count($otherCrawls) . " other crawl(s) in the project "
+                . "(current crawl #{$crawlId} was already processed synchronously)",
+                'info'
+            );
+        }
+
+        // If the synchronous apply failed, surface it. The save itself
+        // succeeded (project config is persisted), but the user must know
+        // that their current view won't reflect the new rules until the
+        // worker rescues it.
+        if ($currentError !== null) {
+            $this->success([
+                'categorized_count'    => 0,
+                'current_crawl_error'  => $currentError,
+                'batch_job_created'    => $jobId !== null,
+                'job_id'               => $jobId,
+                'other_crawls'         => count($otherCrawls),
+                'async'                => $jobId !== null,
+            ], 'Configuration enregistrée, mais l\'application au crawl courant a échoué : '
+                . $currentError
+                . ($jobId !== null ? '. Le worker reprendra automatiquement.' : '.'));
+            return;
+        }
 
         $this->success([
-            'categorized_count' => 0,
-            'batch_job_created' => true,
-            'job_id' => $jobId,
-            'total_crawls' => count($allCrawls),
-            'async' => true
-        ], 'Configuration sauvegardée, catégorisation en cours...');
+            'categorized_count'    => $currentCategorized,
+            'current_crawl_id'     => $crawlId,
+            'batch_job_created'    => $jobId !== null,
+            'job_id'               => $jobId,
+            'other_crawls'         => count($otherCrawls),
+            'async'                => $jobId !== null,
+        ], $jobId !== null
+            ? "Catégorisation appliquée ({$currentCategorized} pages). Les " . count($otherCrawls) . " autre(s) crawl(s) du projet sont en cours de traitement en arrière-plan."
+            : "Catégorisation appliquée ({$currentCategorized} pages).");
     }
 
     /**

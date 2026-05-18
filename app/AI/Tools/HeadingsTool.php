@@ -26,7 +26,7 @@ class HeadingsTool
     /** Caps : never fetch more than this regardless of what the AI asks. */
     private const MAX_URLS = 20;
 
-    /** Function Declaration for Gemini. */
+    /** Bare function declaration — ChatAgent wraps it in OpenAI's {type:'function',function:...} envelope. */
     public static function declaration(): array
     {
         return [

@@ -7,7 +7,7 @@ use App\Http\Request;
 use App\Database\PostgresDatabase;
 use App\Database\CrawlDatabase;
 use App\Settings\AppSettings;
-use App\AI\GeminiClient;
+use App\AI\OpenRouterClient;
 use App\AI\CategorizationPrompt;
 use App\Analysis\CategorizationService;
 use PDO;
@@ -19,7 +19,7 @@ use PDO;
  *   1. Resolve the crawl from the project path (same idiom as CategorizationController).
  *   2. Authorize (requireCrawlManagement).
  *   3. Sample up to 200 INTERNAL crawled URLs from pages_<crawl_id>, stratified by depth.
- *   4. Build the Gemini prompt + call the configured model.
+ *   4. Build the prompt + call the configured OpenRouter model.
  *   5. Extract YAML from the <categorization> tag. If extraction or compilation
  *      fails, retry ONCE with the error message appended to the prompt.
  *   6. Persist a row in ai_categorization_runs for audit/cost tracking.
@@ -67,8 +67,8 @@ class AICategorizationController extends Controller
         $domain  = (string)($crawl->domain ?? '');
 
         // Check AI is configured
-        $apiKey = (string)AppSettings::get('ai.gemini.api_key');
-        $model  = (string)AppSettings::get('ai.gemini.model');
+        $apiKey = (string)AppSettings::get('ai.openrouter.api_key');
+        $model  = (string)AppSettings::get('ai.openrouter.model_light');
         if ($apiKey === '' || $model === '') {
             $this->error('AI provider is not configured. Ask an admin to set it up in Settings.', 400);
             return;
@@ -84,7 +84,7 @@ class AICategorizationController extends Controller
 
         // Attempt 1
         $prompt   = CategorizationPrompt::build($sample, $domain);
-        $response = GeminiClient::generateContent($apiKey, $model, $prompt);
+        $response = OpenRouterClient::chatCompletion($apiKey, $model, [['role' => 'user', 'content' => $prompt]]);
         $totalIn  = (int)($response['input_tokens'] ?? 0);
         $totalOut = (int)($response['output_tokens'] ?? 0);
 
@@ -99,7 +99,7 @@ class AICategorizationController extends Controller
         // Attempt 2 (retry once) if we got an error we can express back to the model
         if ($yaml === null && $error !== null) {
             $retryPrompt = CategorizationPrompt::build($sample, $domain, $error);
-            $retry = GeminiClient::generateContent($apiKey, $model, $retryPrompt);
+            $retry = OpenRouterClient::chatCompletion($apiKey, $model, [['role' => 'user', 'content' => $retryPrompt]]);
             $totalIn  += (int)($retry['input_tokens']  ?? 0);
             $totalOut += (int)($retry['output_tokens'] ?? 0);
 

@@ -3,11 +3,12 @@
 namespace App\AI;
 
 /**
- * Build the Gemini prompt for template-based URL categorization, and parse the
- * YAML answer back out of the response.
+ * Build the OpenRouter prompt for template-based URL categorization, and parse
+ * the YAML answer back out of the response.
  *
- * The prompt is in English on purpose — Gemini follows formatting instructions
- * more reliably in English, and the output (a YAML config) is locale-agnostic.
+ * The prompt is in English on purpose — most models follow formatting
+ * instructions more reliably in English, and the output (a YAML config) is
+ * locale-agnostic.
  *
  * Output contract with the model: a single <categorization>...</categorization>
  * HTML tag containing valid YAML. We extract the tag content rather than

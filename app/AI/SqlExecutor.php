@@ -51,7 +51,12 @@ class SqlExecutor
     ];
 
     private const HARD_ROW_CAP   = 10000;
-    private const PREVIEW_ROWS   = 10;
+    // Preview cap for chat tool calls. Raised from 10 → 100 so the model has
+    // enough rows to spot patterns (per-bucket samples, distributions, lists
+    // long enough to be representative). The UI still tells the user it's a
+    // capped sample when truncated=true, and the deeplink-to-SQL-Explorer
+    // button lets them see the full result.
+    private const PREVIEW_ROWS   = 100;
     private const TIMEOUT_SECONDS = 10;
 
     /**

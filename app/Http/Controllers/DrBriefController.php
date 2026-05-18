@@ -114,9 +114,12 @@ class DrBriefController extends Controller
             $this->auth->requireCrawlAccessById($crawlId, true);
         }
 
-        // AI configuration
-        $apiKey = (string)AppSettings::get('ai.gemini.api_key');
-        $model  = (string)AppSettings::get('ai.gemini.model');
+        // AI configuration — Dr. Brief uses the "strong" model because it
+        // needs tool calling (run_sql, get_page_headings) and multi-turn
+        // reasoning. The settings UI already filters this dropdown to
+        // models that advertise `tools` in supported_parameters.
+        $apiKey = (string)AppSettings::get('ai.openrouter.api_key');
+        $model  = (string)AppSettings::get('ai.openrouter.model_strong');
         if ($apiKey === '' || $model === '') {
             $this->error('AI provider is not configured. Ask an admin to set it up in Settings.', 400);
             return;
