@@ -84,7 +84,8 @@ class PostProcessor
                     // Log to stderr so worker captures it in log file
                     fwrite(STDERR, "ERROR in PostProcessor::$step(): " . $e->getMessage()
                         . " in " . $e->getFile() . ":" . $e->getLine() . "\n");
-                    throw $e;
+                    // Best-effort : une étape qui plante ne doit jamais faire passer
+                    // le crawl entier en 'failed'. On log et on continue.
                 }
             }
         } finally {
@@ -1006,6 +1007,7 @@ class PostProcessor
             'regexExtractors'      => $advanced['regexExtractors'] ?? [],
             'skip_link_extraction' => true, // ← THE flag: PageCrawler will skip storeLinks/storeRedirect
             'silent_progress'      => true, // ← keep the sitemap step on a single log line
+            'skip_stop_signal'     => true, // ← post-processing: ignorer les changements de status sur la table crawls
         ];
 
         $crawlDb = new \App\Database\CrawlDatabase($this->crawlId, $runtimeConfig);
