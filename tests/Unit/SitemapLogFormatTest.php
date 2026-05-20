@@ -57,13 +57,15 @@ describe('Sitemap log format', function () {
         preg_match_all('/echo\s+"\\\\r[^"]*Sitemap analysis[^"]*\\\\n"/', $rest, $matches);
 
         // Each line ending in \n must be either the final summary or a terminal status
-        // (skipped / no URLs found). Acceptable markers in the source:
+        // (skipped / no URLs found / deferred). Acceptable markers in the source:
         //  - "skipped"        → caught exception path
         //  - "no URLs found"  → empty sitemap result
+        //  - "deferred"       → crawl not finished (stopped/error/failed) → early return
         //  - "$summary"       → final tally interpolation
         foreach ($matches[0] as $line) {
             $isFinal = strpos($line, 'skipped') !== false
                     || strpos($line, 'no URLs found') !== false
+                    || strpos($line, 'deferred') !== false
                     || strpos($line, '$summary') !== false;
             expect($isFinal)->toBeTrue();
         }
