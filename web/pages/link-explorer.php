@@ -66,6 +66,49 @@ foreach ($availableExtractors as $extr) {
     $GLOBALS['extractorTypes'][$extr['key']] = $extr['type'];
 }
 
+// Détection auto des clés générées par le Bulk AI Generator (pages.generation)
+// — même approche que dans url-explorer.php : on lit jsonb_typeof pour
+// déduire le type dominant, et on construit la liste des keys avec leur
+// type pour exposer dans le sélecteur de filtres.
+$availableGenerations = [];
+try {
+    $stmt = $pdo->prepare("
+        WITH samples AS (
+            SELECT generation FROM pages
+            WHERE crawl_id = :crawl_id AND generation IS NOT NULL
+              AND jsonb_typeof(generation) = 'object'
+            LIMIT 500
+        )
+        SELECT j.key, jsonb_typeof(j.value) AS jtype, COUNT(*) AS n
+        FROM samples s, jsonb_each(s.generation) j
+        GROUP BY j.key, jsonb_typeof(j.value)
+    ");
+    $stmt->execute([':crawl_id' => $crawlId]);
+    $byKey = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $k = $row['key'];
+        if (!isset($byKey[$k])) $byKey[$k] = [];
+        $byKey[$k][$row['jtype']] = (int)$row['n'];
+    }
+    foreach ($byKey as $key => $typeCounts) {
+        $total = array_sum($typeCounts);
+        arsort($typeCounts);
+        $dominant = (string)array_key_first($typeCounts);
+        $pct      = $total > 0 ? $typeCounts[$dominant] / $total : 0;
+        if      ($dominant === 'number'  && $pct >= 0.95) $uiType = 'number';
+        elseif  ($dominant === 'boolean' && $pct >= 0.95) $uiType = 'boolean';
+        else                                              $uiType = 'text';
+        $availableGenerations[] = ['key' => $key, 'type' => $uiType];
+    }
+    usort($availableGenerations, fn($a, $b) => strcmp($a['key'], $b['key']));
+} catch (Exception $e) {
+    // pages.generation absent — silencieux.
+}
+$GLOBALS['generationTypes'] = [];
+foreach ($availableGenerations as $g) {
+    $GLOBALS['generationTypes'][$g['key']] = $g['type'];
+}
+
 // Construction de la clause WHERE
 $whereConditions = ["1=1"];
 $params = [];
@@ -397,6 +440,40 @@ function buildFilterConditions($items, &$params, &$paramCounter = 0) {
                             $params[$paramName] = floatval($value);
                         } else {
                             $paramName = ':ext_' . $paramCounter++;
+                            if ($operator === 'contains') {
+                                $condition = "{$jsonAccess} ILIKE {$paramName}";
+                                $params[$paramName] = '%' . $value . '%';
+                            } elseif ($operator === 'not_contains') {
+                                $condition = "({$jsonAccess} NOT ILIKE {$paramName} OR {$jsonAccess} IS NULL)";
+                                $params[$paramName] = '%' . $value . '%';
+                            } elseif ($operator === 'regex') {
+                                $condition = "{$jsonAccess} ~* {$paramName}";
+                                $params[$paramName] = $value;
+                            } elseif ($operator === 'not_regex') {
+                                $condition = "({$jsonAccess} !~* {$paramName} OR {$jsonAccess} IS NULL)";
+                                $params[$paramName] = $value;
+                            }
+                        }
+                    }
+                    // Filtres dynamiques sur les générations IA (`generation_<key>`).
+                    // Filtrage sur le source ou le target selon le tablePrefix.
+                    if (strpos($field, 'generation_') === 0) {
+                        $genKey = substr($field, 11);
+                        $jsonAccess = "{$tablePrefix}.generation->>'" . addslashes($genKey) . "'";
+                        $genType = $GLOBALS['generationTypes'][$genKey] ?? 'text';
+
+                        if ($genType === 'number') {
+                            $sqlOp = in_array($operator, ['=', '>', '<', '>=', '<=', '!=']) ? $operator : '=';
+                            $paramName = ':gen_' . $paramCounter++;
+                            $condition = "({$jsonAccess}) ~ '^-?[0-9]+(\\.[0-9]+)?$' AND ({$jsonAccess})::numeric {$sqlOp} {$paramName}";
+                            $params[$paramName] = floatval($value);
+                        } elseif ($genType === 'boolean') {
+                            $paramName = ':gen_' . $paramCounter++;
+                            $boolValue = ($value === true || $value === 'true' || $value === 1 || $value === '1') ? 'true' : 'false';
+                            $condition = "{$jsonAccess} = {$paramName}";
+                            $params[$paramName] = $boolValue;
+                        } else {
+                            $paramName = ':gen_' . $paramCounter++;
                             if ($operator === 'contains') {
                                 $condition = "{$jsonAccess} ILIKE {$paramName}";
                                 $params[$paramName] = '%' . $value . '%';
@@ -1309,6 +1386,11 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
             <span class="material-symbols-outlined">code</span> <?= htmlspecialchars($extr['key']) ?>
         </div>
         <?php endforeach; ?>
+        <?php foreach ($availableGenerations as $gen): ?>
+        <div class="popover-field-item" onclick="selectField('generation_<?= htmlspecialchars($gen['key']) ?>', 'page')">
+            <span class="material-symbols-outlined">auto_awesome</span> AI : <?= htmlspecialchars($gen['key']) ?>
+        </div>
+        <?php endforeach; ?>
     </div>
 </div>
 
@@ -1396,6 +1478,20 @@ availableExtractors.forEach(extr => {
         fieldConfig[fieldId] = { label: extr.key, icon: 'code', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] };
     } else {
         fieldConfig[fieldId] = { label: extr.key, icon: 'code', type: 'text', scope: 'page', operators: ['contains', 'not_contains', 'regex', 'not_regex'] };
+    }
+});
+
+// Idem pour les clés générées par le Bulk AI Generator (page-scope —
+// filtre soit sur le source soit sur le target du lien selon la cible).
+const availableGenerations = <?= json_encode($availableGenerations) ?>;
+availableGenerations.forEach(gen => {
+    const fieldId = 'generation_' + gen.key;
+    if (gen.type === 'number') {
+        fieldConfig[fieldId] = { label: 'AI: ' + gen.key, icon: 'auto_awesome', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] };
+    } else if (gen.type === 'boolean') {
+        fieldConfig[fieldId] = { label: 'AI: ' + gen.key, icon: 'auto_awesome', type: 'boolean', scope: 'page', operators: ['='] };
+    } else {
+        fieldConfig[fieldId] = { label: 'AI: ' + gen.key, icon: 'auto_awesome', type: 'text', scope: 'page', operators: ['contains', 'not_contains', 'regex', 'not_regex'] };
     }
 });
 

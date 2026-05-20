@@ -77,6 +77,59 @@ foreach ($availableExtractors as $extr) {
     $GLOBALS['extractorTypes'][$extr['key']] = $extr['type'];
 }
 
+// Détection auto des clés générées par le Bulk AI Generator. Même esprit que
+// les extracts, mais on exploite le typage natif JSONB (`jsonb_typeof`) — pas
+// besoin de sampler les valeurs pour deviner le type, JSONB nous le dit.
+// La majorité dominante du type gagne ; si > 5% des values ont un type
+// "inattendu" (bug d'IA), on tombe en `text` par sécurité pour l'UI.
+$availableGenerations = [];
+try {
+    $stmt = $pdo->prepare("
+        WITH samples AS (
+            SELECT generation FROM pages
+            WHERE crawl_id = :crawl_id AND generation IS NOT NULL
+              AND jsonb_typeof(generation) = 'object'
+            LIMIT 500
+        )
+        SELECT j.key, jsonb_typeof(j.value) AS jtype, COUNT(*) AS n
+        FROM samples s, jsonb_each(s.generation) j
+        GROUP BY j.key, jsonb_typeof(j.value)
+    ");
+    $stmt->execute([':crawl_id' => $crawlId]);
+    // Group by key, pick dominant type if > 95% of samples.
+    $byKey = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $k = $row['key'];
+        if (!isset($byKey[$k])) $byKey[$k] = [];
+        $byKey[$k][$row['jtype']] = (int)$row['n'];
+    }
+    foreach ($byKey as $key => $typeCounts) {
+        $total = array_sum($typeCounts);
+        arsort($typeCounts);
+        $dominantType = (string)array_key_first($typeCounts);
+        $dominantPct  = $total > 0 ? $typeCounts[$dominantType] / $total : 0;
+        // Map JSONB type to our UI type vocabulary (same as extracts : 'number' | 'text').
+        if ($dominantType === 'number' && $dominantPct >= 0.95) {
+            $uiType = 'number';
+        } elseif ($dominantType === 'boolean' && $dominantPct >= 0.95) {
+            $uiType = 'boolean';
+        } else {
+            $uiType = 'text';
+        }
+        $availableGenerations[] = ['key' => $key, 'type' => $uiType];
+    }
+    // Stable order.
+    usort($availableGenerations, fn($a, $b) => strcmp($a['key'], $b['key']));
+} catch (Exception $e) {
+    // Generation column absent or no data — silent.
+}
+
+// Map key => type pour utilisation dans url-table.php (filtres + tri).
+$GLOBALS['generationTypes'] = [];
+foreach ($availableGenerations as $g) {
+    $GLOBALS['generationTypes'][$g['key']] = $g['type'];
+}
+
 // Construction de la clause WHERE (PostgreSQL)
 $whereConditions = ["1=1"];
 $params = [];
@@ -341,6 +394,42 @@ function buildFilterConditions($items, &$params, &$paramCounter = 0) {
                             }
                         }
                     }
+                    // Filtres dynamiques sur les générations IA (`generation_<key>`).
+                    // Le type vient de $GLOBALS['generationTypes'] (détection auto
+                    // via jsonb_typeof). Support text / number / boolean.
+                    if (strpos($field, 'generation_') === 0) {
+                        $genKey = substr($field, 11);
+                        $jsonAccess = "c.generation->>'" . addslashes($genKey) . "'";
+                        $genType = $GLOBALS['generationTypes'][$genKey] ?? 'text';
+
+                        if ($genType === 'number') {
+                            $sqlOp = in_array($operator, ['=', '>', '<', '>=', '<=', '!=']) ? $operator : '=';
+                            $paramName = ':gen_' . $paramCounter++;
+                            $condition = "({$jsonAccess}) ~ '^-?[0-9]+(\\.[0-9]+)?$' AND ({$jsonAccess})::numeric {$sqlOp} {$paramName}";
+                            $params[$paramName] = floatval($value);
+                        } elseif ($genType === 'boolean') {
+                            // JSONB stocke `true`/`false` ; ->>texte donne "true"/"false".
+                            $paramName = ':gen_' . $paramCounter++;
+                            $boolValue = ($value === true || $value === 'true' || $value === 1 || $value === '1') ? 'true' : 'false';
+                            $condition = "{$jsonAccess} = {$paramName}";
+                            $params[$paramName] = $boolValue;
+                        } else {
+                            $paramName = ':gen_' . $paramCounter++;
+                            if ($operator === 'contains') {
+                                $condition = "{$jsonAccess} ILIKE {$paramName}";
+                                $params[$paramName] = '%' . $value . '%';
+                            } elseif ($operator === 'not_contains') {
+                                $condition = "({$jsonAccess} NOT ILIKE {$paramName} OR {$jsonAccess} IS NULL)";
+                                $params[$paramName] = '%' . $value . '%';
+                            } elseif ($operator === 'regex') {
+                                $condition = "{$jsonAccess} ~* {$paramName}";
+                                $params[$paramName] = $value;
+                            } elseif ($operator === 'not_regex') {
+                                $condition = "({$jsonAccess} !~* {$paramName} OR {$jsonAccess} IS NULL)";
+                                $params[$paramName] = $value;
+                            }
+                        }
+                    }
                     break;
             }
             
@@ -394,6 +483,24 @@ $whereClause = implode(' AND ', $whereConditions);
 // on ajoute donc la colonne `external` aux colonnes affichées par défaut pour
 // rester cohérent (sinon l'utilisateur voit le filtre mais pas la donnée filtrée).
 $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['url', 'depth', 'code', 'category', 'inlinks', 'compliant', 'external', 'title'];
+
+// Auto-activation des colonnes via ?add_cols=col1,col2 — utilisé par la modale
+// Bulk AI Generator pour activer immédiatement les `generation_xxx` qu'elle
+// vient de créer. Append aux colonnes courantes sans rien remplacer.
+if (isset($_GET['add_cols']) && $_GET['add_cols'] !== '') {
+    $toAdd = array_filter(array_map('trim', explode(',', $_GET['add_cols'])));
+    foreach ($toAdd as $col) {
+        // Only allow safe identifiers (a-z, 0-9, _) — guards against
+        // accidentally injecting arbitrary names via the URL.
+        if (preg_match('/^[a-z][a-z0-9_]{0,80}$/', $col) && !in_array($col, $selectedColumns, true)) {
+            $selectedColumns[] = $col;
+        }
+    }
+    // CRUCIAL : url-table.php re-reads $_GET['columns'] internally and would
+    // otherwise pick the stale URL value (without our added columns). We
+    // reflect the merged list back into $_GET so the table picks our version.
+    $_GET['columns'] = implode(',', $selectedColumns);
+}
 ?>
 
 <style>
@@ -500,6 +607,32 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
     border-radius: 3px;
     margin-left: 0.25rem;
 }
+
+/* Bulk AI button : pushed to the right of the toolbar (visually
+   separates "filter the table" actions from "create new data" action).
+   Tints toward purple to differentiate from the lighter blue of the
+   filter-side AI button. */
+.ai-url-toolbar-btn.bulk-ai-btn {
+    margin-left: auto;
+    background: #faf5ff;
+    border-color: #ddd6fe;
+    color: #6d28d9;
+}
+.ai-url-toolbar-btn.bulk-ai-btn:hover:not(:disabled) {
+    background: #f3e8ff;
+    border-color: #c4b5fd;
+}
+.ai-url-toolbar-btn.bulk-ai-btn .material-symbols-outlined { color: #6d28d9; }
+.ai-url-toolbar-btn.bulk-ai-btn:disabled { background: #f8fafc; }
+.ai-url-toolbar-btn.bulk-ai-btn:disabled .material-symbols-outlined { color: #94a3b8; }
+.ai-url-toolbar-btn.bulk-ai-btn .bulk-count {
+    font-size: 0.78rem; font-weight: 600;
+    background: #6d28d9; color: white;
+    border-radius: 999px; padding: 1px 7px;
+    margin-left: 0.35rem;
+    min-width: 18px; text-align: center;
+}
+.ai-url-toolbar-btn.bulk-ai-btn:disabled .bulk-count { display: none; }
 
 /* Popover : positionné en fixed, JS l'ancre sous le bouton à l'ouverture */
 .ai-url-popover {
@@ -1107,7 +1240,8 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
         <?= __('url_explorer.filter') ?>
     </button>
 
-    <!-- Demander à l'IA — même pattern qu'au SQL Explorer (Copilot-style) -->
+    <!-- Filtre IA — colle au bouton "+ Filtre" : 2 façons de filtrer le tableau,
+         l'une manuelle, l'autre en langage naturel (Copilot-style). -->
     <button class="ai-url-toolbar-btn"
             id="aiUrlOpenBtn"
             onclick="openAiUrlPopover()"
@@ -1122,6 +1256,21 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
     <button class="btn-clear-filters" id="btnClearAll" style="display: none;" onclick="clearFilters()">
         <span class="material-symbols-outlined">close</span>
         <?= __('url_explorer.clear_all') ?>
+    </button>
+
+    <!-- Bulk AI Generator — action LOURDE sur les données (création de
+         colonnes générées). Isolée à droite via margin-left:auto pour
+         ne pas la confondre avec les boutons de filtrage. Cible TOUTES
+         les URLs du tableau filtré (page courante). -->
+    <button class="ai-url-toolbar-btn bulk-ai-btn"
+            id="bulkAiOpenBtn"
+            type="button"
+            onclick="openBulkAiModal()"
+            <?= $urlExplorerAiConfigured ? '' : 'disabled' ?>
+            title="<?= htmlspecialchars($urlExplorerAiConfigured ? __('bulk_gen.button_label') : __('url_explorer.ai_not_configured')) ?>">
+        <span class="material-symbols-outlined">stacks</span>
+        <span><?= __('bulk_gen.button_label') ?></span>
+        <span class="bulk-count"></span>
     </button>
 </div>
 
@@ -1258,6 +1407,11 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
             <span class="material-symbols-outlined">code</span> <?= htmlspecialchars($extr['key']) ?>
         </div>
         <?php endforeach; ?>
+        <?php foreach ($availableGenerations as $gen): ?>
+        <div class="popover-field-item" onclick="selectField('generation_<?= htmlspecialchars($gen['key']) ?>')">
+            <span class="material-symbols-outlined">auto_awesome</span> AI : <?= htmlspecialchars($gen['key']) ?>
+        </div>
+        <?php endforeach; ?>
     </div>
 </div>
 
@@ -1337,6 +1491,21 @@ availableExtractors.forEach(extr => {
         fieldConfig[fieldId] = { label: extr.key, icon: 'code', type: 'number', operators: ['=', '>', '<', '>=', '<=', '!='] };
     } else {
         fieldConfig[fieldId] = { label: extr.key, icon: 'code', type: 'text', operators: ['contains', 'not_contains', 'regex', 'not_regex'] };
+    }
+});
+
+// Étendre fieldConfig avec un filtre par clé générée par l'IA (Bulk AI Generator).
+// Type détecté via jsonb_typeof côté serveur — opérateurs adaptés (number → >,<,
+// between ; boolean → = true/false ; text → contains, regex…).
+const availableGenerations = <?= json_encode($availableGenerations) ?>;
+availableGenerations.forEach(gen => {
+    const fieldId = 'generation_' + gen.key;
+    if (gen.type === 'number') {
+        fieldConfig[fieldId] = { label: 'AI: ' + gen.key, icon: 'auto_awesome', type: 'number', operators: ['=', '>', '<', '>=', '<=', '!='] };
+    } else if (gen.type === 'boolean') {
+        fieldConfig[fieldId] = { label: 'AI: ' + gen.key, icon: 'auto_awesome', type: 'boolean', operators: ['='] };
+    } else {
+        fieldConfig[fieldId] = { label: 'AI: ' + gen.key, icon: 'auto_awesome', type: 'text', operators: ['contains', 'not_contains', 'regex', 'not_regex'] };
     }
 });
 
@@ -2370,4 +2539,66 @@ document.addEventListener('DOMContentLoaded', function() {
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeAllPopovers();
 });
+
+// ===== Bulk AI Generator — cible toutes les URLs du tableau filtré =====
+//
+// Pas de checkbox-selection : on prend simplement tous les `<tr data-page-id>`
+// visibles dans la page courante (qui sont déjà le résultat des filtres
+// appliqués côté serveur). Un badge de count à côté du libellé du bouton
+// indique combien d'URLs seraient traitées au clic.
+
+window.urlExplorerAiOk = <?= $urlExplorerAiConfigured ? 'true' : 'false' ?>;
+
+function updateBulkBtn() {
+    const btn = document.getElementById('bulkAiOpenBtn');
+    if (!btn) return;
+    const countEl = btn.querySelector('.bulk-count');
+    const aiOk = window.urlExplorerAiOk;
+    const n = document.querySelectorAll('tr[data-page-id]').length;
+    btn.disabled = !aiOk || n === 0;
+    if (countEl) countEl.textContent = n > 0 ? n : '';
+    if (!aiOk) {
+        btn.title = <?= json_encode(__('url_explorer.ai_not_configured')) ?>;
+    } else if (n === 0) {
+        btn.title = <?= json_encode(__('bulk_gen.err_no_visible')) ?>;
+    } else {
+        btn.title = (<?= json_encode(__('bulk_gen.selected_count')) ?>).replace('{n}', n);
+    }
+}
+
+// Re-count whenever the table is re-rendered (sort, paginate, filter).
+document.addEventListener('DOMContentLoaded', () => {
+    updateBulkBtn();
+    const tableWrap = document.querySelector('.table-scroll-area') ||
+                      document.querySelector('table');
+    if (tableWrap) {
+        new MutationObserver(updateBulkBtn).observe(tableWrap, { childList: true, subtree: true });
+    }
+});
+
+function openBulkAiModal() {
+    // Tous les data-page-id des <tr> du tableau actuel — déjà filtrés
+    // côté serveur via les filtres URL Explorer actifs. Limité à la page
+    // de pagination courante : pour traiter plus d'URLs, augmente le
+    // perPage avant de cliquer.
+    const rows = document.querySelectorAll('tr[data-page-id]');
+    const pageIds = [];
+    rows.forEach(r => { if (r.dataset.pageId) pageIds.push(r.dataset.pageId); });
+    if (pageIds.length === 0) {
+        alert(<?= json_encode(__('bulk_gen.err_no_visible')) ?>);
+        return;
+    }
+    if (!window.scouterBulkAi) {
+        alert('Bulk AI modal not loaded');
+        return;
+    }
+    window.scouterBulkAi.open({
+        crawlId:    <?= (int)$crawlId ?>,
+        crawlPath:  <?= json_encode($_GET['project'] ?? $_GET['dir'] ?? '') ?>,
+        pageIds:    pageIds,
+        totalShown: pageIds.length,
+    });
+}
 </script>
+
+<?php include __DIR__ . '/../components/bulk-ai-modal.php'; ?>

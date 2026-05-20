@@ -61,6 +61,20 @@ class DrBriefController extends Controller
         }
     }
 
+    /**
+     * Persist (in the PHP session) that the user has dismissed the greeting
+     * accroche bubble — either by closing it or by opening the chat. The
+     * widget then renders the bubble `hidden` on subsequent page loads.
+     *
+     * Tied to the session on purpose : logging out / session expiry / a fresh
+     * login wipes the flag, so the greeting comes back for the next session.
+     */
+    public function dismissGreeting(Request $request): void
+    {
+        $_SESSION['dr_brief_greeting_dismissed'] = true;
+        $this->success(['dismissed' => true]);
+    }
+
     private function doChat(Request $request): void
     {
         // === Abort handling ===

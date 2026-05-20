@@ -35,6 +35,7 @@ use App\Http\Controllers\AISqlController;
 use App\Http\Controllers\AIUrlFiltersController;
 use App\Http\Controllers\AILinkFiltersController;
 use App\Http\Controllers\DrBriefController;
+use App\Http\Controllers\BulkGenerateController;
 
 $request = new Request();
 
@@ -152,6 +153,16 @@ try {
     $router->post('/url-explorer/ai-filters', [AIUrlFiltersController::class, 'suggest'], ['auth' => true]);
     $router->post('/link-explorer/ai-filters', [AILinkFiltersController::class, 'suggest'], ['auth' => true]);
     $router->post('/dr-brief/chat', [DrBriefController::class, 'chat'], ['auth' => true]);
+    $router->post('/dr-brief/dismiss-greeting', [DrBriefController::class, 'dismissGreeting'], ['auth' => true]);
+
+    // Bulk AI Generator — multi-item, multi-context generation in a batch job.
+    $router->get( '/bulk-generate/context-fields', [BulkGenerateController::class, 'contextFields'], ['auth' => true]);
+    $router->get( '/bulk-generate/existing-keys',  [BulkGenerateController::class, 'existingKeys'],  ['auth' => true]);
+    $router->post('/bulk-generate/estimate',       [BulkGenerateController::class, 'estimate'],      ['auth' => true]);
+    $router->post('/bulk-generate/preview',        [BulkGenerateController::class, 'preview'],       ['auth' => true]);
+    $router->post('/bulk-generate/start',          [BulkGenerateController::class, 'start'],         ['auth' => true]);
+    $router->get( '/bulk-generate/status',         [BulkGenerateController::class, 'status'],        ['auth' => true]);
+    $router->post('/bulk-generate/stop',           [BulkGenerateController::class, 'stop'],          ['auth' => true]);
 
     // =============================================================================
     // DISPATCH

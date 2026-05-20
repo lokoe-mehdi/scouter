@@ -24,6 +24,7 @@ class LinkFiltersPrompt
         array $categories,
         array $schemaTypes,
         array $extractors,
+        array $generations = [],
         ?string $previousError = null
     ): string {
         $catList = '';
@@ -52,6 +53,17 @@ class LinkFiltersPrompt
             }
         }
         $extractorList = $extractorList !== '' ? rtrim($extractorList) : '  (no custom extractors configured)';
+
+        // AI-generated columns (Bulk AI Generator → pages.generation JSONB).
+        $generationList = '';
+        if (!empty($generations)) {
+            foreach ($generations as $g) {
+                $key  = is_object($g) ? $g->key  : ($g['key']  ?? '');
+                $type = is_object($g) ? $g->type : ($g['type'] ?? 'text');
+                if ($key !== '') $generationList .= "  - generation_{$key} ({$type})\n";
+            }
+        }
+        $generationList = $generationList !== '' ? rtrim($generationList) : '  (no AI-generated columns configured)';
 
         $retryNote = '';
         if ($previousError !== null && $previousError !== '') {
@@ -136,7 +148,7 @@ right one based on context.
   - outlinks          number of outgoing links from this page
   - response_time     TTFB in ms
   - word_count        body word count
-  - pri               PageRank-like score
+  - pri               Internal PageRank score (float 0-1, computed on the site's internal links)
 
 ### Boolean (value is STRING "true" or "false", operator omitted)
   - compliant         indexable AND follows SEO rules (use this for "indexable")
@@ -197,6 +209,15 @@ right one based on context.
   - field "extract_<key>" exactly as listed
   - text → contains, not_contains, regex, not_regex
   - number → =, >, <, >=, <=, !=
+
+### AI-generated columns (Bulk AI Generator)
+<generations>
+{$generationList}
+</generations>
+  - field "generation_<key>" exactly as listed, page-scope (target='source'|'target')
+  - text → contains, not_contains, regex, not_regex
+  - number → =, >, <, >=, <=, !=
+  - boolean → =, value MUST be the string "true" or "false"
 
 ## Worked examples
 

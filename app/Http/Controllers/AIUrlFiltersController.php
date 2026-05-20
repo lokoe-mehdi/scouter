@@ -102,9 +102,10 @@ class AIUrlFiltersController extends Controller
         $categories  = $this->fetchCategories($projectId);
         $schemaTypes = $this->fetchSchemaTypes($crawlId);
         $extractors  = $this->fetchExtractors($crawlId);
+        $generations = $this->fetchGenerations($crawlId);
 
         // Attempt 1
-        $prompt   = UrlFiltersPrompt::build($question, $categories, $schemaTypes, $extractors);
+        $prompt   = UrlFiltersPrompt::build($question, $categories, $schemaTypes, $extractors, null, $generations);
         $response = OpenRouterClient::chatCompletion($apiKey, $model, [['role' => 'user', 'content' => $prompt]]);
         $totalIn  = (int)($response['input_tokens'] ?? 0);
         $totalOut = (int)($response['output_tokens'] ?? 0);
@@ -121,7 +122,7 @@ class AIUrlFiltersController extends Controller
         }
 
         if ($groups === null && $error !== null) {
-            $retryPrompt = UrlFiltersPrompt::build($question, $categories, $schemaTypes, $extractors, $error);
+            $retryPrompt = UrlFiltersPrompt::build($question, $categories, $schemaTypes, $extractors, $error, $generations);
             $retry = OpenRouterClient::chatCompletion($apiKey, $model, [['role' => 'user', 'content' => $retryPrompt]]);
             $totalIn  += (int)($retry['input_tokens']  ?? 0);
             $totalOut += (int)($retry['output_tokens'] ?? 0);
@@ -233,6 +234,51 @@ class AIUrlFiltersController extends Controller
     }
 
     /**
+     * Discover the AI-generated columns (pages.generation JSONB) and their
+     * dominant type — feeds the "demande à l'IA" filter suggester so it
+     * knows about generation_xxx fields the user has created.
+     *
+     * @return array<int, array{key:string,type:string}>
+     */
+    private function fetchGenerations(int $crawlId): array
+    {
+        try {
+            $stmt = $this->db->prepare("
+                WITH samples AS (
+                    SELECT generation FROM pages
+                    WHERE crawl_id = :crawl_id AND generation IS NOT NULL
+                      AND jsonb_typeof(generation) = 'object'
+                    LIMIT 500
+                )
+                SELECT j.key, jsonb_typeof(j.value) AS jtype, COUNT(*) AS n
+                FROM samples s, jsonb_each(s.generation) j
+                GROUP BY j.key, jsonb_typeof(j.value)
+            ");
+            $stmt->execute([':crawl_id' => $crawlId]);
+            $byKey = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $byKey[$row['key']][$row['jtype']] = (int)$row['n'];
+            }
+            $out = [];
+            foreach ($byKey as $key => $typeCounts) {
+                $total = array_sum($typeCounts);
+                arsort($typeCounts);
+                $dom = (string)array_key_first($typeCounts);
+                $pct = $total > 0 ? $typeCounts[$dom] / $total : 0;
+                if      ($dom === 'number'  && $pct >= 0.95) $t = 'number';
+                elseif  ($dom === 'boolean' && $pct >= 0.95) $t = 'boolean';
+                else                                          $t = 'text';
+                $out[] = ['key' => $key, 'type' => $t];
+            }
+            usort($out, fn($a, $b) => strcmp($a['key'], $b['key']));
+            return $out;
+        } catch (\Throwable $e) {
+            error_log('[AIUrlFilters] fetchGenerations failed: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
      * Normalize a list of groups (array of arrays of chips). Each group's chips
      * are OR'd, groups themselves are AND'd, matching url-explorer.php's
      * `filterGroups` state.
@@ -284,8 +330,9 @@ class AIUrlFiltersController extends Controller
                 if (!is_array($f) || empty($f['field']) || !is_string($f['field'])) continue;
                 $field = $f['field'];
 
-                $isExtractor = strpos($field, 'extract_') === 0;
-                if (!$isExtractor && !in_array($field, $allowedFields, true)) continue;
+                $isExtractor  = strpos($field, 'extract_')    === 0;
+                $isGeneration = strpos($field, 'generation_') === 0;
+                if (!$isExtractor && !$isGeneration && !in_array($field, $allowedFields, true)) continue;
 
                 $operator = isset($f['operator']) && is_string($f['operator']) ? $f['operator'] : null;
                 $value    = $f['value'] ?? null;

@@ -53,6 +53,11 @@ services:
       - RENDERER_URL=http://renderer:3000
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=15
+      # Worker needs the encryption key to decrypt the OpenRouter API key
+      # stored in app_settings (used by the Bulk AI Generator + any future
+      # background AI job). Without this, AppSettings::get('ai.openrouter.api_key')
+      # returns null and jobs fail with "API key not configured".
+      - SCOUTER_ENCRYPTION_KEY=868ace624e48dc6da990d2512c380a9ec8b168e11c0fb4aff8393bb6a1d22809
     volumes:
       - ./web:/app/web
       - ./app:/app/app

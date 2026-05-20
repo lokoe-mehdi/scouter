@@ -73,9 +73,10 @@ class AILinkFiltersController extends Controller
         $categories  = $this->fetchCategories($projectId);
         $schemaTypes = $this->fetchSchemaTypes($crawlId);
         $extractors  = $this->fetchExtractors($crawlId);
+        $generations = $this->fetchGenerations($crawlId);
 
         // Attempt 1
-        $prompt   = LinkFiltersPrompt::build($question, $categories, $schemaTypes, $extractors);
+        $prompt   = LinkFiltersPrompt::build($question, $categories, $schemaTypes, $extractors, $generations);
         $response = OpenRouterClient::chatCompletion($apiKey, $model, [['role' => 'user', 'content' => $prompt]]);
         $totalIn  = (int)($response['input_tokens'] ?? 0);
         $totalOut = (int)($response['output_tokens'] ?? 0);
@@ -93,7 +94,7 @@ class AILinkFiltersController extends Controller
 
         // Retry once
         if ($groups === null && $error !== null) {
-            $retryPrompt = LinkFiltersPrompt::build($question, $categories, $schemaTypes, $extractors, $error);
+            $retryPrompt = LinkFiltersPrompt::build($question, $categories, $schemaTypes, $extractors, $generations, $error);
             $retry = OpenRouterClient::chatCompletion($apiKey, $model, [['role' => 'user', 'content' => $retryPrompt]]);
             $totalIn  += (int)($retry['input_tokens']  ?? 0);
             $totalOut += (int)($retry['output_tokens'] ?? 0);
@@ -197,6 +198,50 @@ class AILinkFiltersController extends Controller
         }
     }
 
+    /**
+     * AI-generated columns (pages.generation JSONB) + their dominant type.
+     * Mirrors AIUrlFiltersController::fetchGenerations.
+     *
+     * @return array<int, array{key:string,type:string}>
+     */
+    private function fetchGenerations(int $crawlId): array
+    {
+        try {
+            $stmt = $this->db->prepare("
+                WITH samples AS (
+                    SELECT generation FROM pages
+                    WHERE crawl_id = :crawl_id AND generation IS NOT NULL
+                      AND jsonb_typeof(generation) = 'object'
+                    LIMIT 500
+                )
+                SELECT j.key, jsonb_typeof(j.value) AS jtype, COUNT(*) AS n
+                FROM samples s, jsonb_each(s.generation) j
+                GROUP BY j.key, jsonb_typeof(j.value)
+            ");
+            $stmt->execute([':crawl_id' => $crawlId]);
+            $byKey = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $byKey[$row['key']][$row['jtype']] = (int)$row['n'];
+            }
+            $out = [];
+            foreach ($byKey as $key => $typeCounts) {
+                $total = array_sum($typeCounts);
+                arsort($typeCounts);
+                $dom = (string)array_key_first($typeCounts);
+                $pct = $total > 0 ? $typeCounts[$dom] / $total : 0;
+                if      ($dom === 'number'  && $pct >= 0.95) $t = 'number';
+                elseif  ($dom === 'boolean' && $pct >= 0.95) $t = 'boolean';
+                else                                          $t = 'text';
+                $out[] = ['key' => $key, 'type' => $t];
+            }
+            usort($out, fn($a, $b) => strcmp($a['key'], $b['key']));
+            return $out;
+        } catch (\Throwable $e) {
+            error_log('[AILinkFilters] fetchGenerations failed: ' . $e->getMessage());
+            return [];
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Normalization
     // -------------------------------------------------------------------------
@@ -250,9 +295,10 @@ class AILinkFiltersController extends Controller
                 $field  = $f['field'];
                 $target = isset($f['target']) && is_string($f['target']) ? $f['target'] : null;
 
-                $isExtractor = strpos($field, 'extract_') === 0;
-                $isLinkField = in_array($field, $linkFields, true);
-                $isPageField = $isExtractor || in_array($field, $pageFields, true);
+                $isExtractor  = strpos($field, 'extract_')    === 0;
+                $isGeneration = strpos($field, 'generation_') === 0;
+                $isLinkField  = in_array($field, $linkFields, true);
+                $isPageField  = $isExtractor || $isGeneration || in_array($field, $pageFields, true);
 
                 if (!$isLinkField && !$isPageField) continue;
 

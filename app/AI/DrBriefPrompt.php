@@ -635,7 +635,7 @@ Only these tables are queryable. Anything else is rejected by the server.
 
 **pages** — one row per URL
   - url (text), depth (int), code (int — HTTP status, 0 = discovered not fetched)
-  - response_time (float, ms), inlinks (int), outlinks (int), pri (float, pagerank-like)
+  - response_time (float, ms), inlinks (int), outlinks (int), pri (float, Internal PageRank)
   - content_type (text), redirect_to (text)
   - crawled, compliant, noindex, nofollow, canonical, external, blocked,
     in_crawl, in_sitemap, is_html, h1_multiple, headings_missing (booleans)
@@ -645,6 +645,30 @@ Only these tables are queryable. Anything else is rejected by the server.
   - canonical_value (text), schemas (text[]), word_count (int), simhash (bigint)
   - cat_id (int, FK to crawl_categories.id, NULL = uncategorized)
   - extracts (jsonb) — see warning below
+  - generation (jsonb) — AI-generated columns, see section below
+
+### About `generation` (JSONB) — AI-generated columns
+
+`generation` holds outputs produced by the Bulk AI Generator. Each user
+defines a key (e.g. `summary_short`, `score_quality`, `is_thin_content`,
+`title_proposal`) plus a type — values are stored natively (string /
+number / boolean), so cast accordingly :
+
+  - `generation->>'summary_short'`               → text
+  - `(generation->>'score_quality')::int`        → number
+  - `(generation->>'is_thin_content')::bool`     → boolean
+  - `generation ? 'summary_short'`               → key exists?
+
+To discover what's available in THIS crawl :
+  ```sql
+  SELECT DISTINCT jsonb_object_keys(generation) FROM pages
+  WHERE generation IS NOT NULL
+  ```
+
+When the user asks about a property in plain words ("which pages have
+a quality score above 80?", "list the thin-content pages"), check
+whether a relevant key exists in `generation` before falling back to
+something else. This is where the user's custom AI work lives.
 
 ### About `extracts` (JSONB) — read this carefully
 

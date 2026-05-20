@@ -65,7 +65,7 @@ projects, etc.) is OFF-LIMITS — the SQL Explorer rejects them.
 --   response_time FLOAT     in milliseconds
 --   inlinks      INTEGER    number of internal links pointing to this URL
 --   outlinks     INTEGER    number of outgoing links from this URL
---   pri          FLOAT      pagerank-like score
+--   pri          FLOAT      Internal PageRank (PageRank computed on the site's internal link graph)
 --   content_type VARCHAR    e.g. 'text/html', 'image/png'
 --   redirect_to  TEXT       target URL when code is 3xx
 --   crawled      BOOLEAN    was actually fetched (not just discovered)
@@ -92,6 +92,17 @@ projects, etc.) is OFF-LIMITS — the SQL Explorer rejects them.
 --   in_sitemap   BOOLEAN    URL is declared in a sitemap
 --   cat_id       INTEGER    FK to crawl_categories.id (NULL = uncategorized)
 --   extracts     JSONB      custom xpath/regex extractor results
+--   generation   JSONB      AI-generated columns (Bulk AI Generator output).
+--                            One key per user-defined item, value is typed
+--                            (string / number / boolean). e.g. :
+--                              {"title_proposal": "...", "score_quality": 78,
+--                               "is_thin_content": false}
+--                            Discover keys with :
+--                              SELECT DISTINCT jsonb_object_keys(generation)
+--                              FROM pages WHERE generation IS NOT NULL
+--                            Query a single key with :
+--                              SELECT url, generation->>'score_quality' AS s
+--                              FROM pages WHERE generation ? 'score_quality'
 CREATE TABLE pages (...);
 
 -- Every <a href> found in the HTML. One row per <a> (so the same source/target
@@ -158,9 +169,15 @@ CREATE TABLE redirect_chains (...);
    - `array_length(page_ids, 1)` — count
    - `unnest(page_ids)` — explode rows
 
-5. JSONB access for `extracts`:
+5. JSONB access for `extracts` AND `generation`:
    - `extracts->>'price'` → text
    - `(extracts->>'price')::numeric > 100` → typed comparison
+   - `generation->>'score_quality'` → text (use ::numeric / ::bool if needed)
+   - `generation ? 'summary_short'` → existence test (key present)
+   - User often asks about AI-generated columns in plain words ; ALWAYS
+     check `generation->>'<key>'` first before saying "this data doesn't
+     exist". You can list available keys with
+     `SELECT DISTINCT jsonb_object_keys(generation) FROM pages`.
 
 6. Joins between pages and links use `pages.id = links.src` (or `links.target`).
 

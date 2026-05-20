@@ -69,6 +69,9 @@ services:
       - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=15
+      # Required to decrypt secrets stored in app_settings (OpenRouter API key
+      # used by the Bulk AI Generator + any future background AI job).
+      - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY:-868ace624e48dc6da990d2512c380a9ec8b168e11c0fb4aff8393bb6a1d22809}
     volumes:
       - ./logs:/app/logs
     depends_on:

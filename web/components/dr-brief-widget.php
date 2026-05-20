@@ -30,11 +30,24 @@ if (!$drBriefAiConfigured) {
 
 <!-- Dr. Brief floating widget -->
 <div id="drBriefRoot">
+    <!-- Greeting speech bubble — visible by default with no JS dependency.
+         Once the user dismisses it (× button) or opens the chat, a flag is
+         saved in the PHP session and the bubble renders `hidden` on the next
+         loads. Logout / session expiry resets it → bubble returns. -->
+    <?php $greetingDismissed = !empty($_SESSION['dr_brief_greeting_dismissed']); ?>
+    <div id="drBriefGreeting" class="dr-brief-greeting"<?= $greetingDismissed ? ' hidden' : '' ?>>
+        <span class="dr-brief-greeting-text"><?= htmlspecialchars(__('dr_brief.greeting')) ?></span>
+        <button type="button" class="dr-brief-greeting-close" id="drBriefGreetingClose"
+                aria-label="<?= htmlspecialchars(__('dr_brief.greeting_dismiss')) ?>">
+            <span class="material-symbols-outlined">close</span>
+        </button>
+    </div>
+
     <!-- Bubble — custom tooltip via data attribute, opens above-left to never overflow the viewport. -->
     <button type="button" id="drBriefBubble" class="dr-brief-bubble"
             data-dr-tooltip="<?= htmlspecialchars(__('dr_brief.open')) ?>"
             aria-label="<?= htmlspecialchars(__('dr_brief.open')) ?>">
-        <img src="assets/avatars/dr-brief.webp" alt="Dr. Brief" class="dr-brief-bubble-img">
+        <img src="assets/avatars/dr-brief.png" alt="Dr. Brief" class="dr-brief-bubble-img">
     </button>
 
     <!-- Panel (hidden until bubble clicked) -->
@@ -42,7 +55,7 @@ if (!$drBriefAiConfigured) {
         <div class="dr-brief-header">
             <div class="dr-brief-header-left">
                 <div class="dr-brief-avatar">
-                    <img src="assets/avatars/dr-brief.webp" alt="Dr. Brief" class="dr-brief-avatar-img">
+                    <img src="assets/avatars/dr-brief.png" alt="Dr. Brief" class="dr-brief-avatar-img">
                 </div>
                 <div class="dr-brief-title">
                     <div class="dr-brief-name">Dr. Brief</div>
@@ -141,6 +154,68 @@ if (!$drBriefAiConfigured) {
 .dr-brief-bubble[data-dr-tooltip]:hover::after {
     opacity: 1;
     transform: translateY(0);
+}
+/* Hide the hover tooltip while the greeting bubble is on screen — they'd
+   otherwise stack and look messy. */
+#drBriefRoot.greeting-active .dr-brief-bubble[data-dr-tooltip]:hover::after {
+    opacity: 0;
+}
+
+/* Greeting speech bubble — sits to the LEFT of the avatar, vertically
+   centered on it, with a little tail pointing toward the avatar. */
+.dr-brief-greeting {
+    position: fixed;
+    bottom: 34px;          /* aligns roughly with the 56px bubble center */
+    right: 92px;           /* 24 (bubble right) + 56 (bubble) + 12 gap */
+    max-width: 240px;
+    background: white;
+    color: #1f2937;
+    padding: 10px 14px;
+    border-radius: 14px;
+    box-shadow: 0 8px 28px rgba(102, 126, 234, 0.28);
+    z-index: 9998;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    line-height: 1.35;
+    font-weight: 500;
+    animation: drBriefGreetingIn 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+    transform-origin: right center;
+}
+.dr-brief-greeting[hidden] { display: none; }
+.dr-brief-greeting.leaving {
+    animation: drBriefGreetingOut 0.2s ease forwards;
+}
+/* Tail — small triangle on the right edge pointing at the avatar. */
+.dr-brief-greeting::after {
+    content: '';
+    position: absolute;
+    right: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-top: 7px solid transparent;
+    border-bottom: 7px solid transparent;
+    border-left: 7px solid white;
+}
+.dr-brief-greeting-text { flex: 1; cursor: pointer; }
+.dr-brief-greeting-close {
+    flex-shrink: 0;
+    width: 20px; height: 20px;
+    border: none; background: #f1f5f9; color: #64748b;
+    border-radius: 50%; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0;
+}
+.dr-brief-greeting-close:hover { background: #e2e8f0; color: #1f2937; }
+.dr-brief-greeting-close .material-symbols-outlined { font-size: 14px; }
+@keyframes drBriefGreetingIn {
+    from { opacity: 0; transform: scale(0.8) translateX(10px); }
+    to   { opacity: 1; transform: scale(1) translateX(0); }
+}
+@keyframes drBriefGreetingOut {
+    from { opacity: 1; transform: scale(1); }
+    to   { opacity: 0; transform: scale(0.85) translateX(8px); }
 }
 
 /* Slide-out panel */
@@ -704,7 +779,19 @@ if (!$drBriefAiConfigured) {
         height: 100vh;
         border-radius: 0;
     }
-    .dr-brief-bubble { bottom: 16px; right: 16px; }
+    /* Lift the bubble above the mobile bottom nav/action bar so it doesn't
+       overlap it, and give the dashboard a matching bottom padding so the
+       last rows of content stay reachable above the floating bubble. Both
+       mobile-only. */
+    .dr-brief-bubble { bottom: 76px; right: 16px; }
+    .dashboard-layout { padding-bottom: 70px; }
+    /* Follow the bubble's shifted position + cap width so it never runs off
+       the left edge on a phone. */
+    .dr-brief-greeting {
+        bottom: 86px;
+        right: 84px;
+        max-width: calc(100vw - 100px);
+    }
 }
 </style>
 
@@ -1438,6 +1525,7 @@ if (!$drBriefAiConfigured) {
     }
 
     function openPanel() {
+        dismissGreeting();
         panel.style.display = 'flex';
         bubble.style.display = 'none';
         if (messages.length === 0) showWelcome();
@@ -1600,6 +1688,56 @@ if (!$drBriefAiConfigured) {
     bubble.addEventListener('click', openPanel);
     closeBtn.addEventListener('click', closePanel);
     expandBtn.addEventListener('click', toggleExpanded);
+
+    // === Greeting accroche bubble ===
+    // Visible BY DEFAULT (no `hidden` attr in the HTML) so it always shows on
+    // load with zero JS dependency — pure HTML/CSS. JS here only handles
+    // dismissal : the × button, or opening the panel. No timer, no session
+    // flag, no scroll-dismiss (all of which previously made it flaky).
+    const greetingEl    = document.getElementById('drBriefGreeting');
+    const greetingClose = document.getElementById('drBriefGreetingClose');
+    const greetingText  = greetingEl ? greetingEl.querySelector('.dr-brief-greeting-text') : null;
+
+    // Tell the server the greeting is dismissed for this session, so it
+    // renders `hidden` on the next page loads. Fire-and-forget — a failed
+    // request just means the bubble reappears on the next load, no big deal.
+    function persistGreetingDismissed() {
+        try {
+            fetch('../api/dr-brief/dismiss-greeting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}',
+                keepalive: true,
+            }).catch(() => {});
+        } catch (_) {}
+    }
+
+    // Self-contained (uses getElementById, not closure consts) so it's safe to
+    // call from openPanel() even before this block's consts are initialized
+    // (avoids a temporal-dead-zone ReferenceError when the panel is remembered
+    // open across navigation). `persist` defaults to true : every dismissal
+    // path (× button OR opening the chat) should remember the choice.
+    function dismissGreeting(persist = true) {
+        const el = document.getElementById('drBriefGreeting');
+        const rt = document.getElementById('drBriefRoot');
+        if (!el || el.hidden) return;
+        if (persist) persistGreetingDismissed();
+        el.classList.add('leaving');
+        rt && rt.classList.remove('greeting-active');
+        setTimeout(() => { el.hidden = true; el.classList.remove('leaving'); }, 200);
+    }
+    // Mark the root so the hover tooltip on the avatar doesn't stack with the
+    // greeting bubble while it's on screen (only when actually shown).
+    if (greetingEl && !greetingEl.hidden) {
+        const rt = document.getElementById('drBriefRoot');
+        rt && rt.classList.add('greeting-active');
+    }
+    if (greetingClose) {
+        greetingClose.addEventListener('click', (e) => { e.stopPropagation(); dismissGreeting(); });
+    }
+    if (greetingText) {
+        greetingText.addEventListener('click', openPanel);
+    }
 
     // Make the whole violet header a "click to minimize" zone, but ignore
     // clicks that landed on the action buttons (reset / expand / close)

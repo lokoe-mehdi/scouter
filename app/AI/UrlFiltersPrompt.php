@@ -28,13 +28,16 @@ class UrlFiltersPrompt
      * @param array  $categories    [{id, cat}] available in the current project
      * @param array  $schemaTypes   list of distinct schema_type strings present in the crawl
      * @param array  $extractors    [{key, type}] custom extractors (type = 'number'|'text')
+     * @param array  $generations   [{key, type}] AI-generated columns from Bulk AI Generator
+     *                              (type = 'text'|'number'|'boolean')
      */
     public static function build(
         string $userPrompt,
         array $categories,
         array $schemaTypes,
         array $extractors,
-        ?string $previousError = null
+        ?string $previousError = null,
+        array $generations = []
     ): string {
         $catList = '';
         if (!empty($categories)) {
@@ -62,6 +65,19 @@ class UrlFiltersPrompt
             }
         }
         $extractorList = $extractorList !== '' ? rtrim($extractorList) : '  (no custom extractors configured)';
+
+        // AI-generated columns (Bulk AI Generator → pages.generation JSONB).
+        // Field name shape : `generation_<key>`. Type-aware operators are
+        // identical to the extractors story, plus a `boolean` flavour.
+        $generationList = '';
+        if (!empty($generations)) {
+            foreach ($generations as $g) {
+                $key  = is_object($g) ? $g->key  : ($g['key']  ?? '');
+                $type = is_object($g) ? $g->type : ($g['type'] ?? 'text');
+                if ($key !== '') $generationList .= "  - generation_{$key} ({$type})\n";
+            }
+        }
+        $generationList = $generationList !== '' ? rtrim($generationList) : '  (no AI-generated columns configured)';
 
         $retryNote = '';
         if ($previousError !== null && $previousError !== '') {
@@ -124,7 +140,7 @@ omitted on boolean fields — see below).
   - outlinks          number of outgoing links from this page
   - response_time     TTFB in milliseconds
   - word_count        body word count
-  - pri               PageRank-like score (float between 0 and 1)
+  - pri               Internal PageRank score (float 0-1, computed on the site's internal links)
 
 ### Boolean fields — value is the STRING "true" or "false". Operator omitted.
   - compliant         indexable AND follows SEO rules (use this for "indexable")
@@ -200,6 +216,20 @@ omitted on boolean fields — see below).
   - Field name is "extract_<key>" exactly as listed above.
   - text extractors  → operators: contains, not_contains, regex, not_regex
   - number extractors → operators: =, >, <, >=, <=, !=
+
+### AI-generated columns (Bulk AI Generator)
+<generations>
+{$generationList}
+</generations>
+  - Field name is "generation_<key>" exactly as listed above.
+  - text generations    → operators: contains, not_contains, regex, not_regex
+  - number generations  → operators: =, >, <, >=, <=, !=
+  - boolean generations → operators: =, value MUST be the string "true" or "false"
+    (e.g. `{"field":"generation_is_thin_content","operator":"=","value":"true"}`)
+  - These are arbitrary values produced by an LLM on each page (e.g. a
+    quality score, a tone tag, a suggested title) — use them whenever the
+    user asks about a property that obviously matches one of these
+    generation keys.
 
 ## Hard rules
 
