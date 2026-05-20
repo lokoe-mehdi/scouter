@@ -1727,3 +1727,50 @@ async function startCrawlWithPanel(projectDir, projectName) {
         throw error;
     }
 }
+
+/**
+ * One-click resume for a STOPPED crawl, triggered from the hover action on the
+ * project cards (index.php) and the project history rows (project.php).
+ * Posts to /crawls/resume, then opens the crawl panel so the user immediately
+ * sees the crawl picking back up (live progress). No confirm modal — the action
+ * is reversible (the crawl can be stopped again) and the spec asks for one click.
+ *
+ * @param {string} projectDir  the crawl's directory (project_dir / dir)
+ * @param {string} projectName domain/display name, for the panel header
+ * @param {number} crawlId     crawl id, for the panel
+ * @param {HTMLElement} [btnEl] the clicked button (for spinner feedback)
+ */
+async function quickResumeCrawl(projectDir, projectName, crawlId, btnEl) {
+    if (!projectDir) return;
+    let originalHtml = null;
+    if (btnEl) {
+        originalHtml = btnEl.innerHTML;
+        btnEl.disabled = true;
+        btnEl.classList.add('resuming');
+        btnEl.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span>';
+    }
+    try {
+        const resp = await fetch('api/crawls/resume', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project_dir: projectDir })
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            throw new Error(result.error || __('crawl_panel.error_resume'));
+        }
+        // Show live progress immediately — clearest possible confirmation.
+        if (typeof openCrawlPanel === 'function') {
+            openCrawlPanel(projectDir, projectName || projectDir, crawlId);
+        } else {
+            window.location.reload();
+        }
+    } catch (error) {
+        if (btnEl) {
+            btnEl.disabled = false;
+            btnEl.classList.remove('resuming');
+            if (originalHtml !== null) btnEl.innerHTML = originalHtml;
+        }
+        alert(`${__('crawl_panel.error_resume')}: ${error.message}`);
+    }
+}
