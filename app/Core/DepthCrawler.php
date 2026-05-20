@@ -213,10 +213,17 @@ class DepthCrawler
     
     private function checkStopSignal()
     {
+        // Pendant le post-processing, le crawl principal est déjà fini : un
+        // changement de status sur la table crawls (stop utilisateur, watchdog,
+        // worker qui redémarre) ne doit pas tuer une étape de finalisation.
+        if (!empty($this->config['skip_stop_signal'])) {
+            return;
+        }
+
         // Vérifier toutes les 3 mises à jour OU toutes les 5 secondes
         $now = time();
         $shouldCheck = ($this->update % 3 === 0) || ($now - $this->lastStopCheck >= 5);
-        
+
         if ($shouldCheck) {
             $this->lastStopCheck = $now;
             $status = $this->crawlDb->getCrawlStatus();

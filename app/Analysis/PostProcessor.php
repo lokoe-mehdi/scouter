@@ -84,7 +84,8 @@ class PostProcessor
                     // Log to stderr so worker captures it in log file
                     fwrite(STDERR, "ERROR in PostProcessor::$step(): " . $e->getMessage()
                         . " in " . $e->getFile() . ":" . $e->getLine() . "\n");
-                    throw $e;
+                    // Best-effort : une étape qui plante ne doit jamais faire passer
+                    // le crawl entier en 'failed'. On log et on continue.
                 }
             }
         } finally {
@@ -793,6 +794,29 @@ class PostProcessor
      */
     public function sitemapAnalysis(): void
     {
+        // Sitemap orphan analysis only makes sense on a crawl that has run to
+        // its natural end. If the crawl was STOPPED by the user (and is
+        // therefore resumable), running it now would insert every sitemap URL
+        // as an `in_crawl=FALSE` placeholder row. On resume those rows shadow
+        // the real links discovered by the spider (insertPages uses
+        // `ON CONFLICT (crawl_id, id) DO NOTHING`), so the links never get
+        // promoted into the frontier and the walk dies — crawling nothing.
+        // Defer to the final post-processing pass that runs when the crawl
+        // truly completes (status becomes 'finished'). Any non-completed
+        // status is skipped : 'stopped'/'stopping' (user stop, resumable),
+        // 'error' (crashed — e.g. crawl 558 left 598 sitemap rows stuck at
+        // code 0 because fetchSitemapOnlyPages never finished), 'failed'
+        // (watchdog kill). Only a clean finish ('running'/'processing' at
+        // this point) proceeds.
+        $stmt = $this->db->prepare("SELECT status FROM crawls WHERE id = :id");
+        $stmt->execute([':id' => $this->crawlId]);
+        $crawlStatus = (string)$stmt->fetchColumn();
+        if (in_array($crawlStatus, ['stopping', 'stopped', 'failed', 'error'], true)) {
+            echo "\r \033[32m Sitemap analysis \033[0m : \033[33mdeferred (crawl not finished — will run on completion)\033[0m                    \n";
+            flush();
+            return;
+        }
+
         // Load crawl config
         $stmt = $this->db->prepare("SELECT config, domain FROM crawls WHERE id = :id");
         $stmt->execute([':id' => $this->crawlId]);
@@ -1006,6 +1030,7 @@ class PostProcessor
             'regexExtractors'      => $advanced['regexExtractors'] ?? [],
             'skip_link_extraction' => true, // ← THE flag: PageCrawler will skip storeLinks/storeRedirect
             'silent_progress'      => true, // ← keep the sitemap step on a single log line
+            'skip_stop_signal'     => true, // ← post-processing: ignorer les changements de status sur la table crawls
         ];
 
         $crawlDb = new \App\Database\CrawlDatabase($this->crawlId, $runtimeConfig);
