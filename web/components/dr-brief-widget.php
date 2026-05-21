@@ -798,30 +798,48 @@ if (!$drBriefAiConfigured) {
 <script>
 (function() {
     // === State ===
-    // Persisted in sessionStorage keyed by crawl_id so the conversation
-    // survives navigation within the same tab (changing pages of the dashboard
-    // doesn't lose context). Closing the tab wipes it — no server-side DB.
+    // Persisted in localStorage keyed by crawl_id so the conversation survives
+    // BOTH same-tab navigation AND opening a new tab/window (localStorage is
+    // shared across all tabs of the origin — unlike sessionStorage which is
+    // per-tab). Still no server-side DB. To keep it from lingering forever we
+    // (a) stamp each save and discard on load past a TTL, and (b) clear it on
+    // logout (see top-header.php). A `storage` event listener below keeps
+    // multiple open tabs in sync live.
     const crawlId = <?= (int)$crawlId ?>;
     const STORAGE_KEY = 'dr-brief:msgs:' + crawlId;
+    const STORAGE_TTL_MS = 24 * 60 * 60 * 1000; // 24h — "another day = fresh chat"
 
     function loadMessages() {
         try {
-            const raw = sessionStorage.getItem(STORAGE_KEY);
+            const raw = localStorage.getItem(STORAGE_KEY);
             if (!raw) return [];
             const parsed = JSON.parse(raw);
-            return Array.isArray(parsed) ? parsed : [];
+            // Current format: { savedAt, messages }. Tolerate the legacy bare
+            // array (older sessionStorage payloads) for a smooth transition.
+            if (Array.isArray(parsed)) return parsed;
+            if (parsed && Array.isArray(parsed.messages)) {
+                if (parsed.savedAt && (Date.now() - parsed.savedAt) > STORAGE_TTL_MS) {
+                    localStorage.removeItem(STORAGE_KEY);
+                    return [];
+                }
+                return parsed.messages;
+            }
+            return [];
         } catch (_) {
             return [];
         }
     }
     function saveMessages() {
         try {
-            sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                savedAt: Date.now(),
+                messages: messages,
+            }));
         } catch (_) { /* quota / disabled storage — silent */ }
     }
     function clearMessages() {
         messages = [];
-        try { sessionStorage.removeItem(STORAGE_KEY); } catch (_) {}
+        try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
     }
 
     let messages = loadMessages();
@@ -1228,29 +1246,43 @@ if (!$drBriefAiConfigured) {
     }
 
     /**
-     * Build (or rebuild) the bottom-of-message deeplinks footer.
-     * One link per truncated tool result. Always positioned LAST inside the
-     * message content so it sits below the assistant's text.
+     * Resolve the agent's inline SQL-Explorer links.
+     *
+     * The model writes markdown links whose URL is a short token (`sqlx:<id>`)
+     * it got from a run_sql result — it can't reproduce the long base64
+     * deeplink reliably, so we hand it a token and swap it here for the real
+     * URL. This replaces the old bottom-of-message footer (which produced a
+     * confusing stack of unlabeled "view all" links): now the link is exactly
+     * where the agent placed it in its prose, with its own descriptive text.
      */
-    function syncDeeplinksFooter(contentEl, tools) {
-        // Remove any existing footer first (idempotent re-renders).
-        const existing = contentEl.querySelector(':scope > .dr-brief-deeplinks');
-        if (existing) existing.remove();
-
-        const truncated = (tools || []).filter(t => t && t.success && t.truncated && t.deeplink);
-        if (truncated.length === 0) return;
-
-        const footer = el('div', { class: 'dr-brief-deeplinks' });
-        truncated.forEach(t => {
-            // Same-tab nav: sessionStorage survives the navigation so the
-            // conversation is restored on the SQL Explorer page (Ctrl-click
-            // for new tab if the user prefers).
-            footer.appendChild(el('a', {
-                href: t.deeplink,
-                class: 'dr-brief-deeplink',
-            }, T.view_full + ' →'));
+    function resolveSqlExplorerLinks(contentEl, tools) {
+        const md = contentEl.querySelector(':scope > .dr-brief-md');
+        if (!md) return;
+        const map = {};
+        (tools || []).forEach(t => {
+            if (t && t.link_token && t.deeplink) map[t.link_token] = t.deeplink;
         });
-        contentEl.appendChild(footer);
+        md.querySelectorAll('a[href^="sqlx:"]').forEach(a => {
+            const real = map[a.getAttribute('href')];
+            if (real) {
+                a.setAttribute('href', real);
+                // SAME-TAB navigation: the chat lives in sessionStorage keyed
+                // by crawl_id, and SQL Explorer is the same dashboard app that
+                // re-renders the widget — so navigating in place RESTORES the
+                // conversation. The markdown renderer defaults links to
+                // target="_blank" rel="noopener", which would open a new tab
+                // with a FRESH sessionStorage (empty chat) — strip those so the
+                // history is preserved. (Ctrl/Cmd-click still opens a new tab
+                // for users who want one.)
+                a.removeAttribute('target');
+                a.removeAttribute('rel');
+                a.classList.add('dr-brief-inline-sqllink');
+            } else {
+                // Unknown token (still streaming, or a stray) — drop the href
+                // so it isn't a dead "sqlx:" link. Re-resolved on the next pass.
+                a.removeAttribute('href');
+            }
+        });
     }
     function buildResultTable(rows, columns) {
         const wrap = el('div', { class: 'dr-brief-tool-result-table' });
@@ -1431,6 +1463,7 @@ if (!$drBriefAiConfigured) {
                         rows:       data.rows || [],
                         columns:    data.columns || [],
                         deeplink:   data.deeplink || '',
+                        link_token: data.link_token || '',
                         error:      data.error || '',
                         // get_page_html payload — list of inspected pages with
                         // byte counts. Stays empty for other tool kinds.
@@ -1439,11 +1472,6 @@ if (!$drBriefAiConfigured) {
                     attachToolResult(toolStep.tool, toolStep.statusEl, result);
                     // Snapshot for the persisted history.
                     turnTools.push(result);
-                    // Keep the deeplinks footer up-to-date as tools complete.
-                    // It always sits at the very end of the content, so even
-                    // after text appends the footer is moved back to the
-                    // bottom by syncDeeplinksFooter (it removes + re-adds).
-                    syncDeeplinksFooter(contentEl, turnTools);
                     toolStep = null;
                 }
                 // Show typing dots again while the model formulates the answer.
@@ -1456,15 +1484,15 @@ if (!$drBriefAiConfigured) {
                 // Re-render the markdown on every delta. For chat-sized
                 // messages this is fine perf-wise.
                 renderTextInto(contentEl, textBuffer);
+                resolveSqlExplorerLinks(contentEl, turnTools);
                 scrollToBottom();
                 return;
             }
             if (eventName === 'done') {
                 if (typingEl) { typingEl.remove(); typingEl = null; }
-                // Final pass: make sure the deeplinks footer is below the
-                // text (in case tool_result fired before any text_delta,
-                // which would have left the footer above the text).
-                syncDeeplinksFooter(contentEl, turnTools);
+                // Final pass: resolve any inline SQL-Explorer link tokens the
+                // agent wrote into its answer.
+                resolveSqlExplorerLinks(contentEl, turnTools);
                 return;
             }
             if (eventName === 'error') {
@@ -1513,8 +1541,8 @@ if (!$drBriefAiConfigured) {
                 if (m.content && m.content.trim()) {
                     content.appendChild(el('div', { class: 'dr-brief-md', html: renderMarkdown(m.content) }));
                 }
-                // Deeplinks footer LAST, below the assistant's text answer.
-                if (Array.isArray(m.tools)) syncDeeplinksFooter(content, m.tools);
+                // Resolve the agent's inline SQL-Explorer link tokens.
+                if (Array.isArray(m.tools)) resolveSqlExplorerLinks(content, m.tools);
                 wrap.appendChild(content);
                 // Copy-as-Markdown button on the restored bubble too.
                 if (m.content && m.content.trim()) attachCopyBtn(wrap, m.content);
@@ -1688,6 +1716,22 @@ if (!$drBriefAiConfigured) {
     bubble.addEventListener('click', openPanel);
     closeBtn.addEventListener('click', closePanel);
     expandBtn.addEventListener('click', toggleExpanded);
+
+    // Live cross-tab sync. localStorage fires a `storage` event in OTHER tabs
+    // of the same origin whenever this tab writes the conversation. Mirror the
+    // change so every open tab shows the same history. Guards:
+    //  - skip while THIS tab is mid-stream (don't clobber the live answer);
+    //  - only re-render if the panel is currently open (otherwise just keep the
+    //    in-memory `messages` fresh for the next open).
+    window.addEventListener('storage', (e) => {
+        if (e.key !== STORAGE_KEY) return;
+        if (isStreaming) return;
+        messages = loadMessages();
+        if (panel.style.display === 'flex') {
+            if (messages.length === 0) showWelcome();
+            else renderHistory();
+        }
+    });
 
     // === Greeting accroche bubble ===
     // Visible BY DEFAULT (no `hidden` attr in the HTML) so it always shows on

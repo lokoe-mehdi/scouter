@@ -115,16 +115,32 @@ class SqlQueryTool
             'rows_in_preview'  => count($rows),
             'truncated'        => $truncated,
         ];
+        // Shared instruction on how to surface the SQL-Explorer link inline.
+        // `full_result_link` is added to THIS result by ChatAgent (a short
+        // token); the model must drop it verbatim as the URL of a markdown
+        // link with its own descriptive anchor text — the UI swaps the token
+        // for the real, sortable, CSV-exportable SQL-Explorer URL. The model
+        // must NEVER write a real/guessed URL.
+        $linkHowTo = ' To let the user open the FULL, sortable, CSV-exportable '
+            . 'list, embed an inline markdown link in your reply whose URL is the '
+            . 'VALUE of the `full_result_link` field below (it looks like '
+            . '"sqlx:call_xxx"), used verbatim, with anchor text describing what '
+            . 'it points to — e.g. if full_result_link is "sqlx:call_42", write '
+            . '`[voir la liste complète dans SQL Explorer](sqlx:call_42)`. '
+            . 'Never write or guess a real URL.';
+
         if ($truncated) {
             $forModel['note'] = 'IMPORTANT: this result was CAPPED at ' . count($rows)
                 . ' rows by the chat preview limit — the actual matching set is '
                 . 'larger and unknown to you. Treat these rows as a SAMPLE, never '
                 . 'as exhaustive. When you reference them in your reply, say things '
                 . 'like "here are ' . count($rows) . ' examples (more exist)" or '
-                . 'pair them with a SELECT COUNT(*) so the user knows the true total. '
-                . 'The UI auto-renders a "see full result in SQL Explorer" button '
-                . 'below the table — refer to it naturally as "the button below" '
-                . '(do not try to write the URL yourself).';
+                . 'pair them with a SELECT COUNT(*) so the user knows the true total.'
+                . $linkHowTo;
+        } elseif (count($rows) > 1) {
+            // Non-truncated list: still offer the exportable view inline.
+            $forModel['note'] = 'This list is complete (' . count($rows) . ' rows).'
+                . $linkHowTo;
         }
 
         return [

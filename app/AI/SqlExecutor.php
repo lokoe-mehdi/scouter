@@ -204,6 +204,23 @@ class SqlExecutor
             // how the query is phrased.
             //
             // Same idea (and same fix) as in QueryController::execute().
+            //
+            // Guard: the query must NOT define its own CTE named
+            // `crawl_categories`. We inject one with that exact name below to
+            // shadow-and-scope the shared table; a user-defined CTE of the same
+            // name would (a) collide → "WITH query name specified more than
+            // once" error, and (b) let them bypass the project scoping. Reject
+            // with a clear, actionable message instead.
+            if (in_array('crawl_categories', $cteNames, true)) {
+                return [
+                    'ok' => false,
+                    'error' => '`crawl_categories` is reserved and is already '
+                        . 'auto-scoped to your project — reference it directly '
+                        . '(e.g. JOIN crawl_categories) and do NOT define a CTE '
+                        . 'named `crawl_categories`.',
+                ];
+            }
+
             $pid = (int)($crawlRecord->project_id ?? 0);
             if ($pid > 0) {
                 $catScope = "crawl_categories AS (SELECT * FROM crawl_categories WHERE project_id = {$pid})";
@@ -239,12 +256,18 @@ class SqlExecutor
                 $finalSql = $transformed . " LIMIT {$cap}";
             }
 
-            // The SQL that the deeplink should preserve = the transformed query
-            // WITHOUT the preview LIMIT, but with the partition substitutions
-            // reverted to the virtual names (so the user sees `pages` not
-            // `pages_42` in the SQL Explorer editor — friendlier).
-            $deeplinkSql = preg_replace('/\bLIMIT\s+\d+\s*$/i', '', trim($transformed));
-            $deeplinkSql = preg_replace('/_' . $crawlId . '\b/', '', $deeplinkSql);
+            // The SQL the deeplink should carry = the model's ORIGINAL query
+            // (virtual table names like `pages`/`links`, no partition suffixes),
+            // WITHOUT the preview LIMIT — NOT the server-transformed `$transformed`.
+            //
+            // Using `$transformed` here was the bug: it has the auto-injected
+            // `WITH crawl_categories AS (SELECT … WHERE project_id = N)` CTE.
+            // That CTE landed in the deeplink, so when the user opened SQL
+            // Explorer the query carried a `crawl_categories` CTE which then
+            // collided with SQL Explorer's OWN injection → unrunnable. Starting
+            // from `$clean` keeps the editor query clean; SQL Explorer re-applies
+            // its own substitutions + scoping on execution.
+            $deeplinkSql = preg_replace('/\bLIMIT\s+\d+\s*$/i', '', trim($clean));
 
             // === Execute, hard read-only, with timeout ===
             $db = PostgresDatabase::getInstance()->getConnection();

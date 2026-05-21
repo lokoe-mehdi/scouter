@@ -222,6 +222,21 @@ class QueryController extends Controller
         //
         // Coût : nul en pratique (PG inline la CTE en query plan ; si la
         // table n'est pas référencée, c'est juste une CTE inutilisée).
+        // Garde : la requête ne doit pas définir sa propre CTE nommée
+        // `crawl_categories`. On en injecte une avec ce nom exact ci-dessous
+        // pour scoper la table partagée par projet ; une CTE utilisateur du
+        // même nom (a) entre en collision → erreur "WITH query name specified
+        // more than once", et (b) contournerait le filtre projet. On refuse
+        // avec un message clair.
+        if (in_array('crawl_categories', $cteNames, true)) {
+            Response::forbidden(
+                '« crawl_categories » est réservé et déjà filtré par projet — ' .
+                'référencez-la directement (ex. JOIN crawl_categories) sans ' .
+                'définir de CTE portant ce nom.'
+            );
+            return;
+        }
+
         $pid = (int)$crawlRecord->project_id;
         if ($pid > 0) {
             $catScope = "crawl_categories AS (SELECT * FROM crawl_categories WHERE project_id = {$pid})";

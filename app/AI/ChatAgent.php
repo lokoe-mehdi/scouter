@@ -206,6 +206,21 @@ class ChatAgent
                     continue;
                 }
 
+                // Give the model a stable, SHORT token it can drop into an
+                // inline markdown link, instead of reproducing the long base64
+                // SQL-Explorer deeplink (which it would mangle). The widget
+                // swaps the token for the real URL using this same mapping, so
+                // the agent can place a contextual "open in SQL Explorer" link
+                // exactly where it wants in its prose. Only SQL results carry a
+                // deeplink.
+                if ($exec && !empty($exec['for_ui']['deeplink'])) {
+                    $linkToken = 'sqlx:' . $call['id'];
+                    $exec['for_ui']['link_token'] = $linkToken;
+                    if (isset($exec['for_model']) && is_array($exec['for_model'])) {
+                        $exec['for_model']['full_result_link'] = $linkToken;
+                    }
+                }
+
                 yield ['event' => 'tool_result', 'data' => $exec['for_ui']];
                 $messages[] = [
                     'role'         => 'tool',

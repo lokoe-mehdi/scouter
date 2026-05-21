@@ -182,7 +182,8 @@ $userInitials = getUserInitials($currentUserEmail);
                         </a>
                     <?php endforeach; ?>
                 </div>
-                <a href="<?= $basePath ?>api/logout" class="user-dropdown-item user-dropdown-item-danger">
+                <a href="<?= $basePath ?>api/logout" class="user-dropdown-item user-dropdown-item-danger"
+                   onclick="try{Object.keys(localStorage).filter(function(k){return k.indexOf('dr-brief:')===0;}).forEach(function(k){localStorage.removeItem(k);});}catch(e){}">
                     <span class="material-symbols-outlined">logout</span>
                     <?= __('header.logout') ?>
                 </a>
