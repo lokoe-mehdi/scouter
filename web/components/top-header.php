@@ -164,7 +164,7 @@ $userInitials = getUserInitials($currentUserEmail);
                     <?= __('header.profile') ?>
                 </a>
                 <?php if ($isAdmin): ?>
-                <a href="<?= $basePath ?>pages/admin.php" class="user-dropdown-item">
+                <a href="<?= $basePath ?>pages/settings.php?tab=team" class="user-dropdown-item">
                     <span class="material-symbols-outlined">manage_accounts</span>
                     <?= __('header.manage_users') ?>
                 </a>
