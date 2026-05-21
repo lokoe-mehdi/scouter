@@ -43,7 +43,9 @@ export const TOOLS = [
   },
   {
     name: 'get_crawl_schema',
-    description: 'Get the queryable tables and columns for a crawl — call this before run_sql to write valid SQL without guessing column names.',
+    description:
+      'Get the queryable tables and columns for a crawl. ALWAYS the first call when auditing a crawl. ' +
+      "Right after it, run a categories query (SELECT c.cat, COUNT(*) FROM pages p JOIN crawl_categories c ON p.cat_id=c.id WHERE p.crawled AND p.in_crawl GROUP BY c.cat ORDER BY 2 DESC) — categories are the unit of analysis and every audit must start there.",
     inputSchema: {
       type: 'object',
       properties: { crawl_id: { type: 'integer' } },
@@ -52,7 +54,11 @@ export const TOOLS = [
   },
   {
     name: 'run_sql',
-    description: "Run a read-only SQL query (SELECT/WITH only, whitelisted tables) over a crawl's data, paginated. Loop pages while meta.has_more is true.",
+    description:
+      "Run ONE read-only PostgreSQL SELECT/WITH over a crawl (whitelisted tables: pages, links, crawl_categories, duplicate_clusters, page_schemas, redirect_chains), paginated (page, page_size, count). " +
+      'METHODOLOGY (follow it): (1) For an audit, FIRST query the categories, then run ONE consolidated "site overview" query with COUNT(*) FILTER(WHERE …) GROUP BY category to get many KPIs at once — do NOT fire 50 tiny queries. ' +
+      '(2) ALWAYS split distributions/KPIs BY CATEGORY (GROUP BY the category), not only globally — category is the level that localizes problems to a template. ' +
+      '(3) Scope real pages with "crawled = true AND in_crawl = true". (4) Never end the SQL with ";" (the server appends LIMIT/OFFSET). Use the get_crawl_schema output for exact column names.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -24,9 +24,26 @@ import { INSTRUCTIONS, PROMPTS } from './seo-playbook.js';
 
 const PORT = Number(process.env.PORT || 3000);
 
-function buildServer(token) {
+function buildServer(token, origin) {
+  // Advertise the Scouter logo so the connector is recognizable in the client
+  // (MCP serverInfo `icons`). Absolute URLs built from the public origin; both
+  // the big homepage logo and the small favicon-style one are offered so the
+  // client can pick by resolution.
+  const icons = origin
+    ? [
+        { src: `${origin}/logo-big.png`, mimeType: 'image/png', sizes: 'any' },
+        { src: `${origin}/logo.png`, mimeType: 'image/png', sizes: '48x48' },
+      ]
+    : undefined;
+
+  const serverInfo = { name: 'scouter-mcp', title: 'Scouter', version: '1.0.0' };
+  if (icons) {
+    serverInfo.icons = icons;
+    serverInfo.websiteUrl = origin;
+  }
+
   const server = new Server(
-    { name: 'scouter-mcp', version: '1.0.0' },
+    serverInfo,
     {
       // `instructions` ships the SEO playbook to every client at initialize.
       instructions: INSTRUCTIONS,
@@ -71,18 +88,19 @@ app.get('/healthz', (_req, res) => res.json({ ok: true, api: API_BASE }));
 
 app.post('/mcp', async (req, res) => {
   const token = req.headers['authorization'];
+  const proto = req.headers['x-forwarded-proto'] || 'https';
+  const host = req.headers['x-forwarded-host'] || req.headers['host'];
+  const origin = host ? `${proto}://${host}` : undefined;
 
   // No credentials → trigger OAuth discovery (RFC 9728): point the client at the
   // protected-resource metadata so claude.ai can run the auth flow. Claude Code
   // / Desktop configure the Bearer header directly and skip this branch.
   if (!token) {
-    const proto = req.headers['x-forwarded-proto'] || 'https';
-    const host = req.headers['x-forwarded-host'] || req.headers['host'];
-    res.set('WWW-Authenticate', `Bearer resource_metadata="${proto}://${host}/.well-known/oauth-protected-resource"`);
+    res.set('WWW-Authenticate', `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`);
     return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Authentication required.' }, id: null });
   }
 
-  const server = buildServer(token);
+  const server = buildServer(token, origin);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on('close', () => { try { transport.close(); server.close(); } catch { /* ignore */ } });
   try {
