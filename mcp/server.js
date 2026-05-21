@@ -12,19 +12,39 @@
 import express from 'express';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 import { fileURLToPath } from 'node:url';
 import { API_BASE, TOOLS, dispatch } from './tools.js';
+import { INSTRUCTIONS, PROMPTS } from './seo-playbook.js';
 
 const PORT = Number(process.env.PORT || 3000);
 
 function buildServer(token) {
   const server = new Server(
     { name: 'scouter-mcp', version: '1.0.0' },
-    { capabilities: { tools: {} } },
+    {
+      // `instructions` ships the SEO playbook to every client at initialize.
+      instructions: INSTRUCTIONS,
+      capabilities: { tools: {}, prompts: {} },
+    },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+
+  // Invocable workflows (audit / synthese).
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts: PROMPTS.map((p) => ({ name: p.name, description: p.description, arguments: p.arguments })),
+  }));
+  server.setRequestHandler(GetPromptRequestSchema, async (req) => {
+    const prompt = PROMPTS.find((p) => p.name === req.params.name);
+    if (!prompt) throw new Error(`Unknown prompt: ${req.params.name}`);
+    return { description: prompt.description, messages: prompt.build(req.params.arguments || {}) };
+  });
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: args = {} } = req.params;
