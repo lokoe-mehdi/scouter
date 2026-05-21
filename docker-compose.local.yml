@@ -40,6 +40,19 @@ services:
       - renderer
       - postgres
 
+  # Serveur MCP (Model Context Protocol) — adaptateur au-dessus de /api/v1.
+  mcp:
+    build: ./mcp
+    expose:
+      - 3000
+    environment:
+      - SCOUTER_API_URL=http://scouter:8080
+    restart: unless-stopped
+    networks:
+      - scouter-net
+    depends_on:
+      - scouter
+
   # Service Worker (Crawl)
   worker:
     build: .

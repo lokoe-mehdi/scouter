@@ -76,3 +76,13 @@ it('never stores the plaintext token in the database', function () {
     expect($raw)->not->toBe($g['token']);
     expect($raw)->toBe(hash('sha256', $g['token']));
 });
+
+it('stamps last_used_at on first use (null → set)', function () {
+    $g = ApiKeyService::generate($this->uid, 'k');
+    $before = $this->db->query("SELECT last_used_at FROM api_keys WHERE id = " . (int)$g['id'])->fetchColumn();
+    expect($before)->toBeNull();
+
+    ApiKeyService::touchLastUsed($g['id']);
+    $after = $this->db->query("SELECT last_used_at FROM api_keys WHERE id = " . (int)$g['id'])->fetchColumn();
+    expect($after)->not->toBeNull();
+});

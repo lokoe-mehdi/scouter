@@ -1034,6 +1034,34 @@ try {
 
         </div>
 
+        <!-- ============ MCP SERVER ============ -->
+        <div class="settings-card" style="grid-column: 1 / -1;">
+            <h2><span class="material-symbols-outlined">hub</span> <?= __('settings.mcp_title') ?></h2>
+            <p class="card-subtitle"><?= __('settings.mcp_intro') ?></p>
+
+            <div style="margin:1rem 0 0.4rem; font-size:0.85rem; color:var(--text-secondary);"><?= __('settings.mcp_url_label') ?></div>
+            <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:1rem;">
+                <code id="mcpUrl" style="flex:1; font-family:ui-monospace,monospace; font-size:0.85rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:0.5rem 0.7rem; overflow-x:auto; white-space:nowrap;">…/mcp</code>
+                <button type="button" id="mcpUrlCopy" class="btn btn-secondary" style="white-space:nowrap;"><?= __('settings.api_copy') ?></button>
+            </div>
+
+            <div style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:0.4rem;"><?= __('settings.mcp_howto') ?></div>
+            <div style="display:flex; gap:0.5rem; align-items:flex-start; margin-bottom:1rem;">
+                <pre id="mcpCmd" style="flex:1; margin:0; background:#0f172a; color:#e2e8f0; border-radius:8px; padding:0.8rem 1rem; overflow-x:auto; font-size:0.78rem; line-height:1.55; white-space:pre;"></pre>
+                <button type="button" id="mcpCmdCopy" class="btn btn-secondary" style="white-space:nowrap;"><?= __('settings.api_copy') ?></button>
+            </div>
+
+            <details style="margin-bottom:0.8rem;">
+                <summary style="cursor:pointer; font-weight:600; color:var(--text-primary); font-size:0.9rem;"><?= __('settings.mcp_desktop_toggle') ?></summary>
+                <pre id="mcpJson" style="margin-top:0.7rem; background:#0f172a; color:#e2e8f0; border-radius:8px; padding:0.8rem 1rem; overflow-x:auto; font-size:0.78rem; line-height:1.55; white-space:pre;"></pre>
+            </details>
+
+            <p style="font-size:0.82rem; color:var(--text-secondary); margin:0;">
+                <span class="material-symbols-outlined" style="font-size:1rem; vertical-align:middle; color:#0891b2;">info</span>
+                <?= __('settings.mcp_note_cloud') ?>
+            </p>
+        </div>
+
         <!-- ============ INTERACTIVE API DOCS (design-system, no Swagger) ============ -->
         <div class="settings-card" style="grid-column: 1 / -1;">
             <h2><span class="material-symbols-outlined">api</span> <?= __('settings.api_doc_title') ?></h2>
@@ -1486,6 +1514,44 @@ try {
             det.appendChild(bodyWrap);
             container.appendChild(det);
         });
+    })();
+    </script>
+
+    <script>
+    // MCP encart: fill the connector URL + ready-to-paste config for this host.
+    (function () {
+        const urlEl = document.getElementById('mcpUrl');
+        if (!urlEl) return;
+        const url = location.origin + '/mcp';
+        urlEl.textContent = url;
+
+        const cmdEl = document.getElementById('mcpCmd');
+        const jsonEl = document.getElementById('mcpJson');
+        if (cmdEl) {
+            cmdEl.textContent =
+                'claude mcp add --transport http scouter ' + url + ' \\\n' +
+                '  --header "Authorization: Bearer sctr_YOUR_KEY"';
+        }
+        if (jsonEl) {
+            jsonEl.textContent = JSON.stringify({
+                mcpServers: {
+                    scouter: { type: 'http', url: url, headers: { Authorization: 'Bearer sctr_YOUR_KEY' } }
+                }
+            }, null, 2);
+        }
+
+        const wireCopy = (btn, src) => {
+            if (!btn || !src) return;
+            const label = btn.textContent;
+            btn.addEventListener('click', () => {
+                navigator.clipboard.writeText(src.textContent).then(() => {
+                    btn.textContent = <?= json_encode(__('settings.api_copied')) ?>;
+                    setTimeout(() => { btn.textContent = label; }, 1500);
+                });
+            });
+        };
+        wireCopy(document.getElementById('mcpUrlCopy'), urlEl);
+        wireCopy(document.getElementById('mcpCmdCopy'), cmdEl);
     })();
     </script>
 
