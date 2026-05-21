@@ -977,7 +977,26 @@ if (!$drBriefAiConfigured) {
         // Bold MUST come before italic (so **x** isn't matched twice).
         // No lookbehind here — Safari < 16.4 throws SyntaxError on (?<...)
         // and that would crash the whole IIFE silently.
-        s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        //
+        // SECURITY: block script-executing URL schemes in links. The model
+        // output is semi-trusted (it ingests crawled page content, so a
+        // prompt-injection could try to make it emit `[x](javascript:…)`,
+        // which would run in the dashboard origin). We blacklist the
+        // executable scheme family and keep everything else clickable
+        // (http(s), relative paths, mailto, our internal `sqlx:`, …). A
+        // blocked link degrades to its plain anchor text (never a dead/unsafe
+        // href). The URL is already HTML-escaped by STEP 1, so attribute
+        // break-out isn't possible; only the scheme matters here.
+        s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (full, text, url) => {
+            // Normalize for the scheme test only: strip the whitespace/control
+            // chars browsers ignore inside a scheme (e.g. "java\tscript:"),
+            // and lowercase. Decision only — the original `url` is kept as-is.
+            const probe = String(url).replace(/[\u0000-\u0020]+/g, '').toLowerCase();
+            if (/^(?:javascript|data|vbscript):/.test(probe)) {
+                return text; // neutralize: keep the label, drop the link
+            }
+            return '<a href="' + url + '" target="_blank" rel="noopener">' + text + '</a>';
+        });
         s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
         s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
         s = s.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
