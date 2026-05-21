@@ -1434,7 +1434,7 @@
   "settings.mcp_url_label": "Connector-URL",
   "settings.mcp_howto": "Füge ihn als Remote-MCP-Server in Claude Code oder Claude Desktop hinzu, mit deinem Schlüssel als Bearer-Header:",
   "settings.mcp_desktop_toggle": "Claude-Desktop-Konfiguration (JSON)",
-  "settings.mcp_note_cloud": "Funktioniert ab sofort mit Claude Code und Claude Desktop. Der native claude.ai-Connector (Cloud, via OAuth) folgt später.",
+  "settings.mcp_note_cloud": "Funktioniert mit claude.ai (Web), Claude Code und Claude Desktop. Auf claude.ai fügst du einfach die Connector-URL hinzu: Du wirst aufgefordert, dich bei Scouter anzumelden und den Zugriff zu autorisieren (OAuth).",
   "settings.api_doc_token_label": "API-Schlüssel (Bearer)",
   "settings.api_doc_execute": "Ausführen",
   "settings.api_doc_running": "Läuft…",
@@ -2019,5 +2019,11 @@
   "url_table.indexable": "Indexierbar",
   "url_table.no_urls": "Keine URLs gefunden",
   "url_table.title": "Ergebnisse",
-  "url_table.tooltip_scope": "Umfang anzeigen"
+  "url_table.tooltip_scope": "Umfang anzeigen",
+  "oauth.consent_title": "Zugriff autorisieren",
+  "oauth.consent_intro": ":client fordert Zugriff auf dein Scouter-Konto über den MCP-Server an (schreibgeschützt: Projekte, Crawls, SQL-Abfragen).",
+  "oauth.consent_account": "Angemeldet als",
+  "oauth.consent_scope": "Schreibgeschützter Zugriff auf deine Crawl-Daten. Du kannst diesen Zugriff jederzeit unter Einstellungen → API widerrufen.",
+  "oauth.consent_allow": "Autorisieren",
+  "oauth.consent_deny": "Ablehnen"
 }

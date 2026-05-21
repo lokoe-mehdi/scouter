@@ -1434,7 +1434,7 @@
   "settings.mcp_url_label": "URL del connettore",
   "settings.mcp_howto": "Aggiungilo come server MCP remoto in Claude Code o Claude Desktop, con la tua chiave come header Bearer:",
   "settings.mcp_desktop_toggle": "Configurazione Claude Desktop (JSON)",
-  "settings.mcp_note_cloud": "Funziona già con Claude Code e Claude Desktop. Il connettore nativo claude.ai (cloud, via OAuth) arriverà più avanti.",
+  "settings.mcp_note_cloud": "Funziona con claude.ai (web), Claude Code e Claude Desktop. Su claude.ai basta aggiungere l'URL del connettore: ti verrà chiesto di accedere a Scouter e autorizzare l'accesso (OAuth).",
   "settings.api_doc_token_label": "Chiave API (Bearer)",
   "settings.api_doc_execute": "Esegui",
   "settings.api_doc_running": "In corso…",
@@ -2019,5 +2019,11 @@
   "url_table.indexable": "Indicizzabile",
   "url_table.no_urls": "Nessun URL trovato",
   "url_table.title": "Risultati",
-  "url_table.tooltip_scope": "Visualizza ambito"
+  "url_table.tooltip_scope": "Visualizza ambito",
+  "oauth.consent_title": "Autorizza l'accesso",
+  "oauth.consent_intro": ":client richiede l'accesso al tuo account Scouter tramite il server MCP (sola lettura: progetti, scansioni, query SQL).",
+  "oauth.consent_account": "Connesso come",
+  "oauth.consent_scope": "Accesso in sola lettura ai tuoi dati di scansione. Puoi revocare questo accesso in qualsiasi momento in Impostazioni → API.",
+  "oauth.consent_allow": "Autorizza",
+  "oauth.consent_deny": "Rifiuta"
 }

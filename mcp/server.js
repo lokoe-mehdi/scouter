@@ -51,6 +51,17 @@ app.get('/healthz', (_req, res) => res.json({ ok: true, api: API_BASE }));
 
 app.post('/mcp', async (req, res) => {
   const token = req.headers['authorization'];
+
+  // No credentials → trigger OAuth discovery (RFC 9728): point the client at the
+  // protected-resource metadata so claude.ai can run the auth flow. Claude Code
+  // / Desktop configure the Bearer header directly and skip this branch.
+  if (!token) {
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    const host = req.headers['x-forwarded-host'] || req.headers['host'];
+    res.set('WWW-Authenticate', `Bearer resource_metadata="${proto}://${host}/.well-known/oauth-protected-resource"`);
+    return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Authentication required.' }, id: null });
+  }
+
   const server = buildServer(token);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on('close', () => { try { transport.close(); server.close(); } catch { /* ignore */ } });
