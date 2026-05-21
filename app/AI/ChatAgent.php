@@ -65,15 +65,21 @@ class ChatAgent
      *   ['event' => 'done',            'data' => ['input_tokens','output_tokens','tool_calls']]
      *   ['event' => 'error',           'data' => ['message']]
      */
+    /**
+     * @param string|array $systemPrompt  Either a plain string, or an array of
+     *   OpenAI/Anthropic content blocks (used for prompt caching: a cached
+     *   static prefix + an uncached page-snapshot block).
+     */
     public function run(
         string $apiKey,
         string $model,
-        string $systemPrompt,
+        $systemPrompt,
         array $history,
         object $crawl
     ): \Generator {
         // Build the initial messages array : system prompt followed by the
-        // browser-owned conversation history.
+        // browser-owned conversation history. `content` may be a string or a
+        // content-block array (caching) — both are valid OpenRouter shapes.
         $messages = [['role' => 'system', 'content' => $systemPrompt]];
         foreach ($history as $msg) {
             $role    = ($msg['role'] ?? 'user') === 'assistant' ? 'assistant' : 'user';
@@ -92,6 +98,10 @@ class ChatAgent
         $totalInputTokens  = 0;
         $totalOutputTokens = 0;
         $totalToolCalls    = 0;
+        // Accumulated REAL billed cost (USD) across every stream chunk of the
+        // turn (one chat turn can span multiple OpenRouter calls when tools
+        // are involved). null until the first usage chunk carries a cost.
+        $totalCost         = null;
 
         for ($iteration = 0; $iteration < self::MAX_TOOL_ITERATIONS; $iteration++) {
             yield ['event' => 'thinking', 'data' => []];
@@ -107,6 +117,9 @@ class ChatAgent
                 if ($ev['type'] === 'usage') {
                     $totalInputTokens  += $ev['input_tokens'];
                     $totalOutputTokens += $ev['output_tokens'];
+                    if (isset($ev['cost_usd']) && $ev['cost_usd'] !== null) {
+                        $totalCost = (float)$totalCost + (float)$ev['cost_usd'];
+                    }
                     continue;
                 }
                 if ($ev['type'] === 'text') {
@@ -126,6 +139,7 @@ class ChatAgent
                     'input_tokens'  => $totalInputTokens,
                     'output_tokens' => $totalOutputTokens,
                     'tool_calls'    => $totalToolCalls,
+                    'cost_usd'      => $totalCost,
                 ]];
                 return;
             }

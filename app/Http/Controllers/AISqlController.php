@@ -6,6 +6,7 @@ use App\Http\Controller;
 use App\Http\Request;
 use App\Settings\AppSettings;
 use App\AI\OpenRouterClient;
+use App\AI\BudgetService;
 use App\AI\SqlGenPrompt;
 
 /**
@@ -38,6 +39,13 @@ class AISqlController extends Controller
             return;
         }
 
+        // Per-user monthly AI budget gate (role + remaining budget).
+        $budget = BudgetService::check((int)$this->userId, $this->auth->getCurrentRole());
+        if (!$budget['allowed']) {
+            $this->error(BudgetService::blockMessage($budget), 402);
+            return;
+        }
+
         $apiKey = (string)AppSettings::get('ai.openrouter.api_key');
         $model  = (string)AppSettings::get('ai.openrouter.model_light');
         if ($apiKey === '' || $model === '') {
@@ -50,6 +58,7 @@ class AISqlController extends Controller
         $response = OpenRouterClient::chatCompletion($apiKey, $model, [['role' => 'user', 'content' => $prompt]]);
         $totalIn  = (int)($response['input_tokens'] ?? 0);
         $totalOut = (int)($response['output_tokens'] ?? 0);
+        $totalCost = isset($response['cost_usd']) && $response['cost_usd'] !== null ? (float)$response['cost_usd'] : null;
 
         $sql = null;
         $error = null;
@@ -68,6 +77,9 @@ class AISqlController extends Controller
             $retry = OpenRouterClient::chatCompletion($apiKey, $model, [['role' => 'user', 'content' => $retryPrompt]]);
             $totalIn  += (int)($retry['input_tokens']  ?? 0);
             $totalOut += (int)($retry['output_tokens'] ?? 0);
+            if (isset($retry['cost_usd']) && $retry['cost_usd'] !== null) {
+                $totalCost = (float)$totalCost + (float)$retry['cost_usd'];
+            }
 
             if (!$retry['ok']) {
                 $error = $retry['error'];
@@ -77,6 +89,14 @@ class AISqlController extends Controller
                     $error = 'No <sql>...</sql> tag found in the model response (retry)';
                 }
             }
+        }
+
+        // Bill the call(s) — no crawl context for the SQL generator (null crawl_id).
+        if ($totalIn > 0 || $totalOut > 0 || $totalCost !== null) {
+            BudgetService::record(
+                (int)$this->userId, BudgetService::FEATURE_FILTERS, $model,
+                $totalIn, $totalOut, $totalCost, null, $sql !== null
+            );
         }
 
         if ($sql === null) {

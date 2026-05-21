@@ -13,6 +13,8 @@ try {
 } catch (\Throwable $e) {
     $linkExplorerAiConfigured = false;
 }
+// AI reserved for admins + editors; hidden entirely for viewers.
+$aiRoleAllowed = \App\AI\BudgetService::isAiEligibleRole($_SESSION['role'] ?? null);
 
 // Récupération des filtres
 $filters = isset($_GET['filters']) ? json_decode($_GET['filters'], true) : [];
@@ -1215,6 +1217,7 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
     </button>
 
     <!-- Demander à l'IA — même pattern qu'URL Explorer / SQL Explorer (Copilot-style) -->
+    <?php if ($aiRoleAllowed): ?>
     <button class="ai-url-toolbar-btn"
             id="aiLinkOpenBtn"
             onclick="openAiLinkPopover()"
@@ -1224,6 +1227,7 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
         <span><?= __('link_explorer.ai_button_label') ?></span>
         <span class="shortcut">Ctrl+K</span>
     </button>
+    <?php endif; ?>
 
     <!-- Clear All -->
     <button class="btn-clear-filters" id="btnClearAll" style="display: none;" onclick="clearFilters()">

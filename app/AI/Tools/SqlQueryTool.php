@@ -20,6 +20,10 @@ class SqlQueryTool
 {
     public const NAME = 'run_sql';
 
+    /** Max rows handed to the MODEL (token saving). The UI preview + the
+     *  SQL-Explorer deeplink still expose the full result set to the user. */
+    private const MODEL_PREVIEW_ROWS = 25;
+
     /** Bare function declaration — ChatAgent wraps it in OpenAI's {type:'function',function:...} envelope. */
     public static function declaration(): array
     {
@@ -95,25 +99,32 @@ class SqlQueryTool
             ];
         }
 
-        // Compact for the model — just enough to reason on, not the full rows
-        // dump if it's a 10-row list (saves tokens). We keep up to 10 rows.
         $rows       = $result['rows'] ?? [];
         $columns    = $result['columns'] ?? [];
         $totalRows  = $result['total_rows'] ?? count($rows);
         $truncated  = (bool)($result['truncated'] ?? false);
+
+        // Rows shown to the MODEL are capped well below the UI preview to save
+        // tokens: the model rarely needs more than a couple dozen rows to
+        // reason or write its answer, and the user still sees the full preview
+        // in the chat table + everything via the SQL-Explorer link. The big
+        // win is on list queries (was up to 100 rows re-sent on every tool
+        // iteration of the turn).
+        $modelRows = array_slice($rows, 0, self::MODEL_PREVIEW_ROWS);
+        $moreExist = $truncated || count($rows) > count($modelRows);
 
         // Deeplink to SQL Explorer with the full query (without preview LIMIT)
         // so the user can click through, see all rows, sort, export.
         $deeplink = self::buildDeeplink($crawlId, $crawlPath, $result['deeplink_sql'] ?? $query);
 
         // For the model: rename `total_rows` to `rows_in_preview` to remove
-        // the ambiguity — and inject a `note` when truncated so the LLM
+        // the ambiguity — and inject a `note` when more rows exist so the LLM
         // can't easily ignore that there are likely more rows than visible.
         $forModel = [
-            'rows'             => $rows,
+            'rows'             => $modelRows,
             'columns'          => $columns,
-            'rows_in_preview'  => count($rows),
-            'truncated'        => $truncated,
+            'rows_in_preview'  => count($modelRows),
+            'truncated'        => $moreExist,
         ];
         // Shared instruction on how to surface the SQL-Explorer link inline.
         // `full_result_link` is added to THIS result by ChatAgent (a short
@@ -129,17 +140,17 @@ class SqlQueryTool
             . '`[voir la liste complète dans SQL Explorer](sqlx:call_42)`. '
             . 'Never write or guess a real URL.';
 
-        if ($truncated) {
-            $forModel['note'] = 'IMPORTANT: this result was CAPPED at ' . count($rows)
-                . ' rows by the chat preview limit — the actual matching set is '
-                . 'larger and unknown to you. Treat these rows as a SAMPLE, never '
-                . 'as exhaustive. When you reference them in your reply, say things '
-                . 'like "here are ' . count($rows) . ' examples (more exist)" or '
-                . 'pair them with a SELECT COUNT(*) so the user knows the true total.'
+        if ($moreExist) {
+            $forModel['note'] = 'IMPORTANT: you are seeing only a SAMPLE of '
+                . count($modelRows) . ' row(s) — more matching rows exist and are '
+                . 'unknown to you. Treat these as examples, never as exhaustive. '
+                . 'When you reference them, say things like "here are '
+                . count($modelRows) . ' examples (more exist)" or pair them with a '
+                . 'SELECT COUNT(*) so the user knows the true total.'
                 . $linkHowTo;
-        } elseif (count($rows) > 1) {
-            // Non-truncated list: still offer the exportable view inline.
-            $forModel['note'] = 'This list is complete (' . count($rows) . ' rows).'
+        } elseif (count($modelRows) > 1) {
+            // Complete short list: still offer the exportable view inline.
+            $forModel['note'] = 'This list is complete (' . count($modelRows) . ' rows).'
                 . $linkHowTo;
         }
 

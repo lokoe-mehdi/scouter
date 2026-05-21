@@ -57,8 +57,10 @@ class OpenRouterStream
             'messages' => $messages,
             'stream'   => true,
             // Ask OpenRouter to include usage in the final chunk so we can
-            // attribute cost per turn in ai_chat_runs. Without this, no usage.
+            // attribute cost per turn. include_usage adds the usage block;
+            // usage.include adds the REAL billed cost (USD) inside it.
             'stream_options' => ['include_usage' => true],
+            'usage'    => ['include' => true],
             'temperature' => 0.3,
         ];
         if (!empty($tools)) {
@@ -193,6 +195,8 @@ class OpenRouterStream
                 'type'          => 'usage',
                 'input_tokens'  => (int)($parsed['usage']['prompt_tokens']     ?? 0),
                 'output_tokens' => (int)($parsed['usage']['completion_tokens'] ?? 0),
+                // Real billed cost (USD) when present; null → computed fallback upstream.
+                'cost_usd'      => isset($parsed['usage']['cost']) ? (float)$parsed['usage']['cost'] : null,
             ]);
         }
 

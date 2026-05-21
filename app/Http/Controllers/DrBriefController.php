@@ -9,6 +9,7 @@ use App\Database\CrawlDatabase;
 use App\Settings\AppSettings;
 use App\AI\ChatAgent;
 use App\AI\DrBriefPrompt;
+use App\AI\BudgetService;
 use PDO;
 
 /**
@@ -98,8 +99,12 @@ class DrBriefController extends Controller
         // Optional but recommended : lets Dr. Brief answer "summarize this"
         // type questions without an extra round-trip via run_sql.
         $pageContext = (string)$request->get('page_context', '');
-        if (mb_strlen($pageContext) > 16000) {
-            $pageContext = mb_substr($pageContext, 0, 16000) . "\n… (truncated)";
+        // Cap the page snapshot. It's sent as its OWN uncached block (so it
+        // doesn't bust the cached system prefix), and a smaller cap keeps the
+        // per-turn cost down — 8k chars (~2k tokens) is plenty for "summarize
+        // this page" without shipping the whole DOM.
+        if (mb_strlen($pageContext) > 8000) {
+            $pageContext = mb_substr($pageContext, 0, 8000) . "\n… (truncated)";
         }
 
         if ($crawlId <= 0)         { $this->error('crawl_id is required', 400); return; }
@@ -170,6 +175,27 @@ class DrBriefController extends Controller
             return;
         }
 
+        // === Per-user monthly AI budget gate ===
+        // Surfaced as a normal assistant message (not an error bubble) so it
+        // doesn't look like a bug. Viewers can't reach here (widget hidden +
+        // endpoint guard), but we handle the role reason too for safety.
+        $budget = BudgetService::check((int)$this->userId, $this->auth->getCurrentRole());
+        if (!$budget['allowed']) {
+            $this->startSseResponse();
+            if ($budget['reason'] === 'role') {
+                $msg = __('dr_brief.ai_not_available');
+            } else {
+                $msg = str_replace(
+                    ['{spent}', '{budget}'],
+                    [number_format($budget['spent'], 2), number_format($budget['budget'], 2)],
+                    __('dr_brief.budget_reached')
+                );
+            }
+            $this->sendSseEvent('text_delta', ['delta' => $msg]);
+            $this->sendSseEvent('done', ['input_tokens' => 0, 'output_tokens' => 0, 'tool_calls' => 0]);
+            exit;
+        }
+
         // === Switch to SSE mode ===
         // From here on, output is text/event-stream, NOT JSON.
         $this->startSseResponse();
@@ -187,23 +213,36 @@ class DrBriefController extends Controller
         // boundary on those @id references, so we're safe.
         $projectCrawls = $this->fetchRecentProjectCrawls((int)$crawl->project_id, 20);
 
-        $systemPrompt = DrBriefPrompt::build(
+        // Split the prompt for caching: a big stable prefix (cached) + the
+        // volatile page snapshot (uncached). The cache_control breakpoint tells
+        // OpenRouter/Anthropic to cache the prefix; providers that don't support
+        // it simply ignore the marker (OpenAI/Gemini cache the prefix anyway).
+        $parts = DrBriefPrompt::buildParts(
             $crawl,
             $pageContext !== '' ? $pageContext : null,
             $uiLang,
             $projectCrawls
         );
+        $systemContent = [[
+            'type'          => 'text',
+            'text'          => $parts['cacheable'],
+            'cache_control' => ['type' => 'ephemeral'],
+        ]];
+        if ($parts['page_context'] !== '') {
+            $systemContent[] = ['type' => 'text', 'text' => $parts['page_context']];
+        }
         $agent = new ChatAgent();
 
         $totalIn = 0;
         $totalOut = 0;
         $totalToolCalls = 0;
+        $totalCost = null;
         $finalError = null;
         $sawDone = false;
 
         $aborted = false;
         try {
-            foreach ($agent->run($apiKey, $model, $systemPrompt, $messages, $crawl) as $event) {
+            foreach ($agent->run($apiKey, $model, $systemContent, $messages, $crawl) as $event) {
                 $this->sendSseEvent($event['event'], $event['data'] ?? []);
                 // After every flush, check if the client is still there.
                 // connection_aborted() returns true only after a write
@@ -222,6 +261,8 @@ class DrBriefController extends Controller
                     $totalIn  = (int)($event['data']['input_tokens']  ?? 0);
                     $totalOut = (int)($event['data']['output_tokens'] ?? 0);
                     $totalToolCalls = (int)($event['data']['tool_calls'] ?? 0);
+                    $totalCost = isset($event['data']['cost_usd']) && $event['data']['cost_usd'] !== null
+                        ? (float)$event['data']['cost_usd'] : null;
                     $sawDone = true;
                 } elseif ($event['event'] === 'error') {
                     $finalError = (string)($event['data']['message'] ?? 'unknown error');
@@ -236,6 +277,22 @@ class DrBriefController extends Controller
 
         // Audit log (no content)
         $this->logRun($crawlId, $model, $totalIn, $totalOut, $totalToolCalls, $sawDone && $finalError === null, $finalError);
+
+        // Bill the turn against the user's monthly AI budget (real cost from
+        // OpenRouter usage.cost, or a price×tokens fallback). Recorded even on
+        // a partial/aborted turn since OpenRouter still charges for what ran.
+        if ($totalIn > 0 || $totalOut > 0 || $totalCost !== null) {
+            BudgetService::record(
+                (int)$this->userId,
+                BudgetService::FEATURE_CHATBOT,
+                $model,
+                $totalIn,
+                $totalOut,
+                $totalCost,
+                $crawlId,
+                $sawDone && $finalError === null
+            );
+        }
 
         // Close the stream cleanly so EventSource.onmessage stops re-trying.
         exit;

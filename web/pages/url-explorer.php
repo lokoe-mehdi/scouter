@@ -13,6 +13,9 @@ try {
 } catch (\Throwable $e) {
     $urlExplorerAiConfigured = false;
 }
+// AI is reserved for admins + editors. Viewers (read-only) must not see any AI
+// control at all — the buttons below are wrapped in this check.
+$aiRoleAllowed = \App\AI\BudgetService::isAiEligibleRole($_SESSION['role'] ?? null);
 
 // Récupération des filtres. Au premier chargement (aucun filtre dans l'URL) on
 // active par défaut un filtre `external = false` pour ne montrer que les URLs
@@ -1242,6 +1245,7 @@ if (isset($_GET['add_cols']) && $_GET['add_cols'] !== '') {
 
     <!-- Filtre IA — colle au bouton "+ Filtre" : 2 façons de filtrer le tableau,
          l'une manuelle, l'autre en langage naturel (Copilot-style). -->
+    <?php if ($aiRoleAllowed): ?>
     <button class="ai-url-toolbar-btn"
             id="aiUrlOpenBtn"
             onclick="openAiUrlPopover()"
@@ -1251,6 +1255,7 @@ if (isset($_GET['add_cols']) && $_GET['add_cols'] !== '') {
         <span><?= __('url_explorer.ai_button_label') ?></span>
         <span class="shortcut">Ctrl+K</span>
     </button>
+    <?php endif; ?>
 
     <!-- Clear All (visible seulement si filtres actifs) -->
     <button class="btn-clear-filters" id="btnClearAll" style="display: none;" onclick="clearFilters()">
@@ -1262,6 +1267,7 @@ if (isset($_GET['add_cols']) && $_GET['add_cols'] !== '') {
          colonnes générées). Isolée à droite via margin-left:auto pour
          ne pas la confondre avec les boutons de filtrage. Cible TOUTES
          les URLs du tableau filtré (page courante). -->
+    <?php if ($aiRoleAllowed): ?>
     <button class="ai-url-toolbar-btn bulk-ai-btn"
             id="bulkAiOpenBtn"
             type="button"
@@ -1272,6 +1278,7 @@ if (isset($_GET['add_cols']) && $_GET['add_cols'] !== '') {
         <span><?= __('bulk_gen.button_label') ?></span>
         <span class="bulk-count"></span>
     </button>
+    <?php endif; ?>
 </div>
 
 <!-- Popover IA "Demander à l'IA" — Copilot style, ancré au-dessus du bouton via JS. -->

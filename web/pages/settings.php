@@ -17,6 +17,7 @@ require_once(__DIR__ . '/init.php');
 $auth->requireAdmin(false);
 
 use App\Settings\AppSettings;
+use App\AI\BudgetService;
 
 $hasEncryption  = AppSettings::hasEncryptionKey();
 $apiKey         = AppSettings::get('ai.openrouter.api_key');
@@ -24,6 +25,24 @@ $hasStoredKey   = $apiKey !== null && $apiKey !== '';
 $maskedKey      = $hasStoredKey ? AppSettings::maskSecret($apiKey) : '';
 $modelLight     = AppSettings::get('ai.openrouter.model_light')  ?? '';
 $modelStrong    = AppSettings::get('ai.openrouter.model_strong') ?? '';
+
+// --- AI budget section data ---
+$defaultBudget   = BudgetService::defaultBudget();
+$globalBreakdown = BudgetService::globalBreakdownThisMonth();
+$budgetByUser    = BudgetService::globalByUserThisMonth(); // [{id,email,role,spent}]
+// Per-user overrides (NULL = uses default) for the editable table.
+try {
+    $_pdo = \App\Database\PostgresDatabase::getInstance()->getConnection();
+    $_ovStmt = $_pdo->query("SELECT id, ai_monthly_budget_usd FROM users WHERE role IN ('admin','user')");
+    $userOverrides = [];
+    foreach ($_ovStmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+        $userOverrides[(int)$r['id']] = $r['ai_monthly_budget_usd'];
+    }
+} catch (\Throwable $e) { $userOverrides = []; }
+$budgetFeatureLabel = static function (string $f): string {
+    $map = ['chatbot'=>'feature.chatbot','categorization'=>'feature.categorization','bulk_generate'=>'feature.bulk_generate','ai_filters'=>'feature.ai_filters'];
+    return isset($map[$f]) ? __($map[$f]) : $f;
+};
 ?>
 <!DOCTYPE html>
 <html lang="<?= I18n::getInstance()->getLang() ?>">
@@ -193,7 +212,7 @@ $modelStrong    = AppSettings::get('ai.openrouter.model_strong') ?? '';
         }
         .dr-combo-trigger:hover:not(:disabled) { border-color: #cbd5e1; }
         .dr-combo-trigger:disabled { background: #f7f7f9; color: #999; cursor: not-allowed; }
-        .dr-combo[data-open="true"] .dr-combo-trigger { border-color: var(--primary-color); }
+        .dr-combo[data-open="true"] .dr-combo-trigger { border-color: #cbd5e1; }
         .dr-combo-display {
             flex: 1;
             min-width: 0;
@@ -246,24 +265,28 @@ $modelStrong    = AppSettings::get('ai.openrouter.model_strong') ?? '';
             border-radius: 6px;
             background: white;
         }
-        .dr-combo-search-field:focus-within { border-color: var(--primary-color); }
+        .dr-combo-search-field:focus-within { border-color: #cbd5e1; }
         .dr-combo-search-icon {
             flex-shrink: 0;
             color: #94a3b8;
             font-size: 1.1rem;
             line-height: 1;
         }
-        .dr-combo-search {
+        /* Specificity must beat `.settings-row input[type="text"]` (0,2,1) which
+           otherwise re-imposes a 1px border + green focus border on the model
+           search field. Matching specificity + coming later wins the tie. */
+        .dr-combo-search-field input.dr-combo-search {
             flex: 1;
             min-width: 0;
             padding: 0.5rem 0;
-            border: none;
+            border: 0;
             background: transparent;
             font-size: 0.9rem;
             outline: none;
             color: var(--text-primary);
         }
-        .dr-combo-search::placeholder { color: #94a3b8; }
+        .dr-combo-search-field input.dr-combo-search:focus { border: 0; box-shadow: none; }
+        .dr-combo-search-field input.dr-combo-search::placeholder { color: #94a3b8; }
         .dr-combo-list {
             overflow-y: auto;
             max-height: 350px;
@@ -787,8 +810,100 @@ $modelStrong    = AppSettings::get('ai.openrouter.model_strong') ?? '';
             </div>
         </div>
 
+        <!-- ============ AI BUDGET ============ -->
+        <div class="settings-card" style="grid-column: 1 / -1;">
+            <h2><span class="material-symbols-outlined">payments</span> <?= __('settings.budget_title') ?></h2>
+
+            <div style="display:flex; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1.5rem;">
+                <div style="flex:0 0 auto;">
+                    <label for="budget-default" style="display:block; font-size:0.85rem; color:var(--text-secondary); margin-bottom:0.3rem;"><?= __('settings.budget_default') ?></label>
+                    <input type="number" id="budget-default" min="0" step="0.01" value="<?= htmlspecialchars(number_format($defaultBudget, 2, '.', '')) ?>"
+                           style="width:160px; padding:0.5rem 0.7rem; border:1px solid var(--border-color,#cbd5e1); border-radius:8px; font-size:1rem;">
+                </div>
+                <div style="font-size:0.8rem; color:var(--text-secondary); flex:1; min-width:200px;"><?= __('settings.budget_hint') ?></div>
+                <button type="button" id="budget-save-btn" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.4rem;">
+                    <span class="material-symbols-outlined">save</span> <?= __('settings.budget_save') ?>
+                </button>
+            </div>
+
+            <h3 style="font-size:0.95rem; margin:0 0 0.7rem;"><?= __('settings.budget_global_title') ?></h3>
+            <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:1.5rem;">
+                <?php foreach ($globalBreakdown as $feat => $cost): ?>
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:0.6rem 0.9rem; min-width:140px;">
+                    <div style="font-size:0.78rem; color:var(--text-secondary);"><?= htmlspecialchars($budgetFeatureLabel($feat)) ?></div>
+                    <div style="font-size:1.1rem; font-weight:700; font-variant-numeric:tabular-nums;">$<?= number_format((float)$cost, 4) ?></div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+
+            <h3 style="font-size:0.95rem; margin:0 0 0.7rem;"><?= __('settings.budget_per_user') ?></h3>
+            <table style="width:100%; border-collapse:collapse; font-size:0.88rem;">
+                <thead><tr style="text-align:left; color:var(--text-secondary);">
+                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;">Email</th>
+                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('header.user_role') ?></th>
+                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb; text-align:right;"><?= __('profile.spent') ?></th>
+                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.budget_override') ?></th>
+                </tr></thead>
+                <tbody>
+                <?php foreach ($budgetByUser as $u):
+                    $uid = (int)$u['id'];
+                    $ov  = $userOverrides[$uid] ?? null;
+                ?>
+                    <tr>
+                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5;"><?= htmlspecialchars($u['email']) ?></td>
+                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5; color:var(--text-secondary);"><?= htmlspecialchars($u['role']) ?></td>
+                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5; text-align:right; font-variant-numeric:tabular-nums;">$<?= number_format((float)$u['spent'], 4) ?></td>
+                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5;">
+                            <input type="number" min="0" step="0.01" class="budget-override" data-user-id="<?= $uid ?>"
+                                   value="<?= $ov !== null ? htmlspecialchars(number_format((float)$ov, 2, '.', '')) : '' ?>"
+                                   placeholder="<?= htmlspecialchars(number_format($defaultBudget, 2, '.', '')) ?>"
+                                   style="width:110px; padding:0.35rem 0.5rem; border:1px solid #cbd5e1; border-radius:6px;">
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <div id="budget-save-status" style="margin-top:0.6rem; font-size:0.85rem;"></div>
+        </div>
+
         </div><!-- /.settings-bento -->
     </div><!-- /.container -->
+
+    <script>
+    // AI budget save (default + per-user overrides).
+    (function () {
+        const btn = document.getElementById('budget-save-btn');
+        if (!btn) return;
+        btn.addEventListener('click', async () => {
+            const overrides = {};
+            document.querySelectorAll('.budget-override').forEach(inp => {
+                overrides[inp.dataset.userId] = inp.value === '' ? null : inp.value;
+            });
+            const statusEl = document.getElementById('budget-save-status');
+            btn.disabled = true;
+            statusEl.textContent = '…';
+            try {
+                const res = await fetch('../api/settings/budget', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        default_budget: document.getElementById('budget-default').value,
+                        overrides: overrides,
+                    }),
+                });
+                const d = await res.json();
+                if (!res.ok || d.success === false) throw new Error(d.error || 'error');
+                statusEl.style.color = '#16a34a';
+                statusEl.textContent = '✓';
+            } catch (e) {
+                statusEl.style.color = '#dc2626';
+                statusEl.textContent = '✗ ' + (e.message || 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    })();
+    </script>
 
     <script>
     (function () {

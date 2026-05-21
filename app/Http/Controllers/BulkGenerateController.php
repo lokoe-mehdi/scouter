@@ -11,6 +11,7 @@ use App\AI\OpenRouterClient;
 use App\AI\ContextBuilder;
 use App\AI\PromptEstimator;
 use App\AI\BulkGenerator;
+use App\AI\BudgetService;
 use App\AI\Prompts\BulkGeneratePrompt;
 use PDO;
 
@@ -283,6 +284,15 @@ class BulkGenerateController extends Controller
         $params = $this->validateAndUnpackJobParams($request, /*allowEmptyIds*/ false);
         if (!$params) return;
 
+        // Budget gate — preview runs 3 URLs synchronously through the LLM, so
+        // it has a (small) real cost. Block when already over budget; no
+        // pre-flight estimate here (3 URLs is cheap), that's only for start().
+        $budget = BudgetService::check((int)$this->userId, $this->auth->getCurrentRole());
+        if (!$budget['allowed']) {
+            $this->error(BudgetService::blockMessage($budget), 402);
+            return;
+        }
+
         $apiKey = (string)AppSettings::get('ai.openrouter.api_key');
         if ($apiKey === '') { $this->error('OpenRouter API key not configured', 400); return; }
 
@@ -307,6 +317,14 @@ class BulkGenerateController extends Controller
             'response_format' => ['type' => 'json_object'],
             'temperature'     => 0.2,
         ]);
+
+        // Bill the preview call against the budget (real cost incurred now).
+        BudgetService::record(
+            (int)$this->userId, BudgetService::FEATURE_BULK, $params['model'],
+            (int)($response['input_tokens'] ?? 0), (int)($response['output_tokens'] ?? 0),
+            isset($response['cost_usd']) ? $response['cost_usd'] : null,
+            $params['crawl_id'], !empty($response['ok'])
+        );
 
         if (!$response['ok']) {
             $this->error('Preview failed: ' . $response['error'], 502);
@@ -373,6 +391,32 @@ class BulkGenerateController extends Controller
             'model'              => $modelInfo,
             'manual_batch_size'  => $params['manual_batch_size'],
         ]);
+
+        // === Pre-flight budget gate (bulk only) ===
+        // A bulk job can be expensive, so unlike the cheap features we refuse
+        // to START one whose ESTIMATE would push the user past their remaining
+        // monthly budget (rather than letting it run and blocking next time).
+        $budget = BudgetService::checkEstimate(
+            (int)$this->userId,
+            $this->auth->getCurrentRole(),
+            (float)($est['estimated_cost'] ?? 0)
+        );
+        if (!$budget['allowed']) {
+            if (($budget['reason'] ?? null) === 'budget' && ($budget['remaining'] ?? 0) > 0) {
+                // Has SOME budget left, just not enough for this job — be specific.
+                $this->error(
+                    str_replace(
+                        ['{est}', '{remaining}'],
+                        [number_format((float)$est['estimated_cost'], 2), number_format((float)$budget['remaining'], 2)],
+                        __('ai_budget.bulk_too_expensive')
+                    ),
+                    402
+                );
+            } else {
+                $this->error(BudgetService::blockMessage($budget), 402);
+            }
+            return;
+        }
 
         // Insert the bulk_generation_jobs row.
         $stmt = $this->db->prepare("

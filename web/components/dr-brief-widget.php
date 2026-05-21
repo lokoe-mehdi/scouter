@@ -26,6 +26,11 @@ if (!$drBriefAiConfigured) {
     // Don't render the widget at all when AI is off — keeps the UI clean.
     return;
 }
+// AI is reserved for admins + editors ("user"). Viewers (read-only) must not
+// see ANY AI feature — render nothing, as if it didn't exist for them.
+if (!\App\AI\BudgetService::isAiEligibleRole($_SESSION['role'] ?? null)) {
+    return;
+}
 ?>
 
 <!-- Dr. Brief floating widget -->

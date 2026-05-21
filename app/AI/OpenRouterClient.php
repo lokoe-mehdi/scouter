@@ -159,6 +159,11 @@ class OpenRouterClient
             'model'    => $model,
             'messages' => $messages,
             'stream'   => false,
+            // Ask OpenRouter to include the REAL billed cost (USD) in the
+            // response `usage.cost`, so budget tracking uses the actual charge
+            // rather than a price×tokens estimate. Falls back to computed cost
+            // upstream when this is absent (older models / providers).
+            'usage'    => ['include' => true],
         ];
         // Temperature defaults to 0.2 — the one-shot features want determinism
         // (extract a YAML tag, generate a SQL query, …), not creativity.
@@ -200,6 +205,9 @@ class OpenRouterClient
             'text'          => $text,
             'input_tokens'  => (int)($body['usage']['prompt_tokens']     ?? 0),
             'output_tokens' => (int)($body['usage']['completion_tokens'] ?? 0),
+            // Real billed cost in USD when OpenRouter returns it; null → caller
+            // computes a fallback from the model's per-token pricing.
+            'cost_usd'      => isset($body['usage']['cost']) ? (float)$body['usage']['cost'] : null,
         ];
     }
 

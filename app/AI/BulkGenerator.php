@@ -4,6 +4,7 @@ namespace App\AI;
 
 use App\Database\PostgresDatabase;
 use App\AI\Prompts\BulkGeneratePrompt;
+use App\AI\BudgetService;
 use App\Settings\AppSettings;
 use PDO;
 
@@ -116,11 +117,13 @@ class BulkGenerator
         $model     = (string)$job['model'];
         $batchSize = max(1, (int)$job['batch_size']);
         $crawlId   = (int)$job['crawl_id'];
+        $userId    = (int)($job['user_id'] ?? 0);
 
         $processed = 0;
         $failed    = 0;
         $totalIn   = 0;
         $totalOut  = 0;
+        $totalCost = null;   // accumulated real OpenRouter cost (USD)
         $errorsSample = [];
         $ctxBuilder = new ContextBuilder($this->db);
 
@@ -130,6 +133,7 @@ class BulkGenerator
             // Per-batch stop check — keeps worker responsive to Stop clicks.
             if ($this->isStopRequested($bulkJobId)) {
                 $this->markStopped($bulkJobId, $processed, $failed, $totalIn, $totalOut, $errorsSample);
+                $this->recordBudget($userId, $model, $crawlId, $totalIn, $totalOut, $totalCost, true);
                 return;
             }
 
@@ -151,6 +155,9 @@ class BulkGenerator
             $batchResult = $this->runBatch($apiKey, $model, $items, $template, $contextBatch);
             $totalIn  += $batchResult['input_tokens'];
             $totalOut += $batchResult['output_tokens'];
+            if (isset($batchResult['cost_usd']) && $batchResult['cost_usd'] !== null) {
+                $totalCost = (float)$totalCost + (float)$batchResult['cost_usd'];
+            }
 
             if (!$batchResult['ok'] && count($contextBatch) > 1) {
                 // Fallback : retry each URL alone so 1 bad apple doesn't ruin 9 good ones.
@@ -158,6 +165,9 @@ class BulkGenerator
                     $singleResult = $this->runBatch($apiKey, $model, $items, $template, [$singleCtx]);
                     $totalIn  += $singleResult['input_tokens'];
                     $totalOut += $singleResult['output_tokens'];
+                    if (isset($singleResult['cost_usd']) && $singleResult['cost_usd'] !== null) {
+                        $totalCost = (float)$totalCost + (float)$singleResult['cost_usd'];
+                    }
                     if ($singleResult['ok'] && !empty($singleResult['results'])) {
                         $this->writeResults($crawlId, $singleResult['results']);
                     } else {
@@ -185,6 +195,9 @@ class BulkGenerator
                     $singleResult = $this->runBatch($apiKey, $model, $items, $template, [$singleCtx]);
                     $totalIn  += $singleResult['input_tokens'];
                     $totalOut += $singleResult['output_tokens'];
+                    if (isset($singleResult['cost_usd']) && $singleResult['cost_usd'] !== null) {
+                        $totalCost = (float)$totalCost + (float)$singleResult['cost_usd'];
+                    }
                     if ($singleResult['ok'] && !empty($singleResult['results'])) {
                         $this->writeResults($crawlId, $singleResult['results']);
                     } else {
@@ -213,6 +226,19 @@ class BulkGenerator
         }
 
         $this->markDone($bulkJobId, $processed, $failed, $totalIn, $totalOut, $errorsSample);
+        $this->recordBudget($userId, $model, $crawlId, $totalIn, $totalOut, $totalCost, true);
+    }
+
+    /**
+     * Bill a finished/stopped bulk job against the owner's monthly AI budget.
+     * One ledger row for the whole job (sum of all batch + retry calls).
+     * Never throws — accounting must not break the worker.
+     */
+    private function recordBudget(int $userId, string $model, int $crawlId, int $inTok, int $outTok, ?float $cost, bool $success): void
+    {
+        if ($userId <= 0) return;
+        if ($inTok <= 0 && $outTok <= 0 && $cost === null) return;
+        BudgetService::record($userId, BudgetService::FEATURE_BULK, $model, $inTok, $outTok, $cost, $crawlId, $success);
     }
 
     /**
@@ -239,12 +265,13 @@ class BulkGenerator
 
         $inTok  = (int)($response['input_tokens']  ?? 0);
         $outTok = (int)($response['output_tokens'] ?? 0);
+        $cost   = isset($response['cost_usd']) ? $response['cost_usd'] : null;
 
         if (!$response['ok']) {
             return [
                 'ok' => false, 'results' => [],
                 'error' => $response['error'] ?? 'OpenRouter error',
-                'input_tokens' => $inTok, 'output_tokens' => $outTok,
+                'input_tokens' => $inTok, 'output_tokens' => $outTok, 'cost_usd' => $cost,
             ];
         }
 
@@ -255,14 +282,14 @@ class BulkGenerator
             return [
                 'ok' => false, 'results' => [],
                 'error' => $parsed['error'] ?? 'parse error',
-                'input_tokens' => $inTok, 'output_tokens' => $outTok,
+                'input_tokens' => $inTok, 'output_tokens' => $outTok, 'cost_usd' => $cost,
             ];
         }
 
         return [
             'ok' => true,
             'results' => $parsed['results'],
-            'input_tokens' => $inTok, 'output_tokens' => $outTok,
+            'input_tokens' => $inTok, 'output_tokens' => $outTok, 'cost_usd' => $cost,
         ];
     }
 

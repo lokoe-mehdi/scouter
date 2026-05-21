@@ -147,6 +147,7 @@ try {
     $router->post('/settings/ai/test', [SettingsController::class, 'testAi'], ['auth' => true, 'admin' => true]);
     $router->post('/settings/ai/prompt', [SettingsController::class, 'saveDrBriefPrompt'], ['auth' => true, 'admin' => true]);
     $router->post('/settings', [SettingsController::class, 'save'], ['auth' => true, 'admin' => true]);
+    $router->post('/settings/budget', [SettingsController::class, 'saveBudget'], ['auth' => true, 'admin' => true]);
 
     $router->post('/categorization/ai-suggest', [AICategorizationController::class, 'suggest'], ['auth' => true]);
     $router->post('/sql/ai-generate', [AISqlController::class, 'generate'], ['auth' => true]);

@@ -59,6 +59,37 @@ class DrBriefPrompt
     }
 
     /**
+     * Build the system prompt split into two parts for prompt caching:
+     *
+     *   - 'cacheable' : the full prompt WITHOUT the page snapshot. This is
+     *     stable for the whole conversation on a given crawl (schema, rules,
+     *     examples, crawl facts, project crawls, language) — so OpenRouter can
+     *     cache it and re-read it cheaply on every tool iteration AND every
+     *     subsequent turn of the chat (huge saving, the system prompt is ~7k
+     *     tokens re-sent on each of the up-to-15 tool iterations per question).
+     *
+     *   - 'page_context' : the volatile DOM snapshot of the page the user is
+     *     looking at. It changes as they navigate, so it MUST stay out of the
+     *     cached prefix (otherwise it busts the cache every turn). Sent as a
+     *     separate, uncached block.
+     *
+     * @return array{cacheable:string, page_context:string}
+     */
+    public static function buildParts(
+        object $crawl,
+        ?string $pageContext = null,
+        ?string $uiLanguage = null,
+        array $projectCrawls = []
+    ): array {
+        // Cacheable = full prompt with the page snapshot left empty.
+        $cacheable = self::build($crawl, null, $uiLanguage, $projectCrawls);
+        $pageBlock = ($pageContext === null || trim($pageContext) === '')
+            ? ''
+            : self::pageContextBlock($pageContext);
+        return ['cacheable' => $cacheable, 'page_context' => $pageBlock];
+    }
+
+    /**
      * Variables exposed to admins through /settings (with descriptions used in
      * the UI documentation panel). Order matters — it's the order shown in
      * the help table.

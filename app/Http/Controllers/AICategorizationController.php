@@ -8,6 +8,7 @@ use App\Database\PostgresDatabase;
 use App\Database\CrawlDatabase;
 use App\Settings\AppSettings;
 use App\AI\OpenRouterClient;
+use App\AI\BudgetService;
 use App\AI\CategorizationPrompt;
 use App\Analysis\CategorizationService;
 use PDO;
@@ -66,6 +67,13 @@ class AICategorizationController extends Controller
         $crawlId = (int)$crawl->id;
         $domain  = (string)($crawl->domain ?? '');
 
+        // Per-user monthly AI budget gate (role + remaining budget).
+        $budget = BudgetService::check((int)$this->userId, $this->auth->getCurrentRole());
+        if (!$budget['allowed']) {
+            $this->error(BudgetService::blockMessage($budget), 402);
+            return;
+        }
+
         // Check AI is configured
         $apiKey = (string)AppSettings::get('ai.openrouter.api_key');
         $model  = (string)AppSettings::get('ai.openrouter.model_light');
@@ -87,6 +95,7 @@ class AICategorizationController extends Controller
         $response = OpenRouterClient::chatCompletion($apiKey, $model, [['role' => 'user', 'content' => $prompt]]);
         $totalIn  = (int)($response['input_tokens'] ?? 0);
         $totalOut = (int)($response['output_tokens'] ?? 0);
+        $totalCost = isset($response['cost_usd']) && $response['cost_usd'] !== null ? (float)$response['cost_usd'] : null;
 
         $yaml = null;
         $error = null;
@@ -102,6 +111,9 @@ class AICategorizationController extends Controller
             $retry = OpenRouterClient::chatCompletion($apiKey, $model, [['role' => 'user', 'content' => $retryPrompt]]);
             $totalIn  += (int)($retry['input_tokens']  ?? 0);
             $totalOut += (int)($retry['output_tokens'] ?? 0);
+            if (isset($retry['cost_usd']) && $retry['cost_usd'] !== null) {
+                $totalCost = (float)$totalCost + (float)$retry['cost_usd'];
+            }
 
             if (!$retry['ok']) {
                 $error = $retry['error'];
@@ -112,6 +124,14 @@ class AICategorizationController extends Controller
 
         // Audit log
         $this->logRun($crawlId, $model, $totalIn, $totalOut, $sampleCount, $yaml !== null, $error);
+
+        // Bill against the user's monthly AI budget (cost incurred regardless of parse).
+        if ($totalIn > 0 || $totalOut > 0 || $totalCost !== null) {
+            BudgetService::record(
+                (int)$this->userId, BudgetService::FEATURE_CATEGORIZATION, $model,
+                $totalIn, $totalOut, $totalCost, $crawlId, $yaml !== null
+            );
+        }
 
         if ($yaml === null) {
             $this->error('AI response could not be parsed: ' . ($error ?? 'unknown error'), 502);

@@ -169,4 +169,44 @@ class SettingsController extends Controller
             'model_strong'   => $modelStrong,
         ]);
     }
+
+    /**
+     * POST /api/settings/budget — save the default per-user monthly AI budget
+     * and optional per-user overrides.
+     *
+     * Body : { default_budget?: number, overrides?: { "<user_id>": number|null } }
+     * An override of null / "" resets that user to the global default.
+     */
+    public function saveBudget(Request $request): void
+    {
+        $default = $request->get('default_budget');
+        if ($default !== null && $default !== '') {
+            if (!is_numeric($default) || (float)$default < 0) {
+                $this->error('Invalid default budget', 400);
+                return;
+            }
+            AppSettings::set('ai.budget.monthly_usd', number_format((float)$default, 2, '.', ''), $this->userId);
+        }
+
+        $overrides = $request->get('overrides', []);
+        if (is_array($overrides) && !empty($overrides)) {
+            $pdo  = \App\Database\PostgresDatabase::getInstance()->getConnection();
+            $stmt = $pdo->prepare("UPDATE users SET ai_monthly_budget_usd = :v WHERE id = :id");
+            foreach ($overrides as $uid => $val) {
+                $uid = (int)$uid;
+                if ($uid <= 0) continue;
+                if ($val === null || $val === '' || !is_numeric($val) || (float)$val < 0) {
+                    // Reset to the global default.
+                    $stmt->execute([':v' => null, ':id' => $uid]);
+                } else {
+                    $stmt->execute([':v' => number_format((float)$val, 2, '.', ''), ':id' => $uid]);
+                }
+            }
+        }
+
+        AppSettings::flushCache();
+        $this->success([
+            'default_budget' => (float)AppSettings::get('ai.budget.monthly_usd'),
+        ]);
+    }
 }

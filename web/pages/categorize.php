@@ -24,6 +24,8 @@ try {
     // app_settings table missing (migration not yet run) → just disable the feature.
     $aiConfigured = false;
 }
+// AI reserved for admins + editors; the AI-suggest button is hidden for viewers.
+$aiRoleAllowed = \App\AI\BudgetService::isAiEligibleRole($_SESSION['role'] ?? null);
 
 // Lecture de la config de catégorisation depuis PostgreSQL
 $catYmlContent = "# " . __('categorize.yaml_comment_define') . "\n# " . __('categorize.yaml_comment_format') . "\n# " . __('categorize.yaml_comment_cat_name') . "\n#   - pattern1\n#   - pattern2\n";
@@ -1863,6 +1865,7 @@ body {
                 <span><?= __('categorize.btn_add_rule') ?></span>
             </button>
             <!-- Ligne 2 : générer par IA (full width, accent) -->
+            <?php if ($aiRoleAllowed): ?>
             <button class="footer-btn footer-btn-ai" id="btn-ai-suggest" onclick="aiSuggestCategorization()"
                     <?= $aiConfigured ? '' : 'disabled' ?>
                     title="<?= htmlspecialchars($aiConfigured ? __('categorize.btn_ai_suggest') : __('categorize.btn_ai_not_configured')) ?>">
@@ -1870,6 +1873,7 @@ body {
                 <span class="ai-btn-spinner" style="display:none;"></span>
                 <span><?= __('categorize.btn_ai_suggest') ?></span>
             </button>
+            <?php endif; ?>
             <!-- Séparateur discret avant les actions de validation -->
             <div class="footer-divider"></div>
             <!-- Ligne 3 : tester + sauvegarder, 50/50 -->

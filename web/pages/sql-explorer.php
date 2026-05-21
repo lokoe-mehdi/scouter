@@ -18,6 +18,8 @@ try {
 } catch (\Throwable $e) {
     $sqlAiConfigured = false;
 }
+// AI reserved for admins + editors; hidden entirely for viewers.
+$aiRoleAllowed = \App\AI\BudgetService::isAiEligibleRole($_SESSION['role'] ?? null);
 
 /**
  * Structure des tables virtuelles — lue dynamiquement depuis information_schema.
@@ -1895,6 +1897,7 @@ unset($q);
                         <?= __('sql_explorer.execute') ?>
                         <span class="shortcut">Ctrl+Enter</span>
                     </button>
+                    <?php if ($aiRoleAllowed): ?>
                     <button class="ai-sql-toolbar-btn"
                             id="aiSqlOpenBtn"
                             onclick="openAiSqlPopover()"
@@ -1904,6 +1907,7 @@ unset($q);
                         <span><?= __('sql_explorer.ai_button_label') ?></span>
                         <span class="shortcut">Ctrl+K</span>
                     </button>
+                    <?php endif; ?>
                 </div>
                 <div class="toolbar-right">
                     <button class="save-query-btn" onclick="openSaveQueryModal()" title="<?= __('sql_explorer.save_query') ?>">

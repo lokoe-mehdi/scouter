@@ -159,6 +159,10 @@ $userInitials = getUserInitials($currentUserEmail);
                     </div>
                 </div>
                 <div class="user-dropdown-divider"></div>
+                <a href="<?= $basePath ?>profile.php" class="user-dropdown-item">
+                    <span class="material-symbols-outlined">account_circle</span>
+                    <?= __('header.profile') ?>
+                </a>
                 <?php if ($isAdmin): ?>
                 <a href="<?= $basePath ?>pages/admin.php" class="user-dropdown-item">
                     <span class="material-symbols-outlined">manage_accounts</span>
