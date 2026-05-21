@@ -43,6 +43,24 @@ $budgetFeatureLabel = static function (string $f): string {
     $map = ['chatbot'=>'feature.chatbot','categorization'=>'feature.categorization','bulk_generate'=>'feature.bulk_generate','ai_filters'=>'feature.ai_filters'];
     return isset($map[$f]) ? __($map[$f]) : $f;
 };
+
+// --- Merged Team & Budgets data (one row per user: identity + month spend + override) ---
+$currentUserId = (int)$auth->getCurrentUserId();
+$teamMembers = [];
+try {
+    $_tm = \App\Database\PostgresDatabase::getInstance()->getConnection()->query("
+        SELECT u.id, u.email, u.role, u.created_at,
+               u.ai_monthly_budget_usd AS override,
+               COALESCE((
+                   SELECT SUM(cost_usd) FROM ai_usage a
+                   WHERE a.user_id = u.id
+                     AND a.created_at >= date_trunc('month', CURRENT_TIMESTAMP)
+               ), 0) AS spent
+        FROM users u
+        ORDER BY u.created_at ASC
+    ");
+    $teamMembers = $_tm->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+} catch (\Throwable $e) { $teamMembers = []; }
 ?>
 <!DOCTYPE html>
 <html lang="<?= I18n::getInstance()->getLang() ?>">
@@ -70,6 +88,47 @@ $budgetFeatureLabel = static function (string $f): string {
         @media (max-width: 1100px) {
             .settings-bento { grid-template-columns: 1fr; }
         }
+
+        /* ===== Tabs ===== */
+        .settings-tabs-nav {
+            display: flex; gap: 0.25rem; flex-wrap: wrap;
+            border-bottom: 1px solid #e5e7eb; margin-bottom: 1.5rem;
+        }
+        .settings-tab-btn {
+            padding: 0.7rem 1.1rem; border: none; background: none; cursor: pointer;
+            font-size: 0.95rem; font-weight: 600; color: var(--text-secondary);
+            border-bottom: 2px solid transparent; margin-bottom: -1px;
+            display: inline-flex; align-items: center; gap: 0.45rem; font-family: inherit;
+            transition: color 0.15s ease, border-color 0.15s ease;
+        }
+        .settings-tab-btn:hover { color: var(--text-primary); }
+        .settings-tab-btn.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
+        .settings-tab-btn .material-symbols-outlined { font-size: 1.15rem; }
+        .settings-tab { display: none; }
+        .settings-tab.active { display: block; }
+        /* Stack cards vertically inside a tab (full width). */
+        .settings-tab .settings-card { margin-bottom: 1.5rem; }
+
+        /* ===== Sticky save footer (one per active tab) ===== */
+        .settings-sticky-footer {
+            position: sticky; bottom: 0; z-index: 20;
+            display: flex; align-items: center; justify-content: flex-end; gap: 1rem;
+            padding: 0.9rem 1.2rem; margin: 1rem -2rem 0;
+            background: rgba(255,255,255,0.92); backdrop-filter: blur(6px);
+            border-top: 1px solid #e5e7eb;
+        }
+        .settings-sticky-footer .save-hint { margin-right: auto; font-size: 0.85rem; color: #b45309; display: none; }
+        .settings-sticky-footer.is-dirty .save-hint { display: inline; }
+        .settings-sticky-footer .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+        /* The single sticky footer replaces the old per-card save buttons. */
+        #btn-save, #btn-prompt-save, #budget-save-btn { display: none !important; }
+        /* Delete user: muted at rest, red only on hover (less aggressive). */
+        .user-del-btn { color: #94a3b8; transition: color 0.15s ease; }
+        .user-del-btn:hover { color: #dc2626; }
+
+        /* ===== Table alignment helpers (spec §4) ===== */
+        .num-cell { text-align: right; font-variant-numeric: tabular-nums; }
+        .text-cell { text-align: left; }
 
         .settings-card {
             background: white;
@@ -635,7 +694,19 @@ $budgetFeatureLabel = static function (string $f): string {
         </div>
         <?php endif; ?>
 
-        <div class="settings-bento">
+        <nav class="settings-tabs-nav" id="settingsTabsNav">
+            <button type="button" class="settings-tab-btn active" data-tab="ai">
+                <span class="material-symbols-outlined">smart_toy</span> <?= __('settings.tab_ai') ?>
+            </button>
+            <button type="button" class="settings-tab-btn" data-tab="team">
+                <span class="material-symbols-outlined">group</span> <?= __('settings.tab_team') ?>
+            </button>
+            <button type="button" class="settings-tab-btn" data-tab="api">
+                <span class="material-symbols-outlined">vpn_key</span> <?= __('settings.tab_api') ?>
+            </button>
+        </nav>
+
+        <section class="settings-tab active" data-tab="ai">
 
         <!-- ================== AI Provider (OpenRouter) ================== -->
         <div class="settings-card">
@@ -778,12 +849,12 @@ $budgetFeatureLabel = static function (string $f): string {
                 </div>
             </div>
 
-            <div class="prompt-vars-card">
-                <p class="vars-title">
-                    <span class="material-symbols-outlined" style="font-size: 1rem;">data_object</span>
-                    <?= __('settings.prompt_vars_title') ?>
-                </p>
-                <p class="vars-intro"><?= __('settings.prompt_vars_intro') ?></p>
+            <details class="prompt-vars-card">
+                <summary class="vars-title" style="cursor: pointer; list-style: revert;">
+                    <span class="material-symbols-outlined" style="font-size: 1rem; vertical-align: -3px;">data_object</span>
+                    <?= __('settings.vars_toggle') ?>
+                </summary>
+                <p class="vars-intro" style="margin-top: 0.6rem;"><?= __('settings.prompt_vars_intro') ?></p>
                 <table class="prompt-vars-table" id="prompt-vars-table">
                     <thead>
                         <tr>
@@ -794,7 +865,7 @@ $budgetFeatureLabel = static function (string $f): string {
                     </thead>
                     <tbody></tbody>
                 </table>
-            </div>
+            </details>
 
             <div class="settings-status" id="prompt-status"></div>
 
@@ -810,6 +881,15 @@ $budgetFeatureLabel = static function (string $f): string {
             </div>
         </div>
 
+        <div class="settings-sticky-footer" data-save-tab="ai">
+            <span class="save-hint" data-save-hint><?= __('settings.unsaved_warning') ?></span>
+            <button type="button" class="btn btn-primary-action" data-save-btn disabled>
+                <span class="material-symbols-outlined">save</span> <?= __('settings.save_changes') ?>
+            </button>
+        </div>
+        </section><!-- /tab ai -->
+
+        <section class="settings-tab" data-tab="team">
         <!-- ============ AI BUDGET ============ -->
         <div class="settings-card" style="grid-column: 1 / -1;">
             <h2><span class="material-symbols-outlined">payments</span> <?= __('settings.budget_title') ?></h2>
@@ -836,28 +916,72 @@ $budgetFeatureLabel = static function (string $f): string {
                 <?php endforeach; ?>
             </div>
 
-            <h3 style="font-size:0.95rem; margin:0 0 0.7rem;"><?= __('settings.budget_per_user') ?></h3>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; margin:0 0 0.7rem;">
+                <h3 style="font-size:0.95rem; margin:0;"><?= __('settings.team_title') ?></h3>
+                <button type="button" id="addUserBtn" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.4rem;">
+                    <span class="material-symbols-outlined">person_add</span> <?= __('settings.add_user') ?>
+                </button>
+            </div>
             <table style="width:100%; border-collapse:collapse; font-size:0.88rem;">
-                <thead><tr style="text-align:left; color:var(--text-secondary);">
-                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;">Email</th>
-                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('header.user_role') ?></th>
-                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb; text-align:right;"><?= __('profile.spent') ?></th>
-                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.budget_override') ?></th>
+                <thead><tr style="color:var(--text-secondary);">
+                    <th class="text-cell" style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.api_col_name') ?></th>
+                    <th class="text-cell" style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('header.user_role') ?></th>
+                    <th class="num-cell"  style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.col_created') ?></th>
+                    <th class="num-cell"  style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.col_spent_month') ?></th>
+                    <th class="num-cell"  style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.budget_override') ?></th>
+                    <th class="num-cell"  style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.col_actions') ?></th>
                 </tr></thead>
                 <tbody>
-                <?php foreach ($budgetByUser as $u):
-                    $uid = (int)$u['id'];
-                    $ov  = $userOverrides[$uid] ?? null;
+                <?php
+                $roleBadges = [
+                    'admin'  => ['shield_person', '#7c3aed', __('admin.role_admin')],
+                    'user'   => ['person', '#0891b2', __('admin.role_user')],
+                    'viewer' => ['visibility', '#64748b', __('admin.role_viewer')],
+                ];
+                foreach ($teamMembers as $m):
+                    $uid = (int)$m['id'];
+                    $role = $m['role'] ?? 'user';
+                    $isSelf = $uid === $currentUserId;
+                    $hasBudget = in_array($role, ['admin', 'user'], true);
+                    $ov = $m['override'];
+                    $rb = $roleBadges[$role] ?? $roleBadges['user'];
                 ?>
                     <tr>
-                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5;"><?= htmlspecialchars($u['email']) ?></td>
-                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5; color:var(--text-secondary);"><?= htmlspecialchars($u['role']) ?></td>
-                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5; text-align:right; font-variant-numeric:tabular-nums;">$<?= number_format((float)$u['spent'], 4) ?></td>
-                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5;">
+                        <td class="text-cell" style="padding:0.45rem 0.5rem; border-bottom:1px solid #f5f5f5;">
+                            <span style="display:inline-flex; align-items:center; gap:0.5rem;">
+                                <span style="width:26px; height:26px; border-radius:50%; background:#e2e8f0; color:#475569; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:0.8rem;"><?= strtoupper(substr($m['email'], 0, 1)) ?></span>
+                                <?= htmlspecialchars($m['email']) ?>
+                                <?php if ($isSelf): ?><span style="color:var(--primary-color); font-size:0.78rem;">(<?= __('settings.you') ?>)</span><?php endif; ?>
+                            </span>
+                        </td>
+                        <td class="text-cell" style="padding:0.45rem 0.5rem; border-bottom:1px solid #f5f5f5;">
+                            <span style="display:inline-flex; align-items:center; gap:0.3rem; color:<?= $rb[1] ?>; font-weight:600; font-size:0.8rem;">
+                                <span class="material-symbols-outlined" style="font-size:1rem;"><?= $rb[0] ?></span><?= htmlspecialchars($rb[2]) ?>
+                            </span>
+                        </td>
+                        <td class="num-cell" style="padding:0.45rem 0.5rem; border-bottom:1px solid #f5f5f5; color:var(--text-secondary);"><?= htmlspecialchars(substr((string)$m['created_at'], 0, 10)) ?></td>
+                        <td class="num-cell" style="padding:0.45rem 0.5rem; border-bottom:1px solid #f5f5f5;"><?= $hasBudget ? '$' . number_format((float)$m['spent'], 4) : '—' ?></td>
+                        <td class="num-cell" style="padding:0.45rem 0.5rem; border-bottom:1px solid #f5f5f5;">
+                            <?php if ($hasBudget): ?>
                             <input type="number" min="0" step="0.01" class="budget-override" data-user-id="<?= $uid ?>"
                                    value="<?= $ov !== null ? htmlspecialchars(number_format((float)$ov, 2, '.', '')) : '' ?>"
                                    placeholder="<?= htmlspecialchars(number_format($defaultBudget, 2, '.', '')) ?>"
-                                   style="width:110px; padding:0.35rem 0.5rem; border:1px solid #cbd5e1; border-radius:6px;">
+                                   style="width:90px; padding:0.3rem 0.45rem; border:1px solid #cbd5e1; border-radius:6px; text-align:right;">
+                            <?php else: ?>—<?php endif; ?>
+                        </td>
+                        <td class="num-cell" style="padding:0.45rem 0.5rem; border-bottom:1px solid #f5f5f5; white-space:nowrap;">
+                            <button type="button" class="icon-btn" title="<?= __('common.edit') ?? 'Edit' ?>"
+                                    onclick="openUserModal(<?= $uid ?>, '<?= htmlspecialchars($m['email'], ENT_QUOTES) ?>', '<?= $role ?>')"
+                                    style="background:none; border:none; cursor:pointer; color:#475569; padding:0.2rem;">
+                                <span class="material-symbols-outlined" style="font-size:1.1rem;">edit</span>
+                            </button>
+                            <?php if (!$isSelf): ?>
+                            <button type="button" class="icon-btn user-del-btn" title="<?= __('common.delete') ?>"
+                                    onclick="deleteUserRow(<?= $uid ?>, '<?= htmlspecialchars($m['email'], ENT_QUOTES) ?>')"
+                                    style="background:none; border:none; cursor:pointer; padding:0.2rem;">
+                                <span class="material-symbols-outlined" style="font-size:1.1rem;">delete</span>
+                            </button>
+                            <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -866,8 +990,570 @@ $budgetFeatureLabel = static function (string $f): string {
             <div id="budget-save-status" style="margin-top:0.6rem; font-size:0.85rem;"></div>
         </div>
 
-        </div><!-- /.settings-bento -->
+        <div class="settings-sticky-footer" data-save-tab="team">
+            <span class="save-hint" data-save-hint><?= __('settings.unsaved_warning') ?></span>
+            <button type="button" class="btn btn-primary-action" data-save-btn disabled>
+                <span class="material-symbols-outlined">save</span> <?= __('settings.save_changes') ?>
+            </button>
+        </div>
+        </section><!-- /tab team -->
+
+        <section class="settings-tab" data-tab="api">
+        <!-- ============ API & ACCESS KEYS ============ -->
+        <div class="settings-card" style="grid-column: 1 / -1;">
+            <h2><span class="material-symbols-outlined">key</span> <?= __('settings.api_title') ?></h2>
+            <p class="card-subtitle"><?= __('settings.api_keys_subtitle') ?></p>
+
+            <div style="display:flex; gap:0.6rem; flex-wrap:wrap; align-items:center; margin:1rem 0;">
+                <input id="apiKeyName" type="text" placeholder="<?= htmlspecialchars(__('settings.api_name_ph')) ?>"
+                       style="flex:1; min-width:200px; padding:0.5rem 0.7rem; border:1px solid #cbd5e1; border-radius:8px;">
+                <button type="button" id="apiKeyGenBtn" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.4rem;">
+                    <span class="material-symbols-outlined">add</span> <?= __('settings.api_generate') ?>
+                </button>
+            </div>
+
+            <!-- Show-once token (revealed after generation) -->
+            <div id="apiNewKey" style="display:none; background:#f0fdf4; border:1px solid #86efac; border-radius:10px; padding:0.9rem 1.1rem; margin-bottom:1rem;">
+                <div style="font-size:0.85rem; color:#166534; margin-bottom:0.5rem;"><?= __('settings.api_token_once') ?></div>
+                <div style="display:flex; gap:0.5rem; align-items:center;">
+                    <code id="apiNewKeyVal" style="flex:1; font-family:ui-monospace,monospace; font-size:0.85rem; background:#fff; border:1px solid #d1fae5; border-radius:6px; padding:0.5rem 0.7rem; overflow-x:auto; white-space:nowrap;"></code>
+                    <button type="button" id="apiCopyBtn" class="btn btn-secondary" style="white-space:nowrap;"><?= __('settings.api_copy') ?></button>
+                </div>
+            </div>
+
+            <table style="width:100%; border-collapse:collapse; font-size:0.88rem;">
+                <thead><tr style="text-align:left; color:var(--text-secondary);">
+                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.api_col_name') ?></th>
+                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.api_col_prefix') ?></th>
+                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.api_col_created') ?></th>
+                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.api_col_used') ?></th>
+                    <th style="border-bottom:1px solid #e5e7eb;"></th>
+                </tr></thead>
+                <tbody id="apiKeysBody"></tbody>
+            </table>
+
+        </div>
+
+        <!-- ============ MCP SERVER ============ -->
+        <div class="settings-card" style="grid-column: 1 / -1;">
+            <h2><span class="material-symbols-outlined">hub</span> <?= __('settings.mcp_title') ?></h2>
+            <p class="card-subtitle"><?= __('settings.mcp_intro') ?></p>
+
+            <div style="margin:1rem 0 0.4rem; font-size:0.85rem; color:var(--text-secondary);"><?= __('settings.mcp_url_label') ?></div>
+            <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:1rem;">
+                <code id="mcpUrl" style="flex:1; font-family:ui-monospace,monospace; font-size:0.85rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:0.5rem 0.7rem; overflow-x:auto; white-space:nowrap;">…/mcp</code>
+                <button type="button" id="mcpUrlCopy" class="btn btn-secondary" style="white-space:nowrap;"><?= __('settings.api_copy') ?></button>
+            </div>
+
+            <div style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:0.4rem;"><?= __('settings.mcp_howto') ?></div>
+            <div style="display:flex; gap:0.5rem; align-items:flex-start; margin-bottom:1rem;">
+                <pre id="mcpCmd" style="flex:1; margin:0; background:#0f172a; color:#e2e8f0; border-radius:8px; padding:0.8rem 1rem; overflow-x:auto; font-size:0.78rem; line-height:1.55; white-space:pre;"></pre>
+                <button type="button" id="mcpCmdCopy" class="btn btn-secondary" style="white-space:nowrap;"><?= __('settings.api_copy') ?></button>
+            </div>
+
+            <details style="margin-bottom:0.8rem;">
+                <summary style="cursor:pointer; font-weight:600; color:var(--text-primary); font-size:0.9rem;"><?= __('settings.mcp_desktop_toggle') ?></summary>
+                <pre id="mcpJson" style="margin-top:0.7rem; background:#0f172a; color:#e2e8f0; border-radius:8px; padding:0.8rem 1rem; overflow-x:auto; font-size:0.78rem; line-height:1.55; white-space:pre;"></pre>
+            </details>
+
+            <p style="font-size:0.82rem; color:var(--text-secondary); margin:0;">
+                <span class="material-symbols-outlined" style="font-size:1rem; vertical-align:middle; color:#0891b2;">info</span>
+                <?= __('settings.mcp_note_cloud') ?>
+            </p>
+        </div>
+
+        <!-- ============ INTERACTIVE API DOCS (design-system, no Swagger) ============ -->
+        <div class="settings-card" style="grid-column: 1 / -1;">
+            <h2><span class="material-symbols-outlined">api</span> <?= __('settings.api_doc_title') ?></h2>
+            <p class="card-subtitle"><?= __('settings.api_doc_intro') ?></p>
+
+            <label style="display:block; max-width:520px; font-size:0.85rem; color:var(--text-secondary); margin:1rem 0 0.6rem;">
+                <?= __('settings.api_doc_token_label') ?>
+                <input id="apiDocToken" type="text" autocomplete="off" spellcheck="false" placeholder="sctr_…"
+                       style="display:block; width:100%; box-sizing:border-box; margin-top:0.3rem; padding:0.5rem 0.7rem; border:1px solid #cbd5e1; border-radius:8px; font-family:ui-monospace,monospace; font-size:0.85rem;">
+            </label>
+            <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:center; font-size:0.82rem; color:var(--text-secondary); margin-bottom:1.2rem;">
+                <span>Base : <code id="apiDocBase">…/api/v1</code></span>
+                <a href="../openapi.yaml" target="_blank" rel="noopener" style="color:var(--primary-color); text-decoration:none; display:inline-flex; align-items:center; gap:0.25rem;">
+                    <span class="material-symbols-outlined" style="font-size:1rem;">description</span> <?= __('settings.api_doc_spec') ?>
+                </a>
+            </div>
+
+            <div id="apiDocEndpoints"></div>
+        </div>
+
+        </section><!-- /tab api -->
     </div><!-- /.container -->
+
+    <!-- User add/edit modal (Team & Budgets tab) -->
+    <div id="userModal" style="display:none; position:fixed; inset:0; z-index:1000; background:rgba(15,23,42,0.5); align-items:center; justify-content:center;">
+        <div style="background:#fff; border-radius:14px; width:95vw; max-width:460px; padding:1.5rem;">
+            <h3 id="userModalTitle" style="margin:0 0 1.2rem; font-size:1.1rem;"></h3>
+            <label style="display:block; font-size:0.85rem; color:var(--text-secondary); margin-bottom:0.3rem;"><?= __('admin.label_email') ?></label>
+            <input type="email" id="um-email" autocomplete="off"
+                   style="width:100%; box-sizing:border-box; padding:0.55rem 0.7rem; border:1px solid #cbd5e1; border-radius:8px; margin-bottom:1rem;">
+            <label style="display:block; font-size:0.85rem; color:var(--text-secondary); margin-bottom:0.3rem;"><?= __('admin.label_role') ?></label>
+            <select id="um-role" style="width:100%; box-sizing:border-box; padding:0.55rem 0.7rem; border:1px solid #cbd5e1; border-radius:8px; margin-bottom:1rem; background:#fff;">
+                <option value="admin"><?= __('admin.role_admin') ?></option>
+                <option value="user"><?= __('admin.role_user') ?></option>
+                <option value="viewer"><?= __('admin.role_viewer') ?></option>
+            </select>
+            <label id="um-pass-label" style="display:block; font-size:0.85rem; color:var(--text-secondary); margin-bottom:0.3rem;"><?= __('admin.label_password') ?></label>
+            <input type="password" id="um-password" autocomplete="new-password"
+                   style="width:100%; box-sizing:border-box; padding:0.55rem 0.7rem; border:1px solid #cbd5e1; border-radius:8px;">
+            <div id="um-error" style="color:#dc2626; font-size:0.85rem; margin-top:0.6rem; min-height:1rem;"></div>
+            <div style="display:flex; justify-content:flex-end; gap:0.6rem; margin-top:1.2rem;">
+                <button type="button" id="um-cancel" class="btn"><?= __('common.cancel') ?></button>
+                <button type="button" id="um-save" class="btn btn-primary"><?= __('common.save') ?></button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../assets/i18n.js"></script>
+    <script>ScouterI18n.init(<?= I18n::getInstance()->getJsTranslations() ?>, <?= json_encode(I18n::getInstance()->getLang()) ?>);</script>
+    <script src="../assets/confirm-modal.js"></script>
+
+    <script>
+    // Team tab — user CRUD via /api/users; reloads the page (?tab=team) on success
+    // so the merged table + budget figures re-render server-side.
+    (function () {
+        const modal = document.getElementById('userModal');
+        if (!modal) return;
+        const titleEl = document.getElementById('userModalTitle');
+        const emailIn = document.getElementById('um-email');
+        const roleIn  = document.getElementById('um-role');
+        const passIn  = document.getElementById('um-password');
+        const passLbl = document.getElementById('um-pass-label');
+        const errEl   = document.getElementById('um-error');
+        let editId = 0;
+
+        const T = {
+            add:  <?= json_encode(__('admin.modal_add_title')) ?>,
+            edit: <?= json_encode(__('admin.modal_edit_title')) ?>,
+            pass: <?= json_encode(__('admin.label_password')) ?>,
+            passHint: <?= json_encode(__('admin.label_new_password_hint')) ?>,
+            delTitle: <?= json_encode(__('admin.confirm_delete_title')) ?>,
+            delConfirm: <?= json_encode(__('admin.confirm_delete')) ?>,
+            delOk: <?= json_encode(__('common.delete')) ?>,
+        };
+
+        window.openUserModal = function (id, email, role) {
+            editId = id || 0;
+            titleEl.textContent = editId ? T.edit : T.add;
+            emailIn.value = email || '';
+            roleIn.value  = role || 'user';
+            passIn.value  = '';
+            passLbl.style.color = '';
+            // The label always reads "Password"; in edit mode it is optional, so
+            // drop the required "*" and explain via placeholder instead.
+            if (editId) {
+                passLbl.textContent = T.pass.replace(/\s*\*$/, '');
+                passIn.placeholder  = T.passHint;
+            } else {
+                passLbl.textContent = T.pass;
+                passIn.placeholder  = '';
+            }
+            errEl.textContent = '';
+            modal.style.display = 'flex';
+            emailIn.focus();
+        };
+        function close() { modal.style.display = 'none'; }
+        function reload() {
+            window.__skipGuard = true; // intentional navigation, don't trigger the unsaved guard
+            const u = new URL(location.href); u.searchParams.set('tab', 'team'); location.href = u.toString();
+        }
+
+        document.getElementById('addUserBtn')?.addEventListener('click', () => window.openUserModal(0, '', 'user'));
+        document.getElementById('um-cancel').addEventListener('click', close);
+        modal.addEventListener('click', e => { if (e.target === modal) close(); });
+
+        document.getElementById('um-save').addEventListener('click', async () => {
+            const body = { email: emailIn.value.trim(), role: roleIn.value };
+            const pw = passIn.value;
+            if (pw) body.password = pw;
+            let url = '../api/users', method = 'POST';
+            if (editId) { url = '../api/users/' + editId; method = 'PUT'; }
+            else if (!pw) { errEl.textContent = '⚠'; passLbl.style.color = '#dc2626'; return; }
+            try {
+                const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                const d = await r.json();
+                if (!r.ok || d.success === false) { errEl.textContent = d.error || 'Error'; return; }
+                reload();
+            } catch (e) { errEl.textContent = 'Error'; }
+        });
+
+        window.deleteUserRow = async function (id, email) {
+            const ok = window.customConfirm
+                ? await window.customConfirm(email + ' — ' + T.delConfirm, T.delTitle, T.delOk, 'danger')
+                : confirm(email + ' — ' + T.delConfirm);
+            if (!ok) return;
+            try {
+                const r = await fetch('../api/users/' + id, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+                const d = await r.json();
+                if (!r.ok || d.success === false) { alert(d.error || 'Error'); return; }
+                reload();
+            } catch (e) { alert('Error'); }
+        };
+    })();
+    </script>
+
+    <script>
+    // Settings tabs: switch panels, deep-link via ?tab=ai|team|api.
+    (function () {
+        const nav = document.getElementById('settingsTabsNav');
+        if (!nav) return;
+        const btns   = Array.from(nav.querySelectorAll('.settings-tab-btn'));
+        const panels = Array.from(document.querySelectorAll('.settings-tab'));
+
+        function show(tab) {
+            btns.forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+            panels.forEach(p => p.classList.toggle('active', p.dataset.tab === tab));
+        }
+        // The dirty tracker (set up later) flags a tab with unsaved edits; if the
+        // current tab is dirty, confirm via the styled modal before switching.
+        const WARN      = <?= json_encode(__('settings.unsaved_warning')) ?>;
+        const WARN_LEAVE = <?= json_encode(__('settings.unsaved_leave')) ?>;
+        async function attemptShow(tab) {
+            const cur = document.querySelector('.settings-tab.active');
+            const curTab = cur ? cur.dataset.tab : null;
+            if (curTab && curTab !== tab && window.__settingsTabDirty && window.__settingsTabDirty(curTab)) {
+                const ok = window.customConfirm
+                    ? await window.customConfirm(WARN, undefined, WARN_LEAVE, 'danger')
+                    : confirm(WARN);
+                if (!ok) return;
+                window.__settingsClearDirty && window.__settingsClearDirty(curTab);
+            }
+            show(tab);
+            const url = new URL(location.href);
+            url.searchParams.set('tab', tab);
+            history.replaceState(null, '', url);
+        }
+        btns.forEach(b => b.addEventListener('click', () => attemptShow(b.dataset.tab)));
+
+        const initial = new URLSearchParams(location.search).get('tab');
+        if (initial && panels.some(p => p.dataset.tab === initial)) show(initial);
+    })();
+    </script>
+
+    <script>
+    // API keys management (admin). Talks to the session-authenticated /api/keys.
+    (function () {
+        const body   = document.getElementById('apiKeysBody');
+        const genBtn = document.getElementById('apiKeyGenBtn');
+        const nameIn = document.getElementById('apiKeyName');
+        const newBox = document.getElementById('apiNewKey');
+        const newVal = document.getElementById('apiNewKeyVal');
+        const copyBtn= document.getElementById('apiCopyBtn');
+        if (!body) return;
+
+        const T = {
+            none:   <?= json_encode(__('settings.api_no_keys')) ?>,
+            revoke: <?= json_encode(__('settings.api_revoke')) ?>,
+            confirm:<?= json_encode(__('settings.api_revoke_confirm')) ?>,
+            copy:   <?= json_encode(__('settings.api_copy')) ?>,
+            copied: <?= json_encode(__('settings.api_copied')) ?>,
+        };
+        const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+        async function loadKeys() {
+            try {
+                const r = await fetch('../api/keys', { headers: { 'Accept': 'application/json' } });
+                const d = await r.json();
+                const keys = d.keys || [];
+                if (!keys.length) {
+                    body.innerHTML = '<tr><td colspan="5" style="padding:1rem 0.5rem; color:var(--text-secondary);">' + esc(T.none) + '</td></tr>';
+                    return;
+                }
+                body.innerHTML = keys.map(k => `
+                    <tr>
+                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5;">${esc(k.name)}</td>
+                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5;"><code>${esc(k.prefix)}…</code></td>
+                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5; color:var(--text-secondary);">${esc((k.created_at||'').slice(0,10))}</td>
+                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5; color:var(--text-secondary);">${esc(k.last_used_at ? k.last_used_at.slice(0,16) : '—')}</td>
+                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5; text-align:right;">
+                            <button type="button" class="btn btn-sm" data-revoke="${k.id}" style="color:#dc2626; background:none; border:1px solid #fecaca; border-radius:6px; padding:0.2rem 0.6rem; cursor:pointer;">${esc(T.revoke)}</button>
+                        </td>
+                    </tr>`).join('');
+                body.querySelectorAll('[data-revoke]').forEach(btn => {
+                    btn.addEventListener('click', () => revokeKey(btn.dataset.revoke));
+                });
+            } catch (e) { /* silent */ }
+        }
+
+        async function createKey() {
+            genBtn.disabled = true;
+            try {
+                const r = await fetch('../api/keys', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: nameIn.value.trim() }),
+                });
+                const d = await r.json();
+                if (d.success !== false && d.token) {
+                    newVal.textContent = d.token;
+                    newBox.style.display = 'block';
+                    nameIn.value = '';
+                    // Pre-fill the interactive doc tester with the fresh token.
+                    const docTok = document.getElementById('apiDocToken');
+                    if (docTok) { docTok.value = d.token; try { sessionStorage.setItem('scouter_api_token', d.token); } catch (e) {} }
+                    loadKeys();
+                }
+            } finally { genBtn.disabled = false; }
+        }
+
+        async function revokeKey(id) {
+            const ok = window.customConfirm
+                ? await window.customConfirm(T.confirm, undefined, T.revoke, 'danger')
+                : confirm(T.confirm);
+            if (!ok) return;
+            await fetch('../api/keys/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+            loadKeys();
+        }
+
+        genBtn.addEventListener('click', createKey);
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(newVal.textContent).then(() => {
+                copyBtn.textContent = T.copied;
+                setTimeout(() => { copyBtn.textContent = T.copy; }, 1500);
+            });
+        });
+
+        loadKeys();
+    })();
+    </script>
+
+    <script>
+    // Interactive API doc + tester (design-system, no Swagger). The endpoint
+    // catalog mirrors openapi.yaml — that file stays the machine-readable source
+    // of truth (for MCP/external clients); this panel is the human-facing tester.
+    (function () {
+        const container = document.getElementById('apiDocEndpoints');
+        if (!container) return;
+        const base = location.origin + '/api/v1';
+        const baseEl = document.getElementById('apiDocBase');
+        if (baseEl) baseEl.textContent = base;
+
+        const tokenIn = document.getElementById('apiDocToken');
+        // Restore a previously used token (mirrors Swagger's persistAuthorization).
+        try { const saved = sessionStorage.getItem('scouter_api_token'); if (saved && tokenIn && !tokenIn.value) tokenIn.value = saved; } catch (e) {}
+        tokenIn?.addEventListener('change', () => { try { sessionStorage.setItem('scouter_api_token', tokenIn.value.trim()); } catch (e) {} });
+
+        const T = {
+            body:     <?= json_encode(__('settings.api_doc_body')) ?>,
+            response: <?= json_encode(__('settings.api_doc_response')) ?>,
+            execute:  <?= json_encode(__('settings.api_doc_execute')) ?>,
+            running:  <?= json_encode(__('settings.api_doc_running')) ?>,
+            noToken:  <?= json_encode(__('settings.api_doc_no_token')) ?>,
+            copy:     <?= json_encode(__('settings.api_copy')) ?>,
+            copied:   <?= json_encode(__('settings.api_copied')) ?>,
+        };
+
+        const ENDPOINTS = [
+            { method:'GET',  path:'/projects', summary: <?= json_encode(__('settings.api_ep_projects')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_projects_desc')) ?>,
+              params:[ {name:'limit', def:'50'}, {name:'offset', def:'0'} ] },
+            { method:'GET',  path:'/projects/{id}/crawls', summary: <?= json_encode(__('settings.api_ep_crawls')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_crawls_desc')) ?>,
+              pathParams:['id'], params:[ {name:'limit', def:'50'}, {name:'offset', def:'0'} ] },
+            { method:'GET',  path:'/crawls/{id}', summary: <?= json_encode(__('settings.api_ep_crawl')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_crawl_desc')) ?>,
+              pathParams:['id'] },
+            { method:'GET',  path:'/crawls/{id}/schema', summary: <?= json_encode(__('settings.api_ep_schema')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_schema_desc')) ?>,
+              pathParams:['id'] },
+            { method:'POST', path:'/crawls/{id}/query', summary: <?= json_encode(__('settings.api_ep_query')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_query_desc')) ?>,
+              pathParams:['id'],
+              body: JSON.stringify({ query:'SELECT url, code FROM pages WHERE code >= 400 ORDER BY inlinks DESC', page:1, page_size:100, count:true }, null, 2) },
+        ];
+
+        const METHOD_COLORS = { GET:'#0891b2', POST:'#b45309', PUT:'#7c3aed', DELETE:'#dc2626' };
+        const escapeHtml = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+        ENDPOINTS.forEach(ep => {
+            const det = document.createElement('details');
+            det.style.cssText = 'border:1px solid #e5e7eb; border-radius:10px; margin-bottom:0.7rem; overflow:hidden;';
+
+            const sum = document.createElement('summary');
+            sum.style.cssText = 'cursor:pointer; padding:0.7rem 0.9rem; display:flex; align-items:center; gap:0.7rem;';
+            sum.innerHTML =
+                '<span style="font-weight:700; font-size:0.72rem; padding:0.15rem 0.5rem; border-radius:5px; color:#fff; background:' + (METHOD_COLORS[ep.method] || '#475569') + ';">' + ep.method + '</span>'
+              + '<code style="font-size:0.85rem;">' + escapeHtml(ep.path) + '</code>'
+              + '<span style="color:var(--text-secondary); font-size:0.82rem; margin-left:auto; text-align:right;">' + escapeHtml(ep.summary) + '</span>';
+            det.appendChild(sum);
+
+            const bodyWrap = document.createElement('div');
+            bodyWrap.style.cssText = 'padding:0.9rem; border-top:1px solid #f1f5f9;';
+
+            // Short "what does this do" blurb at the top of the expanded panel.
+            if (ep.desc) {
+                const descBox = document.createElement('div');
+                descBox.style.cssText = 'background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; padding:0.6rem 0.8rem; margin-bottom:0.9rem; font-size:0.85rem; line-height:1.5; color:#0c4a6e;';
+                descBox.textContent = ep.desc;
+                bodyWrap.appendChild(descBox);
+            }
+
+            const inputs = {};
+            const fieldRow = (label, value, placeholder) => {
+                const wrap = document.createElement('label');
+                wrap.style.cssText = 'display:block; font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.55rem;';
+                wrap.textContent = label;
+                const inp = document.createElement('input');
+                inp.type = 'text'; inp.value = value || ''; if (placeholder) inp.placeholder = placeholder;
+                inp.style.cssText = 'display:block; width:100%; box-sizing:border-box; margin-top:0.25rem; padding:0.4rem 0.6rem; border:1px solid #cbd5e1; border-radius:6px; font-size:0.85rem; font-family:ui-monospace,monospace;';
+                wrap.appendChild(inp); bodyWrap.appendChild(wrap);
+                return inp;
+            };
+
+            (ep.pathParams || []).forEach(p => { inputs['path:' + p] = fieldRow(p + ' (path)', '', ''); });
+            (ep.params || []).forEach(p => { inputs['q:' + p.name] = fieldRow(p.name, '', p.def || ''); });
+
+            let bodyTa = null;
+            if (ep.body !== undefined) {
+                const lbl = document.createElement('div');
+                lbl.textContent = T.body;
+                lbl.style.cssText = 'font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.25rem;';
+                bodyWrap.appendChild(lbl);
+                bodyTa = document.createElement('textarea');
+                bodyTa.value = ep.body; bodyTa.rows = 6;
+                bodyTa.style.cssText = 'width:100%; box-sizing:border-box; font-family:ui-monospace,monospace; font-size:0.82rem; padding:0.5rem 0.6rem; border:1px solid #cbd5e1; border-radius:6px; margin-bottom:0.6rem;';
+                bodyWrap.appendChild(bodyTa);
+            }
+
+            // Live curl preview — shows the full request (incl. the Bearer header),
+            // rebuilt whenever the token, params or body change.
+            const curlWrap = document.createElement('div');
+            curlWrap.style.cssText = 'margin:0.3rem 0 0.9rem;';
+            const curlHead = document.createElement('div');
+            curlHead.style.cssText = 'display:flex; align-items:center; justify-content:space-between; margin-bottom:0.25rem;';
+            const curlLbl = document.createElement('span');
+            curlLbl.textContent = 'curl';
+            curlLbl.style.cssText = 'font-size:0.8rem; color:var(--text-secondary); font-weight:600;';
+            const curlCopy = document.createElement('button');
+            curlCopy.type = 'button'; curlCopy.className = 'btn btn-secondary';
+            curlCopy.style.cssText = 'padding:0.15rem 0.6rem; font-size:0.75rem;';
+            curlCopy.textContent = T.copy;
+            curlHead.appendChild(curlLbl); curlHead.appendChild(curlCopy);
+            const curlPre = document.createElement('pre');
+            curlPre.style.cssText = 'background:#0f172a; color:#e2e8f0; border-radius:8px; padding:0.7rem 0.9rem; overflow:auto; font-size:0.76rem; line-height:1.5; margin:0; white-space:pre;';
+            curlWrap.appendChild(curlHead); curlWrap.appendChild(curlPre);
+            bodyWrap.appendChild(curlWrap);
+
+            function buildUrl(forCurl) {
+                const token = (tokenIn?.value || '').trim();
+                let path = ep.path;
+                (ep.pathParams || []).forEach(p => {
+                    const raw = (inputs['path:' + p].value || '').trim();
+                    const v = raw || (forCurl ? '{' + p + '}' : '');
+                    path = path.replace('{' + p + '}', forCurl ? v : encodeURIComponent(v));
+                });
+                const qs = new URLSearchParams();
+                (ep.params || []).forEach(p => { const v = (inputs['q:' + p.name].value || '').trim(); if (v !== '') qs.set(p.name, v); });
+                let url = base + path; const q = qs.toString(); if (q) url += '?' + q;
+                return { token, url };
+            }
+            function buildCurl() {
+                const { token, url } = buildUrl(true);
+                let c = 'curl -X ' + ep.method + ' "' + url + '"';
+                c += ' \\\n  -H "Authorization: Bearer ' + (token || 'sctr_YOUR_TOKEN') + '"';
+                c += ' \\\n  -H "Accept: application/json"';
+                if (bodyTa) {
+                    c += ' \\\n  -H "Content-Type: application/json"';
+                    const oneLine = bodyTa.value.replace(/\s*\n\s*/g, ' ').replace(/'/g, "'\\''");
+                    c += " \\\n  -d '" + oneLine + "'";
+                }
+                curlPre.textContent = c;
+            }
+            buildCurl();
+            [tokenIn].concat(Object.values(inputs)).forEach(el => el && el.addEventListener('input', buildCurl));
+            if (bodyTa) bodyTa.addEventListener('input', buildCurl);
+            curlCopy.addEventListener('click', () => {
+                navigator.clipboard.writeText(curlPre.textContent).then(() => {
+                    curlCopy.textContent = T.copied;
+                    setTimeout(() => { curlCopy.textContent = T.copy; }, 1500);
+                });
+            });
+
+            const runBtn = document.createElement('button');
+            runBtn.type = 'button'; runBtn.className = 'btn btn-primary';
+            runBtn.style.cssText = 'display:inline-flex; align-items:center; gap:0.4rem;';
+            const runLabel = '<span class="material-symbols-outlined">play_arrow</span> ' + escapeHtml(T.execute);
+            runBtn.innerHTML = runLabel;
+            bodyWrap.appendChild(runBtn);
+
+            const respMeta = document.createElement('div');
+            respMeta.style.cssText = 'font-size:0.8rem; font-weight:600; margin:0.9rem 0 0.3rem; display:none;';
+            const resp = document.createElement('pre');
+            resp.style.cssText = 'display:none; background:#0f172a; color:#e2e8f0; border-radius:8px; padding:0.8rem 1rem; overflow:auto; max-height:340px; font-size:0.78rem; line-height:1.5; margin:0;';
+            bodyWrap.appendChild(respMeta); bodyWrap.appendChild(resp);
+
+            runBtn.addEventListener('click', async () => {
+                const token = (tokenIn?.value || '').trim();
+                respMeta.style.display = 'block'; resp.style.display = 'block';
+                if (!token) { respMeta.style.color = '#dc2626'; respMeta.textContent = ''; resp.textContent = T.noToken; return; }
+                let path = ep.path;
+                (ep.pathParams || []).forEach(p => { path = path.replace('{' + p + '}', encodeURIComponent((inputs['path:' + p].value || '').trim())); });
+                const qs = new URLSearchParams();
+                (ep.params || []).forEach(p => { const v = (inputs['q:' + p.name].value || '').trim(); if (v !== '') qs.set(p.name, v); });
+                let url = base + path; const q = qs.toString(); if (q) url += '?' + q;
+                const opts = { method: ep.method, headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' } };
+                if (bodyTa) { opts.headers['Content-Type'] = 'application/json'; opts.body = bodyTa.value; }
+                runBtn.disabled = true; runBtn.textContent = T.running;
+                try {
+                    const r = await fetch(url, opts);
+                    const txt = await r.text();
+                    let pretty = txt; try { pretty = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) {}
+                    respMeta.style.color = r.ok ? '#16a34a' : '#dc2626';
+                    respMeta.textContent = r.status + ' ' + r.statusText + '  ·  ' + ep.method + ' ' + url;
+                    resp.textContent = pretty;
+                } catch (e) {
+                    respMeta.style.color = '#dc2626'; respMeta.textContent = 'Error';
+                    resp.textContent = String(e);
+                } finally { runBtn.disabled = false; runBtn.innerHTML = runLabel; }
+            });
+
+            det.appendChild(bodyWrap);
+            container.appendChild(det);
+        });
+    })();
+    </script>
+
+    <script>
+    // MCP encart: fill the connector URL + ready-to-paste config for this host.
+    (function () {
+        const urlEl = document.getElementById('mcpUrl');
+        if (!urlEl) return;
+        const url = location.origin + '/mcp';
+        urlEl.textContent = url;
+
+        const cmdEl = document.getElementById('mcpCmd');
+        const jsonEl = document.getElementById('mcpJson');
+        if (cmdEl) {
+            cmdEl.textContent =
+                'claude mcp add --transport http scouter ' + url + ' \\\n' +
+                '  --header "Authorization: Bearer sctr_YOUR_KEY"';
+        }
+        if (jsonEl) {
+            jsonEl.textContent = JSON.stringify({
+                mcpServers: {
+                    scouter: { type: 'http', url: url, headers: { Authorization: 'Bearer sctr_YOUR_KEY' } }
+                }
+            }, null, 2);
+        }
+
+        const wireCopy = (btn, src) => {
+            if (!btn || !src) return;
+            const label = btn.textContent;
+            btn.addEventListener('click', () => {
+                navigator.clipboard.writeText(src.textContent).then(() => {
+                    btn.textContent = <?= json_encode(__('settings.api_copied')) ?>;
+                    setTimeout(() => { btn.textContent = label; }, 1500);
+                });
+            });
+        };
+        wireCopy(document.getElementById('mcpUrlCopy'), urlEl);
+        wireCopy(document.getElementById('mcpCmdCopy'), cmdEl);
+    })();
+    </script>
 
     <script>
     // AI budget save (default + per-user overrides).
@@ -1109,6 +1795,9 @@ $budgetFeatureLabel = static function (string $f): string {
 
             function select(m) {
                 hiddenInput.value = m.id;
+                // Programmatic value changes don't fire events — dispatch one so
+                // the per-tab dirty tracker enables the sticky Save button.
+                hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
                 renderDisplay();
                 close();
                 trigger.focus();
@@ -1498,6 +2187,56 @@ $budgetFeatureLabel = static function (string $f): string {
 
             loadInitial();
         })();
+    })();
+    </script>
+
+    <script>
+    // Single sticky Save per tab (spec §4). Each tab with a footer tracks its
+    // own dirty state: the footer button stays disabled until something in the
+    // panel changes, then clicking it fires the underlying (hidden) per-card
+    // save handlers and clears the flag. Switching tab / leaving the page with
+    // pending changes warns first. The API tab has no save (key actions are
+    // immediate), so it is not tracked.
+    (function () {
+        // Footer Save -> the existing in-card buttons it stands in for.
+        const SAVE_TRIGGERS = { ai: ['btn-save', 'btn-prompt-save'], team: ['budget-save-btn'] };
+        const dirty = {};
+        const footers = {};
+
+        function setDirty(tab, v) {
+            const f = footers[tab];
+            if (!f) { dirty[tab] = v; return; }
+            dirty[tab] = v;
+            f.btn.disabled = !v;
+            f.footer.classList.toggle('is-dirty', v);
+        }
+
+        document.querySelectorAll('.settings-sticky-footer[data-save-tab]').forEach(footer => {
+            const tab = footer.dataset.saveTab;
+            const btn = footer.querySelector('[data-save-btn]');
+            const panel = document.querySelector('.settings-tab[data-tab="' + tab + '"]');
+            if (!btn || !panel) return;
+            dirty[tab] = false;
+            footers[tab] = { footer, btn };
+
+            panel.addEventListener('input', () => setDirty(tab, true));
+            panel.addEventListener('change', () => setDirty(tab, true));
+
+            btn.addEventListener('click', () => {
+                (SAVE_TRIGGERS[tab] || []).forEach(id => document.getElementById(id)?.click());
+                setDirty(tab, false); // optimistic; the underlying handlers report failures themselves
+            });
+        });
+
+        // Exposed for the tab-switch handler (which uses the styled customConfirm).
+        window.__settingsTabDirty  = (tab) => !!dirty[tab];
+        window.__settingsClearDirty = (tab) => setDirty(tab, false);
+
+        // beforeunload must stay native — browsers don't allow custom dialogs here.
+        window.addEventListener('beforeunload', (e) => {
+            if (window.__skipGuard) return;
+            if (Object.values(dirty).some(Boolean)) { e.preventDefault(); e.returnValue = ''; return ''; }
+        });
     })();
     </script>
 </body>

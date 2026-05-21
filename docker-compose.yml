@@ -55,6 +55,20 @@ services:
       timeout: 5s
       retries: 3
 
+  # Serveur MCP (Model Context Protocol) — adaptateur fin au-dessus de /api/v1.
+  # nginx (dans le conteneur scouter) proxifie /mcp vers ce service. L'auth est
+  # un simple passthrough du header Authorization: Bearer sctr_… vers l'API.
+  mcp:
+    build: ./mcp
+    expose:
+      - 3000
+    environment:
+      - SCOUTER_API_URL=http://scouter:8080
+    restart: unless-stopped
+    depends_on:
+      scouter:
+        condition: service_started
+
   # Service Worker 1 (Base & Anchor)
   worker-1: &worker-base
     build: .

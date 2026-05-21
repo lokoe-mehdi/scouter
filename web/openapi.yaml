@@ -1,0 +1,231 @@
+openapi: 3.1.0
+info:
+  title: Scouter Public API
+  version: "1.0.0"
+  description: >
+    Read-only API to drive Scouter: list projects, list a project's crawls,
+    inspect a crawl, and run **read-only SQL** against a crawl (same limits as
+    the in-app SQL Explorer: SELECT/WITH only, whitelisted tables, project-scoped,
+    READ ONLY transaction). Authenticated with a per-user API key (Bearer token)
+    generated from the admin Settings page. Designed to back an MCP server.
+servers:
+  - url: /api/v1
+    description: Same-origin (replace with https://your-host/api/v1)
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: sctr_<token>
+      description: "API key sent as the `Authorization: Bearer sctr_…` header. Generate one in Settings."
+  schemas:
+    Error:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error:   { type: string }
+    Project:
+      type: object
+      properties:
+        id:            { type: integer, example: 32 }
+        name:          { type: string, nullable: true, example: example.com }
+        crawl_count:   { type: integer, nullable: true, example: 12 }
+        last_crawl_at: { type: string, nullable: true, example: "2026-05-20 18:42:11" }
+        owner_email:   { type: string, nullable: true }
+    Crawl:
+      type: object
+      properties:
+        id:          { type: integer, example: 542 }
+        project_id:  { type: integer, example: 32 }
+        domain:      { type: string, example: example.com }
+        status:      { type: string, example: finished }
+        crawl_type:  { type: string, example: spider }
+        urls:        { type: integer, example: 12847 }
+        crawled:     { type: integer, example: 12412 }
+        compliant:   { type: integer, example: 9981 }
+        started_at:  { type: string }
+        finished_at: { type: string, nullable: true }
+    ListMeta:
+      type: object
+      properties:
+        limit:  { type: integer }
+        offset: { type: integer }
+        total:  { type: integer }
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, default: 50, maximum: 200 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, default: 0, minimum: 0 }
+  responses:
+    Unauthorized:
+      description: Missing or invalid API token
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Forbidden:
+      description: Authenticated but no access to this resource
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Resource not found
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    RateLimited:
+      description: Too many requests (per-key limit). See Retry-After.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+paths:
+  /projects:
+    get:
+      summary: List accessible projects
+      description: Admin sees all projects; other roles see owned + shared.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Project' } }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /projects/{id}/crawls:
+    get:
+      summary: List crawls of a project
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Crawl' } }
+                  meta:
+                    allOf:
+                      - $ref: '#/components/schemas/ListMeta'
+                      - type: object
+                        properties: { project_id: { type: integer } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /crawls/{id}:
+    get:
+      summary: Get crawl metadata
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Crawl' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /crawls/{id}/schema:
+    get:
+      summary: Queryable tables + columns for a crawl
+      description: Use to write valid SQL without guessing column names.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      tables:
+                        type: object
+                        additionalProperties:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name: { type: string }
+                              type: { type: string }
+                      notes: { type: string }
+                  meta: { type: object, properties: { crawl_id: { type: integer } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /crawls/{id}/query:
+    post:
+      summary: Run a read-only SQL query (paginated)
+      description: >
+        SELECT / WITH … SELECT only. Whitelisted tables (pages, links,
+        crawl_categories, duplicate_clusters, page_schemas, redirect_chains;
+        plus `pages@<id>` cross-crawl within the same project). The query is
+        wrapped server-side with LIMIT/OFFSET; the true total is returned unless
+        count=false. Loop pages while meta.has_more is true.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:     { type: string, example: "SELECT url, code FROM pages WHERE code >= 400 ORDER BY inlinks DESC" }
+                page:      { type: integer, default: 1, minimum: 1 }
+                page_size: { type: integer, default: 100, maximum: 1000 }
+                count:     { type: boolean, default: true, description: Set false to skip the COUNT(*) total (faster streaming). }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      columns: { type: array, items: { type: string } }
+                      rows:    { type: array, items: { type: object, additionalProperties: true } }
+                  meta:
+                    type: object
+                    properties:
+                      crawl_id:    { type: integer }
+                      page:        { type: integer }
+                      page_size:   { type: integer }
+                      returned:    { type: integer }
+                      total:       { type: integer, nullable: true }
+                      total_pages: { type: integer, nullable: true }
+                      has_more:    { type: boolean }
+        '400':
+          description: Missing query
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: Invalid / forbidden SQL (same rules as the SQL Explorer)
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
