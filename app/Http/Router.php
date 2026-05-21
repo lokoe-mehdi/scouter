@@ -3,6 +3,7 @@
 namespace App\Http;
 
 use App\Auth\Auth;
+use App\Api\ApiKeyService;
 
 /**
  * Routeur HTTP pour les APIs REST
@@ -192,6 +193,28 @@ class Router
      */
     private function applyAuth(array $options): void
     {
+        // Public REST API: Bearer token instead of a cookie session. On success
+        // the request "acts as" the key's owner (we populate the in-memory auth
+        // context), so every downstream role/project check works unchanged.
+        if (!empty($options['token'])) {
+            $verified = ApiKeyService::verify(self::bearerToken());
+            if ($verified === null) {
+                header('WWW-Authenticate: Bearer');
+                Response::error('Invalid or missing API token.', 401);
+                exit;
+            }
+            if (!ApiKeyService::rateLimit($verified['key_id'])) {
+                header('Retry-After: 60');
+                Response::error('Rate limit exceeded. Try again shortly.', 429);
+                exit;
+            }
+            $_SESSION['logged_in'] = true;
+            $_SESSION['user_id']   = (int)$verified['user']->id;
+            $_SESSION['email']     = $verified['user']->email;
+            $_SESSION['role']      = $verified['user']->role;
+            ApiKeyService::touchLastUsed($verified['key_id']);
+        }
+
         if (!empty($options['auth'])) {
             $this->auth->requireLoginApi();
         }
@@ -203,6 +226,26 @@ class Router
         if (!empty($options['canCreate'])) {
             $this->auth->requireCanCreate(true);
         }
+    }
+
+    /**
+     * Extract the Bearer token from the Authorization header, handling the
+     * common server quirks (nginx/php-fpm exposes it as HTTP_AUTHORIZATION,
+     * some setups via REDIRECT_HTTP_AUTHORIZATION or apache_request_headers).
+     */
+    private static function bearerToken(): ?string
+    {
+        $h = $_SERVER['HTTP_AUTHORIZATION']
+            ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+            ?? '';
+        if ($h === '' && function_exists('apache_request_headers')) {
+            $hdrs = array_change_key_case(apache_request_headers(), CASE_LOWER);
+            $h = $hdrs['authorization'] ?? '';
+        }
+        if (preg_match('/^Bearer\s+(.+)$/i', trim($h), $m)) {
+            return trim($m[1]);
+        }
+        return null;
     }
 
     /**

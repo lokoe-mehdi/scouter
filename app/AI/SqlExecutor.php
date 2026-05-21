@@ -79,16 +79,101 @@ class SqlExecutor
      */
     public function execute(string $query, int $crawlId, int $rowLimit = self::PREVIEW_ROWS): array
     {
+        $prep = $this->prepareSafeSql($query, $crawlId);
+        if (!$prep['ok']) {
+            return $prep;
+        }
+        $transformed = $prep['transformed'];
+
+        // === Cap rows === preview cap, capped by the absolute hard cap.
+        $cap = max(1, min($rowLimit, self::HARD_ROW_CAP));
+        if (preg_match('/\bLIMIT\s+(\d+)/i', $transformed, $lm)) {
+            $newLimit = min((int)$lm[1], $cap);
+            $finalSql = preg_replace('/\bLIMIT\s+\d+/i', "LIMIT {$newLimit}", $transformed, 1);
+        } else {
+            $finalSql = $transformed . " LIMIT {$cap}";
+        }
+
+        $run = $this->runReadOnly(fn(PDO $db) => $db->query($finalSql)->fetchAll(PDO::FETCH_ASSOC));
+        if (!$run['ok']) {
+            return $run;
+        }
+        $rows = $run['value'];
+
+        $totalRows = count($rows);
+        return [
+            'ok'              => true,
+            'rows'            => $rows,
+            'columns'         => !empty($rows) ? array_keys($rows[0]) : [],
+            'total_rows'      => $totalRows,
+            'truncated'       => $totalRows >= $cap,
+            'transformed_sql' => $finalSql,
+            'deeplink_sql'    => $prep['deeplink_sql'],
+        ];
+    }
+
+    /**
+     * Paginated read-only execution for the public API. Same validation /
+     * scoping as execute(), but the validated query is wrapped as a subquery
+     * with LIMIT/OFFSET (works for any SELECT regardless of its own ORDER BY),
+     * and the true total is computed with COUNT(*) over the same subquery
+     * (skippable for speed via $withCount = false — see API.md §3.3).
+     *
+     * @return array{ok:bool, rows?:array, columns?:array, total?:?int,
+     *               page_size?:int, offset?:int, error?:string}
+     */
+    public function executePaginated(string $query, int $crawlId, int $pageSize, int $offset, bool $withCount = true): array
+    {
+        $pageSize = max(1, min($pageSize, self::HARD_ROW_CAP));
+        $offset   = max(0, $offset);
+
+        $prep = $this->prepareSafeSql($query, $crawlId);
+        if (!$prep['ok']) {
+            return $prep;
+        }
+        $sub = '(' . $prep['transformed'] . ') AS _scouter_q';
+
+        $run = $this->runReadOnly(function (PDO $db) use ($sub, $pageSize, $offset, $withCount) {
+            $total = null;
+            if ($withCount) {
+                $total = (int)$db->query("SELECT COUNT(*) FROM {$sub}")->fetchColumn();
+            }
+            $rows = $db->query("SELECT * FROM {$sub} LIMIT {$pageSize} OFFSET {$offset}")
+                       ->fetchAll(PDO::FETCH_ASSOC);
+            return ['rows' => $rows, 'total' => $total];
+        });
+        if (!$run['ok']) {
+            return $run;
+        }
+        $rows = $run['value']['rows'];
+
+        return [
+            'ok'        => true,
+            'rows'      => $rows,
+            'columns'   => !empty($rows) ? array_keys($rows[0]) : [],
+            'total'     => $run['value']['total'],
+            'page_size' => $pageSize,
+            'offset'    => $offset,
+        ];
+    }
+
+    /**
+     * Validate + transform a query into the safe, project-scoped SQL (virtual
+     * names → partitions, crawl_categories auto-scoped, whitelist enforced, no
+     * forced LIMIT). Single source of truth for BOTH execute() and
+     * executePaginated() — no validation drift between the chat and the API.
+     *
+     * @return array{ok:true, transformed:string, deeplink_sql:string}|array{ok:false, error:string}
+     */
+    private function prepareSafeSql(string $query, int $crawlId): array
+    {
         try {
             // === Strip comments before keyword scan ===
             $clean = preg_replace('/\/\*.*?\*\//s', ' ', $query);
             $clean = preg_replace('/--.*$/m', ' ', $clean);
             $cleanUpper = strtoupper(trim($clean));
 
-            // Accept SELECT or WITH (CTE) at the start. WITH RECURSIVE stays
-            // blocked further down — that's the actual runaway-loop risk.
-            // Write CTEs like `WITH x AS (INSERT ...) ...` are caught by the
-            // FORBIDDEN_KEYWORDS scan below + the READ ONLY transaction.
+            // Accept SELECT or WITH (CTE) at the start. WITH RECURSIVE blocked below.
             if (strpos($cleanUpper, 'SELECT') !== 0 && strpos($cleanUpper, 'WITH') !== 0) {
                 return ['ok' => false, 'error' => 'Only SELECT or WITH … SELECT statements are allowed.'];
             }
@@ -152,10 +237,6 @@ class SqlExecutor
             $transformed = preg_replace('/\bredirect_chains\b(?!_\d)/i',    "redirect_chains_{$crawlId}",    $transformed);
 
             // === Extract CTE names so the whitelist doesn't flag them ===
-            // A query like `WITH ranked AS (SELECT ...) SELECT * FROM ranked`
-            // would otherwise fail the whitelist on `ranked` because it appears
-            // after FROM. We collect all CTE identifiers and treat them as
-            // valid local table names for this query only.
             $cteNames = [];
             if (preg_match_all(
                 '/(?:\bWITH\s+|,\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(/i',
@@ -175,10 +256,6 @@ class SqlExecutor
             );
             foreach (array_unique($tableMatches[1] ?? []) as $tableName) {
                 $low = strtolower($tableName);
-                // `html_<id>` is whitelisted in suffix form only — there's no
-                // unqualified `html` table at the project level (and `.html`
-                // would clash with URL patterns in regex literals if we did
-                // a bare-name substitution).
                 $allowed = in_array($low, self::ALLOWED_BASE_TABLES, true)
                     || in_array($low, $cteNames, true)
                     || preg_match('/^(pages|links|duplicate_clusters|page_schemas|redirect_chains|html)_\d+$/i', $low);
@@ -192,25 +269,10 @@ class SqlExecutor
             }
 
             // === Project-scope guard on crawl_categories ===
-            //
-            // crawl_categories is a shared, project-level table (no partition
-            // per crawl_id like pages/links/...). Without a WHERE clause, a
-            // SELECT against it leaks rows from every project on the instance.
-            // We shadow the real table with a same-named CTE that pre-filters
-            // on the current project — PostgreSQL resolves every reference
-            // to `crawl_categories` (FROM, JOIN, subquery) against the CTE
-            // instead of the underlying table, so it's impossible for the
-            // model to fetch categories from another project, regardless of
-            // how the query is phrased.
-            //
-            // Same idea (and same fix) as in QueryController::execute().
-            //
-            // Guard: the query must NOT define its own CTE named
-            // `crawl_categories`. We inject one with that exact name below to
-            // shadow-and-scope the shared table; a user-defined CTE of the same
-            // name would (a) collide → "WITH query name specified more than
-            // once" error, and (b) let them bypass the project scoping. Reject
-            // with a clear, actionable message instead.
+            // Shadow the shared table with a same-named CTE pre-filtered on the
+            // current project, so it can't leak other projects' categories.
+            // A user-defined CTE of that reserved name collides + bypasses the
+            // scope → reject (same as QueryController).
             if (in_array('crawl_categories', $cteNames, true)) {
                 return [
                     'ok' => false,
@@ -225,89 +287,49 @@ class SqlExecutor
             if ($pid > 0) {
                 $catScope = "crawl_categories AS (SELECT * FROM crawl_categories WHERE project_id = {$pid})";
                 if (preg_match('/^\s*WITH\s+/i', $transformed)) {
-                    $transformed = preg_replace(
-                        '/^\s*WITH\s+/i', "WITH {$catScope}, ", $transformed, 1
-                    );
+                    $transformed = preg_replace('/^\s*WITH\s+/i', "WITH {$catScope}, ", $transformed, 1);
                 } else {
                     $transformed = "WITH {$catScope} " . ltrim($transformed);
                 }
             }
 
-            // === Cap rows ===
-            // The "preview" cap is the chat row limit; the absolute hard cap
-            // prevents accidental gigabyte selects. We always rewrite LIMIT
-            // when present to enforce the preview, and append one if missing.
-            //
-            // First strip trailing semicolons + whitespace — the AI sometimes
-            // ends its statement with `;` which would cause
-            //   "... WHERE x = 1; LIMIT 10"
-            // → syntax error. Strip them defensively so the AI doesn't have
-            // to be perfect.
+            // Strip trailing semicolons so wrapping/LIMIT appends stay valid SQL.
             $transformed = rtrim($transformed);
             $transformed = preg_replace('/;+\s*$/', '', $transformed);
             $transformed = rtrim($transformed);
 
-            $cap = max(1, min($rowLimit, self::HARD_ROW_CAP));
-            if (preg_match('/\bLIMIT\s+(\d+)/i', $transformed, $lm)) {
-                $existing = (int)$lm[1];
-                $newLimit = min($existing, $cap);
-                $finalSql = preg_replace('/\bLIMIT\s+\d+/i', "LIMIT {$newLimit}", $transformed, 1);
-            } else {
-                $finalSql = $transformed . " LIMIT {$cap}";
-            }
-
-            // The SQL the deeplink should carry = the model's ORIGINAL query
-            // (virtual table names like `pages`/`links`, no partition suffixes),
-            // WITHOUT the preview LIMIT — NOT the server-transformed `$transformed`.
-            //
-            // Using `$transformed` here was the bug: it has the auto-injected
-            // `WITH crawl_categories AS (SELECT … WHERE project_id = N)` CTE.
-            // That CTE landed in the deeplink, so when the user opened SQL
-            // Explorer the query carried a `crawl_categories` CTE which then
-            // collided with SQL Explorer's OWN injection → unrunnable. Starting
-            // from `$clean` keeps the editor query clean; SQL Explorer re-applies
-            // its own substitutions + scoping on execution.
+            // Deeplink carries the user's ORIGINAL query (virtual names, no
+            // injected CTE) — SQL Explorer re-applies its own scoping.
             $deeplinkSql = preg_replace('/\bLIMIT\s+\d+\s*$/i', '', trim($clean));
 
-            // === Execute, hard read-only, with timeout ===
-            $db = PostgresDatabase::getInstance()->getConnection();
-            $db->exec("SET statement_timeout = '" . self::TIMEOUT_SECONDS . "s'");
-            $db->exec("BEGIN; SET TRANSACTION READ ONLY");
-            try {
-                $stmt = $db->query($finalSql);
-                $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            } finally {
-                $db->exec("COMMIT");
-                $db->exec("SET statement_timeout = '0'");
-            }
-
-            $columns = !empty($rows) ? array_keys($rows[0]) : [];
-
-            // total_rows = number of rows we got. truncated = true if user might
-            // have wanted more. We can't know the "true" total without re-running
-            // a COUNT, so we just signal that hitting exactly the cap likely means
-            // there's more.
-            $totalRows = count($rows);
-            $truncated = $totalRows >= $cap;
-
-            return [
-                'ok'              => true,
-                'rows'            => $rows,
-                'columns'         => $columns,
-                'total_rows'      => $totalRows,
-                'truncated'       => $truncated,
-                'transformed_sql' => $finalSql,
-                'deeplink_sql'    => trim($deeplinkSql),
-            ];
+            return ['ok' => true, 'transformed' => $transformed, 'deeplink_sql' => trim($deeplinkSql)];
 
         } catch (\Throwable $e) {
-            // Defensive cleanup if we threw mid-transaction.
-            try {
-                PostgresDatabase::getInstance()->getConnection()->exec("ROLLBACK");
-                PostgresDatabase::getInstance()->getConnection()->exec("SET statement_timeout = '0'");
-            } catch (\Throwable $ignored) {}
-
             return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Run a callback inside a READ ONLY transaction with a statement timeout.
+     * Returns ['ok'=>true,'value'=>...] or ['ok'=>false,'error'=>...]. Always
+     * cleans up the transaction + timeout, even on error.
+     *
+     * @param callable(PDO):mixed $work
+     */
+    private function runReadOnly(callable $work): array
+    {
+        $db = PostgresDatabase::getInstance()->getConnection();
+        $db->exec("SET statement_timeout = '" . self::TIMEOUT_SECONDS . "s'");
+        $db->exec("BEGIN; SET TRANSACTION READ ONLY");
+        try {
+            $value = $work($db);
+            $db->exec("COMMIT");
+            return ['ok' => true, 'value' => $value];
+        } catch (\Throwable $e) {
+            try { $db->exec("ROLLBACK"); } catch (\Throwable $ignored) {}
+            return ['ok' => false, 'error' => $e->getMessage()];
+        } finally {
+            try { $db->exec("SET statement_timeout = '0'"); } catch (\Throwable $ignored) {}
         }
     }
 }

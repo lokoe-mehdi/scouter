@@ -36,6 +36,8 @@ use App\Http\Controllers\AIUrlFiltersController;
 use App\Http\Controllers\AILinkFiltersController;
 use App\Http\Controllers\DrBriefController;
 use App\Http\Controllers\BulkGenerateController;
+use App\Http\Controllers\ApiV1Controller;
+use App\Http\Controllers\ApiKeyController;
 
 $request = new Request();
 
@@ -164,6 +166,22 @@ try {
     $router->post('/bulk-generate/start',          [BulkGenerateController::class, 'start'],         ['auth' => true]);
     $router->get( '/bulk-generate/status',         [BulkGenerateController::class, 'status'],        ['auth' => true]);
     $router->post('/bulk-generate/stop',           [BulkGenerateController::class, 'stop'],          ['auth' => true]);
+
+    // =============================================================================
+    // API KEYS (session + admin) — managed from the Settings page
+    // =============================================================================
+    $router->get(   '/keys',      [ApiKeyController::class, 'index'],  ['auth' => true, 'admin' => true]);
+    $router->post(  '/keys',      [ApiKeyController::class, 'create'], ['auth' => true, 'admin' => true]);
+    $router->delete('/keys/{id}', [ApiKeyController::class, 'revoke'], ['auth' => true, 'admin' => true]);
+
+    // =============================================================================
+    // PUBLIC API v1 — Bearer token auth (acts as the key's owner)
+    // =============================================================================
+    $router->get( '/v1/projects',              [ApiV1Controller::class, 'projects'], ['token' => true]);
+    $router->get( '/v1/projects/{id}/crawls',  [ApiV1Controller::class, 'crawls'],   ['token' => true]);
+    $router->get( '/v1/crawls/{id}',           [ApiV1Controller::class, 'crawl'],    ['token' => true]);
+    $router->get( '/v1/crawls/{id}/schema',    [ApiV1Controller::class, 'schema'],   ['token' => true]);
+    $router->post('/v1/crawls/{id}/query',     [ApiV1Controller::class, 'query'],    ['token' => true]);
 
     // =============================================================================
     // DISPATCH

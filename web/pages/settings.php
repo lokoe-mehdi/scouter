@@ -866,8 +866,151 @@ $budgetFeatureLabel = static function (string $f): string {
             <div id="budget-save-status" style="margin-top:0.6rem; font-size:0.85rem;"></div>
         </div>
 
+        <!-- ============ API & ACCESS KEYS ============ -->
+        <div class="settings-card" style="grid-column: 1 / -1;">
+            <h2><span class="material-symbols-outlined">key</span> <?= __('settings.api_title') ?></h2>
+            <p class="card-subtitle"><?= __('settings.api_keys_subtitle') ?></p>
+
+            <div style="display:flex; gap:0.6rem; flex-wrap:wrap; align-items:center; margin:1rem 0;">
+                <input id="apiKeyName" type="text" placeholder="<?= htmlspecialchars(__('settings.api_name_ph')) ?>"
+                       style="flex:1; min-width:200px; padding:0.5rem 0.7rem; border:1px solid #cbd5e1; border-radius:8px;">
+                <button type="button" id="apiKeyGenBtn" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.4rem;">
+                    <span class="material-symbols-outlined">add</span> <?= __('settings.api_generate') ?>
+                </button>
+            </div>
+
+            <!-- Show-once token (revealed after generation) -->
+            <div id="apiNewKey" style="display:none; background:#f0fdf4; border:1px solid #86efac; border-radius:10px; padding:0.9rem 1.1rem; margin-bottom:1rem;">
+                <div style="font-size:0.85rem; color:#166534; margin-bottom:0.5rem;"><?= __('settings.api_token_once') ?></div>
+                <div style="display:flex; gap:0.5rem; align-items:center;">
+                    <code id="apiNewKeyVal" style="flex:1; font-family:ui-monospace,monospace; font-size:0.85rem; background:#fff; border:1px solid #d1fae5; border-radius:6px; padding:0.5rem 0.7rem; overflow-x:auto; white-space:nowrap;"></code>
+                    <button type="button" id="apiCopyBtn" class="btn btn-secondary" style="white-space:nowrap;"><?= __('settings.api_copy') ?></button>
+                </div>
+            </div>
+
+            <table style="width:100%; border-collapse:collapse; font-size:0.88rem;">
+                <thead><tr style="text-align:left; color:var(--text-secondary);">
+                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.api_col_name') ?></th>
+                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.api_col_prefix') ?></th>
+                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.api_col_created') ?></th>
+                    <th style="padding:0.4rem 0.5rem; border-bottom:1px solid #e5e7eb;"><?= __('settings.api_col_used') ?></th>
+                    <th style="border-bottom:1px solid #e5e7eb;"></th>
+                </tr></thead>
+                <tbody id="apiKeysBody"></tbody>
+            </table>
+
+            <div style="margin-top:1.5rem; display:flex; align-items:center; gap:0.8rem; flex-wrap:wrap;">
+                <a href="../api-docs.php" target="_blank" rel="noopener" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.4rem;">
+                    <span class="material-symbols-outlined">api</span> <?= __('settings.api_open_docs') ?>
+                </a>
+                <span style="font-size:0.85rem; color:var(--text-secondary);">
+                    Base : <code id="apiDocBase">…/api/v1</code> · <code>Authorization: Bearer sctr_…</code>
+                </span>
+            </div>
+            <details style="margin-top:1rem;">
+                <summary style="cursor:pointer; font-weight:600; color:var(--text-primary);"><?= __('settings.api_doc_title') ?> — curl</summary>
+                <pre style="margin-top:0.8rem; background:#0f172a; color:#e2e8f0; border-radius:8px; padding:0.9rem 1.1rem; overflow-x:auto; font-size:0.78rem; line-height:1.55;"><code id="apiDocCurl"></code></pre>
+            </details>
+        </div>
+
         </div><!-- /.settings-bento -->
     </div><!-- /.container -->
+
+    <script>
+    // API keys management (admin). Talks to the session-authenticated /api/keys.
+    (function () {
+        const body   = document.getElementById('apiKeysBody');
+        const genBtn = document.getElementById('apiKeyGenBtn');
+        const nameIn = document.getElementById('apiKeyName');
+        const newBox = document.getElementById('apiNewKey');
+        const newVal = document.getElementById('apiNewKeyVal');
+        const copyBtn= document.getElementById('apiCopyBtn');
+        if (!body) return;
+
+        const T = {
+            none:   <?= json_encode(__('settings.api_no_keys')) ?>,
+            revoke: <?= json_encode(__('settings.api_revoke')) ?>,
+            confirm:<?= json_encode(__('settings.api_revoke_confirm')) ?>,
+            copy:   <?= json_encode(__('settings.api_copy')) ?>,
+            copied: <?= json_encode(__('settings.api_copied')) ?>,
+        };
+        const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+        async function loadKeys() {
+            try {
+                const r = await fetch('../api/keys', { headers: { 'Accept': 'application/json' } });
+                const d = await r.json();
+                const keys = d.keys || [];
+                if (!keys.length) {
+                    body.innerHTML = '<tr><td colspan="5" style="padding:1rem 0.5rem; color:var(--text-secondary);">' + esc(T.none) + '</td></tr>';
+                    return;
+                }
+                body.innerHTML = keys.map(k => `
+                    <tr>
+                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5;">${esc(k.name)}</td>
+                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5;"><code>${esc(k.prefix)}…</code></td>
+                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5; color:var(--text-secondary);">${esc((k.created_at||'').slice(0,10))}</td>
+                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5; color:var(--text-secondary);">${esc(k.last_used_at ? k.last_used_at.slice(0,16) : '—')}</td>
+                        <td style="padding:0.4rem 0.5rem; border-bottom:1px solid #f5f5f5; text-align:right;">
+                            <button type="button" class="btn btn-sm" data-revoke="${k.id}" style="color:#dc2626; background:none; border:1px solid #fecaca; border-radius:6px; padding:0.2rem 0.6rem; cursor:pointer;">${esc(T.revoke)}</button>
+                        </td>
+                    </tr>`).join('');
+                body.querySelectorAll('[data-revoke]').forEach(btn => {
+                    btn.addEventListener('click', () => revokeKey(btn.dataset.revoke));
+                });
+            } catch (e) { /* silent */ }
+        }
+
+        async function createKey() {
+            genBtn.disabled = true;
+            try {
+                const r = await fetch('../api/keys', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: nameIn.value.trim() }),
+                });
+                const d = await r.json();
+                if (d.success !== false && d.token) {
+                    newVal.textContent = d.token;
+                    newBox.style.display = 'block';
+                    nameIn.value = '';
+                    loadKeys();
+                }
+            } finally { genBtn.disabled = false; }
+        }
+
+        async function revokeKey(id) {
+            if (!confirm(T.confirm)) return;
+            await fetch('../api/keys/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+            loadKeys();
+        }
+
+        genBtn.addEventListener('click', createKey);
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(newVal.textContent).then(() => {
+                copyBtn.textContent = T.copied;
+                setTimeout(() => { copyBtn.textContent = T.copy; }, 1500);
+            });
+        });
+
+        // Live doc: base URL + curl cheatsheet for this host.
+        const base = location.origin + '/api/v1';
+        document.getElementById('apiDocBase').textContent = base;
+        document.getElementById('apiDocCurl').textContent =
+            '# List projects\n' +
+            'curl -H "Authorization: Bearer $TOKEN" ' + base + '/projects\n\n' +
+            '# Crawls of a project\n' +
+            'curl -H "Authorization: Bearer $TOKEN" ' + base + '/projects/{id}/crawls\n\n' +
+            '# Crawl metadata + schema (column names for valid SQL)\n' +
+            'curl -H "Authorization: Bearer $TOKEN" ' + base + '/crawls/{id}\n' +
+            'curl -H "Authorization: Bearer $TOKEN" ' + base + '/crawls/{id}/schema\n\n' +
+            '# Read-only SQL, paginated — loop pages while meta.has_more is true\n' +
+            'curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\\n' +
+            '  -d \'{"query":"SELECT url, code FROM pages WHERE code >= 400","page":1,"page_size":500}\' \\\n' +
+            '  ' + base + '/crawls/{id}/query';
+
+        loadKeys();
+    })();
+    </script>
 
     <script>
     // AI budget save (default + per-user overrides).
