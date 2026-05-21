@@ -56,13 +56,13 @@ Built by an SEO consultant ([Lokoé](https://lokoe.fr)) for SEO consultants, dev
 | | **Scouter** | Screaming Frog | Sitebulb | LibreCrawl |
 |---|:---:|:---:|:---:|:---:|
 | Open source | ✅ | ❌ | ❌ | ✅ |
-| Free, unlimited URLs | ✅ | ❌ (500 cap) | ❌ | ✅ |
-| Web-based UI | ✅ | ❌ | ❌ | ✅ |
-| Self-hosted | ✅ | Desktop only | Desktop only | ✅ |
-| Multi-user | ✅ | ❌ | ❌ | ⚠️ |
-| JavaScript rendering | ✅ | ✅ | ✅ | ⚠️ |
+| Free, unlimited URLs | ✅ | ❌ | ❌ | ✅ |
+| Web-based UI | ✅ | ❌ | ✅ | ✅ |
+| Self-hosted | ✅ | ❌ | ❌ | ✅ |
+| Multi-user | ✅ | ❌ | ✅ | ✅ |
+| JavaScript rendering | ✅ | ✅ | ✅ | ✅ |
 | Internal PageRank | ✅ | ✅ | ✅ | ❌ |
-| Custom extractors (XPath / Regex) | ✅ | ✅ | ✅ | ⚠️ |
+| Custom extractors (XPath / Regex) | ✅ | ✅ | ✅ | ❌ |
 | SQL queries on crawl data | ✅ | ❌ | ❌ | ❌ |
 | **AI assistant (chat with your crawl)** | ✅ | ❌ | ❌ | ❌ |
 | **AI page categorisation** | ✅ | ❌ | ❌ | ❌ |
