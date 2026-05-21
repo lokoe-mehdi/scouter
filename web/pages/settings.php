@@ -1032,18 +1032,26 @@ try {
                 <tbody id="apiKeysBody"></tbody>
             </table>
 
-            <div style="margin-top:1.5rem; display:flex; align-items:center; gap:0.8rem; flex-wrap:wrap;">
-                <a href="../api-docs.php" target="_blank" rel="noopener" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.4rem;">
-                    <span class="material-symbols-outlined">api</span> <?= __('settings.api_open_docs') ?>
+        </div>
+
+        <!-- ============ INTERACTIVE API DOCS (design-system, no Swagger) ============ -->
+        <div class="settings-card" style="grid-column: 1 / -1;">
+            <h2><span class="material-symbols-outlined">api</span> <?= __('settings.api_doc_title') ?></h2>
+            <p class="card-subtitle"><?= __('settings.api_doc_intro') ?></p>
+
+            <label style="display:block; max-width:520px; font-size:0.85rem; color:var(--text-secondary); margin:1rem 0 0.6rem;">
+                <?= __('settings.api_doc_token_label') ?>
+                <input id="apiDocToken" type="text" autocomplete="off" spellcheck="false" placeholder="sctr_…"
+                       style="display:block; width:100%; box-sizing:border-box; margin-top:0.3rem; padding:0.5rem 0.7rem; border:1px solid #cbd5e1; border-radius:8px; font-family:ui-monospace,monospace; font-size:0.85rem;">
+            </label>
+            <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:center; font-size:0.82rem; color:var(--text-secondary); margin-bottom:1.2rem;">
+                <span>Base : <code id="apiDocBase">…/api/v1</code></span>
+                <a href="../openapi.yaml" target="_blank" rel="noopener" style="color:var(--primary-color); text-decoration:none; display:inline-flex; align-items:center; gap:0.25rem;">
+                    <span class="material-symbols-outlined" style="font-size:1rem;">description</span> <?= __('settings.api_doc_spec') ?>
                 </a>
-                <span style="font-size:0.85rem; color:var(--text-secondary);">
-                    Base : <code id="apiDocBase">…/api/v1</code> · <code>Authorization: Bearer sctr_…</code>
-                </span>
             </div>
-            <details style="margin-top:1rem;">
-                <summary style="cursor:pointer; font-weight:600; color:var(--text-primary);"><?= __('settings.api_doc_title') ?> — curl</summary>
-                <pre style="margin-top:0.8rem; background:#0f172a; color:#e2e8f0; border-radius:8px; padding:0.9rem 1.1rem; overflow-x:auto; font-size:0.78rem; line-height:1.55;"><code id="apiDocCurl"></code></pre>
-            </details>
+
+            <div id="apiDocEndpoints"></div>
         </div>
 
         </section><!-- /tab api -->
@@ -1256,6 +1264,9 @@ try {
                     newVal.textContent = d.token;
                     newBox.style.display = 'block';
                     nameIn.value = '';
+                    // Pre-fill the interactive doc tester with the fresh token.
+                    const docTok = document.getElementById('apiDocToken');
+                    if (docTok) { docTok.value = d.token; try { sessionStorage.setItem('scouter_api_token', d.token); } catch (e) {} }
                     loadKeys();
                 }
             } finally { genBtn.disabled = false; }
@@ -1278,23 +1289,203 @@ try {
             });
         });
 
-        // Live doc: base URL + curl cheatsheet for this host.
-        const base = location.origin + '/api/v1';
-        document.getElementById('apiDocBase').textContent = base;
-        document.getElementById('apiDocCurl').textContent =
-            '# List projects\n' +
-            'curl -H "Authorization: Bearer $TOKEN" ' + base + '/projects\n\n' +
-            '# Crawls of a project\n' +
-            'curl -H "Authorization: Bearer $TOKEN" ' + base + '/projects/{id}/crawls\n\n' +
-            '# Crawl metadata + schema (column names for valid SQL)\n' +
-            'curl -H "Authorization: Bearer $TOKEN" ' + base + '/crawls/{id}\n' +
-            'curl -H "Authorization: Bearer $TOKEN" ' + base + '/crawls/{id}/schema\n\n' +
-            '# Read-only SQL, paginated — loop pages while meta.has_more is true\n' +
-            'curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\\n' +
-            '  -d \'{"query":"SELECT url, code FROM pages WHERE code >= 400","page":1,"page_size":500}\' \\\n' +
-            '  ' + base + '/crawls/{id}/query';
-
         loadKeys();
+    })();
+    </script>
+
+    <script>
+    // Interactive API doc + tester (design-system, no Swagger). The endpoint
+    // catalog mirrors openapi.yaml — that file stays the machine-readable source
+    // of truth (for MCP/external clients); this panel is the human-facing tester.
+    (function () {
+        const container = document.getElementById('apiDocEndpoints');
+        if (!container) return;
+        const base = location.origin + '/api/v1';
+        const baseEl = document.getElementById('apiDocBase');
+        if (baseEl) baseEl.textContent = base;
+
+        const tokenIn = document.getElementById('apiDocToken');
+        // Restore a previously used token (mirrors Swagger's persistAuthorization).
+        try { const saved = sessionStorage.getItem('scouter_api_token'); if (saved && tokenIn && !tokenIn.value) tokenIn.value = saved; } catch (e) {}
+        tokenIn?.addEventListener('change', () => { try { sessionStorage.setItem('scouter_api_token', tokenIn.value.trim()); } catch (e) {} });
+
+        const T = {
+            body:     <?= json_encode(__('settings.api_doc_body')) ?>,
+            response: <?= json_encode(__('settings.api_doc_response')) ?>,
+            execute:  <?= json_encode(__('settings.api_doc_execute')) ?>,
+            running:  <?= json_encode(__('settings.api_doc_running')) ?>,
+            noToken:  <?= json_encode(__('settings.api_doc_no_token')) ?>,
+            copy:     <?= json_encode(__('settings.api_copy')) ?>,
+            copied:   <?= json_encode(__('settings.api_copied')) ?>,
+        };
+
+        const ENDPOINTS = [
+            { method:'GET',  path:'/projects', summary: <?= json_encode(__('settings.api_ep_projects')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_projects_desc')) ?>,
+              params:[ {name:'limit', def:'50'}, {name:'offset', def:'0'} ] },
+            { method:'GET',  path:'/projects/{id}/crawls', summary: <?= json_encode(__('settings.api_ep_crawls')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_crawls_desc')) ?>,
+              pathParams:['id'], params:[ {name:'limit', def:'50'}, {name:'offset', def:'0'} ] },
+            { method:'GET',  path:'/crawls/{id}', summary: <?= json_encode(__('settings.api_ep_crawl')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_crawl_desc')) ?>,
+              pathParams:['id'] },
+            { method:'GET',  path:'/crawls/{id}/schema', summary: <?= json_encode(__('settings.api_ep_schema')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_schema_desc')) ?>,
+              pathParams:['id'] },
+            { method:'POST', path:'/crawls/{id}/query', summary: <?= json_encode(__('settings.api_ep_query')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_query_desc')) ?>,
+              pathParams:['id'],
+              body: JSON.stringify({ query:'SELECT url, code FROM pages WHERE code >= 400 ORDER BY inlinks DESC', page:1, page_size:100, count:true }, null, 2) },
+        ];
+
+        const METHOD_COLORS = { GET:'#0891b2', POST:'#b45309', PUT:'#7c3aed', DELETE:'#dc2626' };
+        const escapeHtml = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+        ENDPOINTS.forEach(ep => {
+            const det = document.createElement('details');
+            det.style.cssText = 'border:1px solid #e5e7eb; border-radius:10px; margin-bottom:0.7rem; overflow:hidden;';
+
+            const sum = document.createElement('summary');
+            sum.style.cssText = 'cursor:pointer; padding:0.7rem 0.9rem; display:flex; align-items:center; gap:0.7rem;';
+            sum.innerHTML =
+                '<span style="font-weight:700; font-size:0.72rem; padding:0.15rem 0.5rem; border-radius:5px; color:#fff; background:' + (METHOD_COLORS[ep.method] || '#475569') + ';">' + ep.method + '</span>'
+              + '<code style="font-size:0.85rem;">' + escapeHtml(ep.path) + '</code>'
+              + '<span style="color:var(--text-secondary); font-size:0.82rem; margin-left:auto; text-align:right;">' + escapeHtml(ep.summary) + '</span>';
+            det.appendChild(sum);
+
+            const bodyWrap = document.createElement('div');
+            bodyWrap.style.cssText = 'padding:0.9rem; border-top:1px solid #f1f5f9;';
+
+            // Short "what does this do" blurb at the top of the expanded panel.
+            if (ep.desc) {
+                const descBox = document.createElement('div');
+                descBox.style.cssText = 'background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; padding:0.6rem 0.8rem; margin-bottom:0.9rem; font-size:0.85rem; line-height:1.5; color:#0c4a6e;';
+                descBox.textContent = ep.desc;
+                bodyWrap.appendChild(descBox);
+            }
+
+            const inputs = {};
+            const fieldRow = (label, value, placeholder) => {
+                const wrap = document.createElement('label');
+                wrap.style.cssText = 'display:block; font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.55rem;';
+                wrap.textContent = label;
+                const inp = document.createElement('input');
+                inp.type = 'text'; inp.value = value || ''; if (placeholder) inp.placeholder = placeholder;
+                inp.style.cssText = 'display:block; width:100%; box-sizing:border-box; margin-top:0.25rem; padding:0.4rem 0.6rem; border:1px solid #cbd5e1; border-radius:6px; font-size:0.85rem; font-family:ui-monospace,monospace;';
+                wrap.appendChild(inp); bodyWrap.appendChild(wrap);
+                return inp;
+            };
+
+            (ep.pathParams || []).forEach(p => { inputs['path:' + p] = fieldRow(p + ' (path)', '', ''); });
+            (ep.params || []).forEach(p => { inputs['q:' + p.name] = fieldRow(p.name, '', p.def || ''); });
+
+            let bodyTa = null;
+            if (ep.body !== undefined) {
+                const lbl = document.createElement('div');
+                lbl.textContent = T.body;
+                lbl.style.cssText = 'font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.25rem;';
+                bodyWrap.appendChild(lbl);
+                bodyTa = document.createElement('textarea');
+                bodyTa.value = ep.body; bodyTa.rows = 6;
+                bodyTa.style.cssText = 'width:100%; box-sizing:border-box; font-family:ui-monospace,monospace; font-size:0.82rem; padding:0.5rem 0.6rem; border:1px solid #cbd5e1; border-radius:6px; margin-bottom:0.6rem;';
+                bodyWrap.appendChild(bodyTa);
+            }
+
+            // Live curl preview — shows the full request (incl. the Bearer header),
+            // rebuilt whenever the token, params or body change.
+            const curlWrap = document.createElement('div');
+            curlWrap.style.cssText = 'margin:0.3rem 0 0.9rem;';
+            const curlHead = document.createElement('div');
+            curlHead.style.cssText = 'display:flex; align-items:center; justify-content:space-between; margin-bottom:0.25rem;';
+            const curlLbl = document.createElement('span');
+            curlLbl.textContent = 'curl';
+            curlLbl.style.cssText = 'font-size:0.8rem; color:var(--text-secondary); font-weight:600;';
+            const curlCopy = document.createElement('button');
+            curlCopy.type = 'button'; curlCopy.className = 'btn btn-secondary';
+            curlCopy.style.cssText = 'padding:0.15rem 0.6rem; font-size:0.75rem;';
+            curlCopy.textContent = T.copy;
+            curlHead.appendChild(curlLbl); curlHead.appendChild(curlCopy);
+            const curlPre = document.createElement('pre');
+            curlPre.style.cssText = 'background:#0f172a; color:#e2e8f0; border-radius:8px; padding:0.7rem 0.9rem; overflow:auto; font-size:0.76rem; line-height:1.5; margin:0; white-space:pre;';
+            curlWrap.appendChild(curlHead); curlWrap.appendChild(curlPre);
+            bodyWrap.appendChild(curlWrap);
+
+            function buildUrl(forCurl) {
+                const token = (tokenIn?.value || '').trim();
+                let path = ep.path;
+                (ep.pathParams || []).forEach(p => {
+                    const raw = (inputs['path:' + p].value || '').trim();
+                    const v = raw || (forCurl ? '{' + p + '}' : '');
+                    path = path.replace('{' + p + '}', forCurl ? v : encodeURIComponent(v));
+                });
+                const qs = new URLSearchParams();
+                (ep.params || []).forEach(p => { const v = (inputs['q:' + p.name].value || '').trim(); if (v !== '') qs.set(p.name, v); });
+                let url = base + path; const q = qs.toString(); if (q) url += '?' + q;
+                return { token, url };
+            }
+            function buildCurl() {
+                const { token, url } = buildUrl(true);
+                let c = 'curl -X ' + ep.method + ' "' + url + '"';
+                c += ' \\\n  -H "Authorization: Bearer ' + (token || 'sctr_YOUR_TOKEN') + '"';
+                c += ' \\\n  -H "Accept: application/json"';
+                if (bodyTa) {
+                    c += ' \\\n  -H "Content-Type: application/json"';
+                    const oneLine = bodyTa.value.replace(/\s*\n\s*/g, ' ').replace(/'/g, "'\\''");
+                    c += " \\\n  -d '" + oneLine + "'";
+                }
+                curlPre.textContent = c;
+            }
+            buildCurl();
+            [tokenIn].concat(Object.values(inputs)).forEach(el => el && el.addEventListener('input', buildCurl));
+            if (bodyTa) bodyTa.addEventListener('input', buildCurl);
+            curlCopy.addEventListener('click', () => {
+                navigator.clipboard.writeText(curlPre.textContent).then(() => {
+                    curlCopy.textContent = T.copied;
+                    setTimeout(() => { curlCopy.textContent = T.copy; }, 1500);
+                });
+            });
+
+            const runBtn = document.createElement('button');
+            runBtn.type = 'button'; runBtn.className = 'btn btn-primary';
+            runBtn.style.cssText = 'display:inline-flex; align-items:center; gap:0.4rem;';
+            const runLabel = '<span class="material-symbols-outlined">play_arrow</span> ' + escapeHtml(T.execute);
+            runBtn.innerHTML = runLabel;
+            bodyWrap.appendChild(runBtn);
+
+            const respMeta = document.createElement('div');
+            respMeta.style.cssText = 'font-size:0.8rem; font-weight:600; margin:0.9rem 0 0.3rem; display:none;';
+            const resp = document.createElement('pre');
+            resp.style.cssText = 'display:none; background:#0f172a; color:#e2e8f0; border-radius:8px; padding:0.8rem 1rem; overflow:auto; max-height:340px; font-size:0.78rem; line-height:1.5; margin:0;';
+            bodyWrap.appendChild(respMeta); bodyWrap.appendChild(resp);
+
+            runBtn.addEventListener('click', async () => {
+                const token = (tokenIn?.value || '').trim();
+                respMeta.style.display = 'block'; resp.style.display = 'block';
+                if (!token) { respMeta.style.color = '#dc2626'; respMeta.textContent = ''; resp.textContent = T.noToken; return; }
+                let path = ep.path;
+                (ep.pathParams || []).forEach(p => { path = path.replace('{' + p + '}', encodeURIComponent((inputs['path:' + p].value || '').trim())); });
+                const qs = new URLSearchParams();
+                (ep.params || []).forEach(p => { const v = (inputs['q:' + p.name].value || '').trim(); if (v !== '') qs.set(p.name, v); });
+                let url = base + path; const q = qs.toString(); if (q) url += '?' + q;
+                const opts = { method: ep.method, headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' } };
+                if (bodyTa) { opts.headers['Content-Type'] = 'application/json'; opts.body = bodyTa.value; }
+                runBtn.disabled = true; runBtn.textContent = T.running;
+                try {
+                    const r = await fetch(url, opts);
+                    const txt = await r.text();
+                    let pretty = txt; try { pretty = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) {}
+                    respMeta.style.color = r.ok ? '#16a34a' : '#dc2626';
+                    respMeta.textContent = r.status + ' ' + r.statusText + '  ·  ' + ep.method + ' ' + url;
+                    resp.textContent = pretty;
+                } catch (e) {
+                    respMeta.style.color = '#dc2626'; respMeta.textContent = 'Error';
+                    resp.textContent = String(e);
+                } finally { runBtn.disabled = false; runBtn.innerHTML = runLabel; }
+            });
+
+            det.appendChild(bodyWrap);
+            container.appendChild(det);
+        });
     })();
     </script>
 
