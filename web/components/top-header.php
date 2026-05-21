@@ -159,6 +159,10 @@ $userInitials = getUserInitials($currentUserEmail);
                     </div>
                 </div>
                 <div class="user-dropdown-divider"></div>
+                <a href="<?= $basePath ?>profile.php" class="user-dropdown-item">
+                    <span class="material-symbols-outlined">account_circle</span>
+                    <?= __('header.profile') ?>
+                </a>
                 <?php if ($isAdmin): ?>
                 <a href="<?= $basePath ?>pages/admin.php" class="user-dropdown-item">
                     <span class="material-symbols-outlined">manage_accounts</span>
@@ -167,6 +171,10 @@ $userInitials = getUserInitials($currentUserEmail);
                 <a href="<?= $basePath ?>pages/monitor.php" class="user-dropdown-item">
                     <span class="material-symbols-outlined">monitoring</span>
                     <?= __('header.system_monitor') ?>
+                </a>
+                <a href="<?= $basePath ?>pages/settings.php" class="user-dropdown-item">
+                    <span class="material-symbols-outlined">settings</span>
+                    <?= __('header.settings') ?>
                 </a>
                 <?php endif; ?>
                 <div class="user-dropdown-divider"></div>
@@ -178,7 +186,8 @@ $userInitials = getUserInitials($currentUserEmail);
                         </a>
                     <?php endforeach; ?>
                 </div>
-                <a href="<?= $basePath ?>api/logout" class="user-dropdown-item user-dropdown-item-danger">
+                <a href="<?= $basePath ?>api/logout" class="user-dropdown-item user-dropdown-item-danger"
+                   onclick="try{Object.keys(localStorage).filter(function(k){return k.indexOf('dr-brief:')===0;}).forEach(function(k){localStorage.removeItem(k);});}catch(e){}">
                     <span class="material-symbols-outlined">logout</span>
                     <?= __('header.logout') ?>
                 </a>

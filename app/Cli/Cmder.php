@@ -430,4 +430,39 @@ class Cmder
   static function wgreen($msg) { echo "\033[32m$msg\033[0m "; }
   static function wred($msg) { echo "\033[31m$msg\033[0m "; }
   static function wblack($msg) { echo "\033[30m$msg\033[0m "; }
+
+  /**
+   * Bulk AI generation worker entrypoint. Receives a bulk_generation_jobs.id
+   * via the CLI arg, hands off to the BulkGenerator orchestrator.
+   *
+   * @param string $arg Format: bulk-ai-generate:<bulk_job_id>
+   */
+  static function bulkAiGenerate($arg)
+  {
+      if (strpos($arg, ':') === false) {
+          self::alert("Invalid command format. Expected: bulk-ai-generate:<bulk_job_id>");
+          die();
+      }
+      [, $bulkJobId] = explode(':', $arg, 2);
+      $bulkJobId = (int)$bulkJobId;
+      if ($bulkJobId <= 0) {
+          self::alert("Invalid bulk job ID: $bulkJobId");
+          die();
+      }
+
+      self::info("Starting bulk AI generation for bulk_job_id: $bulkJobId");
+
+      // Bridge progress updates to the JobManager so the existing Jobs UI
+      // shows the percentage in real time too.
+      $jobMgrId = getenv('JOB_ID');
+      $jobManager = $jobMgrId ? new \App\Job\JobManager() : null;
+
+      $gen = new \App\AI\BulkGenerator();
+      $gen->run($bulkJobId, function (int $processed, int $total) use ($jobManager, $jobMgrId) {
+          if (!$jobManager || $total <= 0) return;
+          $jobManager->updateJobProgress($jobMgrId, (int)round($processed * 100 / $total));
+      });
+
+      self::info("Bulk AI generation finished for bulk_job_id: $bulkJobId");
+  }
 }

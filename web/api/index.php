@@ -29,6 +29,13 @@ use App\Http\Controllers\ExportController;
 use App\Http\Controllers\MonitorController;
 use App\Http\Controllers\CategorizationController;
 use App\Http\Controllers\SavedQueryController;
+use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\AICategorizationController;
+use App\Http\Controllers\AISqlController;
+use App\Http\Controllers\AIUrlFiltersController;
+use App\Http\Controllers\AILinkFiltersController;
+use App\Http\Controllers\DrBriefController;
+use App\Http\Controllers\BulkGenerateController;
 
 $request = new Request();
 
@@ -89,7 +96,7 @@ try {
     // =============================================================================
     $router->get('/jobs/status', [JobController::class, 'status'], ['auth' => true]);
     $router->get('/jobs/logs', [JobController::class, 'logs'], ['auth' => true]);
-    $router->get('/jobs/:id', [JobController::class, 'show'], ['auth' => true]);
+    $router->get('/jobs/{id}', [JobController::class, 'show'], ['auth' => true]);
 
     // =============================================================================
     // QUERIES
@@ -132,6 +139,31 @@ try {
     $router->delete('/saved-queries/category', [SavedQueryController::class, 'deleteCategory'], ['auth' => true]);
     $router->put('/saved-queries/{id}', [SavedQueryController::class, 'update'], ['auth' => true]);
     $router->delete('/saved-queries/{id}', [SavedQueryController::class, 'delete'], ['auth' => true]);
+
+    // =============================================================================
+    // SETTINGS (admin only) + AI categorization (all users with crawl mgmt rights)
+    // =============================================================================
+    $router->get('/settings', [SettingsController::class, 'show'], ['auth' => true, 'admin' => true]);
+    $router->post('/settings/ai/test', [SettingsController::class, 'testAi'], ['auth' => true, 'admin' => true]);
+    $router->post('/settings/ai/prompt', [SettingsController::class, 'saveDrBriefPrompt'], ['auth' => true, 'admin' => true]);
+    $router->post('/settings', [SettingsController::class, 'save'], ['auth' => true, 'admin' => true]);
+    $router->post('/settings/budget', [SettingsController::class, 'saveBudget'], ['auth' => true, 'admin' => true]);
+
+    $router->post('/categorization/ai-suggest', [AICategorizationController::class, 'suggest'], ['auth' => true]);
+    $router->post('/sql/ai-generate', [AISqlController::class, 'generate'], ['auth' => true]);
+    $router->post('/url-explorer/ai-filters', [AIUrlFiltersController::class, 'suggest'], ['auth' => true]);
+    $router->post('/link-explorer/ai-filters', [AILinkFiltersController::class, 'suggest'], ['auth' => true]);
+    $router->post('/dr-brief/chat', [DrBriefController::class, 'chat'], ['auth' => true]);
+    $router->post('/dr-brief/dismiss-greeting', [DrBriefController::class, 'dismissGreeting'], ['auth' => true]);
+
+    // Bulk AI Generator — multi-item, multi-context generation in a batch job.
+    $router->get( '/bulk-generate/context-fields', [BulkGenerateController::class, 'contextFields'], ['auth' => true]);
+    $router->get( '/bulk-generate/existing-keys',  [BulkGenerateController::class, 'existingKeys'],  ['auth' => true]);
+    $router->post('/bulk-generate/estimate',       [BulkGenerateController::class, 'estimate'],      ['auth' => true]);
+    $router->post('/bulk-generate/preview',        [BulkGenerateController::class, 'preview'],       ['auth' => true]);
+    $router->post('/bulk-generate/start',          [BulkGenerateController::class, 'start'],         ['auth' => true]);
+    $router->get( '/bulk-generate/status',         [BulkGenerateController::class, 'status'],        ['auth' => true]);
+    $router->post('/bulk-generate/stop',           [BulkGenerateController::class, 'stop'],          ['auth' => true]);
 
     // =============================================================================
     // DISPATCH

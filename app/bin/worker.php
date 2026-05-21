@@ -226,6 +226,7 @@ while ($running) {
             $jobManager = new JobManager();
             $command = $job->command;
             $isBatchCategorize = strpos($command, 'batch-categorize-project:') === 0;
+            $isBulkAiGenerate  = strpos($command, 'bulk-ai-generate:') === 0;
             $isDeleteJob = strpos($command, 'delete-crawl:') === 0 || strpos($command, 'delete-project:') === 0;
             $isResume = ($command === 'resume');
 
@@ -238,6 +239,9 @@ while ($running) {
             } elseif ($isBatchCategorize) {
                 $jobManager->addLog($job->id, "Worker $workerId starting batch categorization", 'info');
                 file_put_contents($logFile, "\n📂 Batch categorization\n=== WORKER STARTED JOB ===\n", FILE_APPEND);
+            } elseif ($isBulkAiGenerate) {
+                $jobManager->addLog($job->id, "Worker $workerId starting bulk AI generation", 'info');
+                file_put_contents($logFile, "\n✨ Bulk AI generation\n=== WORKER STARTED JOB ===\n", FILE_APPEND);
             } else {
                 $jobManager->addLog($job->id, "Worker $workerId started processing", 'info');
                 file_put_contents($logFile, "\n=== WORKER STARTED CRAWL ===\n", FILE_APPEND);
@@ -287,6 +291,28 @@ while ($running) {
 
                 $process = proc_open(
                     [$phpBin, $scouterScript, 'batch-categorize-project', $command],
+                    $descriptors,
+                    $pipes,
+                    $basePath,
+                    $env
+                );
+            } elseif ($isBulkAiGenerate) {
+                // Bulk AI generation job
+                echo "[Worker $workerId] Executing bulk AI generation: $command\n";
+                $env = [
+                    'DATABASE_URL' => getenv('DATABASE_URL'),
+                    'PATH' => getenv('PATH'),
+                    'JOB_ID' => $job->id,
+                    // CRITICAL : forward the encryption key to the sub-process,
+                    // otherwise AppSettings::get('ai.openrouter.api_key') returns
+                    // null in the worker child even when the container itself
+                    // has the env var. proc_open with an explicit $env array
+                    // does NOT inherit the parent's environment — anything not
+                    // listed here disappears.
+                    'SCOUTER_ENCRYPTION_KEY' => getenv('SCOUTER_ENCRYPTION_KEY'),
+                ];
+                $process = proc_open(
+                    [$phpBin, $scouterScript, 'bulk-ai-generate', $command],
                     $descriptors,
                     $pipes,
                     $basePath,

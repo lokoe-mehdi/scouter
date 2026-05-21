@@ -33,6 +33,10 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=30
+      # Master key used to encrypt secrets stored in app_settings (Gemini API key, etc.).
+      # Override in your .env for production deployments — losing this value makes any
+      # encrypted setting unrecoverable, so back it up alongside your DB credentials.
+      - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY:-868ace624e48dc6da990d2512c380a9ec8b168e11c0fb4aff8393bb6a1d22809}
     volumes:
       - ./logs:/app/logs
     restart: unless-stopped
@@ -65,6 +69,9 @@ services:
       - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=15
+      # Required to decrypt secrets stored in app_settings (OpenRouter API key
+      # used by the Bulk AI Generator + any future background AI job).
+      - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY:-868ace624e48dc6da990d2512c380a9ec8b168e11c0fb4aff8393bb6a1d22809}
     volumes:
       - ./logs:/app/logs
     depends_on:

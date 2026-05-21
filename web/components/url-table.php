@@ -62,6 +62,25 @@ if (!$skipExtractDiscovery) {
     }
 }
 
+// Pareil pour les clés générées par le Bulk AI Generator (pages.generation).
+// Détection auto via jsonb_object_keys ; le mapping type est lu via le
+// $GLOBALS['generationTypes'] préparé par url-explorer.php pour les filtres.
+$customGenerationColumns = [];
+if (!$skipExtractDiscovery) {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT DISTINCT jsonb_object_keys(generation) as key_name
+            FROM pages
+            WHERE crawl_id = :crawl_id AND generation IS NOT NULL
+              AND jsonb_typeof(generation) = 'object'
+        ");
+        $stmt->execute([':crawl_id' => $crawlId]);
+        $customGenerationColumns = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Exception $e) {
+        // Colonne pages.generation absente ou rien dedans — silencieux.
+    }
+}
+
 // Utiliser le tableau centralisé des catégories (chargé dans dashboard.php)
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 $categoryColors = $GLOBALS['categoryColors'] ?? [];
@@ -169,6 +188,13 @@ foreach($customExtractColumns as $columnName) {
     // Créer un label lisible
     $label = ucwords(str_replace('_', ' ', $columnName));
     $availableColumns['extract_' . $columnName] = 'Extracteur : ' . $label;
+}
+
+// Pareil pour les colonnes "generation_xxx" produites par le Bulk AI Generator.
+// Ajoute le préfixe "AI : " pour bien distinguer des extracts custom.
+foreach($customGenerationColumns as $columnName) {
+    $label = ucwords(str_replace('_', ' ', $columnName));
+    $availableColumns['generation_' . $columnName] = 'AI : ' . $label;
 }
 
 // Résoudre les colonnes de comparaison : si explicite on prend la liste, sinon toutes les defaultColumns sauf url/category
@@ -303,6 +329,16 @@ foreach($customExtractColumns as $col) {
     $columnMapping[$colAlias] = "c.extracts->>'" . addslashes($col) . "'";
 }
 
+// Ajouter les colonnes generation_* au mapping pour le tri.
+// On utilise `->>'key'` (text) car le tri SQL natif fonctionne uniformément
+// peu importe le type JSONB sous-jacent (les strings se trient lexicographiquement,
+// les nombres aussi — Postgres trie "123" avant "9" mais c'est le compromis
+// accepté côté UX, l'utilisateur peut affiner via les filtres typés).
+foreach($customGenerationColumns as $col) {
+    $colAlias = 'generation_' . preg_replace('/[^a-z0-9_]/i', '_', $col);
+    $columnMapping[$colAlias] = "c.generation->>'" . addslashes($col) . "'";
+}
+
 // Ajouter les colonnes de comparaison au mapping pour le tri
 if ($compareCrawlId && !empty($compareColumns)) {
     foreach ($compareColumns as $col) {
@@ -333,6 +369,12 @@ if($useSimplifiedMode) {
     foreach($customExtractColumns as $colName) {
         $jsonbColumns .= ", c.extracts->>'" . addslashes($colName) . "' as extract_" . preg_replace('/[^a-z0-9_]/i', '_', $colName);
     }
+    // Idem pour les clés du Bulk AI Generator. ->> garde tout en text pour
+    // l'affichage UI (numbers et booleans se castent côté JS si besoin de
+    // formatting spécial — le default str repr est lisible : "78", "true").
+    foreach($customGenerationColumns as $colName) {
+        $jsonbColumns .= ", c.generation->>'" . addslashes($colName) . "' as generation_" . preg_replace('/[^a-z0-9_]/i', '_', $colName);
+    }
     
     // Colonnes de comparaison (LEFT JOIN sur le crawl de comparaison)
     $compareSelect = '';
@@ -349,6 +391,7 @@ if($useSimplifiedMode) {
 
     // OPTIMISATION : Plus de jointure sur categories, on utilise le tableau PHP
     $sqlQuery = "SELECT
+        c.id,
         c.url,
         c.domain,
         c.depth,
@@ -577,7 +620,7 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                 </tr>
                 <?php else: ?>
                 <?php foreach($urls as $url): ?>
-                <tr>
+                <tr data-page-id="<?= htmlspecialchars($url->id ?? '') ?>">
                     <?php foreach($selectedColumns as $col): ?>
                         <?php
                         // Pour les colonnes de comparaison (cmp_*), utiliser le même rendu que la colonne de base
@@ -706,6 +749,22 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                         <?php elseif(strpos($col, 'cstm_') === 0 || strpos($col, 'extract_') === 0): ?>
                             <td class="col-<?= $col ?>" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->$dataField ?? '') ?>">
                                 <?= isset($url->$dataField) ? htmlspecialchars($url->$dataField) : '<span style="color: #95A5A6;">—</span>' ?>
+                            </td>
+                        <?php elseif(strpos($col, 'generation_') === 0): ?>
+                            <td class="col-<?= $col ?>" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->$dataField ?? '') ?>">
+                                <?php if (!isset($url->$dataField)): ?>
+                                    <span style="color: #95A5A6;">—</span>
+                                <?php else:
+                                    // Pretty-print booleans pour bien voir true/false ;
+                                    // les autres types restent en text natif.
+                                    $val = $url->$dataField;
+                                    if ($val === 'true' || $val === 'false') {
+                                        $cls = $val === 'true' ? 'badge-success' : 'badge-neutral';
+                                        echo '<span class="badge ' . $cls . '">' . $val . '</span>';
+                                    } else {
+                                        echo htmlspecialchars((string)$val);
+                                    }
+                                endif; ?>
                             </td>
                         <?php else: ?>
                             <td class="col-<?= $col ?>"><?= htmlspecialchars($url->$dataField ?? '') ?></td>
@@ -912,19 +971,25 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
             if(newTableCard) {
                 const currentTableCard = document.getElementById('tableCard_' + componentId);
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-init scrollbar sync after DOM replacement (see explanation
+                // in sortByColumn handler).
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Réinitialiser currentPage à 1
                 currentPage = 1;
-                
+
                 // Mettre à jour le perPage actuel
                 currentPerPage = newPerPage;
-                
+
                 // Recalculer totalPages avec le nouveau perPage
                 currentTotalPages = Math.ceil(totalResults / newPerPage);
-                
+
                 // Mettre à jour les boutons de pagination avec les bonnes valeurs
                 attachPaginationHandlers();
-                
+
                 // Rafraîchir les handlers de la modale
                 if(typeof refreshUrlModalHandlers === 'function') {
                     refreshUrlModalHandlers();
@@ -1299,7 +1364,15 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
             if(newTableCard) {
                 const currentTableCard = document.getElementById('tableCard_' + componentId);
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-initialiser la sync des scrollbars : le innerHTML a recréé
+                // les nœuds DOM (topScrollbar, tableContainer) — les anciens
+                // handlers pointent dans le vide et la largeur du contenu
+                // de la barre du haut est repartie à 1px → barre invisible.
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Rafraîchir les handlers de la modale
                 if(typeof refreshUrlModalHandlers === 'function') {
                     refreshUrlModalHandlers();
@@ -1363,7 +1436,12 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                 
                 // Remplacer le contenu
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-init scrollbar sync after DOM replacement.
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Fermer le dropdown après remplacement
                 const newDropdown = document.getElementById('columnDropdown_' + componentId);
                 if(newDropdown) {

@@ -92,6 +92,29 @@ switch($module){
     }
   break;
 
+  case "bulk-ai-generate":
+    $arg = (isset($argv[2])) ? $argv[2] : "none";
+    $jobManager = new \App\Job\JobManager();
+
+    try {
+        Cmder::bulkAiGenerate($arg);
+
+        $jobId = getenv('JOB_ID');
+        if ($jobId) {
+            $jobManager->updateJobStatus($jobId, 'completed');
+            $jobManager->addLog($jobId, "Bulk AI generation completed", 'success');
+        }
+    } catch (\Throwable $e) {
+        $jobId = getenv('JOB_ID');
+        if ($jobId) {
+            $jobManager->updateJobStatus($jobId, 'failed');
+            $jobManager->setJobError($jobId, $e->getMessage());
+            $jobManager->addLog($jobId, "Bulk AI generation failed: " . $e->getMessage(), 'error');
+        }
+        echo "\n\nERROR: " . $e->getMessage() . "\n";
+    }
+  break;
+
   case "delete-crawl":
   case "delete-project":
     $arg = (isset($argv[2])) ? $argv[2] : "none";

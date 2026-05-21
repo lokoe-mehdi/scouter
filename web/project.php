@@ -136,7 +136,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             $typeTitle = $crawl->scheduled ? __('project.scheduled_crawl') : (($crawl->crawl_type ?? 'spider') === 'list' ? __('index.mode_url_list') : 'Spider');
             echo '<div class="pj-crawl-row ' . ($isFinished ? 'pj-crawl-row--clickable' : '') . '" data-index="' . $ajaxIdx . '" ' . ($isFinished ? 'onclick="window.location.href=\'dashboard.php?crawl=' . $crawl->crawl_id . '\'"' : '') . '>';
             $ajaxIdx++;
+            echo '<span class="pj-crawl-type-group">';
             echo '<span class="pj-crawl-type" title="' . htmlspecialchars($typeTitle) . '"><span class="material-symbols-outlined">' . $typeIcon . '</span></span>';
+            if ($canManage) {
+                echo '<span class="pj-resume-slot-left">';
+                if ($crawl->job_status === 'stopped') echo '<button type="button" class="pj-resume-inline" title="' . __('crawl_panel.confirm_resume_title') . '" onclick="event.stopPropagation(); quickResumeCrawl(\'' . htmlspecialchars($crawl->dir) . '\', \'' . htmlspecialchars($domainName) . '\', ' . $crawl->crawl_id . ', this)"><span class="material-symbols-outlined">play_circle</span></button>';
+                echo '</span>';
+            }
+            echo '</span>';
             echo '<div class="pj-crawl-info"><span class="pj-crawl-date">' . $crawl->date . '</span><span class="pj-status ' . $statusClass . '">' . $statusText . '</span></div>';
             echo '<div class="pj-crawl-kpis">';
             if (!$isInProgress) {
@@ -442,8 +449,19 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                         }
                     ?>
                     <div class="pj-crawl-row <?= $isFinished ? 'pj-crawl-row--clickable' : '' ?>" data-index="<?= $crawlIdx ?>" <?= $crawlIdx >= 10 ? 'style="display:none;"' : '' ?> <?= $isFinished ? 'onclick="window.location.href=\'dashboard.php?crawl=' . $crawl->crawl_id . '\'"' : '' ?>>
-                        <span class="pj-crawl-type" title="<?= $crawl->scheduled ? __('project.scheduled_crawl') : (($crawl->crawl_type ?? 'spider') === 'list' ? __('index.mode_url_list') : 'Spider') ?>">
-                            <span class="material-symbols-outlined"><?= $crawl->scheduled ? 'schedule' : (($crawl->crawl_type ?? 'spider') === 'list' ? 'list_alt' : 'bolt') ?></span>
+                        <span class="pj-crawl-type-group">
+                            <span class="pj-crawl-type" title="<?= $crawl->scheduled ? __('project.scheduled_crawl') : (($crawl->crawl_type ?? 'spider') === 'list' ? __('index.mode_url_list') : 'Spider') ?>">
+                                <span class="material-symbols-outlined"><?= $crawl->scheduled ? 'schedule' : (($crawl->crawl_type ?? 'spider') === 'list' ? 'list_alt' : 'bolt') ?></span>
+                            </span>
+                            <?php if ($canManage): ?>
+                            <span class="pj-resume-slot-left">
+                                <?php if ($crawl->job_status === 'stopped'): ?>
+                                <button type="button" class="pj-resume-inline" title="<?= __('crawl_panel.confirm_resume_title') ?>" onclick="event.stopPropagation(); quickResumeCrawl('<?= htmlspecialchars($crawl->dir) ?>', '<?= htmlspecialchars($domainName) ?>', <?= $crawl->crawl_id ?>, this)">
+                                    <span class="material-symbols-outlined">play_circle</span>
+                                </button>
+                                <?php endif; ?>
+                            </span>
+                            <?php endif; ?>
                         </span>
                         <div class="pj-crawl-info">
                             <span class="pj-crawl-date"><?= $crawl->date ?></span>

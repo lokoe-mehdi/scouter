@@ -56,6 +56,23 @@ RUN echo "max_execution_time = 0" > /usr/local/etc/php/conf.d/timeout.ini && \
     echo "memory_limit = -1" >> /usr/local/etc/php/conf.d/timeout.ini && \
     echo "default_socket_timeout = 3600" >> /usr/local/etc/php/conf.d/timeout.ini
 
+# Tune PHP-FPM pool : default config ships with `pm.max_children = 5` which
+# is way too low when long-running endpoints (SSE chat) coexist with normal
+# requests. With 5 workers, a single in-flight Dr. Brief conversation
+# already eats 20% of the pool ; 3 of them and the whole app freezes for
+# every user. We bump it to 40 dynamic workers — generous headroom for
+# small/medium installs without exploding RAM (~150 MB/worker peak).
+# Adjust pm.* values via env vars in docker-compose if your host has
+# more or less RAM than the default Scouter sizing.
+RUN echo "[www]"                          >  /usr/local/etc/php-fpm.d/zz-scouter.conf && \
+    echo "pm = dynamic"                   >> /usr/local/etc/php-fpm.d/zz-scouter.conf && \
+    echo "pm.max_children = 40"           >> /usr/local/etc/php-fpm.d/zz-scouter.conf && \
+    echo "pm.start_servers = 8"           >> /usr/local/etc/php-fpm.d/zz-scouter.conf && \
+    echo "pm.min_spare_servers = 4"       >> /usr/local/etc/php-fpm.d/zz-scouter.conf && \
+    echo "pm.max_spare_servers = 16"      >> /usr/local/etc/php-fpm.d/zz-scouter.conf && \
+    echo "pm.max_requests = 500"          >> /usr/local/etc/php-fpm.d/zz-scouter.conf && \
+    echo "request_terminate_timeout = 0"  >> /usr/local/etc/php-fpm.d/zz-scouter.conf
+
 # Create necessary directories
 RUN mkdir -p /var/log/supervisor && \
     chown -R www-data:www-data /var/log/nginx

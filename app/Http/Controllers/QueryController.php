@@ -77,8 +77,12 @@ class QueryController extends Controller
         $queryClean = preg_replace('/--.*$/m', ' ', $queryClean);  // strip line comments
         $queryUpper = strtoupper(trim($queryClean));
 
-        if (strpos($queryUpper, 'SELECT') !== 0) {
-            Response::forbidden('Seules les requêtes SELECT sont autorisées.');
+        // Accept SELECT or WITH (CTE) at the start. WITH RECURSIVE stays
+        // blocked further down. Any write op inside a CTE (e.g. `WITH x AS
+        // (INSERT ...) ...`) is caught by the FORBIDDEN_KEYWORDS scan + the
+        // READ ONLY transaction.
+        if (strpos($queryUpper, 'SELECT') !== 0 && strpos($queryUpper, 'WITH') !== 0) {
+            Response::forbidden('Seules les requêtes SELECT ou WITH … SELECT sont autorisées.');
         }
 
         // Block multi-statement attacks
@@ -165,6 +169,23 @@ class QueryController extends Controller
             'pages', 'links',
             'duplicate_clusters', 'page_schemas', 'redirect_chains',
         ];
+        // Extract CTE names so the whitelist doesn't flag them. A query like
+        // `WITH ranked AS (SELECT ...) SELECT * FROM ranked` would otherwise
+        // fail on `ranked` because it appears after FROM. We collect all CTE
+        // identifiers and treat them as valid local table names for this
+        // query only. The `AS\s*\(` (parenthesis required) avoids matching
+        // column aliases like `AS rk`.
+        $cteNames = [];
+        if (preg_match_all(
+            '/(?:\bWITH\s+|,\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(/i',
+            $transformedQuery,
+            $cteMatches
+        )) {
+            foreach ($cteMatches[1] as $name) {
+                $cteNames[] = strtolower($name);
+            }
+        }
+
         // Extrait tous les noms de tables après FROM / JOIN, en gérant "schema.table",
         // les quoted identifiers, et en isolant le dernier segment (= nom de table).
         preg_match_all(
@@ -175,12 +196,57 @@ class QueryController extends Controller
         foreach (array_unique($tableMatches[1] ?? []) as $tableName) {
             $tableLower = strtolower($tableName);
             $isAllowed = in_array($tableLower, $allowedTables, true)
+                || in_array($tableLower, $cteNames, true)
                 || preg_match('/^(pages|links|duplicate_clusters|page_schemas|redirect_chains)_\d+$/i', $tableLower);
             if (!$isAllowed) {
                 Response::forbidden(
                     "Table « {$tableName} » non autorisée depuis le SQL Explorer. " .
                     "Tables accessibles : " . implode(', ', $allowedTables) . '.'
                 );
+            }
+        }
+
+        // === SÉCURITÉ : project-scope sur crawl_categories ===
+        //
+        // crawl_categories est une table partagée entre tous les projets (pas
+        // de partitionnement par crawl_id, contrairement à pages/links/...).
+        // Sans filtre supplémentaire, un `SELECT * FROM crawl_categories`
+        // dans le SQL Explorer renvoie les catégories de TOUS les projets de
+        // l'instance, ce qui est une fuite cross-tenant.
+        //
+        // Solution : on préfixe la requête avec une CTE du même nom qui
+        // pré-filtre sur le project_id courant. PostgreSQL résout alors
+        // toute référence à `crawl_categories` (FROM, JOIN, subquery) vers
+        // la CTE — l'utilisateur ne peut techniquement plus voir les rows
+        // des autres projets, peu importe la forme de sa requête.
+        //
+        // Coût : nul en pratique (PG inline la CTE en query plan ; si la
+        // table n'est pas référencée, c'est juste une CTE inutilisée).
+        // Garde : la requête ne doit pas définir sa propre CTE nommée
+        // `crawl_categories`. On en injecte une avec ce nom exact ci-dessous
+        // pour scoper la table partagée par projet ; une CTE utilisateur du
+        // même nom (a) entre en collision → erreur "WITH query name specified
+        // more than once", et (b) contournerait le filtre projet. On refuse
+        // avec un message clair.
+        if (in_array('crawl_categories', $cteNames, true)) {
+            Response::forbidden(
+                '« crawl_categories » est réservé et déjà filtré par projet — ' .
+                'référencez-la directement (ex. JOIN crawl_categories) sans ' .
+                'définir de CTE portant ce nom.'
+            );
+            return;
+        }
+
+        $pid = (int)$crawlRecord->project_id;
+        if ($pid > 0) {
+            $catScope = "crawl_categories AS (SELECT * FROM crawl_categories WHERE project_id = {$pid})";
+            if (preg_match('/^\s*WITH\s+/i', $transformedQuery)) {
+                // Fusion avec la CTE existante de l'utilisateur.
+                $transformedQuery = preg_replace(
+                    '/^\s*WITH\s+/i', "WITH {$catScope}, ", $transformedQuery, 1
+                );
+            } else {
+                $transformedQuery = "WITH {$catScope} " . ltrim($transformedQuery);
             }
         }
 
