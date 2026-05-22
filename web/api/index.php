@@ -159,6 +159,7 @@ try {
     $router->post('/dr-brief/dismiss-greeting', [DrBriefController::class, 'dismissGreeting'], ['auth' => true]);
 
     // Bulk AI Generator — multi-item, multi-context generation in a batch job.
+    $router->get( '/bulk-generate/models',         [BulkGenerateController::class, 'models'],         ['auth' => true]);
     $router->get( '/bulk-generate/context-fields', [BulkGenerateController::class, 'contextFields'], ['auth' => true]);
     $router->get( '/bulk-generate/existing-keys',  [BulkGenerateController::class, 'existingKeys'],  ['auth' => true]);
     $router->post('/bulk-generate/estimate',       [BulkGenerateController::class, 'estimate'],      ['auth' => true]);

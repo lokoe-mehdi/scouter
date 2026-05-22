@@ -17,6 +17,22 @@ try {
 // control at all — the buttons below are wrapped in this check.
 $aiRoleAllowed = \App\AI\BudgetService::isAiEligibleRole($_SESSION['role'] ?? null);
 
+// Bulk AI generation writes data — it is restricted to the crawl OWNER (and
+// admins). A user with a merely SHARED crawl must not see the bulk button.
+$_ueIsAdmin = (($_SESSION['role'] ?? '') === 'admin');
+$_ueUserId  = (int)($_SESSION['user_id'] ?? 0);
+$ueOwnsCrawl = $_ueIsAdmin;
+if (!$ueOwnsCrawl && !empty($crawlId)) {
+    try {
+        $_ueOwnStmt = $pdo->prepare("SELECT p.user_id FROM crawls c JOIN projects p ON p.id = c.project_id WHERE c.id = :cid");
+        $_ueOwnStmt->execute([':cid' => (int)$crawlId]);
+        $ueOwnsCrawl = ((int)$_ueOwnStmt->fetchColumn() === $_ueUserId);
+    } catch (\Throwable $e) {
+        $ueOwnsCrawl = false;
+    }
+}
+$canBulkGenerate = $aiRoleAllowed && $ueOwnsCrawl;
+
 // Récupération des filtres. Au premier chargement (aucun filtre dans l'URL) on
 // active par défaut un filtre `external = false` pour ne montrer que les URLs
 // internes — l'utilisateur peut le retirer pour voir les externes.
@@ -1267,7 +1283,7 @@ if (isset($_GET['add_cols']) && $_GET['add_cols'] !== '') {
          colonnes générées). Isolée à droite via margin-left:auto pour
          ne pas la confondre avec les boutons de filtrage. Cible TOUTES
          les URLs du tableau filtré (page courante). -->
-    <?php if ($aiRoleAllowed): ?>
+    <?php if ($canBulkGenerate): ?>
     <button class="ai-url-toolbar-btn bulk-ai-btn"
             id="bulkAiOpenBtn"
             type="button"
@@ -1446,7 +1462,10 @@ $urlTableConfig = [
     'defaultColumns' => $selectedColumns,
     'pdo' => $pdo,
     'crawlId' => $crawlId,
-    'projectDir' => $_GET['project'] ?? ''
+    'projectDir' => $_GET['project'] ?? '',
+    // Expose all filtered page ids so the Bulk AI modal works on the FULL
+    // filtered set (every matching URL), not just the displayed page.
+    'exposeAllIds' => true,
 ];
 
 include __DIR__ . '/../components/url-table.php';
@@ -2584,13 +2603,14 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function openBulkAiModal() {
-    // Tous les data-page-id des <tr> du tableau actuel — déjà filtrés
-    // côté serveur via les filtres URL Explorer actifs. Limité à la page
-    // de pagination courante : pour traiter plus d'URLs, augmente le
-    // perPage avant de cliquer.
-    const rows = document.querySelectorAll('tr[data-page-id]');
-    const pageIds = [];
-    rows.forEach(r => { if (r.dataset.pageId) pageIds.push(r.dataset.pageId); });
+    // The WHOLE filtered set (every matching URL, all pages) — resolved
+    // server-side from the exact same filter as the table. Falls back to the
+    // displayed rows only if that list isn't available.
+    let pageIds = Array.isArray(window.__bulkAllFilteredPageIds) ? window.__bulkAllFilteredPageIds.slice() : null;
+    if (!pageIds) {
+        pageIds = [];
+        document.querySelectorAll('tr[data-page-id]').forEach(r => { if (r.dataset.pageId) pageIds.push(r.dataset.pageId); });
+    }
     if (pageIds.length === 0) {
         alert(<?= json_encode(__('bulk_gen.err_no_visible')) ?>);
         return;

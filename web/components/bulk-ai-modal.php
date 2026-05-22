@@ -810,13 +810,10 @@
             }
         } catch (e) {}
 
-        // Models (reuse the same endpoint used by /settings)
+        // Models — dedicated bulk-generate endpoint (works for all editors, not
+        // just admins; /settings/ai/test is admin-only and 403s for users).
         try {
-            const r = await fetch('../api/settings/ai/test', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ api_key: '' }), // uses stored key
-            });
+            const r = await fetch('../api/bulk-generate/models');
             const d = await r.json();
             if (d.success !== false && Array.isArray(d.models)) {
                 state.availableModels = d.models;
