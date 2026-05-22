@@ -178,9 +178,12 @@ try {
     // PUBLIC API v1 — Bearer token auth (acts as the key's owner)
     // =============================================================================
     $router->get( '/v1/projects',              [ApiV1Controller::class, 'projects'], ['token' => true]);
+    $router->post('/v1/crawls',                [ApiV1Controller::class, 'createCrawl'], ['token' => true]);
     $router->get( '/v1/projects/{id}/crawls',  [ApiV1Controller::class, 'crawls'],   ['token' => true]);
     $router->get( '/v1/crawls/{id}',           [ApiV1Controller::class, 'crawl'],    ['token' => true]);
     $router->get( '/v1/crawls/{id}/schema',    [ApiV1Controller::class, 'schema'],   ['token' => true]);
+    $router->get( '/v1/crawls/{id}/content',   [ApiV1Controller::class, 'content'],  ['token' => true]);
+    $router->get( '/v1/crawls/{id}/html',      [ApiV1Controller::class, 'html'],     ['token' => true]);
     $router->post('/v1/crawls/{id}/query',     [ApiV1Controller::class, 'query'],    ['token' => true]);
 
     // =============================================================================

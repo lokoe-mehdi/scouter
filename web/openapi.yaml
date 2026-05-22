@@ -99,6 +99,89 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
+  /crawls:
+    post:
+      summary: Create and queue a new crawl
+      description: >
+        Launches a new crawl from a configuration object. The ONLY required field
+        is the start URL (`config.general.start`, or `config.general.url_list` in
+        list mode); every other field falls back to sensible template defaults.
+        If `config.general.domains` is omitted it defaults to the start URL's
+        domain. The crawl is created and queued immediately; a worker picks it up.
+
+        Key config fields — general: `crawl_type` ("spider" = follow links and
+        discover the site / "list" = crawl only `url_list`), `crawl_mode`
+        ("classic" = HTTP, fast / "javascript" = headless render), `crawl_speed`
+        ("very_slow" ~1 URL/s, "slow" ~5, "fast" ~20, "unlimited" = no limit),
+        `depthMax` (1–100, spider), `domains`, `url_list` (list mode),
+        `user-agent`. advanced: respect_robots / respect_nofollow /
+        respect_canonical / follow_redirects / retry_failed_urls / store_html
+        (booleans), `sitemap_urls`, `custom_headers`, `http_auth`
+        (null or {username,password}), `xPathExtractors` {name: xpath},
+        `regexExtractors` {name: regex}.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config]
+              properties:
+                config:
+                  type: object
+                  additionalProperties: true
+            examples:
+              spider:
+                summary: Spider mode (follow links from a start URL)
+                value:
+                  config:
+                    general:
+                      start: "https://www.website.tld/"
+                      crawl_type: spider
+                      depthMax: 30
+                      domains: ["www.website.tld"]
+                    advanced:
+                      respect_robots: true
+                      follow_redirects: true
+                      store_html: true
+              list:
+                summary: List mode (crawl an explicit set of URLs)
+                value:
+                  config:
+                    general:
+                      crawl_type: list
+                      url_list:
+                        - "https://www.website.tld/page-1"
+                        - "https://www.website.tld/page-2"
+                        - "https://www.website.tld/blog/article"
+                    advanced:
+                      store_html: true
+      responses:
+        '200':
+          description: Crawl created and queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      crawl_id:    { type: integer }
+                      project_id:  { type: integer }
+                      job_id:      { type: integer }
+                      project_dir: { type: string }
+                      domain:      { type: string }
+                      crawl_type:  { type: string }
+                      status:      { type: string, example: queued }
+        '400':
+          description: Invalid config (missing/invalid start URL or url_list)
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: The key's user is not allowed to create crawls (viewer role)
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
   /projects/{id}/crawls:
     get:
       summary: List crawls of a project
@@ -126,7 +209,11 @@ paths:
 
   /crawls/{id}:
     get:
-      summary: Get crawl metadata
+      summary: Get crawl metadata + full configuration
+      description: >
+        Returns the crawl metadata plus a `config` object holding the FULL crawl
+        configuration (start URLs, limits, filters, rendering, extractors, etc.,
+        decoded from storage). `config` is null when no configuration was stored.
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
@@ -137,7 +224,16 @@ paths:
               schema:
                 type: object
                 properties:
-                  data: { $ref: '#/components/schemas/Crawl' }
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/Crawl'
+                      - type: object
+                        properties:
+                          config:
+                            type: object
+                            nullable: true
+                            additionalProperties: true
+                            description: Full crawl configuration (decoded). null if none stored.
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -170,6 +266,98 @@ paths:
                               type: { type: string }
                       notes: { type: string }
                   meta: { type: object, properties: { crawl_id: { type: integer } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /crawls/{id}/content:
+    get:
+      summary: Readable content of one page (title, headings, visible text)
+      description: >
+        Extracts the human-readable content of a single crawled page from its
+        stored HTML: the page title, the ordered h1..h6 tree, and the visible
+        text (scripts/styles/svg stripped). `has_html` is false when the crawl
+        didn't keep raw HTML for that URL.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - name: url
+          in: query
+          required: true
+          description: Full page URL, matching `pages.url` exactly.
+          schema: { type: string, example: "https://example.com/blog/post" }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      url:        { type: string }
+                      title:      { type: string, nullable: true }
+                      has_html:   { type: boolean }
+                      headings:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            level: { type: integer, example: 2 }
+                            text:  { type: string }
+                      text:       { type: string }
+                      word_count: { type: integer }
+                      truncated:  { type: boolean }
+                  meta: { type: object, properties: { crawl_id: { type: integer } } }
+        '400':
+          description: Missing url
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /crawls/{id}/html:
+    get:
+      summary: Raw HTML of one page
+      description: >
+        Returns the raw stored HTML markup of a single crawled page (decoded from
+        the crawl's storage). Can be large, so it is capped at `max_chars`
+        (default 1,000,000) with a `truncated` flag. `has_html` is false when the
+        crawl didn't keep raw HTML for that URL.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - name: url
+          in: query
+          required: true
+          description: Full page URL, matching `pages.url` exactly.
+          schema: { type: string, example: "https://example.com/blog/post" }
+        - name: max_chars
+          in: query
+          required: false
+          description: Cap on returned HTML length (1000–2000000).
+          schema: { type: integer, default: 1000000 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      url:             { type: string }
+                      has_html:        { type: boolean }
+                      html:            { type: string }
+                      length:          { type: integer }
+                      original_length: { type: integer }
+                      truncated:       { type: boolean }
+                  meta: { type: object, properties: { crawl_id: { type: integer } } }
+        '400':
+          description: Missing url
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }

@@ -152,9 +152,9 @@ class DepthCrawler
                 break;
             
             case 'fast':
-                // ~10-15 URLs/seconde max
+                // ~20 URLs/seconde max
                 $this->simultaneousLimit = 8;
-                $this->targetUrlsPerSecond = 15; // throttling à 15 URLs/sec
+                $this->targetUrlsPerSecond = 20; // throttling à 20 URLs/sec
                 break;
             
             case 'unlimited':

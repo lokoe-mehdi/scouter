@@ -23,9 +23,9 @@ function mockFetch(response = { ok: true, status: 200, jsonText: '{"data":[]}' }
   return calls;
 }
 
-test('exposes exactly the five expected tools', () => {
+test('exposes exactly the expected tools', () => {
   const names = TOOLS.map((t) => t.name).sort();
-  assert.deepEqual(names, ['get_crawl', 'get_crawl_schema', 'list_crawls', 'list_projects', 'run_sql']);
+  assert.deepEqual(names, ['create_crawl', 'get_crawl', 'get_crawl_schema', 'get_page_content', 'get_page_html', 'list_crawls', 'list_projects', 'run_sql']);
 });
 
 test('every tool has a description and an object input schema', () => {
@@ -70,6 +70,30 @@ test('get_crawl and get_crawl_schema hit the right paths', async () => {
   calls = mockFetch();
   await dispatch('Bearer x', 'get_crawl_schema', { crawl_id: 7 });
   assert.equal(calls[0].url, `${API_BASE}/crawls/7/schema`);
+});
+
+test('get_page_content → GET /crawls/{id}/content?url=… (url encoded)', async () => {
+  const calls = mockFetch();
+  const url = 'https://ex.com/a b?x=1';
+  await dispatch('Bearer x', 'get_page_content', { crawl_id: 5, url });
+  assert.equal(calls[0].opts.method, 'GET');
+  assert.equal(calls[0].url, `${API_BASE}/crawls/5/content?` + new URLSearchParams({ url }).toString());
+});
+
+test('get_page_html → GET /crawls/{id}/html with url + default max_chars', async () => {
+  const calls = mockFetch();
+  await dispatch('Bearer x', 'get_page_html', { crawl_id: 7, url: 'https://ex.com/p' });
+  assert.equal(calls[0].opts.method, 'GET');
+  assert.equal(calls[0].url, `${API_BASE}/crawls/7/html?` + new URLSearchParams({ url: 'https://ex.com/p', max_chars: '50000' }).toString());
+});
+
+test('create_crawl → POST /crawls with { config } body', async () => {
+  const calls = mockFetch();
+  const config = { general: { start: 'https://www.website.tld/', crawl_type: 'spider' } };
+  await dispatch('Bearer x', 'create_crawl', { config });
+  assert.equal(calls[0].opts.method, 'POST');
+  assert.equal(calls[0].url, `${API_BASE}/crawls`);
+  assert.deepEqual(JSON.parse(calls[0].opts.body), { config });
 });
 
 test('run_sql → POST /crawls/{id}/query with JSON body', async () => {
