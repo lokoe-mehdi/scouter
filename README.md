@@ -1,7 +1,7 @@
 <div align="center">
+<img width="100" height="100" alt="image" src="https://github.com/user-attachments/assets/13212ec4-4548-4ddb-864f-ca84ab20ecec" /> 
 
-# 🛰️ Scouter SEO Crawler
-
+# Scouter SEO Crawler
 ### The open-source SEO crawler built for the AI era
 
 **AI-powered. MCP-ready. Self-hosted. Free forever.**
