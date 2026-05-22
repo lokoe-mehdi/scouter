@@ -459,6 +459,22 @@ $result = $sqlCount->fetch(PDO::FETCH_OBJ);
 $totalResults = $result ? $result->total : 0;
 $totalPages = ceil($totalResults / $perPage);
 
+// Expose EVERY matching page id (the whole filtered set, not just the displayed
+// page) so the Bulk AI modal generates over all results. Reuses the table's own
+// query as a subquery → guaranteed identical to what's shown, no LIMIT.
+if (!empty($urlTableConfig['exposeAllIds'])) {
+    $allFilteredPageIds = [];
+    try {
+        $idInner = preg_replace('/LIMIT\s+\d+\s*(OFFSET\s+\d+)?/i', '', $sqlQuery);
+        $idStmt = $pdo->prepare("SELECT sub.id FROM ( $idInner ) sub");
+        $idStmt->execute($sqlParams);
+        $allFilteredPageIds = $idStmt->fetchAll(PDO::FETCH_COLUMN);
+    } catch (\Throwable $e) {
+        $allFilteredPageIds = [];
+    }
+    echo '<script>window.__bulkAllFilteredPageIds = ' . json_encode($allFilteredPageIds) . ';</script>';
+}
+
 // Exécution de la requête principale avec pagination
 $paginatedQuery = $sqlQuery;
 if(!preg_match('/LIMIT/i', $paginatedQuery)) {

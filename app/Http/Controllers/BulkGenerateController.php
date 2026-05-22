@@ -240,6 +240,20 @@ class BulkGenerateController extends Controller
      * Body : { crawl_id, page_ids[], items[], context_fields[],
      *          prompt_template, model_id, manual_batch_size? }
      */
+    // GET /api/bulk-generate/models
+    // Model catalog for the wizard. OpenRouter's /models endpoint is public
+    // (no key needed), so this is available to any authenticated editor — unlike
+    // /settings/ai/test which is admin-only.
+    public function models(Request $request): void
+    {
+        $list = OpenRouterClient::listModels();
+        if (!$list['ok']) {
+            $this->error($list['error'] ?? 'Model list failed', 502);
+            return;
+        }
+        $this->success(['models' => $list['models'], 'models_count' => count($list['models'])]);
+    }
+
     public function estimate(Request $request): void
     {
         $params = $this->validateAndUnpackJobParams($request, /*allowEmptyIds*/ true);
@@ -693,13 +707,18 @@ class BulkGenerateController extends Controller
 
     private function authorize(object $crawl): void
     {
-        $crawlPath = (string)($crawl->path ?? '');
-        if ($crawlPath !== '') {
-            $this->auth->requireCrawlManagement($crawlPath, true);
-        } else {
-            // Fallback : no path → just check read access by id, then refuse
-            // if no management. Mirror the pattern in DrBriefController.
-            $this->auth->requireCrawlAccessById((int)$crawl->id, true);
+        // Bulk generation is restricted to the user's OWN crawls — NOT crawls
+        // merely shared with them. Admins may operate on any crawl.
+        if ($this->auth->isAdmin()) {
+            return;
+        }
+        $projectId = (int)($crawl->project_id ?? 0);
+        $stmt = $this->db->prepare("SELECT user_id FROM projects WHERE id = :id AND deleted_at IS NULL");
+        $stmt->execute([':id' => $projectId]);
+        $ownerId = $stmt->fetchColumn();
+        if ($ownerId === false || (int)$ownerId !== (int)$this->auth->getCurrentUserId()) {
+            // Response::error() exits the request.
+            $this->error('Bulk generation is only allowed on your own crawls.', 403);
         }
     }
 

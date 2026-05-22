@@ -159,6 +159,7 @@ try {
     $router->post('/dr-brief/dismiss-greeting', [DrBriefController::class, 'dismissGreeting'], ['auth' => true]);
 
     // Bulk AI Generator — multi-item, multi-context generation in a batch job.
+    $router->get( '/bulk-generate/models',         [BulkGenerateController::class, 'models'],         ['auth' => true]);
     $router->get( '/bulk-generate/context-fields', [BulkGenerateController::class, 'contextFields'], ['auth' => true]);
     $router->get( '/bulk-generate/existing-keys',  [BulkGenerateController::class, 'existingKeys'],  ['auth' => true]);
     $router->post('/bulk-generate/estimate',       [BulkGenerateController::class, 'estimate'],      ['auth' => true]);
@@ -178,9 +179,21 @@ try {
     // PUBLIC API v1 — Bearer token auth (acts as the key's owner)
     // =============================================================================
     $router->get( '/v1/projects',              [ApiV1Controller::class, 'projects'], ['token' => true]);
+    // Scheduling (recurring crawls)
+    $router->get(   '/v1/schedules',                  [ApiV1Controller::class, 'schedules'],            ['token' => true]);
+    $router->get(   '/v1/projects/{id}/schedule',     [ApiV1Controller::class, 'getProjectSchedule'],   ['token' => true]);
+    $router->put(   '/v1/projects/{id}/schedule',     [ApiV1Controller::class, 'saveProjectSchedule'],  ['token' => true]);
+    $router->patch( '/v1/projects/{id}/schedule',     [ApiV1Controller::class, 'toggleProjectSchedule'],['token' => true]);
+    $router->delete('/v1/projects/{id}/schedule',     [ApiV1Controller::class, 'deleteProjectSchedule'],['token' => true]);
+    $router->post('/v1/crawls',                [ApiV1Controller::class, 'createCrawl'],  ['token' => true]);
+    $router->get( '/v1/crawls/{id}/status',    [ApiV1Controller::class, 'crawlStatus'],  ['token' => true]);
+    $router->post('/v1/crawls/{id}/stop',      [ApiV1Controller::class, 'stopCrawl'],    ['token' => true]);
+    $router->post('/v1/crawls/{id}/start',     [ApiV1Controller::class, 'startCrawl'],   ['token' => true]);
     $router->get( '/v1/projects/{id}/crawls',  [ApiV1Controller::class, 'crawls'],   ['token' => true]);
     $router->get( '/v1/crawls/{id}',           [ApiV1Controller::class, 'crawl'],    ['token' => true]);
     $router->get( '/v1/crawls/{id}/schema',    [ApiV1Controller::class, 'schema'],   ['token' => true]);
+    $router->get( '/v1/crawls/{id}/content',   [ApiV1Controller::class, 'content'],  ['token' => true]);
+    $router->get( '/v1/crawls/{id}/html',      [ApiV1Controller::class, 'html'],     ['token' => true]);
     $router->post('/v1/crawls/{id}/query',     [ApiV1Controller::class, 'query'],    ['token' => true]);
 
     // =============================================================================

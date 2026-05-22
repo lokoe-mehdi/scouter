@@ -1347,6 +1347,50 @@ try {
             copied:   <?= json_encode(__('settings.api_copied')) ?>,
         };
 
+        const CREATE_UA = 'Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)';
+        const CREATE_ADVANCED = {
+            respect_robots: true,
+            respect_nofollow: true,
+            respect_canonical: true,
+            follow_redirects: true,
+            retry_failed_urls: true,
+            store_html: true,
+            sitemap_urls: [],
+            custom_headers: [],
+            http_auth: null,
+            xPathExtractors: { count_h2: 'count(//h2)' },
+            regexExtractors: { google_analytics: 'ua":"(UA-\\d{8}-\\d)' },
+        };
+        const CREATE_SPIDER_EXAMPLE = JSON.stringify({
+            config: {
+                general: {
+                    start: 'https://www.website.tld/',
+                    domains: ['www.website.tld'],
+                    depthMax: 30,
+                    crawl_mode: 'classic',
+                    crawl_type: 'spider',
+                    'user-agent': CREATE_UA,
+                    crawl_speed: 'fast',
+                },
+                advanced: CREATE_ADVANCED,
+            },
+        }, null, 2);
+        const CREATE_LIST_EXAMPLE = JSON.stringify({
+            config: {
+                general: {
+                    start: 'https://www.website.tld/',
+                    domains: ['www.website.tld'],
+                    depthMax: 30,
+                    url_list: ['https://www.website.tld/page-1', 'https://www.website.tld/page-2', 'https://www.website.tld/blog/article'],
+                    crawl_mode: 'classic',
+                    crawl_type: 'list',
+                    'user-agent': CREATE_UA,
+                    crawl_speed: 'unlimited',
+                },
+                advanced: CREATE_ADVANCED,
+            },
+        }, null, 2);
+
         const ENDPOINTS = [
             { method:'GET',  path:'/projects', summary: <?= json_encode(__('settings.api_ep_projects')) ?>,
               desc: <?= json_encode(__('settings.api_ep_projects_desc')) ?>,
@@ -1354,19 +1398,58 @@ try {
             { method:'GET',  path:'/projects/{id}/crawls', summary: <?= json_encode(__('settings.api_ep_crawls')) ?>,
               desc: <?= json_encode(__('settings.api_ep_crawls_desc')) ?>,
               pathParams:['id'], params:[ {name:'limit', def:'50'}, {name:'offset', def:'0'} ] },
+            { method:'POST', path:'/crawls', summary: <?= json_encode(__('settings.api_ep_create')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_create_desc')) ?>,
+              docText: <?= json_encode(__('settings.api_create_ref')) ?>,
+              docTitle: <?= json_encode(__('settings.api_create_ref_title')) ?>,
+              body: CREATE_SPIDER_EXAMPLE,
+              bodyVariants: { spider: CREATE_SPIDER_EXAMPLE, list: CREATE_LIST_EXAMPLE } },
+            { method:'GET',  path:'/schedules', summary: <?= json_encode(__('settings.api_ep_schedules')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_schedules_desc')) ?> },
+            { method:'GET',  path:'/projects/{id}/schedule', summary: <?= json_encode(__('settings.api_ep_sched_get')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_sched_get_desc')) ?>,
+              pathParams:['id'] },
+            { method:'PUT',  path:'/projects/{id}/schedule', summary: <?= json_encode(__('settings.api_ep_sched_put')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_sched_put_desc')) ?>,
+              docText: <?= json_encode(__('settings.api_schedule_ref')) ?>,
+              docTitle: <?= json_encode(__('settings.api_schedule_ref_title')) ?>,
+              pathParams:['id'],
+              body: JSON.stringify({ template_crawl_id: 0, frequency: 'weekly', days_of_week: ['mon','thu'], hour: 6, minute: 30, enabled: true }, null, 2) },
+            { method:'PATCH', path:'/projects/{id}/schedule', summary: <?= json_encode(__('settings.api_ep_sched_patch')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_sched_patch_desc')) ?>,
+              pathParams:['id'],
+              body: JSON.stringify({ enabled: false }, null, 2) },
+            { method:'DELETE', path:'/projects/{id}/schedule', summary: <?= json_encode(__('settings.api_ep_sched_delete')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_sched_delete_desc')) ?>,
+              pathParams:['id'] },
             { method:'GET',  path:'/crawls/{id}', summary: <?= json_encode(__('settings.api_ep_crawl')) ?>,
               desc: <?= json_encode(__('settings.api_ep_crawl_desc')) ?>,
+              pathParams:['id'] },
+            { method:'GET',  path:'/crawls/{id}/status', summary: <?= json_encode(__('settings.api_ep_status')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_status_desc')) ?>,
+              pathParams:['id'] },
+            { method:'POST', path:'/crawls/{id}/stop', summary: <?= json_encode(__('settings.api_ep_stop')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_stop_desc')) ?>,
+              pathParams:['id'] },
+            { method:'POST', path:'/crawls/{id}/start', summary: <?= json_encode(__('settings.api_ep_start')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_start_desc')) ?>,
               pathParams:['id'] },
             { method:'GET',  path:'/crawls/{id}/schema', summary: <?= json_encode(__('settings.api_ep_schema')) ?>,
               desc: <?= json_encode(__('settings.api_ep_schema_desc')) ?>,
               pathParams:['id'] },
+            { method:'GET',  path:'/crawls/{id}/content', summary: <?= json_encode(__('settings.api_ep_content')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_content_desc')) ?>,
+              pathParams:['id'], params:[ {name:'url'} ] },
+            { method:'GET',  path:'/crawls/{id}/html', summary: <?= json_encode(__('settings.api_ep_html')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_html_desc')) ?>,
+              pathParams:['id'], params:[ {name:'url'}, {name:'max_chars', def:'1000000'} ] },
             { method:'POST', path:'/crawls/{id}/query', summary: <?= json_encode(__('settings.api_ep_query')) ?>,
               desc: <?= json_encode(__('settings.api_ep_query_desc')) ?>,
               pathParams:['id'],
               body: JSON.stringify({ query:'SELECT url, code FROM pages WHERE code >= 400 ORDER BY inlinks DESC', page:1, page_size:100, count:true }, null, 2) },
         ];
 
-        const METHOD_COLORS = { GET:'#0891b2', POST:'#b45309', PUT:'#7c3aed', DELETE:'#dc2626' };
+        const METHOD_COLORS = { GET:'#0891b2', POST:'#b45309', PUT:'#7c3aed', PATCH:'#ca8a04', DELETE:'#dc2626' };
         const escapeHtml = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
         ENDPOINTS.forEach(ep => {
@@ -1392,6 +1475,20 @@ try {
                 bodyWrap.appendChild(descBox);
             }
 
+            // Optional collapsible reference doc (e.g. the crawl config keys).
+            if (ep.docText) {
+                const refDet = document.createElement('details');
+                refDet.style.cssText = 'margin-bottom:0.9rem;';
+                const refSum = document.createElement('summary');
+                refSum.textContent = ep.docTitle || 'Reference';
+                refSum.style.cssText = 'cursor:pointer; font-size:0.82rem; font-weight:600; color:#0891b2;';
+                const refPre = document.createElement('pre');
+                refPre.textContent = ep.docText;
+                refPre.style.cssText = 'white-space:pre-wrap; font-size:0.8rem; line-height:1.5; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:0.7rem 0.9rem; margin-top:0.5rem;';
+                refDet.appendChild(refSum); refDet.appendChild(refPre);
+                bodyWrap.appendChild(refDet);
+            }
+
             const inputs = {};
             const fieldRow = (label, value, placeholder) => {
                 const wrap = document.createElement('label');
@@ -1413,9 +1510,31 @@ try {
                 lbl.textContent = T.body;
                 lbl.style.cssText = 'font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.25rem;';
                 bodyWrap.appendChild(lbl);
+
                 bodyTa = document.createElement('textarea');
-                bodyTa.value = ep.body; bodyTa.rows = 6;
+                bodyTa.value = ep.body; bodyTa.rows = ep.bodyVariants ? 14 : 6;
                 bodyTa.style.cssText = 'width:100%; box-sizing:border-box; font-family:ui-monospace,monospace; font-size:0.82rem; padding:0.5rem 0.6rem; border:1px solid #cbd5e1; border-radius:6px; margin-bottom:0.6rem;';
+
+                // Endpoints with variants (e.g. create crawl: spider | list) get a
+                // small switch that swaps the example JSON in the textarea.
+                if (ep.bodyVariants) {
+                    const sw = document.createElement('div');
+                    sw.style.cssText = 'display:flex; gap:0.4rem; margin-bottom:0.4rem;';
+                    Object.keys(ep.bodyVariants).forEach((key, i) => {
+                        const b = document.createElement('button');
+                        b.type = 'button'; b.textContent = key;
+                        b.dataset.variant = key;
+                        b.style.cssText = 'padding:0.2rem 0.7rem; font-size:0.78rem; border-radius:6px; cursor:pointer; border:1px solid #cbd5e1; text-transform:capitalize; background:' + (i === 0 ? '#0891b2' : '#fff') + '; color:' + (i === 0 ? '#fff' : '#334155') + ';';
+                        b.addEventListener('click', () => {
+                            bodyTa.value = ep.bodyVariants[key];
+                            sw.querySelectorAll('button').forEach(x => { x.style.background = '#fff'; x.style.color = '#334155'; });
+                            b.style.background = '#0891b2'; b.style.color = '#fff';
+                            buildCurl();
+                        });
+                        sw.appendChild(b);
+                    });
+                    bodyWrap.appendChild(sw);
+                }
                 bodyWrap.appendChild(bodyTa);
             }
 
