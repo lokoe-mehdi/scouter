@@ -29,10 +29,12 @@ function buildServer(token, origin) {
   // (MCP serverInfo `icons`). Absolute URLs built from the public origin; both
   // the big homepage logo and the small favicon-style one are offered so the
   // client can pick by resolution.
+  // `sizes` MUST be an array of strings (MCP Icon schema) — a bare string fails
+  // client-side validation and aborts the whole connection.
   const icons = origin
     ? [
-        { src: `${origin}/logo-big.png`, mimeType: 'image/png', sizes: 'any' },
-        { src: `${origin}/logo.png`, mimeType: 'image/png', sizes: '48x48' },
+        { src: `${origin}/logo-big.png`, mimeType: 'image/png', sizes: ['any'] },
+        { src: `${origin}/logo.png`, mimeType: 'image/png', sizes: ['48x48'] },
       ]
     : undefined;
 
@@ -92,6 +94,11 @@ app.post('/mcp', async (req, res) => {
   const host = req.headers['x-forwarded-host'] || req.headers['host'];
   const origin = host ? `${proto}://${host}` : undefined;
 
+  // Diagnostic: did the Authorization header survive every proxy hop? A request
+  // with a valid token but no header here means an upstream proxy stripped it.
+  const method = (() => { try { return req.body?.method || '?'; } catch { return '?'; } })();
+  console.log(`[mcp] POST /mcp method=${method} auth=${token ? 'present' : 'MISSING'} origin=${origin}`);
+
   // No credentials → trigger OAuth discovery (RFC 9728): point the client at the
   // protected-resource metadata so claude.ai can run the auth flow. Claude Code
   // / Desktop configure the Bearer header directly and skip this branch.
@@ -101,7 +108,11 @@ app.post('/mcp', async (req, res) => {
   }
 
   const server = buildServer(token, origin);
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  // `enableJsonResponse` makes the transport reply with a plain application/json
+  // body instead of an SSE (text/event-stream) stream. Our tools are all simple
+  // request/response (no server-initiated streaming), and a buffered JSON reply
+  // sails through reverse proxies that would otherwise stall/buffer SSE.
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   res.on('close', () => { try { transport.close(); server.close(); } catch { /* ignore */ } });
   try {
     await server.connect(transport);

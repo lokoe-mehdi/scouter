@@ -42,10 +42,22 @@ function oauthJson(array $data, int $status = 200): void
     exit;
 }
 
+/** Diagnostic logging for the OAuth flow (errors land in the PHP error log). */
+function oauthLog(string $event, array $ctx = []): void
+{
+    $parts = [];
+    foreach ($ctx as $k => $v) {
+        $parts[] = $k . '=' . (is_scalar($v) || $v === null ? (string)$v : json_encode($v));
+    }
+    error_log('[Scouter OAuth] ' . $event . ($parts ? ' ' . implode(' ', $parts) : ''));
+}
+
 // CORS preflight for the JSON endpoints.
 if ($method === 'OPTIONS') {
     oauthJson([], 204);
 }
+
+oauthLog('request', ['path' => $path, 'method' => $method, 'issuer' => $issuer]);
 
 OAuthServer::pruneExpiredCodes();
 
@@ -78,8 +90,18 @@ if ($path === '/oauth/token' && $method === 'POST') {
     // application/x-www-form-urlencoded per OAuth; $_POST covers it.
     $res = OAuthServer::exchangeCode($_POST);
     if (isset($res['error'])) {
+        oauthLog('token_error', [
+            'error'        => $res['error'],
+            'desc'         => $res['error_description'] ?? '',
+            'grant_type'   => $_POST['grant_type'] ?? '',
+            'client_id'    => $_POST['client_id'] ?? '',
+            'redirect_uri' => $_POST['redirect_uri'] ?? '',
+            'has_code'     => isset($_POST['code']) ? 'y' : 'n',
+            'has_verifier' => isset($_POST['code_verifier']) ? 'y' : 'n',
+        ]);
         oauthJson($res, 400);
     }
+    oauthLog('token_ok', ['client_id' => $_POST['client_id'] ?? '']);
     oauthJson($res, 200);
 }
 
@@ -103,6 +125,12 @@ if ($path === '/oauth/authorize') {
 
     // Validate the client + redirect_uri BEFORE trusting redirect_uri for errors.
     if (!$client || !OAuthServer::redirectUriAllowed($client, $redirectUri)) {
+        oauthLog('authorize_reject', [
+            'reason'       => !$client ? 'unknown_client' : 'redirect_uri_not_allowed',
+            'client_id'    => $clientId,
+            'redirect_uri' => $redirectUri,
+            'allowed'      => $client['redirect_uris'] ?? [],
+        ]);
         http_response_code(400);
         header('Content-Type: text/html; charset=utf-8');
         echo '<!doctype html><meta charset="utf-8"><title>OAuth error</title>'
@@ -112,7 +140,8 @@ if ($path === '/oauth/authorize') {
         exit;
     }
 
-    $bail = function (string $error) use ($redirectUri, $state): void {
+    $bail = function (string $error) use ($redirectUri, $state, $clientId, $method): void {
+        oauthLog('authorize_bail', ['error' => $error, 'client_id' => $clientId, 'method' => $method]);
         $sep = str_contains($redirectUri, '?') ? '&' : '?';
         $qs = http_build_query(array_filter(['error' => $error, 'state' => $state], fn($v) => $v !== ''));
         header('Location: ' . $redirectUri . $sep . $qs);
