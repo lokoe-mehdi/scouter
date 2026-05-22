@@ -44,11 +44,29 @@ components:
         domain:      { type: string, example: example.com }
         status:      { type: string, example: finished }
         crawl_type:  { type: string, example: spider }
+        scheduled:   { type: boolean, nullable: true, description: "true = launched by a schedule, false = launched manually." }
         urls:        { type: integer, example: 12847 }
         crawled:     { type: integer, example: 12412 }
         compliant:   { type: integer, example: 9981 }
         started_at:  { type: string }
         finished_at: { type: string, nullable: true }
+    Schedule:
+      type: object
+      description: A project's recurring-crawl schedule (structured frequency, not raw cron).
+      properties:
+        project_id:        { type: integer, example: 32 }
+        domain:            { type: string, nullable: true, example: example.com }
+        enabled:           { type: boolean }
+        frequency:         { type: string, enum: [daily, weekly, monthly] }
+        hour:              { type: integer, example: 8, description: "0–23 (server time)" }
+        minute:            { type: integer, example: 0, description: "0–59" }
+        days_of_week:      { type: array, items: { type: string }, example: ["mon","thu"], description: "weekly only" }
+        day_of_month:      { type: integer, example: 15, description: "1–28, monthly only — a single day (no lists)" }
+        crawl_type:        { type: string }
+        depth_max:         { type: integer }
+        next_run_at:       { type: string, nullable: true }
+        last_triggered_at: { type: string, nullable: true }
+        updated_at:        { type: string, nullable: true }
     ListMeta:
       type: object
       properties:
@@ -98,6 +116,131 @@ paths:
                   meta: { $ref: '#/components/schemas/ListMeta' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/RateLimited' }
+
+  /schedules:
+    get:
+      summary: List all crawl schedules (incl. disabled)
+      description: >
+        Every recurring-crawl schedule across the projects the key can access,
+        including disabled ones. One schedule per project.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Schedule' } }
+                  meta: { type: object, properties: { total: { type: integer } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /projects/{id}/schedule:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      summary: Get a project's schedule (or null)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { oneOf: [ { $ref: '#/components/schemas/Schedule' }, { type: 'null' } ] }
+                  meta: { type: object, properties: { project_id: { type: integer } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      summary: Create or replace a project's schedule (upsert)
+      description: >
+        Defines a recurring crawl. `template_crawl_id` (an existing crawl of the
+        project) supplies the config reused for each run — required to create,
+        optional to only change timing. Re-calling fully REPLACES any existing
+        schedule for the project (one schedule per project). Frequency is
+        structured (not cron): "daily" (hour:minute), "weekly" (days_of_week at
+        hour:minute), "monthly" (a single day_of_month at hour:minute). Requires
+        project management rights.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [frequency]
+              properties:
+                template_crawl_id: { type: integer, description: "Crawl id of this project whose config is reused. Required to create." }
+                frequency:         { type: string, enum: [daily, weekly, monthly] }
+                hour:              { type: integer, default: 8, minimum: 0, maximum: 23 }
+                minute:            { type: integer, default: 0, minimum: 0, maximum: 59 }
+                days_of_week:      { type: array, items: { type: string }, example: ["mon","thu"], description: "weekly only" }
+                day_of_month:      { type: integer, default: 1, minimum: 1, maximum: 28, description: "monthly only — a single day (1–28), not a list" }
+                enabled:           { type: boolean, default: true }
+            examples:
+              weekly:
+                summary: Weekly, Mon & Thu at 06:30, from crawl 542
+                value: { template_crawl_id: 542, frequency: weekly, days_of_week: ["mon","thu"], hour: 6, minute: 30 }
+              daily:
+                summary: Daily at 03:00
+                value: { template_crawl_id: 542, frequency: daily, hour: 3, minute: 0 }
+      responses:
+        '200':
+          description: Schedule saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Schedule' }
+        '400':
+          description: Invalid frequency, or missing template_crawl_id when creating
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      summary: Enable / disable an existing schedule
+      description: Flip a schedule on/off without changing its settings. Enabling recomputes the next run.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Schedule' }
+        '400': { description: Missing enabled, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: No schedule exists for this project
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    delete:
+      summary: Remove a project's schedule
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: object, properties: { project_id: { type: integer }, deleted: { type: boolean } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /crawls:
     post:
@@ -237,6 +380,117 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /crawls/{id}/status:
+    get:
+      summary: Live status / progress of a crawl
+      description: >
+        Live state of a crawl: status, discovered vs crawled URL counts, the
+        worker job status, and the latest log lines (oldest→newest). No fake
+        progress percentage — URL counts keep growing as the crawler discovers
+        more pages.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      crawl_id:        { type: integer }
+                      status:          { type: string, example: running }
+                      crawl_type:      { type: string }
+                      scheduled:       { type: boolean, nullable: true }
+                      in_progress:     { type: integer, nullable: true }
+                      urls_discovered: { type: integer }
+                      urls_crawled:    { type: integer }
+                      compliant:       { type: integer }
+                      started_at:      { type: string, nullable: true }
+                      finished_at:     { type: string, nullable: true }
+                      job:
+                        type: object
+                        nullable: true
+                        properties:
+                          id:     { type: integer }
+                          status: { type: string }
+                      recent_logs:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            at:      { type: string }
+                            type:    { type: string }
+                            message: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /crawls/{id}/stop:
+    post:
+      summary: Stop / cancel a running or queued crawl
+      description: >
+        Queued/pending crawls are cancelled immediately; a running crawl gets a
+        graceful stop (finishes the current batch). Calling it again on a
+        "stopping" crawl force-stops it. Requires management rights on the crawl’s project.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Stop accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      crawl_id: { type: integer }
+                      status:   { type: string, example: stopping }
+                      message:  { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Crawl is not running/queued, or has no active job
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /crawls/{id}/start:
+    post:
+      summary: Resume a fully-stopped crawl
+      description: >
+        Restarts a stopped crawl (a new worker job continues where it left off).
+        Allowed ONLY when the crawl is fully stopped (status "stopped" or
+        "failed") — rejected with 409 while it is running, queued, pending, or
+        still "stopping" (finishing its current batch). Requires management rights on the crawl’s project.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Crawl resumed (queued)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      crawl_id: { type: integer }
+                      job_id:   { type: integer }
+                      status:   { type: string, example: queued }
+                      message:  { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Crawl is not fully stopped yet (running/queued/stopping)
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
 
   /crawls/{id}/schema:
     get:

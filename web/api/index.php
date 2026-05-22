@@ -178,7 +178,16 @@ try {
     // PUBLIC API v1 — Bearer token auth (acts as the key's owner)
     // =============================================================================
     $router->get( '/v1/projects',              [ApiV1Controller::class, 'projects'], ['token' => true]);
-    $router->post('/v1/crawls',                [ApiV1Controller::class, 'createCrawl'], ['token' => true]);
+    // Scheduling (recurring crawls)
+    $router->get(   '/v1/schedules',                  [ApiV1Controller::class, 'schedules'],            ['token' => true]);
+    $router->get(   '/v1/projects/{id}/schedule',     [ApiV1Controller::class, 'getProjectSchedule'],   ['token' => true]);
+    $router->put(   '/v1/projects/{id}/schedule',     [ApiV1Controller::class, 'saveProjectSchedule'],  ['token' => true]);
+    $router->patch( '/v1/projects/{id}/schedule',     [ApiV1Controller::class, 'toggleProjectSchedule'],['token' => true]);
+    $router->delete('/v1/projects/{id}/schedule',     [ApiV1Controller::class, 'deleteProjectSchedule'],['token' => true]);
+    $router->post('/v1/crawls',                [ApiV1Controller::class, 'createCrawl'],  ['token' => true]);
+    $router->get( '/v1/crawls/{id}/status',    [ApiV1Controller::class, 'crawlStatus'],  ['token' => true]);
+    $router->post('/v1/crawls/{id}/stop',      [ApiV1Controller::class, 'stopCrawl'],    ['token' => true]);
+    $router->post('/v1/crawls/{id}/start',     [ApiV1Controller::class, 'startCrawl'],   ['token' => true]);
     $router->get( '/v1/projects/{id}/crawls',  [ApiV1Controller::class, 'crawls'],   ['token' => true]);
     $router->get( '/v1/crawls/{id}',           [ApiV1Controller::class, 'crawl'],    ['token' => true]);
     $router->get( '/v1/crawls/{id}/schema',    [ApiV1Controller::class, 'schema'],   ['token' => true]);

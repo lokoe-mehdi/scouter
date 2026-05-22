@@ -42,6 +42,33 @@ export const TOOLS = [
     },
   },
   {
+    name: 'get_crawl_status',
+    description: "Live status of a crawl: status (queued/running/finished/stopped), discovered vs crawled URL counts, the worker job status, and the latest log lines. Use it to follow a crawl after create_crawl. (No % progress — URL counts grow as discovery continues.)",
+    inputSchema: {
+      type: 'object',
+      properties: { crawl_id: { type: 'integer' } },
+      required: ['crawl_id'],
+    },
+  },
+  {
+    name: 'stop_crawl',
+    description: 'Stop (or cancel) a running/queued crawl. Queued crawls are cancelled immediately; a running one gets a graceful stop (finishes the current batch). Requires management rights on the crawl’s project.',
+    inputSchema: {
+      type: 'object',
+      properties: { crawl_id: { type: 'integer' } },
+      required: ['crawl_id'],
+    },
+  },
+  {
+    name: 'start_crawl',
+    description: 'Resume a fully STOPPED crawl (continues where it left off). Only works when the crawl status is "stopped"/"failed" — not while it is running, queued, or still "stopping". Requires management rights on the crawl’s project.',
+    inputSchema: {
+      type: 'object',
+      properties: { crawl_id: { type: 'integer' } },
+      required: ['crawl_id'],
+    },
+  },
+  {
     name: 'get_crawl_schema',
     description:
       'Get the queryable tables and columns for a crawl. ALWAYS the first call when auditing a crawl. ' +
@@ -100,6 +127,52 @@ export const TOOLS = [
       },
       required: ['crawl_id', 'query'],
     },
+  },
+  {
+    name: 'list_schedules',
+    description: 'List all crawl schedules across accessible projects, INCLUDING disabled ones. Each: project_id, domain, enabled, frequency + timing, crawl_type, depth_max, next_run_at, last_triggered_at.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_schedule',
+    description: "Get a project's crawl schedule (or null if none). Includes disabled schedules.",
+    inputSchema: { type: 'object', properties: { project_id: { type: 'integer' } }, required: ['project_id'] },
+  },
+  {
+    name: 'set_schedule',
+    description:
+      'Create or REPLACE a project\'s recurring-crawl schedule (one per project; re-calling fully replaces the previous one). ' +
+      'template_crawl_id = an existing crawl OF THIS PROJECT whose config (mode, speed, extractors…) is reused for each scheduled run; required to create, optional when only changing timing. ' +
+      'frequency: "daily" (at hour:minute) | "weekly" (on days_of_week at hour:minute) | "monthly" (on day_of_month at hour:minute). ' +
+      'days_of_week = array of "mon","tue","wed","thu","fri","sat","sun" (weekly — multiple allowed). hour 0-23, minute 0-59 (server time). day_of_month = a SINGLE day 1-28 (monthly — only one day per month, no lists). enabled defaults true.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: { type: 'integer' },
+        template_crawl_id: { type: 'integer', description: 'Existing crawl id of this project used as the config template.' },
+        frequency: { type: 'string', enum: ['daily', 'weekly', 'monthly'] },
+        hour: { type: 'integer', minimum: 0, maximum: 23, default: 8 },
+        minute: { type: 'integer', minimum: 0, maximum: 59, default: 0 },
+        days_of_week: { type: 'array', items: { type: 'string' }, description: 'mon..sun, weekly only (multiple allowed).' },
+        day_of_month: { type: 'integer', minimum: 1, maximum: 28, description: 'monthly only — a single day (1-28).' },
+        enabled: { type: 'boolean', default: true },
+      },
+      required: ['project_id', 'frequency'],
+    },
+  },
+  {
+    name: 'toggle_schedule',
+    description: "Enable or disable a project's EXISTING schedule (without changing its settings). Disabling clears the next run; enabling recomputes it. Fails if no schedule exists yet (use set_schedule first).",
+    inputSchema: {
+      type: 'object',
+      properties: { project_id: { type: 'integer' }, enabled: { type: 'boolean' } },
+      required: ['project_id', 'enabled'],
+    },
+  },
+  {
+    name: 'delete_schedule',
+    description: "Remove a project's crawl schedule entirely.",
+    inputSchema: { type: 'object', properties: { project_id: { type: 'integer' } }, required: ['project_id'] },
   },
   {
     name: 'create_crawl',
@@ -163,6 +236,12 @@ export async function dispatch(token, name, args = {}) {
       return callApi(token, 'GET', `/projects/${encodeURIComponent(args.project_id)}/crawls`, { query: { limit: args.limit, offset: args.offset } });
     case 'get_crawl':
       return callApi(token, 'GET', `/crawls/${encodeURIComponent(args.crawl_id)}`);
+    case 'get_crawl_status':
+      return callApi(token, 'GET', `/crawls/${encodeURIComponent(args.crawl_id)}/status`);
+    case 'stop_crawl':
+      return callApi(token, 'POST', `/crawls/${encodeURIComponent(args.crawl_id)}/stop`);
+    case 'start_crawl':
+      return callApi(token, 'POST', `/crawls/${encodeURIComponent(args.crawl_id)}/start`);
     case 'get_crawl_schema':
       return callApi(token, 'GET', `/crawls/${encodeURIComponent(args.crawl_id)}/schema`);
     case 'get_page_content':
@@ -175,6 +254,26 @@ export async function dispatch(token, name, args = {}) {
       });
     case 'create_crawl':
       return callApi(token, 'POST', '/crawls', { body: { config: args.config } });
+    case 'list_schedules':
+      return callApi(token, 'GET', '/schedules');
+    case 'get_schedule':
+      return callApi(token, 'GET', `/projects/${encodeURIComponent(args.project_id)}/schedule`);
+    case 'set_schedule':
+      return callApi(token, 'PUT', `/projects/${encodeURIComponent(args.project_id)}/schedule`, {
+        body: {
+          template_crawl_id: args.template_crawl_id,
+          frequency: args.frequency,
+          hour: args.hour,
+          minute: args.minute,
+          days_of_week: args.days_of_week,
+          day_of_month: args.day_of_month,
+          enabled: args.enabled,
+        },
+      });
+    case 'toggle_schedule':
+      return callApi(token, 'PATCH', `/projects/${encodeURIComponent(args.project_id)}/schedule`, { body: { enabled: args.enabled } });
+    case 'delete_schedule':
+      return callApi(token, 'DELETE', `/projects/${encodeURIComponent(args.project_id)}/schedule`);
     default:
       return null;
   }

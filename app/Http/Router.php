@@ -97,6 +97,20 @@ class Router
     }
 
     /**
+     * Enregistre une route PATCH
+     *
+     * @param string         $path    Chemin de la route
+     * @param array|callable $handler Handler
+     * @param array          $options Options d'authentification
+     *
+     * @return self
+     */
+    public function patch(string $path, array|callable $handler, array $options = []): self
+    {
+        return $this->addRoute('PATCH', $path, $handler, $options);
+    }
+
+    /**
      * Enregistre une route pour toutes les méthodes HTTP
      * 
      * @param string         $path    Chemin de la route

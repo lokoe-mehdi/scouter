@@ -1404,8 +1404,35 @@ try {
               docTitle: <?= json_encode(__('settings.api_create_ref_title')) ?>,
               body: CREATE_SPIDER_EXAMPLE,
               bodyVariants: { spider: CREATE_SPIDER_EXAMPLE, list: CREATE_LIST_EXAMPLE } },
+            { method:'GET',  path:'/schedules', summary: <?= json_encode(__('settings.api_ep_schedules')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_schedules_desc')) ?> },
+            { method:'GET',  path:'/projects/{id}/schedule', summary: <?= json_encode(__('settings.api_ep_sched_get')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_sched_get_desc')) ?>,
+              pathParams:['id'] },
+            { method:'PUT',  path:'/projects/{id}/schedule', summary: <?= json_encode(__('settings.api_ep_sched_put')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_sched_put_desc')) ?>,
+              docText: <?= json_encode(__('settings.api_schedule_ref')) ?>,
+              docTitle: <?= json_encode(__('settings.api_schedule_ref_title')) ?>,
+              pathParams:['id'],
+              body: JSON.stringify({ template_crawl_id: 0, frequency: 'weekly', days_of_week: ['mon','thu'], hour: 6, minute: 30, enabled: true }, null, 2) },
+            { method:'PATCH', path:'/projects/{id}/schedule', summary: <?= json_encode(__('settings.api_ep_sched_patch')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_sched_patch_desc')) ?>,
+              pathParams:['id'],
+              body: JSON.stringify({ enabled: false }, null, 2) },
+            { method:'DELETE', path:'/projects/{id}/schedule', summary: <?= json_encode(__('settings.api_ep_sched_delete')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_sched_delete_desc')) ?>,
+              pathParams:['id'] },
             { method:'GET',  path:'/crawls/{id}', summary: <?= json_encode(__('settings.api_ep_crawl')) ?>,
               desc: <?= json_encode(__('settings.api_ep_crawl_desc')) ?>,
+              pathParams:['id'] },
+            { method:'GET',  path:'/crawls/{id}/status', summary: <?= json_encode(__('settings.api_ep_status')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_status_desc')) ?>,
+              pathParams:['id'] },
+            { method:'POST', path:'/crawls/{id}/stop', summary: <?= json_encode(__('settings.api_ep_stop')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_stop_desc')) ?>,
+              pathParams:['id'] },
+            { method:'POST', path:'/crawls/{id}/start', summary: <?= json_encode(__('settings.api_ep_start')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_start_desc')) ?>,
               pathParams:['id'] },
             { method:'GET',  path:'/crawls/{id}/schema', summary: <?= json_encode(__('settings.api_ep_schema')) ?>,
               desc: <?= json_encode(__('settings.api_ep_schema_desc')) ?>,
@@ -1422,7 +1449,7 @@ try {
               body: JSON.stringify({ query:'SELECT url, code FROM pages WHERE code >= 400 ORDER BY inlinks DESC', page:1, page_size:100, count:true }, null, 2) },
         ];
 
-        const METHOD_COLORS = { GET:'#0891b2', POST:'#b45309', PUT:'#7c3aed', DELETE:'#dc2626' };
+        const METHOD_COLORS = { GET:'#0891b2', POST:'#b45309', PUT:'#7c3aed', PATCH:'#ca8a04', DELETE:'#dc2626' };
         const escapeHtml = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
         ENDPOINTS.forEach(ep => {

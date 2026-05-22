@@ -44,7 +44,11 @@ explicitly asks for a single site-wide figure.
 ## Tools
 - \`list_projects\` — projects this key can access.
 - \`list_crawls(project_id)\` — a project's crawls, newest first.
-- \`get_crawl(crawl_id)\` — crawl metadata (domain, status, URL counts, dates) + the full crawl \`config\` (start URLs, limits, filters, rendering, extractors…).
+- \`get_crawl(crawl_id)\` — crawl metadata (domain, status, URL counts, dates, \`scheduled\`) + the full crawl \`config\` (start URLs, limits, filters, rendering, extractors…).
+- \`get_crawl_status(crawl_id)\` — live status of a crawl (status, discovered/crawled counts, job status, latest logs) — follow a crawl after create_crawl.
+- \`stop_crawl(crawl_id)\` — stop/cancel a running or queued crawl.
+- \`start_crawl(crawl_id)\` — resume a fully-stopped crawl (only when status is "stopped"/"failed", not while "stopping").
+- \`list_schedules\` / \`get_schedule(project_id)\` / \`set_schedule(...)\` / \`toggle_schedule(project_id,enabled)\` / \`delete_schedule(project_id)\` — manage recurring crawls (see "Scheduling").
 - \`get_crawl_schema(crawl_id)\` — queryable tables + columns. Call it ONCE before
   writing SQL on a crawl you haven't queried yet (don't guess column names).
 - \`run_sql(crawl_id, query, page, page_size, count)\` — one read-only PostgreSQL
@@ -125,10 +129,29 @@ explicitly asks for.
 - \`general.domains\` defaults to the start URL's host; \`general.depthMax\` defaults
   to 30 (spider). Advanced flags (respect_robots, store_html, extractors…) keep
   template defaults unless asked.
-- It returns \`crawl_id\` with status \`queued\`; a worker then runs it. Tell the user
-  it's queued and they can follow it in Scouter (or poll \`get_crawl\`).
+- It returns \`crawl_id\` with status \`queued\`; a worker then runs it. Follow
+  progress with \`get_crawl_status\` (status + discovered/crawled counts + recent
+  logs), and \`stop_crawl\` to cancel. Don't report a % done — URL counts keep
+  growing as the crawler discovers more pages.
 Minimal spider: \`{"general":{"start":"https://site.tld/"}}\`.
 Minimal list: \`{"general":{"crawl_type":"list","url_list":["https://site.tld/a","https://site.tld/b"]}}\`.
+
+## Scheduling recurring crawls
+Each project can have ONE schedule (recurring crawl). It is NOT raw cron — it's a
+structured frequency:
+- \`frequency\`: "daily" (at hour:minute) | "weekly" (on \`days_of_week\` at
+  hour:minute) | "monthly" (on \`day_of_month\` at hour:minute).
+- \`days_of_week\`: array of "mon".."sun" (weekly — multiple allowed).
+  \`day_of_month\`: a SINGLE day 1–28 (monthly — one day per month only, no lists).
+  \`hour\` 0–23, \`minute\` 0–59 (server time).
+- \`template_crawl_id\`: an existing crawl OF THE PROJECT whose config (mode, speed,
+  filters, extractors…) is reused for every scheduled run. Required to CREATE a
+  schedule; optional when you only change the timing (the existing template is kept).
+Operations: \`list_schedules\` (all, incl. disabled) · \`get_schedule(project_id)\` ·
+\`set_schedule(...)\` (create or fully REPLACE the project's schedule) · \`toggle_schedule(project_id, enabled)\`
+(enable/disable an existing one without losing its settings) · \`delete_schedule\`.
+Example weekly Mon+Thu at 06:30 from crawl #542:
+\`set_schedule(project_id=32, template_crawl_id=542, frequency="weekly", days_of_week=["mon","thu"], hour=6, minute=30)\`.
 
 ## SEO knowledge baseline (don't repeat common mistakes)
 - **NEVER recommend \`rel="nofollow"\`** — for internal links it doesn't sculpt

@@ -322,6 +322,142 @@ class ApiV1Controller extends Controller
     }
 
     // -------------------------------------------------------------------------
+    // GET /api/v1/crawls/{id}/status  — live progress of a crawl
+    // -------------------------------------------------------------------------
+    public function crawlStatus(Request $request): void
+    {
+        $crawl = $this->resolveAccessibleCrawl($request);
+        if ($crawl === null) return;
+        $cid = (int)$crawl->id;
+
+        $jm  = new JobManager();
+        $job = $jm->getJobByProject((string)($crawl->path ?? ''));
+
+        // Latest log lines (tail), returned oldest→newest.
+        $recent = [];
+        if ($job) {
+            $stmt = $this->db->prepare("
+                SELECT message, type, created_at FROM job_logs
+                WHERE job_id = :jid ORDER BY created_at DESC LIMIT 15
+            ");
+            $stmt->execute([':jid' => (int)$job->id]);
+            $rows = array_reverse($stmt->fetchAll(PDO::FETCH_ASSOC));
+            foreach ($rows as $r) {
+                $recent[] = ['at' => $r['created_at'], 'type' => $r['type'], 'message' => $r['message']];
+            }
+        }
+
+        Response::json([
+            'data' => [
+                'crawl_id'        => $cid,
+                'status'          => $crawl->status ?? null,
+                'crawl_type'      => $crawl->crawl_type ?? null,
+                'scheduled'       => isset($crawl->scheduled) ? (bool)$crawl->scheduled : null,
+                'in_progress'     => isset($crawl->in_progress) ? (int)$crawl->in_progress : null,
+                'urls_discovered' => (int)($crawl->urls ?? 0),
+                'urls_crawled'    => (int)($crawl->crawled ?? 0),
+                'compliant'       => (int)($crawl->compliant ?? 0),
+                'started_at'      => $crawl->started_at ?? null,
+                'finished_at'     => $crawl->finished_at ?? null,
+                'job'             => $job ? ['id' => (int)$job->id, 'status' => $job->status ?? null] : null,
+                'recent_logs'     => $recent,
+            ],
+            'meta' => ['crawl_id' => $cid],
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /api/v1/crawls/{id}/stop  — stop / cancel a running or queued crawl
+    // -------------------------------------------------------------------------
+    public function stopCrawl(Request $request): void
+    {
+        $crawl = $this->resolveAccessibleCrawl($request);
+        if ($crawl === null) return;
+        // Controlling a crawl requires MANAGEMENT of its project, not just access.
+        $this->auth->requireProjectManagement((int)$crawl->project_id);
+        $cid = (int)$crawl->id;
+
+        $jm  = new JobManager();
+        $job = $jm->getJobByProject((string)($crawl->path ?? ''));
+        if (!$job) {
+            Response::error('No active job found for this crawl (it may already be finished).', 409);
+            return;
+        }
+
+        $st = $job->status ?? '';
+        if (!in_array($st, ['running', 'queued', 'pending', 'stopping'], true)) {
+            Response::error('Crawl is not running or queued (status: ' . $st . ').', 409);
+            return;
+        }
+
+        if (in_array($st, ['pending', 'queued'], true)) {
+            $jm->updateJobStatus($job->id, 'stopped');
+            $jm->addLog($job->id, 'Crawl cancelled via API.', 'warning');
+            $this->crawls->update($cid, ['status' => 'stopped', 'in_progress' => 0]);
+            Response::json(['data' => ['crawl_id' => $cid, 'status' => 'stopped', 'message' => 'Crawl cancelled (was queued).']]);
+            return;
+        }
+
+        if ($st === 'stopping') {
+            $jm->updateJobStatus($job->id, 'stopped');
+            $jm->addLog($job->id, 'Crawl force-stopped via API.', 'warning');
+            Response::json(['data' => ['crawl_id' => $cid, 'status' => 'stopped', 'message' => 'Crawl force-stopped.']]);
+            return;
+        }
+
+        // running → graceful stop (worker finishes the current batch).
+        $jm->updateJobStatus($job->id, 'stopping');
+        $jm->addLog($job->id, 'Stop signal sent via API.', 'info');
+        Response::json(['data' => ['crawl_id' => $cid, 'status' => 'stopping', 'message' => 'Stop signal sent; the crawl will finish the current batch and stop.']]);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /api/v1/crawls/{id}/start  — resume a fully-stopped crawl
+    // -------------------------------------------------------------------------
+    public function startCrawl(Request $request): void
+    {
+        $crawl = $this->resolveAccessibleCrawl($request);
+        if ($crawl === null) return;
+        // Controlling a crawl requires MANAGEMENT of its project, not just access.
+        $this->auth->requireProjectManagement((int)$crawl->project_id);
+        $cid = (int)$crawl->id;
+        $status = (string)($crawl->status ?? '');
+
+        // Only a FULLY stopped (or failed) crawl can be (re)started — never one
+        // that is still running, queued, pending, or finishing its batch.
+        if (!in_array($status, ['stopped', 'failed'], true)) {
+            $msg = $status === 'stopping'
+                ? 'Crawl is still finishing its current batch (status: stopping). Wait until it is fully stopped before starting it again.'
+                : 'Only a stopped crawl can be started (current status: ' . $status . ').';
+            Response::error($msg, 409);
+            return;
+        }
+
+        $jm = new JobManager();
+        // Extra guard: make sure no worker job is still active for this crawl.
+        $existing = $jm->getJobByProject((string)($crawl->path ?? ''));
+        if ($existing && in_array($existing->status ?? '', ['running', 'queued', 'pending', 'stopping'], true)) {
+            Response::error('A worker job is still active for this crawl (status: ' . $existing->status . '). Wait until it is fully stopped.', 409);
+            return;
+        }
+
+        // Resume = new job that continues where the crawl stopped (same as the UI).
+        $projectDir  = (string)$crawl->path;
+        $projectName = preg_replace('#-(\d{8})-(\d{6})$#', '', $projectDir);
+        $jobId = $jm->createJob($projectDir, $projectName, 'crawl');
+        $this->crawls->update($cid, ['status' => 'queued', 'in_progress' => 1]);
+        $jm->updateJobStatus($jobId, 'queued');
+        $jm->addLog($jobId, 'Crawl resumed via API. Waiting for worker...', 'info');
+
+        Response::json(['data' => [
+            'crawl_id' => $cid,
+            'job_id'   => (int)$jobId,
+            'status'   => 'queued',
+            'message'  => 'Crawl resumed; waiting for a worker.',
+        ]]);
+    }
+
+    // -------------------------------------------------------------------------
     // POST /api/v1/crawls  — create + queue a new crawl from a config
     // -------------------------------------------------------------------------
     public function createCrawl(Request $request): void
@@ -422,8 +558,241 @@ class ApiV1Controller extends Controller
     }
 
     // -------------------------------------------------------------------------
+    // GET /api/v1/schedules  — all schedules across accessible projects
+    // -------------------------------------------------------------------------
+    public function schedules(Request $request): void
+    {
+        $where = '';
+        $params = [];
+        if (!$this->auth->isAdmin()) {
+            $ids = [];
+            foreach (array_merge($this->projects->getForUser($this->userId), $this->projects->getSharedForUser($this->userId)) as $p) {
+                $ids[(int)$p->id] = true;
+            }
+            $ids = array_keys($ids);
+            if (empty($ids)) { Response::json(['data' => [], 'meta' => ['total' => 0]]); return; }
+            $ph = [];
+            foreach ($ids as $i => $id) { $k = ':p' . $i; $ph[] = $k; $params[$k] = $id; }
+            $where = 'WHERE cs.project_id IN (' . implode(',', $ph) . ')';
+        }
+
+        $stmt = $this->db->prepare("
+            SELECT cs.project_id, p.name AS domain, cs.enabled, cs.frequency, cs.hour, cs.minute,
+                   cs.days_of_week, cs.day_of_month, cs.crawl_type, cs.depth_max,
+                   cs.next_run_at, cs.last_triggered_at, cs.updated_at
+            FROM crawl_schedules cs
+            JOIN projects p ON p.id = cs.project_id AND p.deleted_at IS NULL
+            $where
+            ORDER BY p.name
+        ");
+        $stmt->execute($params);
+        $rows = array_map([$this, 'schedulePayload'], $stmt->fetchAll(PDO::FETCH_ASSOC));
+        Response::json(['data' => $rows, 'meta' => ['total' => count($rows)]]);
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /api/v1/projects/{id}/schedule  — one project's schedule (incl. disabled)
+    // -------------------------------------------------------------------------
+    public function getProjectSchedule(Request $request): void
+    {
+        $projectId = (int)$request->param('id', 0);
+        if (!$this->projects->getById($projectId)) { Response::notFound('Project not found'); return; }
+        $this->auth->requireProjectAccess($projectId);
+
+        $row = $this->fetchSchedule($projectId);
+        Response::json(['data' => $row ? $this->schedulePayload($row) : null, 'meta' => ['project_id' => $projectId]]);
+    }
+
+    // -------------------------------------------------------------------------
+    // PUT /api/v1/projects/{id}/schedule  — create or replace the schedule (upsert)
+    // -------------------------------------------------------------------------
+    public function saveProjectSchedule(Request $request): void
+    {
+        $projectId = (int)$request->param('id', 0);
+        if (!$this->projects->getById($projectId)) { Response::notFound('Project not found'); return; }
+        $this->auth->requireProjectManagement($projectId);
+
+        $frequency  = (string)$request->get('frequency', 'weekly');
+        if (!in_array($frequency, ['daily', 'weekly', 'monthly'], true)) {
+            Response::error('Invalid frequency. Use one of: daily, weekly, monthly.', 400);
+            return;
+        }
+        $daysOfWeek = (array)$request->get('days_of_week', ['mon']);
+        $daysOfWeek = array_values(array_filter($daysOfWeek, fn($d) => in_array($d, ['mon','tue','wed','thu','fri','sat','sun'], true)));
+        if (empty($daysOfWeek)) $daysOfWeek = ['mon'];
+        $dayOfMonth = max(1, min(28, (int)$request->get('day_of_month', 1)));
+        $hour       = max(0, min(23, (int)$request->get('hour', 8)));
+        $minute     = max(0, min(59, (int)$request->get('minute', 0)));
+        $enabled    = $request->get('enabled', true) !== false;
+        $templateId = $request->get('template_crawl_id');
+
+        $existing = $this->fetchSchedule($projectId);
+
+        // Resolve the crawl template (what to crawl). Required to CREATE; on update
+        // we keep the existing template if none is provided.
+        if ($templateId !== null && $templateId !== '') {
+            $stmt = $this->db->prepare("SELECT config, crawl_type, depth_max, project_id FROM crawls WHERE id = :id");
+            $stmt->execute([':id' => (int)$templateId]);
+            $tpl = $stmt->fetch(PDO::FETCH_OBJ);
+            if (!$tpl || (int)$tpl->project_id !== $projectId) {
+                Response::error('template_crawl_id not found or not in this project.', 400);
+                return;
+            }
+            $crawlConfig = $tpl->config ?? '{}';
+            $crawlType   = $tpl->crawl_type ?? 'spider';
+            $depthMax    = (int)($tpl->depth_max ?? 30);
+            $catStmt = $this->db->prepare("SELECT config FROM categorization_config WHERE crawl_id = :id");
+            $catStmt->execute([':id' => (int)$templateId]);
+            $catRow = $catStmt->fetch(PDO::FETCH_OBJ);
+            $catConfig = $catRow ? $catRow->config : null;
+        } elseif ($existing) {
+            $crawlConfig = $existing['crawl_config'] ?? '{}';
+            $crawlType   = $existing['crawl_type'] ?? 'spider';
+            $depthMax    = (int)($existing['depth_max'] ?? 30);
+            $catConfig   = $existing['categorization_config'] ?? null;
+        } else {
+            Response::error('template_crawl_id is required to create a schedule (it defines what to crawl).', 400);
+            return;
+        }
+
+        $nextRun = $enabled ? $this->computeNextRun($frequency, $daysOfWeek, $dayOfMonth, $hour, $minute) : null;
+        $pgDays  = '{' . implode(',', $daysOfWeek) . '}';
+
+        $stmt = $this->db->prepare("
+            INSERT INTO crawl_schedules (project_id, user_id, enabled, frequency, days_of_week, day_of_month, hour, minute, crawl_config, crawl_type, depth_max, categorization_config, next_run_at, updated_at)
+            VALUES (:pid, :uid, :enabled, :frequency, :days, :dom, :hour, :minute, :cfg, :ctype, :depth, :cat, :next, NOW())
+            ON CONFLICT (project_id) DO UPDATE SET
+                user_id = EXCLUDED.user_id, enabled = EXCLUDED.enabled, frequency = EXCLUDED.frequency,
+                days_of_week = EXCLUDED.days_of_week, day_of_month = EXCLUDED.day_of_month,
+                hour = EXCLUDED.hour, minute = EXCLUDED.minute, crawl_config = EXCLUDED.crawl_config,
+                crawl_type = EXCLUDED.crawl_type, depth_max = EXCLUDED.depth_max,
+                categorization_config = EXCLUDED.categorization_config, next_run_at = EXCLUDED.next_run_at, updated_at = NOW()
+        ");
+        $stmt->execute([
+            ':pid' => $projectId, ':uid' => $this->userId, ':enabled' => $enabled ? 'true' : 'false',
+            ':frequency' => $frequency, ':days' => $pgDays, ':dom' => $dayOfMonth, ':hour' => $hour, ':minute' => $minute,
+            ':cfg' => $crawlConfig, ':ctype' => $crawlType, ':depth' => $depthMax, ':cat' => $catConfig, ':next' => $nextRun,
+        ]);
+
+        Response::json(['data' => $this->schedulePayload($this->fetchSchedule($projectId)), 'meta' => ['project_id' => $projectId]]);
+    }
+
+    // -------------------------------------------------------------------------
+    // PATCH /api/v1/projects/{id}/schedule  — enable / disable an existing schedule
+    // -------------------------------------------------------------------------
+    public function toggleProjectSchedule(Request $request): void
+    {
+        $projectId = (int)$request->param('id', 0);
+        if (!$this->projects->getById($projectId)) { Response::notFound('Project not found'); return; }
+        $this->auth->requireProjectManagement($projectId);
+
+        $enabledRaw = $request->get('enabled', null);
+        if ($enabledRaw === null) { Response::error('`enabled` (boolean) is required.', 400); return; }
+        $enabled = $enabledRaw === true || $enabledRaw === 'true' || $enabledRaw === 1 || $enabledRaw === '1';
+
+        $existing = $this->fetchSchedule($projectId);
+        if (!$existing) { Response::error('No schedule exists for this project. Create one first (PUT).', 404); return; }
+
+        if ($enabled) {
+            $days = $this->parsePgDays($existing['days_of_week'] ?? null) ?: ['mon'];
+            $nextRun = $this->computeNextRun(
+                $existing['frequency'], $days, (int)$existing['day_of_month'], (int)$existing['hour'], (int)$existing['minute']
+            );
+            $this->db->prepare("UPDATE crawl_schedules SET enabled = true, next_run_at = :next, updated_at = NOW() WHERE project_id = :pid")
+                ->execute([':next' => $nextRun, ':pid' => $projectId]);
+        } else {
+            $this->db->prepare("UPDATE crawl_schedules SET enabled = false, next_run_at = NULL, updated_at = NOW() WHERE project_id = :pid")
+                ->execute([':pid' => $projectId]);
+        }
+
+        Response::json(['data' => $this->schedulePayload($this->fetchSchedule($projectId)), 'meta' => ['project_id' => $projectId]]);
+    }
+
+    // -------------------------------------------------------------------------
+    // DELETE /api/v1/projects/{id}/schedule  — remove the schedule
+    // -------------------------------------------------------------------------
+    public function deleteProjectSchedule(Request $request): void
+    {
+        $projectId = (int)$request->param('id', 0);
+        if (!$this->projects->getById($projectId)) { Response::notFound('Project not found'); return; }
+        $this->auth->requireProjectManagement($projectId);
+
+        $stmt = $this->db->prepare("DELETE FROM crawl_schedules WHERE project_id = :pid");
+        $stmt->execute([':pid' => $projectId]);
+        Response::json(['data' => ['project_id' => $projectId, 'deleted' => $stmt->rowCount() > 0]]);
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /** @return array<string,mixed>|null raw crawl_schedules row for a project */
+    private function fetchSchedule(int $projectId): ?array
+    {
+        $stmt = $this->db->prepare("SELECT * FROM crawl_schedules WHERE project_id = :pid");
+        $stmt->execute([':pid' => $projectId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    /** @return array<int,string> parse a PostgreSQL text array '{mon,wed}' → ['mon','wed'] */
+    private function parsePgDays(?string $raw): array
+    {
+        if ($raw === null || $raw === '') return [];
+        return array_values(array_filter(array_map('trim', explode(',', trim($raw, '{}')))));
+    }
+
+    /** Shape a crawl_schedules row into the public payload. */
+    private function schedulePayload(array $r): array
+    {
+        $en = $r['enabled'] ?? false;
+        $enabled = $en === true || $en === 't' || $en === 'true' || $en === 1 || $en === '1';
+        return [
+            'project_id'        => (int)$r['project_id'],
+            'domain'            => $r['domain'] ?? null,
+            'enabled'           => $enabled,
+            'frequency'         => $r['frequency'] ?? null,
+            'hour'              => isset($r['hour']) ? (int)$r['hour'] : null,
+            'minute'            => isset($r['minute']) ? (int)$r['minute'] : null,
+            'days_of_week'      => $this->parsePgDays($r['days_of_week'] ?? null),
+            'day_of_month'      => isset($r['day_of_month']) ? (int)$r['day_of_month'] : null,
+            'crawl_type'        => $r['crawl_type'] ?? null,
+            'depth_max'         => isset($r['depth_max']) ? (int)$r['depth_max'] : null,
+            'next_run_at'       => $r['next_run_at'] ?? null,
+            'last_triggered_at' => $r['last_triggered_at'] ?? null,
+            'updated_at'        => $r['updated_at'] ?? null,
+        ];
+    }
+
+    /** Next run timestamp from the structured frequency (mirror of the scheduler). */
+    private function computeNextRun(string $freq, array $days, int $dayOfMonth, int $hour, int $minute): string
+    {
+        $now = new \DateTime('now');
+        if ($freq === 'daily') {
+            $next = clone $now; $next->setTime($hour, $minute, 0);
+            if ($next <= $now) $next->modify('+1 day');
+            return $next->format('Y-m-d H:i:00');
+        }
+        if ($freq === 'weekly') {
+            $map = ['mon'=>'Monday','tue'=>'Tuesday','wed'=>'Wednesday','thu'=>'Thursday','fri'=>'Friday','sat'=>'Saturday','sun'=>'Sunday'];
+            $cands = [];
+            foreach ($days as $d) {
+                $name = $map[$d] ?? null; if (!$name) continue;
+                $c = new \DateTime("this week {$name}"); $c->setTime($hour, $minute, 0);
+                if ($c <= $now) { $c = new \DateTime("next {$name}"); $c->setTime($hour, $minute, 0); }
+                $cands[] = $c;
+            }
+            if (empty($cands)) { $c = new \DateTime('next Monday'); $c->setTime($hour, $minute, 0); return $c->format('Y-m-d H:i:00'); }
+            usort($cands, fn($a, $b) => $a <=> $b);
+            return $cands[0]->format('Y-m-d H:i:00');
+        }
+        if ($freq === 'monthly') {
+            $dom = max(1, min(28, $dayOfMonth));
+            $next = clone $now; $next->setDate((int)$next->format('Y'), (int)$next->format('m'), $dom); $next->setTime($hour, $minute, 0);
+            if ($next <= $now) { $next->modify('+1 month'); $next->setDate((int)$next->format('Y'), (int)$next->format('m'), $dom); }
+            return $next->format('Y-m-d H:i:00');
+        }
+        return (clone $now)->modify('+1 day')->format('Y-m-d H:i:00');
+    }
 
     /** Merge caller-supplied config over the full default template (same shape as the UI). */
     private function buildCrawlConfig(array $general, array $advanced, string $start, string $crawlType, array $domains, int $depthMax, array $urlList): array
@@ -499,6 +868,7 @@ class ApiV1Controller extends Controller
             'domain'      => $c->domain ?? null,
             'status'      => $c->status ?? null,
             'crawl_type'  => $c->crawl_type ?? null,
+            'scheduled'   => isset($c->scheduled) ? (bool)$c->scheduled : null,
             'urls'        => isset($c->urls) ? (int)$c->urls : null,
             'crawled'     => isset($c->crawled) ? (int)$c->crawled : null,
             'compliant'   => isset($c->compliant) ? (int)$c->compliant : null,
