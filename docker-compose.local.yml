@@ -89,10 +89,19 @@ services:
   # multiple concurrent crawls (MAX_CONCURRENT_CRAWLS). Claims ONLY
   # command='crawl' jobs; cohabits with the PHP worker above.
   crawler-go:
-    build: ./crawler-go
+    # Dev local : on NE build PAS d'image. On lance via `go run` avec le code
+    # monté en volume + cache de compilation persistant. Workflow :
+    #   éditer crawler-go/**.go  →  docker compose -f docker-compose.local.yml restart crawler-go
+    # → recompilation en quelques secondes (cache chaud), SANS rebuild d'image.
+    # (La prod, docker-compose.yml, garde le binaire compilé via le Dockerfile.)
+    image: golang:1.25-alpine
+    working_dir: /src
+    command: go run ./cmd/scouter-crawler
     restart: unless-stopped
     stop_grace_period: 30s
     environment:
+      - CGO_ENABLED=0
+      - GOTOOLCHAIN=local
       - DATABASE_URL=postgresql://scouter:scouter@postgres:5432/scouter
       # 3 hostnames distincts (PAS un service répliqué) : le round-robin Go +
       # ses pools de connexions séparés répartissent vraiment sur les 3. Avec un
@@ -107,6 +116,9 @@ services:
       - POOL_CONNS_PER_CRAWL=${POOL_CONNS_PER_CRAWL:-8}
       - LOG_DIR=/app/logs
     volumes:
+      - ./crawler-go:/src
+      - go-build-cache:/root/.cache/go-build
+      - go-mod-cache:/go/pkg/mod
       # Shared with the scouter container so the UI live console can tail logs.
       - ./logs:/app/logs
     networks:
@@ -148,3 +160,6 @@ networks:
 
 volumes:
   postgres_data:
+  # Persistent Go caches so `go run` recompiles in seconds on restart (dev only).
+  go-build-cache:
+  go-mod-cache:

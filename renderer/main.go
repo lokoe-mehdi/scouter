@@ -252,12 +252,19 @@ func renderURL(urlStr string, headers map[string]string) RenderResponse {
 			timingMu.Lock()
 			if !ttfbCaptured {
 				httpCode = e.Response.Status
-				// TTFB réel = temps requête→réception des en-têtes, mesuré par
-				// Chrome lui-même (indépendant de notre temps de rendu / de notre
-				// charge). Repli : horloge depuis le début de la navigation.
-				if e.Response.Timing != nil && e.Response.Timing.ReceiveHeadersEnd > 0 {
-					ttfb = e.Response.Timing.ReceiveHeadersEnd / 1000.0 // ms → s
-				} else {
+				// Vrai TTFB serveur = temps entre l'ENVOI de la requête et la
+				// réception des en-têtes (sendEnd → receiveHeadersEnd). On EXCLUT
+				// la phase connexion (DNS/TCP/TLS) ET surtout la mise en file
+				// d'attente de Chrome (~6 connexions/host) qui, sous forte
+				// concurrence sur un même domaine, gonflait le chiffre. C'est ce
+				// qui rend la valeur comparable au TTFB du mode classic (keep-alive).
+				t := e.Response.Timing
+				switch {
+				case t != nil && t.ReceiveHeadersEnd > 0 && t.SendEnd > 0 && t.ReceiveHeadersEnd > t.SendEnd:
+					ttfb = (t.ReceiveHeadersEnd - t.SendEnd) / 1000.0 // ms → s
+				case t != nil && t.ReceiveHeadersEnd > 0:
+					ttfb = t.ReceiveHeadersEnd / 1000.0
+				default:
 					ttfb = time.Since(navStart).Seconds()
 				}
 				ttfbCaptured = true
