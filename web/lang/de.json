@@ -897,7 +897,7 @@
   "index.modal_stealth_off": "Aus",
   "index.modal_stealth_auto": "Auto (bei Blockierung)",
   "index.modal_stealth_always": "Immer",
-  "index.modal_stealth_hint": "Imitiert den TLS-Fingerabdruck eines Chrome-Browsers (uTLS), um Anti-Bot-Schutz zu umgehen. „Auto\" greift nur, wenn eine URL blockiert wird (403/429/503).",
+  "index.modal_stealth_hint": "Imitiert den vollständigen Fingerabdruck eines Chrome-Browsers (TLS/JA3 + HTTP/2 + Header), um Anti-Bot-Schutz zu umgehen. „Auto\" greift nur, wenn eine URL blockiert wird (403/429/503).",
   "index.modal_rule_robots": "robots.txt einhalten",
   "index.modal_rule_robots_hint": "robots.txt-Regeln befolgen",
   "index.modal_rule_store_html": "HTML speichern",

@@ -1,130 +1,137 @@
-// Stealth HTTP client: mimics a real Chrome TLS ClientHello (uTLS) so anti-bot
-// systems that fingerprint Go's default TLS stack (JA3/JA4) don't block the
-// crawl. It is used either always (stealth_mode=always) or as an automatic
-// fallback when a normal request is blocked (stealth_mode=auto).
+// Stealth HTTP client: impersonates a real Chrome browser end-to-end so anti-bot
+// systems can't fingerprint the crawler. It combines, via bogdanfinn/tls-client:
+//   - the Chrome TLS ClientHello (JA3/JA4), with randomised extension order;
+//   - the Chrome HTTP/2 fingerprint (SETTINGS, window update, priority, and the
+//     :method/:authority/:scheme/:path pseudo-header order — all from the profile);
+//   - a coherent Chrome header set + header order (so the UA, client hints and
+//     TLS fingerprint all tell the same story).
 //
-// Go's net/http transport hardcodes a *tls.Conn assertion on its HTTP/2 path,
-// which panics with a uTLS connection, so we cannot reuse the standard h2
-// wiring. Instead we keep two transports — a plain http.Transport for HTTP/1.1
-// and a golang.org/x/net/http2 Transport — both dialing through uTLS, and route
-// to h1 when a host turns out not to speak h2 (cached per host afterwards).
+// It is used either always (stealth_mode=always) or as an automatic fallback when
+// a normal request is blocked (stealth_mode=auto).
 package crawl
 
 import (
-	"context"
-	"crypto/tls"
-	"errors"
-	"net"
-	"net/http"
-	"sync"
+	stdhttp "net/http"
+	"strings"
 	"time"
 
-	utls "github.com/refraction-networking/utls"
-	"golang.org/x/net/http2"
+	fhttp "github.com/bogdanfinn/fhttp"
+	tls_client "github.com/bogdanfinn/tls-client"
+	"github.com/bogdanfinn/tls-client/profiles"
 )
 
-// errNotH2 is returned by the h2 transport's dialer when the server did not
-// negotiate HTTP/2 via ALPN, so RoundTrip can fall back to HTTP/1.1. A custom
-// DialTLSContext bypasses http2's own ALPN check, so we enforce it ourselves.
-var errNotH2 = errors.New("stealth: server did not negotiate http/2")
+// stealthProfile is the browser whose TLS + HTTP/2 fingerprint we impersonate.
+// Keep stealthUserAgent's Chrome major version in sync with it.
+var stealthProfile = profiles.Chrome_133
 
-// stealthTransport routes requests over uTLS, preferring HTTP/2 and falling back
-// to HTTP/1.1 for hosts that don't negotiate h2. Both underlying transports pool
-// connections, so the (expensive) TLS handshake is amortised across requests.
+const stealthUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+
+// chromeHeaders is the default header set a desktop Chrome sends on a top-level
+// navigation GET. Keys are lowercase (HTTP/2 convention); chromeHeaderOrder gives
+// the exact emission order. Caller-provided headers override these by value.
+var chromeHeaders = map[string][]string{
+	"sec-ch-ua":                 {`"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"`},
+	"sec-ch-ua-mobile":          {"?0"},
+	"sec-ch-ua-platform":        {`"Windows"`},
+	"upgrade-insecure-requests": {"1"},
+	"user-agent":                {stealthUserAgent},
+	"accept":                    {"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"},
+	"sec-fetch-site":            {"none"},
+	"sec-fetch-mode":            {"navigate"},
+	"sec-fetch-user":            {"?1"},
+	"sec-fetch-dest":            {"document"},
+	"accept-encoding":           {"gzip, deflate, br, zstd"},
+	"accept-language":           {"en-US,en;q=0.9"},
+	"priority":                  {"u=0, i"},
+}
+
+var chromeHeaderOrder = []string{
+	"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform", "upgrade-insecure-requests",
+	"user-agent", "accept", "sec-fetch-site", "sec-fetch-mode", "sec-fetch-user",
+	"sec-fetch-dest", "accept-encoding", "accept-language", "priority",
+}
+
+// stealthTransport adapts a tls-client (which speaks bogdanfinn/fhttp) to the
+// standard net/http.RoundTripper the engine uses, so the rest of the crawler is
+// unchanged. It injects the Chrome header block and decompresses responses (fhttp
+// does not auto-decompress when Accept-Encoding is set explicitly).
 type stealthTransport struct {
-	dialer    *net.Dialer
-	helloID   utls.ClientHelloID
-	tlsConfig *utls.Config // base config (ServerName is set per-dial); seam for tests/custom CAs
-
-	h1 *http.Transport
-	h2 *http2.Transport
-
-	mu     sync.RWMutex
-	h1Only map[string]bool // hosts known to not support h2
+	client tls_client.HttpClient
 }
 
-func newStealthTransport(concurrency int) *stealthTransport {
-	st := &stealthTransport{
-		dialer:    &net.Dialer{Timeout: 3 * time.Second},
-		helloID:   utls.HelloChrome_Auto,
-		tlsConfig: &utls.Config{},
-		h1Only:    map[string]bool{},
+func (s *stealthTransport) RoundTrip(req *stdhttp.Request) (*stdhttp.Response, error) {
+	freq, err := fhttp.NewRequestWithContext(req.Context(), req.Method, req.URL.String(), req.Body)
+	if err != nil {
+		return nil, err
 	}
+	freq.Header = buildStealthHeaders(req.Header)
 
-	dialTLS := func(ctx context.Context, network, addr string) (net.Conn, error) {
-		raw, err := st.dialer.DialContext(ctx, network, addr)
-		if err != nil {
-			return nil, err
-		}
-		host, _, err := net.SplitHostPort(addr)
-		if err != nil {
-			raw.Close()
-			return nil, err
-		}
-		cfg := st.tlsConfig.Clone()
-		cfg.ServerName = host
-		uconn := utls.UClient(raw, cfg, st.helloID)
-		if err := uconn.HandshakeContext(ctx); err != nil {
-			raw.Close()
-			return nil, err
-		}
-		return uconn, nil
+	fresp, err := s.client.Do(freq)
+	if err != nil {
+		return nil, err
 	}
+	fresp.Body = fhttp.DecompressBody(fresp)
+	fresp.Header.Del("Content-Encoding")
 
-	st.h1 = &http.Transport{
-		MaxIdleConns:        200,
-		MaxIdleConnsPerHost: concurrency * 2,
-		IdleConnTimeout:     60 * time.Second,
-		DialTLSContext:      dialTLS,
-		// Empty (non-nil) map disables the transport's own h2 upgrade so it never
-		// hits the *tls.Conn assertion that would panic on a uTLS connection.
-		TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{},
-	}
-	st.h2 = &http2.Transport{
-		DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-			conn, err := dialTLS(ctx, network, addr)
-			if err != nil {
-				return nil, err
-			}
-			if uc, ok := conn.(*utls.UConn); ok && uc.ConnectionState().NegotiatedProtocol != http2.NextProtoTLS {
-				conn.Close()
-				return nil, errNotH2
-			}
-			return conn, nil
-		},
-	}
-	return st
+	return &stdhttp.Response{
+		Status:        fresp.Status,
+		StatusCode:    fresp.StatusCode,
+		Proto:         fresp.Proto,
+		ProtoMajor:    fresp.ProtoMajor,
+		ProtoMinor:    fresp.ProtoMinor,
+		Header:        stdhttp.Header(fresp.Header),
+		Body:          fresp.Body,
+		ContentLength: -1, // unknown after decompression; engine reads via io.ReadAll
+		Request:       req,
+	}, nil
 }
 
-func (st *stealthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	host := req.URL.Hostname()
-
-	st.mu.RLock()
-	h1Only := st.h1Only[host]
-	st.mu.RUnlock()
-	if h1Only {
-		return st.h1.RoundTrip(req)
+// buildStealthHeaders starts from the Chrome default headers and overlays the
+// caller's headers (custom headers, basic auth) by value, appending any unknown
+// header to the end of the order so the request still looks browser-like.
+func buildStealthHeaders(caller stdhttp.Header) fhttp.Header {
+	h := fhttp.Header{}
+	for k, v := range chromeHeaders {
+		h[k] = append([]string(nil), v...)
 	}
-
-	resp, err := st.h2.RoundTrip(req)
-	if err != nil && errors.Is(err, errNotH2) {
-		// Host negotiated http/1.1, not h2: remember it and serve over h1.
-		st.mu.Lock()
-		st.h1Only[host] = true
-		st.mu.Unlock()
-		return st.h1.RoundTrip(req)
+	order := append([]string(nil), chromeHeaderOrder...)
+	for k, vv := range caller {
+		lk := strings.ToLower(k)
+		if lk == "host" {
+			continue
+		}
+		if _, exists := h[lk]; !exists {
+			order = append(order, lk)
+		}
+		h[lk] = vv
 	}
-	return resp, err
+	h[fhttp.HeaderOrderKey] = order
+	return h
 }
 
-// newStealthClient wraps the dual-protocol uTLS transport in an http.Client that
-// keeps the engine's redirect policy (never follow) and timeout.
-func newStealthClient(concurrency int, timeout time.Duration) *http.Client {
-	return &http.Client{
-		Transport: newStealthTransport(concurrency),
+// newStealthClient builds the Chrome-impersonating client wrapped in a net/http
+// client that keeps the engine's redirect policy (never follow). insecure skips
+// TLS verification (tests only).
+func newStealthClient(timeout time.Duration, insecure bool) (*stdhttp.Client, error) {
+	opts := []tls_client.HttpClientOption{
+		tls_client.WithClientProfile(stealthProfile),
+		tls_client.WithNotFollowRedirects(),
+		tls_client.WithRandomTLSExtensionOrder(),
+		tls_client.WithCookieJar(tls_client.NewCookieJar()),
+		tls_client.WithTimeoutSeconds(int(timeout.Seconds())),
+	}
+	if insecure {
+		opts = append(opts, tls_client.WithInsecureSkipVerify())
+	}
+	c, err := tls_client.NewHttpClient(tls_client.NewNoopLogger(), opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &stdhttp.Client{
+		Transport: &stealthTransport{client: c},
 		Timeout:   timeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
+		CheckRedirect: func(*stdhttp.Request, []*stdhttp.Request) error {
+			return stdhttp.ErrUseLastResponse
 		},
-	}
+	}, nil
 }

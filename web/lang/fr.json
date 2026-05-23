@@ -897,7 +897,7 @@
   "index.modal_stealth_off": "Désactivé",
   "index.modal_stealth_auto": "Auto (bascule sur blocage)",
   "index.modal_stealth_always": "Toujours",
-  "index.modal_stealth_hint": "Imite l'empreinte TLS d'un navigateur Chrome (uTLS) pour contourner les protections anti-bot. « Auto » ne l'active que lorsqu'une URL est bloquée (403/429/503).",
+  "index.modal_stealth_hint": "Imite l'empreinte complète d'un navigateur Chrome (TLS/JA3 + HTTP/2 + en-têtes) pour contourner les protections anti-bot. « Auto » ne l'active que lorsqu'une URL est bloquée (403/429/503).",
   "index.modal_rule_robots": "Respecter robots.txt",
   "index.modal_rule_robots_hint": "Suivre les règles du fichier robots.txt",
   "index.modal_rule_store_html": "Stocker le HTML",

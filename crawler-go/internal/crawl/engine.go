@@ -115,7 +115,11 @@ func NewEngine(cdb *db.CrawlDB, cfg *config.Config, opts Options) *Engine {
 		},
 	}
 	if cfg.StealthMode == "auto" || cfg.StealthMode == "always" {
-		e.stealthClient = newStealthClient(concurrency, 5*time.Second)
+		if sc, err := newStealthClient(5*time.Second, false); err != nil {
+			logf("stealth client init failed, falling back to normal client: %v", err)
+		} else {
+			e.stealthClient = sc
+		}
 	}
 	return e
 }
@@ -151,19 +155,20 @@ func (r fetchResult) retryable() bool {
 }
 
 // botBlocked reports whether a status code looks like an anti-bot block worth
-// retrying with the stealth (uTLS) client.
+// retrying with the stealth (Chrome-impersonating) client.
 func botBlocked(code int) bool { return code == 403 || code == 429 || code == 503 }
 
 // fetchOne performs a single GET, picking the right HTTP client: the stealth
-// (uTLS) client when stealth_mode=always, otherwise the normal client with an
-// automatic stealth retry on an anti-bot block when stealth_mode=auto.
+// (Chrome-impersonating) client when stealth_mode=always, otherwise the normal
+// client with an automatic stealth retry on an anti-bot block when
+// stealth_mode=auto.
 func (e *Engine) fetchOne(ctx context.Context, rawURL string) fetchResult {
 	if e.cfg.StealthMode == "always" && e.stealthClient != nil {
-		return e.doFetch(ctx, rawURL, e.stealthClient)
+		return e.doFetch(ctx, rawURL, e.stealthClient, true)
 	}
-	res := e.doFetch(ctx, rawURL, e.client)
+	res := e.doFetch(ctx, rawURL, e.client, false)
 	if e.cfg.StealthMode == "auto" && e.stealthClient != nil && botBlocked(res.code) {
-		if stealth := e.doFetch(ctx, rawURL, e.stealthClient); stealth.err == nil && !botBlocked(stealth.code) {
+		if stealth := e.doFetch(ctx, rawURL, e.stealthClient, true); stealth.err == nil && !botBlocked(stealth.code) {
 			return stealth
 		}
 	}
@@ -172,8 +177,9 @@ func (e *Engine) fetchOne(ctx context.Context, rawURL string) fetchResult {
 
 // doFetch performs a single GET (no redirect follow) with the given client,
 // capturing TTFB and the Location header (resolved absolute). SSRF-validated
-// before the request.
-func (e *Engine) doFetch(ctx context.Context, rawURL string, client *http.Client) fetchResult {
+// before the request. When stealth is true the User-Agent/Accept are left to the
+// stealth client, which sets a coherent Chrome header set.
+func (e *Engine) doFetch(ctx context.Context, rawURL string, client *http.Client, stealth bool) fetchResult {
 	res := fetchResult{url: rawURL}
 	if err := analysis.ValidateURL(rawURL); err != nil {
 		res.err = err
@@ -185,8 +191,10 @@ func (e *Engine) doFetch(ctx context.Context, rawURL string, client *http.Client
 		res.err = err
 		return res
 	}
-	req.Header.Set("User-Agent", e.cfg.UserAgent)
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	if !stealth {
+		req.Header.Set("User-Agent", e.cfg.UserAgent)
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	}
 	for k, v := range e.cfg.CustomHeaders {
 		req.Header.Set(k, v)
 	}

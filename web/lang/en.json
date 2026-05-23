@@ -897,7 +897,7 @@
   "index.modal_stealth_off": "Off",
   "index.modal_stealth_auto": "Auto (switch on block)",
   "index.modal_stealth_always": "Always",
-  "index.modal_stealth_hint": "Mimics a Chrome browser TLS fingerprint (uTLS) to bypass anti-bot protections. \"Auto\" only kicks in when a URL is blocked (403/429/503).",
+  "index.modal_stealth_hint": "Mimics a full Chrome browser fingerprint (TLS/JA3 + HTTP/2 + headers) to bypass anti-bot protections. \"Auto\" only kicks in when a URL is blocked (403/429/503).",
   "index.modal_rule_robots": "Respect robots.txt",
   "index.modal_rule_robots_hint": "Follow robots.txt rules",
   "index.modal_rule_store_html": "Store HTML",

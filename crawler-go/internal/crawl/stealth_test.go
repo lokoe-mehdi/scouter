@@ -1,106 +1,141 @@
 package crawl
 
 import (
-	"net"
+	"bytes"
+	"compress/gzip"
+	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"sync/atomic"
 	"testing"
+	"time"
 )
 
-func urlHostname(t *testing.T, rawURL string) string {
+func newInsecureStealthClient(t *testing.T) *http.Client {
 	t.Helper()
-	u, err := url.Parse(rawURL)
+	c, err := newStealthClient(5*time.Second, true)
 	if err != nil {
-		t.Fatalf("parse url: %v", err)
+		t.Fatalf("newStealthClient: %v", err)
 	}
-	return u.Hostname()
+	return c
 }
 
-func newTestStealth() *stealthTransport {
-	st := newStealthTransport(4)
-	st.tlsConfig.InsecureSkipVerify = true // test servers use self-signed certs
-	return st
-}
-
-func doGet(t *testing.T, rt http.RoundTripper, url string) *http.Response {
-	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		t.Fatalf("new request: %v", err)
-	}
-	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("roundtrip %s: %v", url, err)
-	}
-	return resp
-}
-
-func TestStealthTransportHTTP2(t *testing.T) {
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+// TestStealthClientChromeFingerprint checks the request reaches the server over
+// HTTP/2 carrying a coherent Chrome header set (UA + client hints), i.e. the
+// crawler no longer self-identifies as Scouter in stealth mode.
+func TestStealthClientChromeFingerprint(t *testing.T) {
+	var gotUA, gotChUa string
+	var gotProtoMajor int
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		gotChUa = r.Header.Get("Sec-Ch-Ua")
+		gotProtoMajor = r.ProtoMajor
 		w.WriteHeader(http.StatusOK)
 	}))
 	srv.EnableHTTP2 = true
 	srv.StartTLS()
 	defer srv.Close()
 
-	st := newTestStealth()
-	resp := doGet(t, st, srv.URL)
+	resp, err := newInsecureStealthClient(t).Get(srv.URL)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
 	resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
+	if gotProtoMajor != 2 {
+		t.Fatalf("server saw HTTP/%d, want HTTP/2", gotProtoMajor)
 	}
-	if resp.ProtoMajor != 2 {
-		t.Fatalf("proto = %s, want HTTP/2", resp.Proto)
+	if want := "Chrome/133"; !contains(gotUA, want) {
+		t.Fatalf("user-agent = %q, want it to contain %q", gotUA, want)
 	}
-	if st.h1Only[urlHostname(t, srv.URL)] {
-		t.Fatalf("h2 host wrongly marked h1-only")
+	if gotChUa == "" {
+		t.Fatalf("sec-ch-ua header missing (client hints not sent)")
 	}
 }
 
-func TestStealthTransportHTTP1Fallback(t *testing.T) {
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+// TestStealthClientNoFollowRedirect verifies the stealth client returns 3xx as-is
+// (the engine resolves Location itself and never follows).
+func TestStealthClientNoFollowRedirect(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redir" {
+			w.Header().Set("Location", "/dest")
+			w.WriteHeader(http.StatusFound)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
-	st := newTestStealth()
-	resp := doGet(t, st, srv.URL)
+	resp, err := newInsecureStealthClient(t).Get(srv.URL + "/redir")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
 	resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("status = %d, want 302 (redirect not followed)", resp.StatusCode)
 	}
-	if resp.ProtoMajor != 1 {
-		t.Fatalf("proto = %s, want HTTP/1.1", resp.Proto)
-	}
-	if !st.h1Only[urlHostname(t, srv.URL)] {
-		t.Fatalf("h1-only host not cached after ALPN fallback")
+	if loc := resp.Header.Get("Location"); loc != "/dest" {
+		t.Fatalf("Location = %q, want /dest", loc)
 	}
 }
 
-func TestStealthTransportConnReuse(t *testing.T) {
-	var conns int32
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
+// TestStealthClientDecompressesBody guards the manual decompression: the stealth
+// client advertises br/zstd/gzip, so fhttp won't auto-decompress and we must.
+func TestStealthClientDecompressesBody(t *testing.T) {
+	const payload = "<html>bonjour</html>"
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		var buf bytes.Buffer
+		gz := gzip.NewWriter(&buf)
+		gz.Write([]byte(payload))
+		gz.Close()
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Write(buf.Bytes())
 	}))
-	srv.EnableHTTP2 = true
-	srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
-		if state == http.StateNew {
-			atomic.AddInt32(&conns, 1)
+	defer srv.Close()
+
+	resp, err := newInsecureStealthClient(t).Get(srv.URL)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if string(body) != payload {
+		t.Fatalf("body = %q, want decompressed %q", string(body), payload)
+	}
+}
+
+func TestBuildStealthHeadersOverride(t *testing.T) {
+	caller := http.Header{
+		"User-Agent":   {"Custom/1.0"},
+		"X-Api-Key":    {"secret"},
+		"Content-Type": {"application/json"},
+	}
+	h := buildStealthHeaders(caller)
+
+	// fhttp keeps lowercase keys for the HTTP/2 wire, so read the map directly.
+	if got := h["user-agent"]; len(got) != 1 || got[0] != "Custom/1.0" {
+		t.Fatalf("custom user-agent not honored: %v", got)
+	}
+	if len(h["sec-ch-ua"]) == 0 {
+		t.Fatalf("chrome default sec-ch-ua dropped")
+	}
+	order := h["Header-Order:"]
+	if !inOrder(order, "x-api-key") || !inOrder(order, "content-type") {
+		t.Fatalf("custom headers not appended to order: %v", order)
+	}
+	if !inOrder(order, "user-agent") {
+		t.Fatalf("chrome header missing from order: %v", order)
+	}
+}
+
+func contains(s, sub string) bool { return bytes.Contains([]byte(s), []byte(sub)) }
+
+func inOrder(order []string, key string) bool {
+	for _, k := range order {
+		if k == key {
+			return true
 		}
 	}
-	srv.StartTLS()
-	defer srv.Close()
-
-	st := newTestStealth()
-	for i := 0; i < 3; i++ {
-		resp := doGet(t, st, srv.URL)
-		resp.Body.Close()
-	}
-	if got := atomic.LoadInt32(&conns); got != 1 {
-		t.Fatalf("opened %d connections for 3 sequential requests, want 1 (keep-alive)", got)
-	}
+	return false
 }
