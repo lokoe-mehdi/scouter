@@ -49,3 +49,63 @@ jobs:
 
       - name: Run tests
         run: vendor/bin/pest
+
+  # Tests du crawler Go (crawler-go/). Inclut les tests de parité bit-pour-bit
+  # (PageID, Simhash, rel2abs), le mapping config, ET le test de parité
+  # catégorisation Go↔PHP (le garde-fou du doublon) qui a besoin de PHP + Postgres.
+  go-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: scouter
+          POSTGRES_USER: scouter
+          POSTGRES_PASSWORD: scouter
+        options: >-
+          --health-cmd "pg_isready -U scouter"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      # Active le test de parité catégorisation contre le Postgres du CI.
+      PARITY_DATABASE_URL: postgresql://scouter:scouter@localhost:5432/scouter
+      PARITY_PDO_DSN: "pgsql:host=localhost;port=5432;dbname=scouter"
+      PARITY_PDO_USER: scouter
+      PARITY_PDO_PASS: scouter
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: crawler-go/go.sum
+
+      - name: Setup PHP (pour le test de parité catégorisation)
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_pgsql, dom, mbstring, curl
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Load database schema
+        run: psql -h localhost -U scouter -d scouter -f docker/postgres/init.sql
+        env:
+          PGPASSWORD: scouter
+
+      - name: go vet
+        working-directory: crawler-go
+        run: go vet ./...
+
+      - name: go test
+        working-directory: crawler-go
+        run: go test ./... -count=1
