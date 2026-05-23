@@ -73,6 +73,26 @@ try {
     <link rel="stylesheet" href="../assets/crawl-panel.css">
     <link rel="icon" type="image/png" href="/logo.png">
     <link rel="stylesheet" href="../assets/vendor/material-symbols/material-symbols.css" />
+    <!-- CodeMirror 5 (bundled locally, no CDN at runtime) — powers the API explorer
+         body editor, the syntax-highlighted response, and the multi-language code
+         snippets. Modes are loaded dependency-first (php needs clike + htmlmixed). -->
+    <link rel="stylesheet" href="../assets/vendor/codemirror/codemirror.min.css">
+    <link rel="stylesheet" href="../assets/vendor/codemirror/theme/material-darker.min.css">
+    <link rel="stylesheet" href="../assets/vendor/codemirror/addon/foldgutter.min.css">
+    <script src="../assets/vendor/codemirror/codemirror.min.js"></script>
+    <script src="../assets/vendor/codemirror/mode/xml.min.js"></script>
+    <script src="../assets/vendor/codemirror/mode/css.min.js"></script>
+    <script src="../assets/vendor/codemirror/mode/javascript.min.js"></script>
+    <script src="../assets/vendor/codemirror/mode/clike.min.js"></script>
+    <script src="../assets/vendor/codemirror/mode/htmlmixed.min.js"></script>
+    <script src="../assets/vendor/codemirror/addon/multiplex.min.js"></script>
+    <script src="../assets/vendor/codemirror/addon/overlay.min.js"></script>
+    <script src="../assets/vendor/codemirror/mode/php.min.js"></script>
+    <script src="../assets/vendor/codemirror/mode/python.min.js"></script>
+    <script src="../assets/vendor/codemirror/mode/shell.min.js"></script>
+    <script src="../assets/vendor/codemirror/addon/foldcode.min.js"></script>
+    <script src="../assets/vendor/codemirror/addon/foldgutter.min.js"></script>
+    <script src="../assets/vendor/codemirror/addon/brace-fold.min.js"></script>
     <style>
         /* Bento layout — two columns above 1100px (AI Provider on the left,
            Dr. Brief prompt editor on the right), single column below that
@@ -1062,24 +1082,171 @@ try {
             </p>
         </div>
 
-        <!-- ============ INTERACTIVE API DOCS (design-system, no Swagger) ============ -->
+        <!-- ============ INTERACTIVE API EXPLORER (custom, dark, no Swagger) ============ -->
         <div class="settings-card" style="grid-column: 1 / -1;">
-            <h2><span class="material-symbols-outlined">api</span> <?= __('settings.api_doc_title') ?></h2>
+            <div class="api-section-header">
+                <h2 style="margin:0;"><span class="material-symbols-outlined">api</span> <?= __('settings.api_doc_title') ?></h2>
+                <!-- Fullscreen toggle lives in the TITLE row, outside the dark block,
+                     so it never collides with the explorer's own header. -->
+                <button type="button" id="btn-expand-api" title="<?= htmlspecialchars(__('settings.api_doc_fullscreen')) ?>">
+                    <span class="material-symbols-outlined" style="font-size:1.05rem;">fullscreen</span>
+                    <span class="api-expand-label"><?= __('settings.api_doc_fullscreen') ?></span>
+                </button>
+            </div>
             <p class="card-subtitle"><?= __('settings.api_doc_intro') ?></p>
 
-            <label style="display:block; max-width:520px; font-size:0.85rem; color:var(--text-secondary); margin:1rem 0 0.6rem;">
-                <?= __('settings.api_doc_token_label') ?>
-                <input id="apiDocToken" type="text" autocomplete="off" spellcheck="false" placeholder="sctr_…"
-                       style="display:block; width:100%; box-sizing:border-box; margin-top:0.3rem; padding:0.5rem 0.7rem; border:1px solid #cbd5e1; border-radius:8px; font-family:ui-monospace,monospace; font-size:0.85rem;">
-            </label>
-            <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:center; font-size:0.82rem; color:var(--text-secondary); margin-bottom:1.2rem;">
-                <span>Base : <code id="apiDocBase">…/api/v1</code></span>
-                <a href="../openapi.yaml" target="_blank" rel="noopener" style="color:var(--primary-color); text-decoration:none; display:inline-flex; align-items:center; gap:0.25rem;">
-                    <span class="material-symbols-outlined" style="font-size:1rem;">description</span> <?= __('settings.api_doc_spec') ?>
-                </a>
-            </div>
+            <!-- Scoped dark theme: the explorer is a self-contained dark module so
+                 its palette never leaks into the (light) settings page around it. -->
+            <style>
+                .api-explorer{
+                    --bg:#0f1117; --bg-side:#161b22; --bg-card:#1c2230; --bg-input:#0f1117;
+                    --border:#2a3441; --text:#e6edf3; --text-dim:#8b949e; --accent:#14b8a6;
+                    --mono:'JetBrains Mono','Fira Code',ui-monospace,SFMono-Regular,Menlo,monospace;
+                    display:grid; grid-template-columns:240px 1fr; gap:0;
+                    background:var(--bg); color:var(--text); border:1px solid var(--border);
+                    border-radius:8px; overflow:hidden; margin-top:1rem;
+                    font-family:'Inter',system-ui,-apple-system,sans-serif; min-height:520px;
+                }
+                /* ---- Sidebar ---- */
+                .api-side{background:var(--bg-side); border-right:1px solid var(--border); padding:0.6rem 0.5rem; overflow-y:auto; max-height:calc(100vh - 4rem); position:sticky; top:0;}
+                .api-grp{margin-bottom:0.25rem;}
+                .api-grp-head{display:flex; align-items:center; gap:0.5rem; width:100%; background:transparent; border:none; color:var(--text); cursor:pointer; padding:0.5rem 0.55rem; border-radius:6px; font-size:0.82rem; font-weight:600; font-family:inherit;}
+                .api-grp-head:hover{background:rgba(255,255,255,0.04);}
+                .api-grp-caret{margin-left:auto; transition:transform .15s; color:var(--text-dim); font-size:1.1rem;}
+                .api-grp.collapsed .api-grp-caret{transform:rotate(-90deg);}
+                .api-grp.collapsed .api-grp-list{display:none;}
+                .api-grp-list{display:flex; flex-direction:column; gap:1px; padding:0.15rem 0 0.35rem;}
+                .api-ep{display:flex; align-items:center; gap:0.5rem; width:100%; text-align:left; background:transparent; border:none; color:var(--text-dim); cursor:pointer; padding:0.32rem 0.5rem 0.32rem 0.7rem; border-radius:6px; font-family:inherit; transition:background .12s,color .12s;}
+                .api-ep:hover{background:rgba(255,255,255,0.05); color:var(--text);}
+                .api-ep.is-active{background:var(--bg-card); color:var(--text);}
+                .api-ep-path{font-family:var(--mono); font-size:0.76rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+                .api-method{display:inline-block; font-weight:700; font-size:0.62rem; letter-spacing:0.02em; padding:0.16rem 0.36rem; border-radius:4px; color:#0b0e14; text-align:center; flex-shrink:0;}
+                /* ---- Main column ---- */
+                .api-main{display:flex; flex-direction:column; min-width:0;}
+                /* Hidden by default so it is NOT a grid item on desktop (it would
+                   otherwise steal the 2nd column and push the main panel below the
+                   sidebar). Only the mobile drawer turns it on. */
+                .api-drawer-backdrop{display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:40;}
+                .api-keybar{position:sticky; top:0; z-index:5; background:var(--bg-side); border-bottom:1px solid var(--border); padding:0.7rem 1.1rem; display:flex; gap:0.8rem; align-items:flex-end; flex-wrap:wrap;}
+                .api-keybar label{font-size:0.72rem; color:var(--text-dim); font-weight:600; display:block; flex:1; min-width:240px;}
+                .api-keybar input{display:block; width:100%; box-sizing:border-box; margin-top:0.25rem; padding:0.45rem 0.6rem; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:0.82rem;}
+                .api-keybar input:focus{outline:none; border-color:var(--accent);}
+                .api-keybar-meta{font-size:0.72rem; color:var(--text-dim); display:flex; flex-direction:column; gap:0.25rem; padding-bottom:0.15rem;}
+                .api-keybar-meta a{color:var(--accent); text-decoration:none; display:inline-flex; align-items:center; gap:0.25rem;}
+                .api-keybar-meta code{font-family:var(--mono); color:var(--text);}
+                .api-detail{padding:1.1rem 1.2rem; overflow-y:auto;}
+                .api-empty{color:var(--text-dim); text-align:center; padding:3rem 1rem; font-size:0.9rem;}
+                /* ---- Endpoint header ---- */
+                .api-h{display:flex; align-items:center; gap:0.7rem; flex-wrap:wrap; margin-bottom:0.4rem;}
+                .api-h code{font-family:var(--mono); font-size:0.95rem; color:var(--text); word-break:break-all;}
+                .api-desc{color:var(--text-dim); font-size:0.85rem; line-height:1.5; margin:0 0 1.2rem;}
+                /* ---- Fields ---- */
+                .api-sec-title{font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-dim); font-weight:700; margin:0 0 0.5rem;}
+                .api-field{display:block; margin-bottom:0.7rem;}
+                .api-field span{font-size:0.78rem; color:var(--text-dim); font-family:var(--mono);}
+                .api-field input{display:block; width:100%; box-sizing:border-box; margin-top:0.25rem; padding:0.45rem 0.6rem; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:0.82rem;}
+                .api-field input:focus{outline:none; border-color:var(--accent);}
+                /* ---- Body editor (collapsed by default) ---- */
+                .api-body-box{margin-bottom:1.1rem;}
+                .api-body-toggle{display:inline-flex; align-items:center; gap:0.4rem; background:var(--bg-card); border:1px solid var(--border); color:var(--text); cursor:pointer; padding:0.45rem 0.7rem; border-radius:6px; font-size:0.82rem; font-family:inherit;}
+                .api-body-toggle:hover{border-color:var(--accent);}
+                .api-body-panel{margin-top:0.6rem;}
+                .api-body-panel.hidden{display:none;}
+                .api-variants{display:flex; gap:0.4rem; margin-bottom:0.5rem;}
+                .api-variant{padding:0.25rem 0.8rem; font-size:0.76rem; border-radius:5px; cursor:pointer; border:1px solid var(--border); background:transparent; color:var(--text-dim); text-transform:capitalize; font-family:inherit;}
+                .api-variant.is-active{background:var(--accent); color:#0b0e14; border-color:var(--accent); font-weight:600;}
+                /* CM auto-height: cap the INNER scroller (.CodeMirror-scroll), not
+                   .CodeMirror itself, otherwise the content is clipped with no scrollbar. */
+                .api-explorer .CodeMirror{height:auto; border:1px solid var(--border); border-radius:6px; font-family:var(--mono); font-size:0.82rem;}
+                .api-explorer .CodeMirror-scroll{min-height:120px; max-height:340px;}
+                .api-ref{margin-bottom:1rem; border:1px solid var(--border); border-radius:6px; overflow:hidden;}
+                .api-ref summary{cursor:pointer; font-size:0.8rem; font-weight:600; color:var(--accent); padding:0.5rem 0.7rem; background:var(--bg-card);}
+                .api-ref pre{white-space:pre-wrap; font-size:0.78rem; line-height:1.5; color:var(--text-dim); padding:0.7rem; margin:0; max-height:280px; overflow-y:auto;}
+                /* ---- Execute ---- */
+                .api-run{display:flex; align-items:center; justify-content:center; gap:0.5rem; width:100%; padding:0.7rem; background:var(--accent); color:#06231f; border:none; border-radius:8px; font-size:0.9rem; font-weight:700; cursor:pointer; font-family:inherit; margin-bottom:1.1rem;}
+                .api-run:hover:not(:disabled){filter:brightness(1.08);}
+                .api-run:disabled{opacity:0.45; cursor:not-allowed;}
+                .api-spinner{width:15px; height:15px; border:2px solid rgba(6,35,31,0.35); border-top-color:#06231f; border-radius:50%; animation:apispin .6s linear infinite;}
+                @keyframes apispin{to{transform:rotate(360deg);}}
+                /* ---- Response tabs ---- */
+                .api-resp-zone{border:1px solid var(--border); border-radius:8px; overflow:hidden;}
+                .api-resp-zone.hidden{display:none;}
+                .api-tabs{display:flex; align-items:center; gap:0.2rem; background:var(--bg-card); border-bottom:1px solid var(--border); padding:0.35rem 0.5rem;}
+                .api-tab{background:transparent; border:none; color:var(--text-dim); cursor:pointer; padding:0.35rem 0.7rem; border-radius:5px; font-size:0.8rem; font-weight:600; font-family:inherit;}
+                .api-tab:hover{color:var(--text);}
+                .api-tab.is-active{background:var(--bg); color:var(--accent);}
+                .api-status{margin-left:auto; font-size:0.74rem; font-weight:700; padding:0.18rem 0.5rem; border-radius:4px; font-family:var(--mono);}
+                .api-copy{margin-left:0.4rem; background:transparent; border:1px solid var(--border); color:var(--text-dim); cursor:pointer; padding:0.25rem 0.6rem; border-radius:5px; font-size:0.72rem; font-family:inherit;}
+                .api-copy:hover{color:var(--text); border-color:var(--accent);}
+                .api-pane{margin:0; padding:0.8rem 1rem; background:var(--bg); color:var(--text); font-family:var(--mono); font-size:0.78rem; line-height:1.55; overflow:auto; max-height:360px; white-space:pre;}
+                .api-pane.hidden{display:none;}
+                .api-cm-host .CodeMirror{height:auto; border:none; border-radius:0; font-family:var(--mono); font-size:0.78rem;}
+                .api-cm-host .CodeMirror-scroll{max-height:360px;}
+                /* ---- Code snippets zone (cURL · Python · JS · PHP │ n8n) ---- */
+                .api-code{margin-top:1.1rem; border:1px solid var(--border); border-radius:8px; overflow:hidden;}
+                .api-code-tabs{display:flex; align-items:center; gap:0.25rem; background:var(--bg-card); border-bottom:1px solid var(--border); padding:0.35rem 0.5rem; flex-wrap:wrap;}
+                .api-code-tab{background:transparent; border:none; color:var(--text-dim); cursor:pointer; padding:0.32rem 0.7rem; border-radius:5px; font-size:0.8rem; font-weight:600; font-family:inherit; display:inline-flex; align-items:center; gap:0.35rem;}
+                .api-code-tab:hover{color:var(--text);}
+                .api-code-tab.is-active{background:var(--bg); color:var(--accent);}
+                .api-code-sep{width:1px; align-self:stretch; background:var(--border); margin:0.1rem 0.35rem;}
+                /* n8n tab: distinct orange identity + no-code pill + ↗ */
+                .api-code-tab.n8n{color:#f97316;}
+                .api-code-tab.n8n:hover{background:#1c1a14;}
+                .api-code-tab.n8n.is-active{background:#1c1a14; color:#f97316;}
+                .api-pill{font-size:0.6rem; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; padding:0.1rem 0.34rem; border-radius:9px; background:#431407; border:1px solid #7c2d12; color:#f97316;}
+                .api-code-hint{font-size:0.76rem; color:var(--text-dim); padding:0.55rem 0.8rem; border-top:1px solid var(--border); background:var(--bg-card);}
+                .api-code-hint.n8n{background:#1c1a14; border-top-color:#7c2d12; color:#f97316;}
+                /* ---- Title-row header + fullscreen toggle (outside the dark block) ---- */
+                .api-section-header{display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:8px;}
+                #btn-expand-api{display:flex; align-items:center; gap:6px; background:transparent; border:1px solid #2d3748; color:#6b7280; font-size:13px; padding:5px 12px; border-radius:6px; cursor:pointer; transition:all .15s; font-family:inherit;}
+                #btn-expand-api:hover{color:#14b8a6; border-color:#14b8a6; background:rgba(20,184,166,0.05);}
+                #btn-expand-api.is-fullscreen{color:#ef4444; border-color:#ef4444;}
+                #btn-expand-api.is-fullscreen:hover{background:rgba(239,68,68,0.12);}
+                /* In fullscreen the explorer overlay (z-index 9999) covers the title row,
+                   so float the Exit button above it, top-right, on a solid dark chip. */
+                body.api-fullscreen-active #btn-expand-api{position:fixed; bottom:18px; right:18px; top:auto; z-index:10000; background:#1c2230; box-shadow:0 2px 12px rgba(0,0,0,0.5);}
+                body.api-fullscreen-active #btn-expand-api:hover{background:rgba(239,68,68,0.18);}
+                /* ---- Fullscreen overlay (fixed, no native requestFullscreen) ---- */
+                .api-explorer.api-fullscreen{position:fixed !important; inset:0 !important; z-index:9999 !important; width:100vw !important; height:100vh !important; min-height:0 !important; border-radius:0 !important; margin:0 !important; overflow:hidden; transition:all .2s ease;}
+                body.api-fullscreen-active{overflow:hidden;}
+                .api-explorer.api-fullscreen .api-main{height:100vh; overflow-y:auto;}
+                .api-explorer.api-fullscreen .api-side{height:100vh; max-height:100vh; overflow-y:auto;}
+                .api-explorer.api-fullscreen .api-detail{overflow:visible;}
+                /* ---- Mobile drawer ---- */
+                .api-drawer-btn{display:none;}
+                @media (max-width:768px){
+                    .api-explorer{grid-template-columns:1fr;}
+                    .api-side{position:fixed; top:0; left:0; bottom:0; width:80%; max-width:300px; z-index:50; max-height:none; transform:translateX(-100%); transition:transform .2s;}
+                    .api-explorer.drawer-open .api-side{transform:translateX(0);}
+                    .api-drawer-btn{display:inline-flex; align-items:center; gap:0.4rem; background:var(--bg-card); border:1px solid var(--border); color:var(--text); padding:0.4rem 0.7rem; border-radius:6px; font-size:0.8rem; cursor:pointer; font-family:inherit;}
+                    .api-explorer.drawer-open .api-drawer-backdrop{display:block;}
+                    #btn-expand-api{display:none;}  /* feature disabled on mobile */
+                }
+            </style>
 
-            <div id="apiDocEndpoints"></div>
+            <div class="api-explorer" id="apiExplorer">
+                <aside class="api-side" id="apiSidebar"></aside>
+                <div class="api-drawer-backdrop" id="apiDrawerBackdrop"></div>
+                <div class="api-main">
+                    <!-- Global Bearer token (set once, persisted, reused everywhere). -->
+                    <div class="api-keybar">
+                        <button type="button" class="api-drawer-btn" id="apiDrawerBtn">
+                            <span class="material-symbols-outlined" style="font-size:1.1rem;">menu</span>
+                        </button>
+                        <label>
+                            <?= __('settings.api_doc_token_label') ?>
+                            <input id="apiDocToken" type="text" autocomplete="off" spellcheck="false" placeholder="sctr_…">
+                        </label>
+                        <div class="api-keybar-meta">
+                            <span>Base : <code id="apiDocBase">…/api/v1</code></span>
+                            <a href="../openapi.yaml" target="_blank" rel="noopener">
+                                <span class="material-symbols-outlined" style="font-size:1rem;">description</span> <?= __('settings.api_doc_spec') ?>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="api-detail" id="apiWorkspace"></div>
+                </div>
+            </div>
         </div>
 
         </section><!-- /tab api -->
@@ -1326,25 +1493,46 @@ try {
     // catalog mirrors openapi.yaml — that file stays the machine-readable source
     // of truth (for MCP/external clients); this panel is the human-facing tester.
     (function () {
-        const container = document.getElementById('apiDocEndpoints');
-        if (!container) return;
+        const explorer  = document.getElementById('apiExplorer');
+        const sidebar   = document.getElementById('apiSidebar');
+        const workspace = document.getElementById('apiWorkspace');
+        if (!explorer || !sidebar || !workspace) return;
         const base = location.origin + '/api/v1';
         const baseEl = document.getElementById('apiDocBase');
         if (baseEl) baseEl.textContent = base;
 
         const tokenIn = document.getElementById('apiDocToken');
-        // Restore a previously used token (mirrors Swagger's persistAuthorization).
-        try { const saved = sessionStorage.getItem('scouter_api_token'); if (saved && tokenIn && !tokenIn.value) tokenIn.value = saved; } catch (e) {}
-        tokenIn?.addEventListener('change', () => { try { sessionStorage.setItem('scouter_api_token', tokenIn.value.trim()); } catch (e) {} });
+        const TOKEN_KEY = 'scouter_api_key';
+        // Persist the Bearer token in localStorage (per the spec) and reload it.
+        try { const saved = localStorage.getItem(TOKEN_KEY); if (saved && tokenIn && !tokenIn.value) tokenIn.value = saved; } catch (e) {}
+        tokenIn?.addEventListener('input', () => {
+            try { localStorage.setItem(TOKEN_KEY, tokenIn.value.trim()); } catch (e) {}
+            if (currentSync) currentSync();   // refresh Execute-disabled state + curl
+        });
+
+        // Mobile drawer wiring.
+        const drawerBtn = document.getElementById('apiDrawerBtn');
+        const backdrop  = document.getElementById('apiDrawerBackdrop');
+        drawerBtn?.addEventListener('click', () => explorer.classList.toggle('drawer-open'));
+        backdrop?.addEventListener('click', () => explorer.classList.remove('drawer-open'));
+
+        // Set by renderEndpoint → lets the global token listener refresh the view.
+        let currentSync = null;
 
         const T = {
-            body:     <?= json_encode(__('settings.api_doc_body')) ?>,
-            response: <?= json_encode(__('settings.api_doc_response')) ?>,
-            execute:  <?= json_encode(__('settings.api_doc_execute')) ?>,
-            running:  <?= json_encode(__('settings.api_doc_running')) ?>,
-            noToken:  <?= json_encode(__('settings.api_doc_no_token')) ?>,
-            copy:     <?= json_encode(__('settings.api_copy')) ?>,
-            copied:   <?= json_encode(__('settings.api_copied')) ?>,
+            body:        <?= json_encode(__('settings.api_doc_body')) ?>,
+            params:      <?= json_encode(__('settings.api_doc_params')) ?>,
+            bodyToggle:  <?= json_encode(__('settings.api_doc_body_toggle')) ?>,
+            response:    <?= json_encode(__('settings.api_doc_response')) ?>,
+            curl:        <?= json_encode(__('settings.api_doc_tab_curl')) ?>,
+            execute:     <?= json_encode(__('settings.api_doc_execute')) ?>,
+            running:     <?= json_encode(__('settings.api_doc_running')) ?>,
+            noToken:     <?= json_encode(__('settings.api_doc_no_token')) ?>,
+            pick:        <?= json_encode(__('settings.api_doc_pick')) ?>,
+            copy:        <?= json_encode(__('settings.api_copy')) ?>,
+            copied:      <?= json_encode(__('settings.api_copied')) ?>,
+            hintToken:   <?= json_encode(__('settings.api_doc_hint_token')) ?>,
+            hintN8n:     <?= json_encode(__('settings.api_doc_hint_n8n')) ?>,
         };
 
         const CREATE_UA = 'Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)';
@@ -1447,192 +1635,413 @@ try {
               desc: <?= json_encode(__('settings.api_ep_query_desc')) ?>,
               pathParams:['id'],
               body: JSON.stringify({ query:'SELECT url, code FROM pages WHERE code >= 400 ORDER BY inlinks DESC', page:1, page_size:100, count:true }, null, 2) },
+            { method:'GET',  path:'/crawls/{id}/categorization', summary: <?= json_encode(__('settings.api_ep_categorization_get')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_categorization_get_desc')) ?>,
+              pathParams:['id'] },
+            { method:'PUT',  path:'/crawls/{id}/categorization', summary: <?= json_encode(__('settings.api_ep_categorization_set')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_categorization_set_desc')) ?>,
+              docText: <?= json_encode(__('settings.api_categorization_ref')) ?>,
+              docTitle: <?= json_encode(__('settings.api_categorization_ref_title')) ?>,
+              pathParams:['id'],
+              body: JSON.stringify({ yaml: "homepage:\n  include:\n    - ^/?$\n  color: '#4ecdc4'\nproduct:\n  include:\n    - ^/p/[0-9]+\n    - ^/product/[^/]+\n  color: '#6bd899'\nother:\n  include:\n    - .*\n  color: '#cccccc'", deploy_to_project: true }, null, 2) },
         ];
 
-        const METHOD_COLORS = { GET:'#0891b2', POST:'#b45309', PUT:'#7c3aed', PATCH:'#ca8a04', DELETE:'#dc2626' };
+        // Method palette (per spec): GET teal · POST orange · PUT violet · PATCH yellow · DELETE red.
+        const METHOD_COLORS = { GET:'#14b8a6', POST:'#f97316', PUT:'#a855f7', PATCH:'#eab308', DELETE:'#ef4444' };
+        // Per-method text colour for legible contrast (dark on light teal/yellow, white on the rest).
+        const METHOD_TEXT = { GET:'#06231f', POST:'#fff', PUT:'#fff', PATCH:'#3a2f00', DELETE:'#fff' };
         const escapeHtml = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+        const methodBadge = (m, extra) => '<span class="api-method" style="background:' + (METHOD_COLORS[m] || '#475569') + ';color:' + (METHOD_TEXT[m] || '#fff') + ';' + (extra || '') + '">' + m + '</span>';
+        // Stable, URL-safe id for routing (e.g. POST /crawls → POST_crawls).
+        const slugOf = ep => (ep.method + '_' + ep.path).replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 
-        ENDPOINTS.forEach(ep => {
-            const det = document.createElement('details');
-            det.style.cssText = 'border:1px solid #e5e7eb; border-radius:10px; margin-bottom:0.7rem; overflow:hidden;';
+        // Group endpoints by RESOURCE. /projects/{id}/schedule belongs to
+        // "Schedules" even though its path starts with /projects → test it first.
+        const GROUP_ORDER = ['Projects', 'Crawls', 'Schedules', 'Other'];
+        const groupOf = ep => {
+            const p = ep.path;
+            if (p === '/schedules' || p.includes('/schedule')) return 'Schedules';
+            if (p.startsWith('/projects')) return 'Projects';
+            if (p.startsWith('/crawls'))   return 'Crawls';
+            return 'Other';
+        };
 
-            const sum = document.createElement('summary');
-            sum.style.cssText = 'cursor:pointer; padding:0.7rem 0.9rem; display:flex; align-items:center; gap:0.7rem;';
-            sum.innerHTML =
-                '<span style="font-weight:700; font-size:0.72rem; padding:0.15rem 0.5rem; border-radius:5px; color:#fff; background:' + (METHOD_COLORS[ep.method] || '#475569') + ';">' + ep.method + '</span>'
-              + '<code style="font-size:0.85rem;">' + escapeHtml(ep.path) + '</code>'
-              + '<span style="color:var(--text-secondary); font-size:0.82rem; margin-left:auto; text-align:right;">' + escapeHtml(ep.summary) + '</span>';
-            det.appendChild(sum);
+        let liveCMs = []; // CodeMirror instances of the current view (DOM nuked on switch)
+        const hasCM = typeof CodeMirror !== 'undefined';
 
-            const bodyWrap = document.createElement('div');
-            bodyWrap.style.cssText = 'padding:0.9rem; border-top:1px solid #f1f5f9;';
+        // ----- Render the detail view of ONE endpoint into the workspace -----
+        function renderEndpoint(ep) {
+            liveCMs = [];               // old instances are detached when we wipe the DOM
+            workspace.innerHTML = '';
+            const inputs = {};
 
-            // Short "what does this do" blurb at the top of the expanded panel.
+            // 1) Header — method + full path + description.
+            const h = document.createElement('div');
+            h.className = 'api-h';
+            h.innerHTML = methodBadge(ep.method, 'font-size:0.7rem;padding:0.2rem 0.5rem;') + '<code>' + escapeHtml(ep.path) + '</code>';
+            workspace.appendChild(h);
             if (ep.desc) {
-                const descBox = document.createElement('div');
-                descBox.style.cssText = 'background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; padding:0.6rem 0.8rem; margin-bottom:0.9rem; font-size:0.85rem; line-height:1.5; color:#0c4a6e;';
-                descBox.textContent = ep.desc;
-                bodyWrap.appendChild(descBox);
+                const d = document.createElement('p'); d.className = 'api-desc'; d.textContent = ep.desc;
+                workspace.appendChild(d);
             }
 
-            // Optional collapsible reference doc (e.g. the crawl config keys).
+            // Optional reference doc (crawl config keys / schedule format / YAML format).
             if (ep.docText) {
                 const refDet = document.createElement('details');
-                refDet.style.cssText = 'margin-bottom:0.9rem;';
-                const refSum = document.createElement('summary');
-                refSum.textContent = ep.docTitle || 'Reference';
-                refSum.style.cssText = 'cursor:pointer; font-size:0.82rem; font-weight:600; color:#0891b2;';
-                const refPre = document.createElement('pre');
-                refPre.textContent = ep.docText;
-                refPre.style.cssText = 'white-space:pre-wrap; font-size:0.8rem; line-height:1.5; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:0.7rem 0.9rem; margin-top:0.5rem;';
+                refDet.className = 'api-ref';
+                const refSum = document.createElement('summary'); refSum.textContent = ep.docTitle || 'Reference';
+                const refPre = document.createElement('pre'); refPre.textContent = ep.docText;
                 refDet.appendChild(refSum); refDet.appendChild(refPre);
-                bodyWrap.appendChild(refDet);
+                workspace.appendChild(refDet);
             }
 
-            const inputs = {};
-            const fieldRow = (label, value, placeholder) => {
-                const wrap = document.createElement('label');
-                wrap.style.cssText = 'display:block; font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.55rem;';
-                wrap.textContent = label;
-                const inp = document.createElement('input');
-                inp.type = 'text'; inp.value = value || ''; if (placeholder) inp.placeholder = placeholder;
-                inp.style.cssText = 'display:block; width:100%; box-sizing:border-box; margin-top:0.25rem; padding:0.4rem 0.6rem; border:1px solid #cbd5e1; border-radius:6px; font-size:0.85rem; font-family:ui-monospace,monospace;';
-                wrap.appendChild(inp); bodyWrap.appendChild(wrap);
-                return inp;
-            };
+            // 2) Path / query parameters.
+            const allParams = (ep.pathParams || []).map(p => ({ key: 'path:' + p, label: p, ph: 'path param' }))
+                .concat((ep.params || []).map(p => ({ key: 'q:' + p.name, label: p.name, ph: p.def ? ('default: ' + p.def) : 'query param' })));
+            if (allParams.length) {
+                const t = document.createElement('div'); t.className = 'api-sec-title'; t.textContent = T.params;
+                workspace.appendChild(t);
+                allParams.forEach(p => {
+                    const wrap = document.createElement('label'); wrap.className = 'api-field';
+                    const span = document.createElement('span'); span.textContent = p.label;
+                    const inp = document.createElement('input'); inp.type = 'text'; inp.placeholder = p.ph;
+                    wrap.appendChild(span); wrap.appendChild(inp); workspace.appendChild(wrap);
+                    inputs[p.key] = inp;
+                    inp.addEventListener('input', refreshCode);
+                });
+            }
 
-            (ep.pathParams || []).forEach(p => { inputs['path:' + p] = fieldRow(p + ' (path)', '', ''); });
-            (ep.params || []).forEach(p => { inputs['q:' + p.name] = fieldRow(p.name, '', p.def || ''); });
-
-            let bodyTa = null;
+            // 3) Body JSON (POST/PUT/PATCH) — CodeMirror editor, COLLAPSED by default.
+            let getBody = null;
+            let bodyCM = null;
             if (ep.body !== undefined) {
-                const lbl = document.createElement('div');
-                lbl.textContent = T.body;
-                lbl.style.cssText = 'font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.25rem;';
-                bodyWrap.appendChild(lbl);
+                const box = document.createElement('div'); box.className = 'api-body-box';
+                const toggle = document.createElement('button');
+                toggle.type = 'button'; toggle.className = 'api-body-toggle';
+                toggle.innerHTML = '<span class="material-symbols-outlined" style="font-size:1.05rem;">data_object</span> ' + escapeHtml(T.bodyToggle);
+                const panel = document.createElement('div'); panel.className = 'api-body-panel hidden';
 
-                bodyTa = document.createElement('textarea');
-                bodyTa.value = ep.body; bodyTa.rows = ep.bodyVariants ? 14 : 6;
-                bodyTa.style.cssText = 'width:100%; box-sizing:border-box; font-family:ui-monospace,monospace; font-size:0.82rem; padding:0.5rem 0.6rem; border:1px solid #cbd5e1; border-radius:6px; margin-bottom:0.6rem;';
-
-                // Endpoints with variants (e.g. create crawl: spider | list) get a
-                // small switch that swaps the example JSON in the textarea.
+                // Spider | List variant switch (create_crawl only).
                 if (ep.bodyVariants) {
-                    const sw = document.createElement('div');
-                    sw.style.cssText = 'display:flex; gap:0.4rem; margin-bottom:0.4rem;';
+                    const sw = document.createElement('div'); sw.className = 'api-variants';
                     Object.keys(ep.bodyVariants).forEach((key, i) => {
                         const b = document.createElement('button');
                         b.type = 'button'; b.textContent = key;
-                        b.dataset.variant = key;
-                        b.style.cssText = 'padding:0.2rem 0.7rem; font-size:0.78rem; border-radius:6px; cursor:pointer; border:1px solid #cbd5e1; text-transform:capitalize; background:' + (i === 0 ? '#0891b2' : '#fff') + '; color:' + (i === 0 ? '#fff' : '#334155') + ';';
+                        b.className = 'api-variant' + (i === 0 ? ' is-active' : '');
                         b.addEventListener('click', () => {
-                            bodyTa.value = ep.bodyVariants[key];
-                            sw.querySelectorAll('button').forEach(x => { x.style.background = '#fff'; x.style.color = '#334155'; });
-                            b.style.background = '#0891b2'; b.style.color = '#fff';
-                            buildCurl();
+                            sw.querySelectorAll('button').forEach(x => x.classList.remove('is-active'));
+                            b.classList.add('is-active');
+                            if (bodyCM) bodyCM.setValue(ep.bodyVariants[key]); else ta.value = ep.bodyVariants[key];
+                            refreshCode();
                         });
                         sw.appendChild(b);
                     });
-                    bodyWrap.appendChild(sw);
+                    panel.appendChild(sw);
                 }
-                bodyWrap.appendChild(bodyTa);
+
+                const ta = document.createElement('textarea'); ta.value = ep.body;
+                panel.appendChild(ta);
+                box.appendChild(toggle); box.appendChild(panel);
+                workspace.appendChild(box);
+
+                getBody = () => bodyCM ? bodyCM.getValue() : ta.value;
+
+                // Mount CodeMirror lazily on first expand (it mis-measures while hidden).
+                toggle.addEventListener('click', () => {
+                    const willShow = panel.classList.contains('hidden');
+                    panel.classList.toggle('hidden');
+                    if (willShow && !bodyCM && hasCM) {
+                        bodyCM = CodeMirror.fromTextArea(ta, {
+                            mode: { name: 'javascript', json: true },
+                            theme: 'material-darker', lineNumbers: true, lineWrapping: true,
+                            tabSize: 2, viewportMargin: Infinity,
+                        });
+                        bodyCM.on('change', refreshCode);
+                        liveCMs.push(bodyCM);
+                    }
+                    if (willShow && bodyCM) setTimeout(() => bodyCM.refresh(), 0);
+                });
             }
 
-            // Live curl preview — shows the full request (incl. the Bearer header),
-            // rebuilt whenever the token, params or body change.
-            const curlWrap = document.createElement('div');
-            curlWrap.style.cssText = 'margin:0.3rem 0 0.9rem;';
-            const curlHead = document.createElement('div');
-            curlHead.style.cssText = 'display:flex; align-items:center; justify-content:space-between; margin-bottom:0.25rem;';
-            const curlLbl = document.createElement('span');
-            curlLbl.textContent = 'curl';
-            curlLbl.style.cssText = 'font-size:0.8rem; color:var(--text-secondary); font-weight:600;';
-            const curlCopy = document.createElement('button');
-            curlCopy.type = 'button'; curlCopy.className = 'btn btn-secondary';
-            curlCopy.style.cssText = 'padding:0.15rem 0.6rem; font-size:0.75rem;';
-            curlCopy.textContent = T.copy;
-            curlHead.appendChild(curlLbl); curlHead.appendChild(curlCopy);
-            const curlPre = document.createElement('pre');
-            curlPre.style.cssText = 'background:#0f172a; color:#e2e8f0; border-radius:8px; padding:0.7rem 0.9rem; overflow:auto; font-size:0.76rem; line-height:1.5; margin:0; white-space:pre;';
-            curlWrap.appendChild(curlHead); curlWrap.appendChild(curlPre);
-            bodyWrap.appendChild(curlWrap);
+            // 4) Execute button (full-width, teal, spinner, disabled without a key).
+            const runBtn = document.createElement('button'); runBtn.type = 'button'; runBtn.className = 'api-run';
+            const runLabel = '<span class="material-symbols-outlined" style="font-size:1.1rem;">play_arrow</span> ' + escapeHtml(T.execute);
+            runBtn.innerHTML = runLabel;
+            workspace.appendChild(runBtn);
 
+            // 5) Response zone (revealed after first run): status badge + JSON viewer.
+            const zone = document.createElement('div'); zone.className = 'api-resp-zone hidden';
+            const rtabs = document.createElement('div'); rtabs.className = 'api-tabs';
+            const rlabel = document.createElement('span'); rlabel.className = 'api-tab is-active'; rlabel.textContent = T.response;
+            const statusBadge = document.createElement('span'); statusBadge.className = 'api-status'; statusBadge.style.display = 'none';
+            const respCopy = document.createElement('button'); respCopy.type = 'button'; respCopy.className = 'api-copy'; respCopy.textContent = T.copy;
+            rtabs.appendChild(rlabel); rtabs.appendChild(statusBadge); rtabs.appendChild(respCopy);
+            const respHost = document.createElement('div'); respHost.className = 'api-cm-host';
+            zone.appendChild(rtabs); zone.appendChild(respHost);
+            workspace.appendChild(zone);
+            let respCM = null, respText = '';
+            respCopy.addEventListener('click', () => {
+                navigator.clipboard.writeText(respCM ? respCM.getValue() : respText).then(() => {
+                    respCopy.textContent = T.copied; setTimeout(() => { respCopy.textContent = T.copy; }, 1500);
+                });
+            });
+
+            // 6) Code snippets zone — cURL · Python · JavaScript · PHP │ n8n.
+            const LANGS = [
+                { id: 'curl', label: 'cURL',       mode: 'shell',                       gen: genCurl },
+                { id: 'py',   label: 'Python',     mode: 'python',                      gen: genPython },
+                { id: 'js',   label: 'JavaScript', mode: 'javascript',                  gen: genJs },
+                { id: 'php',  label: 'PHP',        mode: 'application/x-httpd-php',     gen: genPhp },
+                { id: 'n8n',  label: 'n8n',        mode: { name: 'javascript', json: true }, gen: genN8n, special: true },
+            ];
+            const codeWrap = document.createElement('div'); codeWrap.className = 'api-code';
+            const ctabs = document.createElement('div'); ctabs.className = 'api-code-tabs';
+            const codeBtns = {};
+            LANGS.forEach((l, i) => {
+                if (l.special) { const sep = document.createElement('span'); sep.className = 'api-code-sep'; ctabs.appendChild(sep); }
+                const b = document.createElement('button');
+                b.type = 'button'; b.className = 'api-code-tab' + (l.special ? ' n8n' : '') + (i === 0 ? ' is-active' : '');
+                b.innerHTML = l.special
+                    ? escapeHtml(l.label) + '<span class="api-pill">no-code</span><span class="material-symbols-outlined" style="font-size:0.95rem;">north_east</span>'
+                    : escapeHtml(l.label);
+                b.addEventListener('click', () => selectLang(l.id));
+                codeBtns[l.id] = b; ctabs.appendChild(b);
+            });
+            const codeCopy = document.createElement('button'); codeCopy.type = 'button'; codeCopy.className = 'api-copy'; codeCopy.style.marginLeft = 'auto'; codeCopy.textContent = T.copy;
+            ctabs.appendChild(codeCopy);
+            const codeHost = document.createElement('div'); codeHost.className = 'api-cm-host';
+            const hint = document.createElement('div'); hint.className = 'api-code-hint';
+            codeWrap.appendChild(ctabs); codeWrap.appendChild(codeHost); codeWrap.appendChild(hint);
+            workspace.appendChild(codeWrap);
+
+            let codeCM = null, activeLang = 'curl';
+            if (hasCM) {
+                codeCM = CodeMirror(codeHost, {
+                    value: '', mode: 'shell', theme: 'material-darker',
+                    readOnly: true, lineNumbers: true, lineWrapping: true, viewportMargin: Infinity,
+                });
+                liveCMs.push(codeCM);
+            } else {
+                const pre = document.createElement('pre'); pre.className = 'api-pane'; codeHost.appendChild(pre);
+                codeCM = { _pre: pre, setValue(v) { pre.textContent = v; }, getValue() { return pre.textContent; }, setOption() {}, refresh() {} };
+            }
+            codeCopy.addEventListener('click', () => {
+                navigator.clipboard.writeText(codeCM.getValue()).then(() => { codeCopy.textContent = T.copied; setTimeout(() => { codeCopy.textContent = T.copy; }, 1500); });
+            });
+
+            // ---- request builders + snippet generators ----
             function buildUrl(forCurl) {
                 const token = (tokenIn?.value || '').trim();
                 let path = ep.path;
                 (ep.pathParams || []).forEach(p => {
-                    const raw = (inputs['path:' + p].value || '').trim();
+                    const raw = (inputs['path:' + p]?.value || '').trim();
                     const v = raw || (forCurl ? '{' + p + '}' : '');
                     path = path.replace('{' + p + '}', forCurl ? v : encodeURIComponent(v));
                 });
                 const qs = new URLSearchParams();
-                (ep.params || []).forEach(p => { const v = (inputs['q:' + p.name].value || '').trim(); if (v !== '') qs.set(p.name, v); });
+                (ep.params || []).forEach(p => { const v = (inputs['q:' + p.name]?.value || '').trim(); if (v !== '') qs.set(p.name, v); });
                 let url = base + path; const q = qs.toString(); if (q) url += '?' + q;
                 return { token, url };
             }
-            function buildCurl() {
-                const { token, url } = buildUrl(true);
-                let c = 'curl -X ' + ep.method + ' "' + url + '"';
-                c += ' \\\n  -H "Authorization: Bearer ' + (token || 'sctr_YOUR_TOKEN') + '"';
+            const reqMeta = () => {
+                const { url } = buildUrl(true);
+                const tok = (tokenIn?.value || '').trim() || 'sctr_YOUR_TOKEN';
+                const body = getBody ? (getBody() || '') : null;
+                return { url, tok, body, m: ep.method, ml: ep.method.toLowerCase() };
+            };
+            function genCurl() {
+                const { url, tok, body, m } = reqMeta();
+                let c = 'curl -X ' + m + ' "' + url + '"';
+                c += ' \\\n  -H "Authorization: Bearer ' + tok + '"';
                 c += ' \\\n  -H "Accept: application/json"';
-                if (bodyTa) {
+                if (body !== null) {
                     c += ' \\\n  -H "Content-Type: application/json"';
-                    const oneLine = bodyTa.value.replace(/\s*\n\s*/g, ' ').replace(/'/g, "'\\''");
-                    c += " \\\n  -d '" + oneLine + "'";
+                    c += " \\\n  -d '" + body.replace(/\s*\n\s*/g, ' ').replace(/'/g, "'\\''") + "'";
                 }
-                curlPre.textContent = c;
+                return c;
             }
-            buildCurl();
-            [tokenIn].concat(Object.values(inputs)).forEach(el => el && el.addEventListener('input', buildCurl));
-            if (bodyTa) bodyTa.addEventListener('input', buildCurl);
-            curlCopy.addEventListener('click', () => {
-                navigator.clipboard.writeText(curlPre.textContent).then(() => {
-                    curlCopy.textContent = T.copied;
-                    setTimeout(() => { curlCopy.textContent = T.copy; }, 1500);
-                });
-            });
+            function genPython() {
+                const { url, tok, body, ml } = reqMeta();
+                let s = 'import requests\n\n';
+                s += 'url = "' + url + '"\n';
+                s += 'headers = {\n    "Authorization": "Bearer ' + tok + '",\n    "Content-Type": "application/json"\n}\n\n';
+                if (body !== null) {
+                    s += 'payload = """' + body + '"""\n\n';
+                    s += 'response = requests.' + ml + '(url, headers=headers, data=payload)\n';
+                } else {
+                    s += 'response = requests.' + ml + '(url, headers=headers)\n';
+                }
+                s += 'print(response.json())';
+                return s;
+            }
+            function genJs() {
+                const { url, tok, body, m } = reqMeta();
+                let s = 'const response = await fetch(\n  "' + url + '",\n  {\n    method: "' + m + '",\n';
+                s += '    headers: {\n      "Authorization": "Bearer ' + tok + '",\n      "Content-Type": "application/json"\n    }';
+                if (body !== null) s += ',\n    body: JSON.stringify(' + body + ')';
+                s += '\n  }\n);\n\nconst data = await response.json();\nconsole.log(data);';
+                return s;
+            }
+            function genPhp() {
+                const { url, tok, body, ml } = reqMeta();
+                // NB: build the opening PHP tag by concatenation — writing it as a
+                // single literal here would be parsed as a real open-tag in this file.
+                let s = '<' + '?php\n$client = new GuzzleHttp\\Client();\n\n';
+                s += "$response = $client->" + ml + "(\n  '" + url + "',\n  [\n    'headers' => [\n";
+                s += "      'Authorization' => 'Bearer " + tok + "',\n      'Content-Type'  => 'application/json',\n    ],\n";
+                if (body !== null) s += "    'body' => '" + body.replace(/\s*\n\s*/g, ' ').replace(/'/g, "\\'") + "',\n";
+                s += "  ]\n);\n\n$data = json_decode($response->getBody(), true);";
+                return s;
+            }
+            function genN8n() {
+                const { url, tok, body, m } = reqMeta();
+                const params = { method: m, url: url, sendHeaders: true,
+                    headerParameters: { parameters: [{ name: 'Authorization', value: 'Bearer ' + tok }] } };
+                if (body !== null) { params.sendBody = true; params.specifyBody = 'json'; params.jsonBody = body; }
+                return JSON.stringify({ nodes: [{
+                    name: 'Scouter - ' + (ep.summary || ep.path),
+                    type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, parameters: params,
+                }] }, null, 2);
+            }
 
-            const runBtn = document.createElement('button');
-            runBtn.type = 'button'; runBtn.className = 'btn btn-primary';
-            runBtn.style.cssText = 'display:inline-flex; align-items:center; gap:0.4rem;';
-            const runLabel = '<span class="material-symbols-outlined">play_arrow</span> ' + escapeHtml(T.execute);
-            runBtn.innerHTML = runLabel;
-            bodyWrap.appendChild(runBtn);
+            function selectLang(id) {
+                activeLang = id;
+                const lang = LANGS.find(l => l.id === id);
+                Object.values(codeBtns).forEach(b => b.classList.remove('is-active'));
+                codeBtns[id].classList.add('is-active');
+                if (codeCM.setOption) codeCM.setOption('mode', lang.mode);
+                codeCM.setValue(lang.gen());
+                if (codeCM.refresh) setTimeout(() => codeCM.refresh(), 0);
+                // Contextual hint (n8n gets the import instructions + its own style).
+                hint.className = 'api-code-hint' + (id === 'n8n' ? ' n8n' : '');
+                hint.textContent = id === 'n8n' ? T.hintN8n : T.hintToken;
+            }
+            function refreshCode() { const lang = LANGS.find(l => l.id === activeLang); codeCM.setValue(lang.gen()); }
 
-            const respMeta = document.createElement('div');
-            respMeta.style.cssText = 'font-size:0.8rem; font-weight:600; margin:0.9rem 0 0.3rem; display:none;';
-            const resp = document.createElement('pre');
-            resp.style.cssText = 'display:none; background:#0f172a; color:#e2e8f0; border-radius:8px; padding:0.8rem 1rem; overflow:auto; max-height:340px; font-size:0.78rem; line-height:1.5; margin:0;';
-            bodyWrap.appendChild(respMeta); bodyWrap.appendChild(resp);
+            // Keep Execute-enabled state + the visible snippet in sync with the token.
+            function syncState() { runBtn.disabled = !(tokenIn?.value || '').trim(); refreshCode(); }
+            currentSync = syncState;
+            selectLang('curl');
+            syncState();
 
             runBtn.addEventListener('click', async () => {
                 const token = (tokenIn?.value || '').trim();
-                respMeta.style.display = 'block'; resp.style.display = 'block';
-                if (!token) { respMeta.style.color = '#dc2626'; respMeta.textContent = ''; resp.textContent = T.noToken; return; }
-                let path = ep.path;
-                (ep.pathParams || []).forEach(p => { path = path.replace('{' + p + '}', encodeURIComponent((inputs['path:' + p].value || '').trim())); });
-                const qs = new URLSearchParams();
-                (ep.params || []).forEach(p => { const v = (inputs['q:' + p.name].value || '').trim(); if (v !== '') qs.set(p.name, v); });
-                let url = base + path; const q = qs.toString(); if (q) url += '?' + q;
+                zone.classList.remove('hidden');
+                const showResp = (txt, mode) => {
+                    if (respCM) { respCM.setValue(txt); if (mode) respCM.setOption('mode', mode); setTimeout(() => respCM.refresh(), 0); }
+                    else if (hasCM) {
+                        respCM = CodeMirror(respHost, { value: txt, mode: mode || { name: 'javascript', json: true }, theme: 'material-darker',
+                            readOnly: true, lineNumbers: true, lineWrapping: true, viewportMargin: Infinity,
+                            foldGutter: true, gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'] });
+                        liveCMs.push(respCM); setTimeout(() => respCM.refresh(), 0);
+                    } else { respText = txt; respHost.innerHTML = ''; const pre = document.createElement('pre'); pre.className = 'api-pane'; pre.textContent = txt; respHost.appendChild(pre); }
+                };
+                if (!token) { statusBadge.style.display = 'none'; showResp(T.noToken, 'text/plain'); return; }
+                const { url } = buildUrl(false);
                 const opts = { method: ep.method, headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' } };
-                if (bodyTa) { opts.headers['Content-Type'] = 'application/json'; opts.body = bodyTa.value; }
-                runBtn.disabled = true; runBtn.textContent = T.running;
+                if (getBody) { opts.headers['Content-Type'] = 'application/json'; opts.body = getBody(); }
+
+                runBtn.disabled = true;
+                runBtn.innerHTML = '<span class="api-spinner"></span> ' + escapeHtml(T.running);
                 try {
                     const r = await fetch(url, opts);
                     const txt = await r.text();
-                    let pretty = txt; try { pretty = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) {}
-                    respMeta.style.color = r.ok ? '#16a34a' : '#dc2626';
-                    respMeta.textContent = r.status + ' ' + r.statusText + '  ·  ' + ep.method + ' ' + url;
-                    resp.textContent = pretty;
+                    let pretty = txt, mode = 'text/plain';
+                    try { pretty = JSON.stringify(JSON.parse(txt), null, 2); mode = { name: 'javascript', json: true }; } catch (e) {}
+                    const col = r.status < 300 ? '#16a34a' : (r.status < 500 ? '#ef4444' : '#b91c1c');
+                    statusBadge.style.display = ''; statusBadge.style.background = col; statusBadge.style.color = '#fff';
+                    statusBadge.textContent = r.status + ' ' + r.statusText;
+                    showResp(pretty, mode);
                 } catch (e) {
-                    respMeta.style.color = '#dc2626'; respMeta.textContent = 'Error';
-                    resp.textContent = String(e);
+                    statusBadge.style.display = ''; statusBadge.style.background = '#b91c1c'; statusBadge.style.color = '#fff';
+                    statusBadge.textContent = 'Error';
+                    showResp(String(e), 'text/plain');
                 } finally { runBtn.disabled = false; runBtn.innerHTML = runLabel; }
             });
+        }
 
-            det.appendChild(bodyWrap);
-            container.appendChild(det);
+        // ----- Build the grouped, collapsible sidebar -----
+        const epButtons = new Map(); // slug → button (for active highlight + routing)
+        function selectEndpoint(ep, push) {
+            epButtons.forEach(b => b.classList.remove('is-active'));
+            const btn = epButtons.get(slugOf(ep));
+            if (btn) btn.classList.add('is-active');
+            explorer.classList.remove('drawer-open'); // close mobile drawer on pick
+            renderEndpoint(ep);
+            if (push) {
+                try { const u = new URL(location); u.searchParams.set('endpoint', slugOf(ep)); history.replaceState(null, '', u); } catch (e) {}
+            }
+        }
+
+        const grouped = {};
+        ENDPOINTS.forEach(ep => { const g = groupOf(ep); (grouped[g] = grouped[g] || []).push(ep); });
+
+        GROUP_ORDER.forEach(group => {
+            const list = grouped[group];
+            if (!list || !list.length) return;
+            const sec = document.createElement('div'); sec.className = 'api-grp';
+            const head = document.createElement('button');
+            head.type = 'button'; head.className = 'api-grp-head';
+            head.innerHTML = '<span class="material-symbols-outlined" style="font-size:1.05rem;">folder</span><span>' + escapeHtml(group) + '</span>'
+                + '<span class="material-symbols-outlined api-grp-caret">expand_more</span>';
+            const ul = document.createElement('div'); ul.className = 'api-grp-list';
+            head.addEventListener('click', () => sec.classList.toggle('collapsed'));
+            sec.appendChild(head); sec.appendChild(ul);
+
+            list.forEach(ep => {
+                const btn = document.createElement('button');
+                btn.type = 'button'; btn.className = 'api-ep'; btn.title = ep.method + ' ' + ep.path;
+                btn.innerHTML = methodBadge(ep.method, 'min-width:42px;') + '<span class="api-ep-path">' + escapeHtml(ep.path) + '</span>';
+                btn.addEventListener('click', () => selectEndpoint(ep, true));
+                epButtons.set(slugOf(ep), btn);
+                ul.appendChild(btn);
+            });
+            sidebar.appendChild(sec);
         });
+
+        // ----- Initial selection: ?endpoint= deep-link, else the first endpoint -----
+        if (ENDPOINTS.length) {
+            let initial = ENDPOINTS[0];
+            try {
+                const want = new URL(location).searchParams.get('endpoint');
+                if (want) { const m = ENDPOINTS.find(e => slugOf(e) === want); if (m) initial = m; }
+            } catch (e) {}
+            selectEndpoint(initial, false);
+        } else {
+            workspace.innerHTML = '<div class="api-empty">' + escapeHtml(T.pick) + '</div>';
+        }
+    })();
+    </script>
+
+    <script>
+    // Fullscreen toggle for the API explorer — a fixed overlay (NOT the native
+    // requestFullscreen, which hides the browser chrome). Esc closes it.
+    (function () {
+        const btn   = document.getElementById('btn-expand-api');
+        const bloc  = document.getElementById('apiExplorer');
+        if (!btn || !bloc) return;
+        const label = btn.querySelector('.api-expand-label');
+        const icon  = btn.querySelector('.material-symbols-outlined');
+        const L = { open: <?= json_encode(__('settings.api_doc_fullscreen')) ?>, close: <?= json_encode(__('settings.api_doc_collapse')) ?> };
+
+        function onEsc(e) { if (e.key === 'Escape') close(); }
+        function open() {
+            bloc.classList.add('api-fullscreen');
+            document.body.classList.add('api-fullscreen-active');
+            btn.classList.add('is-fullscreen');
+            if (label) label.textContent = L.close;
+            if (icon) icon.textContent = 'close_fullscreen';
+            document.addEventListener('keydown', onEsc);
+        }
+        function close() {
+            bloc.classList.remove('api-fullscreen');
+            document.body.classList.remove('api-fullscreen-active');
+            btn.classList.remove('is-fullscreen');
+            if (label) label.textContent = L.open;
+            if (icon) icon.textContent = 'fullscreen';
+            document.removeEventListener('keydown', onEsc);
+        }
+        btn.addEventListener('click', () => bloc.classList.contains('api-fullscreen') ? close() : open());
     })();
     </script>
 

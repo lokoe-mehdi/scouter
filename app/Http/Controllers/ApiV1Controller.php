@@ -9,6 +9,7 @@ use App\Database\PostgresDatabase;
 use App\Database\ProjectRepository;
 use App\Database\CrawlRepository;
 use App\AI\SqlExecutor;
+use App\Analysis\CategorizationService;
 use App\Api\PageContent;
 use App\Job\JobManager;
 use PDO;
@@ -319,6 +320,156 @@ class ApiV1Controller extends Controller
             ],
             'meta' => ['crawl_id' => $cid],
         ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /api/v1/crawls/{id}/categorization  — current rules + applied categories
+    // -------------------------------------------------------------------------
+    public function getCategorization(Request $request): void
+    {
+        $crawl = $this->resolveAccessibleCrawl($request);
+        if ($crawl === null) return;
+        $cid = (int)$crawl->id;
+        $projectId = (int)$crawl->project_id;
+
+        // The YAML rules: prefer the crawl-level config (what was actually applied
+        // to THIS crawl), fall back to the project-level source of truth.
+        $stmt = $this->db->prepare("SELECT config FROM categorization_config WHERE crawl_id = :cid");
+        $stmt->execute([':cid' => $cid]);
+        $yaml = $stmt->fetchColumn();
+        if ($yaml === false || $yaml === null || $yaml === '') {
+            $yaml = $this->projects->getCategorizationConfig($projectId);
+        }
+
+        // Applied categories on THIS crawl — the proof the deploy reached it.
+        // NULL cat = the "uncategorized" bucket (kept, with name=null).
+        $stmt = $this->db->prepare("
+            SELECT c.cat AS name, c.color AS color, COUNT(p.id) AS count
+            FROM pages p
+            LEFT JOIN crawl_categories c ON p.cat_id = c.id
+            WHERE p.crawl_id = :cid AND p.external = false
+            GROUP BY c.cat, c.color
+            ORDER BY count DESC
+        ");
+        $stmt->execute([':cid' => $cid]);
+        $categories = array_map(fn($r) => [
+            'name'  => $r['name'],
+            'color' => $r['name'] !== null ? ($r['color'] ?? '#95a5a6') : null,
+            'count' => (int)$r['count'],
+        ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+
+        Response::json([
+            'data' => [
+                'crawl_id'   => $cid,
+                'project_id' => $projectId,
+                'config'     => ($yaml !== false && $yaml !== null) ? (string)$yaml : null,
+                'categories' => $categories,
+                'deployment' => $this->categorizationDeployment($projectId),
+            ],
+            'meta' => ['crawl_id' => $cid],
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // PUT /api/v1/crawls/{id}/categorization  — set rules, apply, deploy
+    // -------------------------------------------------------------------------
+    public function setCategorization(Request $request): void
+    {
+        $crawl = $this->resolveAccessibleCrawl($request);
+        if ($crawl === null) return;
+        // Writing categorization requires MANAGEMENT of the project, not just access.
+        $this->auth->requireProjectManagement((int)$crawl->project_id);
+        $cid       = (int)$crawl->id;
+        $projectId = (int)$crawl->project_id;
+        $domain    = (string)($crawl->domain ?? '');
+
+        $yamlRaw = $request->get('yaml');
+        if (!is_string($yamlRaw) || trim($yamlRaw) === '') {
+            Response::error('`yaml` (the categorization rules) is required.', 400);
+            return;
+        }
+        $deployToProject = $request->get('deploy_to_project', true) !== false;
+
+        // Fill `dom` for any category that omitted it (or used the `{dom}`
+        // placeholder) with the crawl's domain; an explicit dom is left as-is.
+        // We normalise through the YAML parser so parseRules never skips a
+        // dom-less category (it requires the key to be present).
+        try {
+            $yaml = $this->normalizeCategorizationYaml($yamlRaw, $domain);
+        } catch (\Throwable $e) {
+            Response::error('Invalid YAML: ' . $e->getMessage(), 400);
+            return;
+        }
+
+        $categories = \Spyc::YAMLLoadString($yaml);
+        if (!is_array($categories) || empty($categories)) {
+            Response::error('YAML did not parse into any category.', 400);
+            return;
+        }
+
+        // Validate regex patterns up-front (422 on a bad pattern) so the caller
+        // gets a clear error instead of a half-applied config.
+        $service = new CategorizationService($this->db);
+        try {
+            $service->parseRules($categories);
+        } catch (\InvalidArgumentException $e) {
+            Response::error($e->getMessage(), 422);
+            return;
+        }
+
+        // Persist at project level (source of truth) + crawl level.
+        $this->projects->setCategorizationConfig($projectId, $yaml);
+        $stmt = $this->db->prepare("
+            INSERT INTO categorization_config (crawl_id, config)
+            VALUES (:cid, :config)
+            ON CONFLICT (crawl_id) DO UPDATE SET config = :config2
+        ");
+        $stmt->execute([':cid' => $cid, ':config' => $yaml, ':config2' => $yaml]);
+
+        // Apply SYNCHRONOUSLY to THIS crawl so the result is immediately readable
+        // (a few regex UPDATEs; same trade-off as the UI save flow).
+        $categorizedCount = 0;
+        $applyError = null;
+        try {
+            $categorizedCount = $service->applyCategorization($cid, $yaml, $projectId);
+        } catch (\Throwable $e) {
+            $applyError = $e->getMessage();
+            error_log('[API categorization] sync apply on crawl ' . $cid . ' failed: ' . $e->getMessage());
+        }
+
+        // Deploy to the OTHER crawls of the project via an async batch job.
+        $jobId = null;
+        $otherCrawls = 0;
+        if ($deployToProject) {
+            $others = array_filter($this->crawls->getByProjectId($projectId), fn($c) => (int)$c->id !== $cid);
+            $otherCrawls = count($others);
+            if ($otherCrawls > 0) {
+                $jm = new JobManager();
+                $jobId = $jm->createJob((string)($crawl->path ?? ''), 'Batch Categorization', "batch-categorize-project:{$projectId}");
+                $jm->updateJobStatus($jobId, 'queued');
+                $jm->addLog($jobId, "Queued categorization for {$otherCrawls} other crawl(s) via API (crawl #{$cid} applied synchronously).", 'info');
+            }
+        }
+
+        $payload = [
+            'crawl_id'          => $cid,
+            'project_id'        => $projectId,
+            'categorized_count' => $categorizedCount,
+            'deploy_to_project' => $deployToProject,
+            'deployment'        => [
+                'status'       => $jobId !== null ? 'running' : 'completed',
+                'job_id'       => $jobId !== null ? (int)$jobId : null,
+                'progress'     => $jobId !== null ? 0 : 100,
+                'other_crawls' => $otherCrawls,
+            ],
+        ];
+        // Config is persisted regardless; surface a sync-apply failure so the
+        // caller knows THIS crawl's view won't reflect the rules until the
+        // batch worker rescues it.
+        if ($applyError !== null) {
+            $payload['apply_error'] = $applyError;
+        }
+        Response::json(['data' => $payload]);
     }
 
     // -------------------------------------------------------------------------
@@ -725,6 +876,63 @@ class ApiV1Controller extends Controller
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Parse the caller's YAML, fill `dom` for any category that omitted it (or
+     * used the `{dom}` placeholder) with the crawl's domain, and re-serialise.
+     * An explicit, non-placeholder `dom` is left untouched. Re-serialising
+     * guarantees CategorizationService::parseRules never skips a dom-less
+     * category (it requires the key to be present).
+     */
+    private function normalizeCategorizationYaml(string $yaml, string $domain): string
+    {
+        $parsed = \Spyc::YAMLLoadString($yaml);
+        if (!is_array($parsed) || empty($parsed)) {
+            throw new \InvalidArgumentException('not a YAML mapping of categories');
+        }
+        foreach ($parsed as &$rule) {
+            if (!is_array($rule)) continue;
+            $dom = $rule['dom'] ?? null;
+            if ($dom === null || $dom === '' || $dom === '{dom}') {
+                $rule['dom'] = $domain;
+            }
+        }
+        unset($rule);
+        return \Spyc::YAMLDump($parsed, 2, 0, true);
+    }
+
+    /**
+     * Latest project-wide categorization deployment status, as a public block.
+     * Derived from the most recent `batch-categorize-project:<id>` job. No job
+     * means the categorization was only ever applied synchronously (single-crawl
+     * project), which we report as "idle" (nothing pending).
+     *
+     * @return array<string,mixed>
+     */
+    private function categorizationDeployment(int $projectId): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT id, status, progress
+            FROM jobs
+            WHERE command = :cmd
+            ORDER BY created_at DESC
+            LIMIT 1
+        ");
+        $stmt->execute([':cmd' => "batch-categorize-project:{$projectId}"]);
+        $job = $stmt->fetch(PDO::FETCH_OBJ);
+
+        if (!$job) {
+            return ['status' => 'idle', 'job_id' => null, 'progress' => 100];
+        }
+
+        $status  = (string)($job->status ?? '');
+        $running = in_array($status, ['pending', 'queued', 'running'], true);
+        return [
+            'status'   => $running ? 'running' : $status,
+            'job_id'   => (int)$job->id,
+            'progress' => $job->progress !== null ? (int)$job->progress : ($running ? 0 : 100),
+        ];
+    }
 
     /** @return array<string,mixed>|null raw crawl_schedules row for a project */
     private function fetchSchedule(int $projectId): ?array

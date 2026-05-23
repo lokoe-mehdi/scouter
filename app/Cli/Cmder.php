@@ -118,6 +118,25 @@ class Cmder
     $config['store_html'] = $data['advanced']['store_html'] ?? true;
     $config['crawl_type'] = $data['general']['crawl_type'] ?? 'spider';
 
+    // Map the FLAT advanced flags to the NESTED keys the crawler actually reads
+    // (Crawler/DepthCrawler/PageCrawler look up $config['respect'][...],
+    // $config['customHeaders'] and $config['httpAuth']). Without this, those
+    // options stayed at their hard-coded defaults — e.g. canonical/robots were
+    // always respected and custom headers / HTTP auth were silently dropped.
+    // Defaults mirror the crawl form (ProjectController) to avoid behaviour drift.
+    $config['respect'] = [
+        'robots'    => $data['advanced']['respect_robots']    ?? true,
+        'nofollow'  => $data['advanced']['respect_nofollow']  ?? false,
+        'canonical' => $data['advanced']['respect_canonical'] ?? true,
+    ];
+    $config['customHeaders'] = $data['advanced']['custom_headers'] ?? [];
+    $auth = $data['advanced']['http_auth'] ?? null;
+    $config['httpAuth'] = [
+        'enabled'  => !empty($auth['username']),
+        'username' => $auth['username'] ?? '',
+        'password' => $auth['password'] ?? '',
+    ];
+
     // Ajouter xPathExtractors et regexExtractors s'ils existent
     if (isset($data['advanced']['xPathExtractors'])) {
         $config['xPathExtractors'] = $data['advanced']['xPathExtractors'];

@@ -50,6 +50,20 @@ components:
         compliant:   { type: integer, example: 9981 }
         started_at:  { type: string }
         finished_at: { type: string, nullable: true }
+    CategorizationDeployment:
+      type: object
+      description: >
+        State of the most recent project-wide categorization propagation (the
+        async re-categorization of the project's other crawls). The TARGET crawl
+        is always applied synchronously, so this only concerns the rest.
+      properties:
+        status:
+          type: string
+          enum: [idle, running, completed, failed, queued, pending, stopped]
+          description: "idle = no project-wide deploy queued; running/queued/pending = still propagating; completed/failed = done."
+        job_id:       { type: integer, nullable: true }
+        progress:     { type: integer, description: "0–100." }
+        other_crawls: { type: integer, description: "Other crawls queued for re-categorization (present on PUT)." }
     Schedule:
       type: object
       description: A project's recurring-crawl schedule (structured frequency, not raw cron).
@@ -670,4 +684,117 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422':
           description: Invalid / forbidden SQL (same rules as the SQL Explorer)
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /crawls/{id}/categorization:
+    get:
+      summary: Get the crawl's categorization rules + applied categories
+      description: >
+        Categories are page TEMPLATES (homepage / product / category / blog_post …)
+        and are the unit of SEO analysis. Returns the YAML rules (`config`), the
+        categories actually applied to THIS crawl (`name` null = uncategorized
+        bucket), and a `deployment` block describing the most recent project-wide
+        propagation. Requires project access.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      crawl_id:   { type: integer }
+                      project_id: { type: integer }
+                      config:
+                        type: string
+                        nullable: true
+                        description: The YAML rule set (null if none stored).
+                      categories:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:  { type: string, nullable: true, description: null = uncategorized bucket. }
+                            color: { type: string, nullable: true }
+                            count: { type: integer }
+                      deployment: { $ref: '#/components/schemas/CategorizationDeployment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      summary: Set the categorization rules, apply, and deploy
+      description: >
+        Replaces the project's categorization YAML, applies it SYNCHRONOUSLY to
+        the target crawl (its `categories` are correct the moment this returns),
+        then queues an async job to re-categorize the project's OTHER crawls
+        (unless deploy_to_project=false). Each category has `include` (regex list
+        on the URL PATH), optional `exclude`, `color`, and an optional `dom` —
+        omit `dom` (or use the `{dom}` placeholder) to auto-fill the crawl's
+        domain. Patterns are PostgreSQL POSIX (~*, case-insensitive); FIRST MATCH
+        WINS so order matters. Poll GET …/categorization and watch
+        deployment.status to know when the project-wide deploy finished. Requires
+        management rights on the crawl's project.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [yaml]
+              properties:
+                yaml:
+                  type: string
+                  description: The categorization rules as a YAML string.
+                  example: |
+                    homepage:
+                      include:
+                        - ^/?$
+                      color: '#4ecdc4'
+                    product:
+                      include:
+                        - ^/p/[0-9]+
+                        - ^/product/[^/]+
+                      exclude:
+                        - /preview
+                      color: '#6bd899'
+                    other:
+                      include:
+                        - .*
+                      color: '#cccccc'
+                deploy_to_project:
+                  type: boolean
+                  default: true
+                  description: Also re-categorize the project's other crawls (async). false = this crawl only.
+      responses:
+        '200':
+          description: Saved + applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      crawl_id:          { type: integer }
+                      project_id:        { type: integer }
+                      categorized_count: { type: integer, description: Pages categorized on the target crawl. }
+                      deploy_to_project: { type: boolean }
+                      apply_error:       { type: string, nullable: true, description: Present only if the synchronous apply failed (config still saved). }
+                      deployment:        { $ref: '#/components/schemas/CategorizationDeployment' }
+        '400':
+          description: Missing/invalid YAML
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: A regex pattern in the YAML is invalid
           content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }

@@ -64,6 +64,8 @@ explicitly asks for a single site-wide figure.
   structural inspection SQL can't do (pagination component, nav, breadcrumbs,
   JSON-LD, anchor patterns). Large — capped by max_chars; prefer
   get_page_content for plain text/headings.
+- \`get_categorization(crawl_id)\` / \`set_categorization(crawl_id, yaml, deploy_to_project)\`
+  — read or (re)define the crawl's category rules (see "Managing categorization").
 
 ## Golden rules — stop firing 50 tiny queries
 1. **One consolidated query beats ten.** Use conditional aggregation
@@ -152,6 +154,29 @@ Operations: \`list_schedules\` (all, incl. disabled) · \`get_schedule(project_i
 (enable/disable an existing one without losing its settings) · \`delete_schedule\`.
 Example weekly Mon+Thu at 06:30 from crawl #542:
 \`set_schedule(project_id=32, template_crawl_id=542, frequency="weekly", days_of_week=["mon","thu"], hour=6, minute=30)\`.
+
+## Managing categorization
+Categories are the unit of analysis, so getting them RIGHT is high-leverage. If a
+crawl's categories are missing, too coarse, or just topical noise, redefine them
+with \`set_categorization\`.
+- **What a good taxonomy is**: 4–7 page TEMPLATES (homepage / product / category /
+  blog_post / legal …), i.e. "which HTML template renders this URL" — NOT topics
+  ("shoes", "summer"). Before authoring rules, sample real URLs (\`SELECT url FROM
+  pages WHERE crawled AND in_crawl ORDER BY random() LIMIT 100\`) to see the path
+  shapes.
+- **YAML format**: a mapping of \`category_name\` → \`{ include: [regex], exclude:
+  [regex]?, color: "#hex", dom?: "domain" }\`. \`include\`/\`exclude\` regex match the
+  URL PATH (after the host). Patterns are PostgreSQL POSIX, case-insensitive;
+  anchor with \`^\`/\`$\`. **Order matters — first match wins**, so list narrow
+  patterns (homepage \`^/?$\`) before broad ones (a \`.*\` catch-all last). Omit
+  \`dom\` and Scouter fills the crawl's domain automatically. snake_case names.
+- **Deploy semantics**: \`set_categorization\` applies to the TARGET crawl
+  synchronously (its \`categories\` are correct the instant the call returns), then
+  re-categorizes the project's OTHER crawls in the background (skip with
+  \`deploy_to_project=false\`). Poll \`get_categorization\` and watch
+  \`deployment.status\`: "running" → not done; "completed"/"idle" → done; "failed".
+- **Verify** after deploying: re-run the CATEGORIES query — every important
+  template should be a named bucket and "uncategorized" should be small.
 
 ## SEO knowledge baseline (don't repeat common mistakes)
 - **NEVER recommend \`rel="nofollow"\`** — for internal links it doesn't sculpt

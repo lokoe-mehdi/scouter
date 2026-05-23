@@ -195,6 +195,8 @@ try {
     $router->get( '/v1/crawls/{id}/content',   [ApiV1Controller::class, 'content'],  ['token' => true]);
     $router->get( '/v1/crawls/{id}/html',      [ApiV1Controller::class, 'html'],     ['token' => true]);
     $router->post('/v1/crawls/{id}/query',     [ApiV1Controller::class, 'query'],    ['token' => true]);
+    $router->get( '/v1/crawls/{id}/categorization', [ApiV1Controller::class, 'getCategorization'], ['token' => true]);
+    $router->put( '/v1/crawls/{id}/categorization', [ApiV1Controller::class, 'setCategorization'], ['token' => true]);
 
     // =============================================================================
     // DISPATCH
