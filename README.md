@@ -224,7 +224,7 @@ bash tests/parity/run_categorization_parity.sh      # Go↔PHP categorization pa
 
 ## 🤝 Contributing
 
-PRs welcome: open an issue first if you're planning a large change so we can align.
+PRs welcome: open an issue first if you're planning a large change so we can align. See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev setup, where code goes (PHP back office vs Go crawler), how to run the tests, and the PR process.
 
 If you build something cool on top of Scouter (an integration, a custom analyser, an agent), please share it. The point of going open source is to compound on what each of us builds.
 
