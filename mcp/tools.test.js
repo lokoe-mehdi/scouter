@@ -25,7 +25,7 @@ function mockFetch(response = { ok: true, status: 200, jsonText: '{"data":[]}' }
 
 test('exposes exactly the expected tools', () => {
   const names = TOOLS.map((t) => t.name).sort();
-  assert.deepEqual(names, ['create_crawl', 'delete_schedule', 'get_crawl', 'get_crawl_schema', 'get_crawl_status', 'get_page_content', 'get_page_html', 'get_schedule', 'list_crawls', 'list_projects', 'list_schedules', 'run_sql', 'set_schedule', 'start_crawl', 'stop_crawl', 'toggle_schedule']);
+  assert.deepEqual(names, ['create_crawl', 'delete_schedule', 'get_categorization', 'get_crawl', 'get_crawl_schema', 'get_crawl_status', 'get_page_content', 'get_page_html', 'get_schedule', 'list_crawls', 'list_projects', 'list_schedules', 'run_sql', 'set_categorization', 'set_schedule', 'start_crawl', 'stop_crawl', 'toggle_schedule']);
 });
 
 test('every tool has a description and an object input schema', () => {
@@ -158,6 +158,22 @@ test('run_sql → POST /crawls/{id}/query with JSON body', async () => {
   assert.equal(c.url, `${API_BASE}/crawls/9/query`);
   assert.equal(c.opts.headers['Content-Type'], 'application/json');
   assert.deepEqual(JSON.parse(c.opts.body), { query: 'SELECT url FROM pages', page: 2, page_size: 250, count: false });
+});
+
+test('get_categorization → GET /crawls/{id}/categorization', async () => {
+  const calls = mockFetch();
+  await dispatch('Bearer x', 'get_categorization', { crawl_id: 8 });
+  assert.equal(calls[0].opts.method, 'GET');
+  assert.equal(calls[0].url, `${API_BASE}/crawls/8/categorization`);
+});
+
+test('set_categorization → PUT /crawls/{id}/categorization with { yaml, deploy_to_project }', async () => {
+  const calls = mockFetch();
+  const yaml = 'homepage:\n  include:\n    - ^/?$\n  color: "#fff"';
+  await dispatch('Bearer x', 'set_categorization', { crawl_id: 8, yaml, deploy_to_project: false });
+  assert.equal(calls[0].opts.method, 'PUT');
+  assert.equal(calls[0].url, `${API_BASE}/crawls/8/categorization`);
+  assert.deepEqual(JSON.parse(calls[0].opts.body), { yaml, deploy_to_project: false });
 });
 
 test('forwards no Authorization header when token is absent', async () => {

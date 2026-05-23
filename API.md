@@ -259,6 +259,66 @@ the MCP to introduce a crawl before querying it.
 }
 ```
 
+### 3.6 Categorization — `GET` / `PUT /api/v1/crawls/{id}/categorization`
+
+Categories are the unit of SEO analysis (page templates: homepage / product /
+category / blog_post / legal …). They are defined by a **YAML** rule set stored
+at the project level and applied to every crawl of the project.
+
+**`GET`** returns the current rules (`config`), the categories actually applied
+to *this* crawl (`name` `null` = uncategorized bucket), and a `deployment` block
+(state of the most recent project-wide propagation). Requires project access.
+
+```json
+{
+  "data": {
+    "crawl_id": 542, "project_id": 32,
+    "config": "homepage:\n  dom: example.com\n  include:\n    - ^/?$\n  color: '#4ecdc4'\n…",
+    "categories": [
+      { "name": "product",  "color": "#6bd899", "count": 8123 },
+      { "name": "category", "color": "#d8bf6b", "count": 1442 },
+      { "name": null,        "color": null,      "count": 57 }
+    ],
+    "deployment": { "status": "completed", "job_id": 991, "progress": 100 }
+  },
+  "meta": { "crawl_id": 542 }
+}
+```
+
+**`PUT`** sets (replaces) the rules. It saves at project level, applies them
+**synchronously** to the target crawl (so its `categories` are correct the moment
+the call returns), then queues an async job to re-categorize the project's
+**other** crawls. Requires project **management**. Body:
+
+| field | type | notes |
+|---|---|---|
+| `yaml` | string (required) | The rule set. Each category: `include` (regex list on URL **path**), optional `exclude`, `color`, optional `dom`. **First match wins → order matters.** Patterns are PostgreSQL POSIX (`~*`, case-insensitive). |
+| `deploy_to_project` | bool (default `true`) | `false` = apply to this crawl only, no project-wide deploy. |
+
+`dom` may be **omitted** — Scouter fills it with the crawl's domain (the `{dom}`
+placeholder is also accepted). An explicit `dom` is honoured as-is. Invalid YAML →
+`400`; a bad regex pattern → `422`.
+
+```jsonc
+// PUT body
+{
+  "yaml": "homepage:\n  include:\n    - ^/?$\n  color: '#4ecdc4'\nproduct:\n  include:\n    - ^/p/[0-9]+\n  color: '#6bd899'\nother:\n  include:\n    - .*\n  color: '#cccccc'",
+  "deploy_to_project": true
+}
+// → response
+{
+  "data": {
+    "crawl_id": 542, "project_id": 32, "categorized_count": 9622,
+    "deploy_to_project": true,
+    "deployment": { "status": "running", "job_id": 991, "progress": 0, "other_crawls": 3 }
+  }
+}
+```
+
+Poll `GET …/categorization` and watch `deployment.status`
+(`running` → still propagating; `completed` / `idle` → done; `failed`) to know
+when the project-wide deploy has finished.
+
 ---
 
 ## 4. Conventions

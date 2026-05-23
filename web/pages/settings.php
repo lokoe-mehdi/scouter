@@ -1447,6 +1447,15 @@ try {
               desc: <?= json_encode(__('settings.api_ep_query_desc')) ?>,
               pathParams:['id'],
               body: JSON.stringify({ query:'SELECT url, code FROM pages WHERE code >= 400 ORDER BY inlinks DESC', page:1, page_size:100, count:true }, null, 2) },
+            { method:'GET',  path:'/crawls/{id}/categorization', summary: <?= json_encode(__('settings.api_ep_categorization_get')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_categorization_get_desc')) ?>,
+              pathParams:['id'] },
+            { method:'PUT',  path:'/crawls/{id}/categorization', summary: <?= json_encode(__('settings.api_ep_categorization_set')) ?>,
+              desc: <?= json_encode(__('settings.api_ep_categorization_set_desc')) ?>,
+              docText: <?= json_encode(__('settings.api_categorization_ref')) ?>,
+              docTitle: <?= json_encode(__('settings.api_categorization_ref_title')) ?>,
+              pathParams:['id'],
+              body: JSON.stringify({ yaml: "homepage:\n  include:\n    - ^/?$\n  color: '#4ecdc4'\nproduct:\n  include:\n    - ^/p/[0-9]+\n    - ^/product/[^/]+\n  color: '#6bd899'\nother:\n  include:\n    - .*\n  color: '#cccccc'", deploy_to_project: true }, null, 2) },
         ];
 
         const METHOD_COLORS = { GET:'#0891b2', POST:'#b45309', PUT:'#7c3aed', PATCH:'#ca8a04', DELETE:'#dc2626' };

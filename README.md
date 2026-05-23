@@ -83,7 +83,7 @@ Built by an SEO consultant ([Lokoé](https://lokoe.fr)) for SEO consultants, dev
 ### 🔌 MCP server
 
 - Native [Model Context Protocol](https://modelcontextprotocol.io) server.
-- Trigger crawls, query results, and generate reports from Claude, Cursor, or any MCP client.
+- Trigger crawls, query results, (re)categorise pages, and generate reports from Claude, Cursor, or any MCP client.
 - Build real SEO agents that actually have crawl data to work with.
 
 ### 🕷️ Crawl engine

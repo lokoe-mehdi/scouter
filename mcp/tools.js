@@ -199,6 +199,43 @@ export const TOOLS = [
       required: ['config'],
     },
   },
+  {
+    name: 'get_categorization',
+    description:
+      "Get a crawl's categorization: the YAML rules (`config`), the categories actually APPLIED to this crawl (name, color, page count — name=null is the uncategorized bucket), and a `deployment` block. " +
+      'Categories are the unit of analysis, so this is how you check what taxonomy a crawl uses. ' +
+      'deployment.status tells you whether a project-wide re-categorization is still propagating to the OTHER crawls of the project: "running" (poll again), "completed", "failed", or "idle" (nothing pending). ' +
+      'The crawl you target is always categorized immediately by set_categorization, so its `categories` are up to date the moment set_categorization returns — deployment only concerns the project\'s other crawls.',
+    inputSchema: {
+      type: 'object',
+      properties: { crawl_id: { type: 'integer' } },
+      required: ['crawl_id'],
+    },
+  },
+  {
+    name: 'set_categorization',
+    description:
+      'Set (replace) the categorization rules for a crawl, apply them SYNCHRONOUSLY to this crawl, and (by default) deploy them across every other crawl of the SAME project in the background. Requires management rights on the project.\n' +
+      'WHAT CATEGORIES ARE: page TEMPLATES (homepage / product / category listing / blog_post / legal…), i.e. "which HTML template renders this URL", NOT topical themes. Aim for 4–7 categories. They are the unit of SEO analysis.\n' +
+      'YAML FORMAT — a mapping of category_name → rule. Each rule has:\n' +
+      '  · include : list of regex matched against the URL PATH (everything after the host, starting with "/"). A URL joins the category if AT LEAST ONE include matches.\n' +
+      '  · exclude : (optional) list of regex; a URL is rejected if any exclude matches, even when include matched.\n' +
+      '  · color   : hex color for the dashboard chart (e.g. "#6bd899").\n' +
+      '  · dom     : (optional) the domain the rule applies to. OMIT it and Scouter fills in the crawl\'s domain automatically. Only set it to scope a rule to a specific domain.\n' +
+      'RULES: patterns are PostgreSQL POSIX regex, case-insensitive (~*); anchor with ^ for "starts with" and $ for end-of-path. ORDER MATTERS — first matching category wins, so list narrow patterns (e.g. homepage ^/?$) before broad ones (e.g. a ".*" catch-all). Names: lowercase snake_case.\n' +
+      'EXAMPLE yaml:\n' +
+      'homepage:\n  include:\n    - ^/?$\n  color: "#4ecdc4"\nproduct:\n  include:\n    - ^/p/[0-9]+\n    - ^/product/[^/]+\n  exclude:\n    - /preview\n  color: "#6bd899"\nother:\n  include:\n    - .*\n  color: "#cccccc"\n' +
+      'After calling, read deployment.status from the response (or poll get_categorization) to know when the project-wide deploy finished; the targeted crawl itself is already done.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        crawl_id: { type: 'integer' },
+        yaml: { type: 'string', description: 'The categorization rules as a YAML string (see description for the format).' },
+        deploy_to_project: { type: 'boolean', default: true, description: 'Also re-categorize the other crawls of the project (async). Set false to apply only to this crawl.' },
+      },
+      required: ['crawl_id', 'yaml'],
+    },
+  },
 ];
 
 /** Low-level call to the Scouter REST API. `token` is forwarded verbatim. */
@@ -254,6 +291,12 @@ export async function dispatch(token, name, args = {}) {
       });
     case 'create_crawl':
       return callApi(token, 'POST', '/crawls', { body: { config: args.config } });
+    case 'get_categorization':
+      return callApi(token, 'GET', `/crawls/${encodeURIComponent(args.crawl_id)}/categorization`);
+    case 'set_categorization':
+      return callApi(token, 'PUT', `/crawls/${encodeURIComponent(args.crawl_id)}/categorization`, {
+        body: { yaml: args.yaml, deploy_to_project: args.deploy_to_project },
+      });
     case 'list_schedules':
       return callApi(token, 'GET', '/schedules');
     case 'get_schedule':
