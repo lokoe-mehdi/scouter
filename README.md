@@ -7,8 +7,9 @@
 **AI-powered. MCP-ready. Self-hosted. Free forever.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-2.0.0-blue)]()
+[![Version](https://img.shields.io/badge/version-0.7.0-blue)]()
 [![PHP](https://img.shields.io/badge/PHP-8.1+-purple)]()
+[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8)]()
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue)]()
 [![Docker](https://img.shields.io/badge/Docker-required-blue)]()
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](#-contributing)
@@ -20,6 +21,7 @@
 ---
 
 <div align="center">
+
 ### 🎬 Watch the 2-minute demo
 
 [![Watch the Scouter demo](https://github.com/user-attachments/assets/744c6356-2172-4537-9cbd-09a3e192ab26)](https://youtu.be/WjL4pgtBM6w)
@@ -153,21 +155,21 @@ Scouter ships with a production-ready `docker-compose.yml`. One-click deploy on 
 
 ```
 scouter/
-├── app/
-│   ├── Analysis/       # SEO analysis (Simhash, robots.txt, post-processing)
+├── app/                # PHP back office (front/API/jobs — PAS le crawl)
+│   ├── Analysis/       # Catégorisation (CategorizationService)
 │   ├── Auth/           # Authentication & permissions
-│   ├── Cli/            # CLI commands (crawl, resume, stop)
-│   ├── Core/           # Crawler core (orchestrator, depth, page)
+│   ├── Cli/            # CLI commands (batch-categorize, delete…)
 │   ├── Database/       # PostgreSQL repositories
 │   ├── Http/           # REST API (router, controllers)
 │   ├── Job/            # Async job manager
-│   └── Util/           # XPath/Regex parser, JS renderer client
-├── renderer/           # Go + Chromedp JS renderer
+│   └── Util/           # Helpers (SafeHttp anti-SSRF…)
+├── crawler-go/         # Moteur de crawl + post-processing (Go) — voir refacto.md
+├── renderer/           # Go + Rod (Chrome headless) JS renderer
 ├── web/                # Web UI (pages, components, assets, API)
+├── bin/                # Utilitaires shell (rebuild, check-health, clean-jobs)
 ├── docker/             # Docker configuration
 ├── migrations/         # PostgreSQL migrations
-├── tests/              # Pest tests (Unit + Feature)
-├── docs/               # Documentation
+├── tests/              # Pest tests (Unit + Feature) + tests/parity
 └── cat.yml             # Default categorisation template
 ```
 
@@ -177,25 +179,20 @@ scouter/
 
 ## 📚 Documentation
 
-- [Installation](docs/INSTALLATION.md) — Docker, configuration, first launch
-- [Usage guide](docs/UTILISATION.md) — the UI, step by step
-- [Architecture](docs/ARCHITECTURE.md) — database, API, migrations
-- [REST API reference](docs/ROUTER.md)
-- [Worker architecture](docs/WORKER_ARCHITECTURE_PLAN.md)
-- [Testing guide](docs/TESTING.md)
-- [PHP class reference](docs/phpdoc/index.html) — generated with Doctum
+- [REST API](web/openapi.yaml) — spécification OpenAPI
+- [refacto.md](refacto.md) — architecture du moteur de crawl Go (crawler-go) + roadmap
 
 ### Useful commands
 
 ```bash
 ./start.sh                                          # Start (rebuild + up)
-docker-compose down                                 # Stop
-docker-compose logs -f app                          # Application logs
-docker-compose logs -f worker                       # Worker logs
-docker exec -it scouter bash                        # Container shell
+docker compose -f docker-compose.local.yml down     # Stop
+docker compose -f docker-compose.local.yml logs -f crawler-go   # Crawler (Go) logs
+docker compose -f docker-compose.local.yml logs -f worker       # PHP worker logs
 docker exec scouter php /app/migrations/migrate.php # Run migrations
 docker exec scouter ./vendor/bin/pest               # Run tests
-./generate-docs.sh                                  # Regenerate PHP docs
+./bin/rebuild.sh                                    # Full clean rebuild
+./bin/check-health.sh                               # Health check
 ```
 
 ---

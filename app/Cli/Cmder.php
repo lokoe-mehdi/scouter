@@ -9,20 +9,20 @@ use PDO;
 /**
  * Interface en ligne de commande (CLI) pour Scouter
  * 
- * Cette classe gère toutes les commandes CLI disponibles :
- * - `crawl <path>` : Lance un crawl
- * - `dashboard` : Démarre le serveur web local
- * - Affichage du header ASCII art
- * - Messages colorés (alert, info)
- * 
+ * Dispatcher des jobs CLI non-crawl (le crawl est assuré par crawler-go) :
+ * - `batch-categorize-project:<id>` : re-catégorise tous les crawls d'un projet
+ * - `bulk-ai-generate:<id>`         : génération IA en masse
+ * - `delete-crawl:<id>` / `delete-project:<id>` : suppression asynchrone
+ * - `dashboard`                     : serveur web local (dev)
+ *
  * @package    Scouter
  * @subpackage CLI
  * @author     Mehdi Colin
- * @version    1.0.0
- * 
+ * @version    2.0.0
+ *
  * @example
  * ```bash
- * php scouter.php crawl lokoe-fr-20241201
+ * php scouter.php batch-categorize-project:42
  * php scouter.php dashboard
  * ```
  */
@@ -65,12 +65,6 @@ class Cmder
     echo "\r\n";
   }
 
-  static function setup($startUrl)
-  {
-    self::alert("The 'setup' command is deprecated. Use the web interface to create crawls.");
-    die();
-  }
-
   static function dashboard(){
     $web = self::$dir."web".DIRECTORY_SEPARATOR;
     
@@ -83,18 +77,6 @@ class Cmder
     }
   }
 
-
-  static function inlinks($arg) {
-    self::info("Post-processing is now automatic. Use 'crawl' command or web interface.");
-  }
-
-  static function pagerank($arg) {
-    self::info("Post-processing is now automatic. Use 'crawl' command or web interface.");
-  }
-
-  static function cat($arg) {
-    self::info("Post-processing is now automatic. Use 'crawl' command or web interface.");
-  }
 
   /**
    * Batch categorization for all crawls in a project
@@ -331,14 +313,6 @@ class Cmder
       if ($jobManager) $jobManager->updateJobProgress($jobId, 100);
 
       self::info("Project $projectId deleted successfully");
-  }
-
-  static function logs($arg) {
-    self::info("Logs import is deprecated.");
-  }
-
-  static function semanticAnalysis($arg) {
-    self::info("Post-processing is now automatic. Use 'crawl' command or web interface.");
   }
 
   static function alert($msg) {

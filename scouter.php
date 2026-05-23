@@ -14,15 +14,9 @@ Cmder::header();
 
 switch($module){
 
-  case "setup":
-    $url=(isset($argv[2]))?$argv[2]:"none";
-    Cmder::setup($url);
-  break;
-
-  // NOTE: la commande "crawl" est désormais assurée par le worker Go (crawler-go/).
-  // Le crawl PHP a été retiré (cf. refacto.md §11). Les jobs command='crawl' sont
-  // claim par crawler-go ; le worker PHP ne gère plus que delete / batch-categorize
-  // / bulk-ai. Voir aussi DELEGATE_CRAWL_TO_GO.
+  // Le crawl est assuré par le worker Go (crawler-go/). Ce dispatcher CLI ne sert
+  // plus qu'aux jobs non-crawl lancés par le worker PHP (delete / batch-categorize /
+  // bulk-ai) et à la commande dashboard (serveur de dev local).
 
   case "batch-categorize-project":
     $arg = (isset($argv[2])) ? $argv[2] : "none";
@@ -97,42 +91,8 @@ switch($module){
     }
   break;
 
-  case "analyse":
-    $dir=(isset($argv[2]))?$argv[2]:"none";
-    Cmder::inlinks($dir);
-    Cmder::pagerank($dir);
-    Cmder::semanticAnalysis($dir);
-    Cmder::cat($dir);
-    Cmder::logs($dir);
-  break;
-
-  case "inlinks":
-    $dir=(isset($argv[2]))?$argv[2]:"none";
-    Cmder::inlinks($dir);
-  break;
-
-  case "pagerank":
-    $dir=(isset($argv[2]))?$argv[2]:"none";
-    Cmder::pagerank($dir);
-  break;
-  
   case "dashboard":
     Cmder::dashboard();
-  break;
-
-  case "cat":
-    $dir=(isset($argv[2]))?$argv[2]:"none";
-    Cmder::cat($dir);
-  break;
-
-  case "logs":
-    $dir=(isset($argv[2]))?$argv[2]:"none";
-    Cmder::logs($dir);
-  break;
-
-  case "semantic-analyse":
-    $dir=(isset($argv[2]))?$argv[2]:"none";
-    Cmder::semanticAnalysis($dir);
   break;
 
   case "none":

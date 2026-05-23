@@ -5,7 +5,5 @@ composer.lock
 .env
 .claude
 .phpunit.cache/
-# Doctum
-docs/api/
-.doctum/
-doctum.phar
+# Composer binary — le build Docker utilise l'image composer:latest, pas ce phar
+composer.phar

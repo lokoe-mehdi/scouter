@@ -1,4 +1,6 @@
 #!/bin/bash
+# Se place à la racine du repo (chemins relatifs / compose).
+cd "$(dirname "$0")/.." || exit 1
 
 echo "=== 🏥 SCOUTER HEALTH CHECK ==="
 echo ""
