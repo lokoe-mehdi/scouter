@@ -164,6 +164,20 @@ class PostProcessor
         $iterations = 30;
         $damping = 0.85;
 
+        // Respect-nofollow toggle. Default TRUE (= historic behaviour: nofollow
+        // links don't pass PageRank — the "evaporation" model). When the crawl is
+        // configured to NOT respect nofollow, every link transmits PR (all links
+        // treated as dofollow). Default true keeps old/config-less crawls unchanged.
+        $cfgRaw = null;
+        try {
+            $stmt = $this->db->prepare("SELECT config FROM crawls WHERE id = :id");
+            $stmt->execute([':id' => $this->crawlId]);
+            $cfgRaw = $stmt->fetchColumn();
+        } catch (\Throwable $e) { /* config unavailable → keep default */ }
+        $cfg = is_string($cfgRaw) ? json_decode($cfgRaw, true) : (is_array($cfgRaw) ? $cfgRaw : []);
+        $respectNofollow = $cfg['advanced']['respect_nofollow'] ?? true;
+        $nofollowClause = $respectNofollow ? ' AND l.nofollow = false' : '';
+
         // Count pages — only those discovered by the classic crawl (sitemap-only
         // pages would otherwise dilute PR by acting as dead-ends with equal share).
         $stmt = $this->db->prepare("SELECT COUNT(*) FROM pages WHERE crawl_id = :cid AND in_crawl = TRUE");
@@ -238,7 +252,7 @@ class PostProcessor
                         SELECT l.target, SUM(tp.pr / tp.outlinks) as incoming_pr
                         FROM links l
                         JOIN tmp_pr tp ON tp.id = l.src AND tp.outlinks > 0
-                        WHERE l.crawl_id = :cid AND l.nofollow = false
+                        WHERE l.crawl_id = :cid{$nofollowClause}
                         GROUP BY l.target
                     ) i ON t2.id = i.target
                 ) inc

@@ -112,9 +112,15 @@ class PageCrawler
         $nofollow = (bool)$this->page->config['nofollow'];
         $noindex = (bool)$this->page->config['noindex'];
         $isCanonical = (bool)($this->page->config['canonical'] == 1);
+        $respectCanonical = (bool)($this->config['respect']['canonical'] ?? true);
+
+        // When canonical is NOT respected, the tag is ignored: the page keeps its
+        // real links (see storeLinks) and is treated as indexable as if it were
+        // self-canonical. When respected, this is exactly $isCanonical → no change.
+        $canonicalForIndex = $isCanonical || !$respectCanonical;
 
         // Non-canonical + respect_canonical : seul le lien canonical sera stocké
-        if (!$isCanonical && ($this->config['respect']['canonical'] ?? true)) {
+        if (!$isCanonical && $respectCanonical) {
             $canonicalUrl = $this->page->extracts['canonical'] ?? '';
             $countLinks = !empty($canonicalUrl) ? 1 : 0;
         }
@@ -122,7 +128,7 @@ class PageCrawler
         $compliant = false;
         $blocked = !RobotsTxt::robots_allowed($this->page->url);
 
-        if (!$blocked && !$noindex && $isCanonical && 
+        if (!$blocked && !$noindex && $canonicalForIndex &&
             $this->page->headers->http_code == 200 && !empty($this->page->domHash)) {
             $compliant = true;
         }
@@ -269,6 +275,14 @@ class PageCrawler
             }
         }
 
+        // respect_nofollow: when ON, links marked rel="nofollow" — and ALL links of
+        // a page carrying <meta robots nofollow> — are recorded for reporting but
+        // their targets are NOT queued for crawling (in_crawl=false). A target that
+        // also has a followable inlink elsewhere is promoted back by insertPages.
+        // When OFF, every link is followable (in_crawl=true) — unchanged behaviour.
+        $respectNofollow = (bool)($this->config['respect']['nofollow'] ?? false);
+        $pageMetaNofollow = $respectNofollow && (bool)($this->page->config['nofollow'] ?? false);
+
         // Insérer les liens et pages découvertes
         if (count($this->page->links) > 0) {
             $links = [];
@@ -289,6 +303,8 @@ class PageCrawler
                 preg_match("#https?:\/\/([^/\?]+)#i", $link->target, $dom);
                 $domain = mb_substr($dom[1] ?? '', 0, 255);
 
+                $followable = !$respectNofollow || (!$pageMetaNofollow && !(bool)$link->nofollow);
+
                 $pages[] = [
                     'id' => $link->target_id,
                     'domain' => $domain,
@@ -300,6 +316,7 @@ class PageCrawler
                     // (ON CONFLICT DO NOTHING préserve les pages déjà en base depuis la liste utilisateur)
                     'external' => $isListMode ? true : (bool)$link->external,
                     'blocked' => (bool)$link->blocked,
+                    'in_crawl' => $followable,
                     'date' => $date
                 ];
             }

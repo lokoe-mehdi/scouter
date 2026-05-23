@@ -324,7 +324,23 @@ class CrawlDatabase
     public function insertPages(array $pages): void
     {
         if (empty($pages)) return;
-        
+
+        // Deduplicate by id BEFORE inserting. A page can link the same target
+        // several times, producing duplicate (crawl_id, id) rows in one batch —
+        // and "ON CONFLICT DO UPDATE" forbids touching the same row twice in a
+        // single statement (cardinality violation). We collapse duplicates here,
+        // OR-ing in_crawl so a single followable link keeps the target crawlable.
+        $unique = [];
+        foreach ($pages as $page) {
+            $id = $page['id'];
+            if (!isset($unique[$id])) {
+                $unique[$id] = $page;
+            } else {
+                $unique[$id]['in_crawl'] = ($unique[$id]['in_crawl'] ?? true) || ($page['in_crawl'] ?? true);
+            }
+        }
+        $pages = array_values($unique);
+
         // Batch par chunks de 100 pour éviter les requêtes trop longues
         $chunks = array_chunk($pages, 100);
         
@@ -334,7 +350,7 @@ class CrawlDatabase
             $i = 0;
             
             foreach ($chunk as $page) {
-                $values[] = "(:crawl_id{$i}, :id{$i}, :domain{$i}, :url{$i}, :depth{$i}, :code{$i}, :crawled{$i}, :external{$i}, :blocked{$i}, :date{$i})";
+                $values[] = "(:crawl_id{$i}, :id{$i}, :domain{$i}, :url{$i}, :depth{$i}, :code{$i}, :crawled{$i}, :external{$i}, :blocked{$i}, :date{$i}, :in_crawl{$i})";
                 $params[":crawl_id{$i}"] = $this->crawlId;
                 $params[":id{$i}"] = $page['id'];
                 $params[":domain{$i}"] = $page['domain'] ?? '';
@@ -345,12 +361,20 @@ class CrawlDatabase
                 $params[":external{$i}"] = $this->toBool($page['external'] ?? false);
                 $params[":blocked{$i}"] = $this->toBool($page['blocked'] ?? false);
                 $params[":date{$i}"] = $page['date'] ?? date('Y-m-d H:i:s');
+                // in_crawl=false marks a target reached ONLY via a nofollow link (or
+                // from a meta-robots-nofollow page) when respect_nofollow is on.
+                $params[":in_crawl{$i}"] = $this->toBool($page['in_crawl'] ?? true);
                 $i++;
             }
-            
-            $sql = "INSERT INTO pages (crawl_id, id, domain, url, depth, code, crawled, external, blocked, date) VALUES " 
-                 . implode(', ', $values) 
-                 . " ON CONFLICT (crawl_id, id) DO NOTHING";
+
+            // Monotonic promotion: a page stays/becomes crawlable as soon as ONE
+            // followable link points to it, regardless of discovery order. We only
+            // write on a real false→true promotion (cheap, avoids touching every
+            // conflict) and never touch sitemap-only placeholder rows.
+            $sql = "INSERT INTO pages (crawl_id, id, domain, url, depth, code, crawled, external, blocked, date, in_crawl) VALUES "
+                 . implode(', ', $values)
+                 . " ON CONFLICT (crawl_id, id) DO UPDATE SET in_crawl = true
+                     WHERE pages.in_crawl = false AND pages.in_sitemap = false AND EXCLUDED.in_crawl = true";
             
             // Retry sur deadlock
             $this->executeWithRetry($this->db, function($pdo) use ($sql, $params) {
