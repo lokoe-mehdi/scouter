@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,13 +16,34 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 )
 
-// Configuration
+// Configuration. MaxConcurrentPages / PagePoolSize are env-tunable so you can
+// trade RAM (each pooled Chrome tab ≈ 30-80 MB) for throughput without a rebuild:
+//
+//	MAX_CONCURRENT_PAGES (default 50) — hard cap on simultaneous renders
+//	PAGE_POOL_SIZE       (default 50) — tabs kept warm for reuse (avoids churn)
 const (
-	MaxConcurrentPages = 50
-	NavigationTimeout  = 15 * time.Second
-	PagePoolSize       = 20
-	Port               = 3000
+	NavigationTimeout = 15 * time.Second
+	Port              = 3000
 )
+
+var (
+	maxConcurrentPages = envIntDefault("MAX_CONCURRENT_PAGES", 50)
+	pagePoolSize       = envIntDefault("PAGE_POOL_SIZE", 50)
+)
+
+func envIntDefault(key string, def int) int {
+	if v, err := strconv.Atoi(os.Getenv(key)); err == nil && v > 0 {
+		return v
+	}
+	return def
+}
+
+// singleProcess reports whether to force Chrome's --single-process (serialized
+// rendering). Off by default; set RENDER_SINGLE_PROCESS=1 to re-enable.
+func singleProcess() bool {
+	v := os.Getenv("RENDER_SINGLE_PROCESS")
+	return v == "1" || v == "true"
+}
 
 // Structures pour les requêtes/réponses
 type RenderRequest struct {
@@ -82,9 +104,9 @@ func initBrowser() error {
 			}
 		}
 	}
-	
+
 	log.Printf("[Rod-Renderer] Using Chrome at: %s", chromePath)
-	
+
 	// Lancer Chrome avec les options optimisées pour VPS/Docker
 	u := launcher.New().
 		Bin(chromePath).
@@ -93,7 +115,6 @@ func initBrowser() error {
 		Set("no-sandbox").
 		Set("disable-setuid-sandbox").
 		Set("disable-dev-shm-usage").
-		Set("single-process").
 		Set("disable-background-networking").
 		Set("disable-default-apps").
 		Set("disable-extensions").
@@ -112,25 +133,61 @@ func initBrowser() error {
 		Set("disable-ipc-flooding-protection").
 		Set("disable-renderer-backgrounding").
 		Set("disable-backgrounding-occluded-windows").
-		Set("disable-breakpad")
-	
+		Set("disable-breakpad").
+		// SEO crawl: we only need the rendered DOM (text + links), never the
+		// pixels. Disabling image decoding/loading cuts most of the per-page
+		// network + CPU cost. Toggle off with RENDER_LOAD_IMAGES=1 if needed.
+		Set("blink-settings", imagesSetting())
+
+	// --single-process force TOUT Chrome dans un seul process/thread → le rendu
+	// des pages est sérialisé (tueur de parallélisme). On le laisse DÉSACTIVÉ par
+	// défaut : --disable-dev-shm-usage (ci-dessus) suffit à stabiliser le mode
+	// multi-process en conteneur. Réactivable via RENDER_SINGLE_PROCESS=1 si tu
+	// observes des crashs Chrome sur un environnement très contraint.
+	if singleProcess() {
+		u.Set("single-process")
+		log.Printf("[Rod-Renderer] single-process mode ON (rendering serialized)")
+	} else {
+		log.Printf("[Rod-Renderer] multi-process mode (parallel rendering)")
+	}
+
 	// Lancer avec gestion d'erreur
 	wsURL, err := u.Launch()
 	if err != nil {
 		log.Printf("[Rod-Renderer] ERROR launching Chrome: %v", err)
 		return fmt.Errorf("failed to launch Chrome: %w", err)
 	}
-	
+
 	log.Printf("[Rod-Renderer] Chrome launched, connecting...")
-	
+
 	browser = rod.New().ControlURL(wsURL).MustConnect()
 
 	// Initialiser le pool de pages
-	pagePool = make(chan *rod.Page, PagePoolSize)
-	semaphore = make(chan struct{}, MaxConcurrentPages)
+	pagePool = make(chan *rod.Page, pagePoolSize)
+	semaphore = make(chan struct{}, maxConcurrentPages)
 
-	log.Printf("[Rod-Renderer] Browser initialized, pool size: %d, max concurrent: %d", PagePoolSize, MaxConcurrentPages)
+	log.Printf("[Rod-Renderer] Browser initialized, pool size: %d, max concurrent: %d", pagePoolSize, maxConcurrentPages)
 	return nil
+}
+
+// imagesSetting returns the blink-settings value controlling image loading.
+// Default: images disabled (fastest for SEO crawling). Set RENDER_LOAD_IMAGES=1
+// to load them again.
+func imagesSetting() string {
+	if v := os.Getenv("RENDER_LOAD_IMAGES"); v == "1" || v == "true" {
+		return "imagesEnabled=true"
+	}
+	return "imagesEnabled=false"
+}
+
+// stableTimeout caps the WaitStable settle wait (default 5s). Tunable via
+// RENDER_STABLE_TIMEOUT_MS. Kept well under NavigationTimeout so pages that never
+// go idle don't burn the full navigation budget each.
+func stableTimeout() time.Duration {
+	if v, err := strconv.Atoi(os.Getenv("RENDER_STABLE_TIMEOUT_MS")); err == nil && v > 0 {
+		return time.Duration(v) * time.Millisecond
+	}
+	return 5 * time.Second
 }
 
 func getPage() *rod.Page {
@@ -166,8 +223,6 @@ func releasePage(page *rod.Page) {
 }
 
 func renderURL(urlStr string, headers map[string]string) RenderResponse {
-	startTime := time.Now()
-
 	page := getPage()
 	defer releasePage(page)
 
@@ -184,15 +239,30 @@ func renderURL(urlStr string, headers map[string]string) RenderResponse {
 	httpCode := 200
 	var ttfb float64 = 0
 	var ttfbCaptured bool = false
+	var timingMu sync.Mutex
 	var responseErr error
 
-	// Écouter les réponses pour capturer le code HTTP et le TTFB du document principal
+	// navStart est pris APRÈS getPage()+headers : sinon l'attente d'un slot du
+	// pool (sous forte charge) serait comptée dans le "TTFB" et le gonflerait.
+	navStart := time.Now()
+
+	// Écouter les réponses pour capturer le code HTTP et le VRAI TTFB du document.
 	go page.EachEvent(func(e *proto.NetworkResponseReceived) {
-		if e.Type == proto.NetworkResourceTypeDocument && !ttfbCaptured {
-			httpCode = e.Response.Status
-			// Capturer le TTFB = temps depuis le début jusqu'à la première réponse
-			ttfb = time.Since(startTime).Seconds()
-			ttfbCaptured = true
+		if e.Type == proto.NetworkResourceTypeDocument {
+			timingMu.Lock()
+			if !ttfbCaptured {
+				httpCode = e.Response.Status
+				// TTFB réel = temps requête→réception des en-têtes, mesuré par
+				// Chrome lui-même (indépendant de notre temps de rendu / de notre
+				// charge). Repli : horloge depuis le début de la navigation.
+				if e.Response.Timing != nil && e.Response.Timing.ReceiveHeadersEnd > 0 {
+					ttfb = e.Response.Timing.ReceiveHeadersEnd / 1000.0 // ms → s
+				} else {
+					ttfb = time.Since(navStart).Seconds()
+				}
+				ttfbCaptured = true
+			}
+			timingMu.Unlock()
 		}
 	})()
 
@@ -202,9 +272,14 @@ func renderURL(urlStr string, headers map[string]string) RenderResponse {
 		responseErr = err
 	}
 
-	// Attendre que le DOM soit stable (50ms sans changement)
+	// Attendre que le DOM soit stable (50ms sans changement). Plafonné par un
+	// timeout DÉDIÉ plus court que la navigation : sinon une page qui mute en
+	// continu (animation, polling, analytics) ne se stabilise jamais et attend
+	// les 15s complètes — c'est le principal tueur de débit en mode JS. Le
+	// Navigate ci-dessus a déjà attendu l'évènement `load`, donc le contenu est
+	// là ; on ne fait qu'accorder un court délai de décantation.
 	if responseErr == nil {
-		page.Timeout(NavigationTimeout).WaitStable(50 * time.Millisecond)
+		page.Timeout(stableTimeout()).WaitStable(50 * time.Millisecond)
 	}
 
 	// Récupérer le contenu
@@ -218,10 +293,13 @@ func renderURL(urlStr string, headers map[string]string) RenderResponse {
 		}
 	}
 
-	// Si TTFB pas capturé (erreur), utiliser le temps total
+	// Si TTFB pas capturé (erreur), utiliser le temps depuis le début de la nav
+	timingMu.Lock()
 	responseTime := ttfb
-	if !ttfbCaptured {
-		responseTime = time.Since(startTime).Seconds()
+	captured := ttfbCaptured
+	timingMu.Unlock()
+	if !captured {
+		responseTime = time.Since(navStart).Seconds()
 	}
 
 	if responseErr != nil {

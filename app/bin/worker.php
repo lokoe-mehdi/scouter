@@ -175,11 +175,19 @@ while ($running) {
 
         // Atomic poll for a queued job
         // FOR UPDATE SKIP LOCKED ensures multiple workers don't grab the same job
+        //
+        // Cohabitation with the Go crawler (crawler-go): when DELEGATE_CRAWL_TO_GO
+        // is enabled, the PHP worker stops claiming command='crawl' jobs — those
+        // run on the Go worker instead. PHP keeps batch-categorize / delete /
+        // bulk-ai / resume jobs. The Go worker symmetrically claims ONLY
+        // command='crawl' (see crawler-go/internal/jobs).
+        $delegateCrawl = in_array(getenv('DELEGATE_CRAWL_TO_GO'), ['1', 'true'], true);
+        $crawlFilter = $delegateCrawl ? " AND command <> 'crawl' " : "";
         $stmt = $db->query("
-            SELECT * FROM jobs 
-            WHERE status = 'queued' 
-            ORDER BY created_at ASC 
-            LIMIT 1 
+            SELECT * FROM jobs
+            WHERE status = 'queued' $crawlFilter
+            ORDER BY created_at ASC
+            LIMIT 1
             FOR UPDATE SKIP LOCKED
         ");
         

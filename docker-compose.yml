@@ -83,6 +83,10 @@ services:
       - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=15
+      # Delegate command='crawl' jobs to the Go worker (crawler-go service). PHP
+      # workers then only run batch-categorize / delete / bulk-ai / resume jobs.
+      # Set to 0 to roll back to the PHP crawler.
+      - DELEGATE_CRAWL_TO_GO=${DELEGATE_CRAWL_TO_GO:-1}
       # Required to decrypt secrets stored in app_settings (OpenRouter API key
       # used by the Bulk AI Generator + any future background AI job).
       - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY:-868ace624e48dc6da990d2512c380a9ec8b168e11c0fb4aff8393bb6a1d22809}
@@ -105,6 +109,41 @@ services:
   worker-4:
     <<: *worker-base
 
+  # Go crawl worker (crawler-go) — replaces the PHP crawl path. One process,
+  # multiple concurrent crawls (MAX_CONCURRENT_CRAWLS). Claims ONLY
+  # command='crawl' jobs; cohabits with the PHP workers above.
+  crawler-go:
+    build: ./crawler-go
+    restart: unless-stopped
+    stop_grace_period: 30s
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - RENDERER_URLS=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
+      # 4 crawls simultanés × 12 fetches parallèles = ~48 requêtes en vol.
+      # Monter MAX_CONCURRENT_CURL seulement si le serveur cible encaisse (sinon
+      # il rate-limite → 429/503 → retries → plus lent). Mettre crawl_speed=
+      # unlimited sur le crawl (UI) pour lever le throttle.
+      - MAX_CONCURRENT_CRAWLS=${MAX_CONCURRENT_CRAWLS:-4}
+      - MAX_CONCURRENT_CURL=${MAX_CONCURRENT_CURL:-12}
+      - POOL_CONNS_PER_CRAWL=${POOL_CONNS_PER_CRAWL:-8}
+      - LOG_DIR=/app/logs
+    volumes:
+      # Shared with the scouter container so the UI's live console
+      # (JobController::parseLogFile) can tail logs/<projectDir>.log.
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      renderer-1:
+        condition: service_started
+      renderer-2:
+        condition: service_started
+      renderer-3:
+        condition: service_started
+
   # Service de rendu JavaScript (Puppeteer) - Multiple instances pour parallélisme
   renderer-1: &renderer-base
     build: ./renderer
@@ -113,6 +152,10 @@ services:
       - 3000
     environment:
       - SCOUTER_API_URL=http://scouter:8080
+      # RAM/débit par renderer (chaque onglet Chrome ≈ 30-80 Mo). Multi-process :
+      # 20 pages/renderer × 3 = 60 rendus //. Monter si la RAM le permet.
+      - MAX_CONCURRENT_PAGES=${MAX_CONCURRENT_PAGES:-20}
+      - PAGE_POOL_SIZE=${PAGE_POOL_SIZE:-20}
     restart: unless-stopped
 
   renderer-2:
