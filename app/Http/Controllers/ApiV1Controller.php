@@ -1032,6 +1032,7 @@ class ApiV1Controller extends Controller
             'follow_redirects'  => true,
             'retry_failed_urls' => true,
             'store_html'        => true,
+            'stealth_mode'      => 'off',
             'sitemap_urls'      => [],
             'custom_headers'    => [],
             'http_auth'         => null,

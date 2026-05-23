@@ -155,6 +155,15 @@
                             <label class="rule-toggle"><input type="checkbox" id="store_html" name="store_html" checked><span class="rule-toggle-slider"></span><div class="rule-toggle-content"><span class="rule-toggle-label"><?= __('index.modal_rule_store_html') ?></span><span class="rule-toggle-hint"><?= __('index.modal_rule_store_html_hint') ?></span></div></label>
                             <label class="rule-toggle"><input type="checkbox" id="retry_failed_urls" name="retry_failed_urls" checked><span class="rule-toggle-slider"></span><div class="rule-toggle-content"><span class="rule-toggle-label"><?= __('index.modal_rule_retry') ?></span><span class="rule-toggle-hint"><?= __('index.modal_rule_retry_hint') ?></span></div></label>
                         </div>
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label for="stealth_mode"><?= __('index.modal_stealth_mode') ?></label>
+                            <select id="stealth_mode" name="stealth_mode">
+                                <option value="off" selected><?= __('index.modal_stealth_off') ?></option>
+                                <option value="auto"><?= __('index.modal_stealth_auto') ?></option>
+                                <option value="always"><?= __('index.modal_stealth_always') ?></option>
+                            </select>
+                            <span class="rule-toggle-hint" style="display:block;margin-top:.35rem;"><?= __('index.modal_stealth_hint') ?></span>
+                        </div>
                     </div>
                     <div class="scope-section">
                         <h4 class="scope-section-title"><span class="material-symbols-outlined">lock</span><?= __('index.modal_http_auth') ?></h4>

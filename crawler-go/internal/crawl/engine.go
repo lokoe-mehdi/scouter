@@ -33,6 +33,7 @@ type Engine struct {
 	cfg                *config.Config
 	cdb                *db.CrawlDB
 	client             *http.Client
+	stealthClient      *http.Client // uTLS client; nil when stealth_mode=off
 	rendererURLs       []string
 	concurrency        int
 	targetPerSec       int
@@ -96,7 +97,7 @@ func NewEngine(cdb *db.CrawlDB, cfg *config.Config, opts Options) *Engine {
 		IdleConnTimeout:     60 * time.Second,
 		ForceAttemptHTTP2:   true,
 	}
-	return &Engine{
+	e := &Engine{
 		cfg:                cfg,
 		cdb:                cdb,
 		rendererURLs:       opts.RendererURLs,
@@ -113,6 +114,10 @@ func NewEngine(cdb *db.CrawlDB, cfg *config.Config, opts Options) *Engine {
 			},
 		},
 	}
+	if cfg.StealthMode == "auto" || cfg.StealthMode == "always" {
+		e.stealthClient = newStealthClient(concurrency, 5*time.Second)
+	}
+	return e
 }
 
 func speedToLimits(speed string) (concurrency, targetPerSec int) {
@@ -145,9 +150,30 @@ func (r fetchResult) retryable() bool {
 	return retryableCodes[r.code] || r.timedOut
 }
 
-// fetchOne performs a single GET (no redirect follow), capturing TTFB and the
-// Location header (resolved absolute). SSRF-validated before the request.
+// botBlocked reports whether a status code looks like an anti-bot block worth
+// retrying with the stealth (uTLS) client.
+func botBlocked(code int) bool { return code == 403 || code == 429 || code == 503 }
+
+// fetchOne performs a single GET, picking the right HTTP client: the stealth
+// (uTLS) client when stealth_mode=always, otherwise the normal client with an
+// automatic stealth retry on an anti-bot block when stealth_mode=auto.
 func (e *Engine) fetchOne(ctx context.Context, rawURL string) fetchResult {
+	if e.cfg.StealthMode == "always" && e.stealthClient != nil {
+		return e.doFetch(ctx, rawURL, e.stealthClient)
+	}
+	res := e.doFetch(ctx, rawURL, e.client)
+	if e.cfg.StealthMode == "auto" && e.stealthClient != nil && botBlocked(res.code) {
+		if stealth := e.doFetch(ctx, rawURL, e.stealthClient); stealth.err == nil && !botBlocked(stealth.code) {
+			return stealth
+		}
+	}
+	return res
+}
+
+// doFetch performs a single GET (no redirect follow) with the given client,
+// capturing TTFB and the Location header (resolved absolute). SSRF-validated
+// before the request.
+func (e *Engine) doFetch(ctx context.Context, rawURL string, client *http.Client) fetchResult {
 	res := fetchResult{url: rawURL}
 	if err := analysis.ValidateURL(rawURL); err != nil {
 		res.err = err
@@ -175,7 +201,7 @@ func (e *Engine) fetchOne(ctx context.Context, rawURL string) fetchResult {
 	}
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 
-	resp, err := e.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		res.err = err
 		res.timedOut = isTimeout(err)

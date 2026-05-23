@@ -1089,6 +1089,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             follow_redirects: document.getElementById('follow_redirects').checked,
             retry_failed_urls: document.getElementById('retry_failed_urls').checked,
             store_html: document.getElementById('store_html').checked,
+            stealth_mode: document.getElementById('stealth_mode') ? document.getElementById('stealth_mode').value : 'off',
             crawl_speed: document.getElementById('crawl_speed').value,
             crawl_mode: document.getElementById('crawl_mode').value
         };

@@ -25,10 +25,11 @@ type Config struct {
 	Domains  []string
 	URLList  []string
 
-	CrawlSpeed string // very_slow|slow|fast|unlimited
-	CrawlMode  string // classic|javascript
-	CrawlType  string // spider|list
-	UserAgent  string
+	CrawlSpeed  string // very_slow|slow|fast|unlimited
+	CrawlMode   string // classic|javascript
+	CrawlType   string // spider|list
+	UserAgent   string
+	StealthMode string // off|auto|always — uTLS browser-fingerprint to bypass anti-bot
 
 	RespectRobots    bool
 	RespectNofollow  bool
@@ -66,12 +67,13 @@ func Load(raw []byte, depthMaxCol int, crawlTypeCol string) (*Config, error) {
 	a := lookup(rc.Advanced)
 
 	c := &Config{
-		Start:      g.str("start", ""),
-		Domains:    g.strSlice("domains"),
-		URLList:    g.strSlice("url_list"),
-		CrawlSpeed: g.str("crawl_speed", "fast"),
-		CrawlMode:  g.str("crawl_mode", "classic"),
-		UserAgent:  g.str("user-agent", defaultUserAgent),
+		Start:       g.str("start", ""),
+		Domains:     g.strSlice("domains"),
+		URLList:     g.strSlice("url_list"),
+		CrawlSpeed:  g.str("crawl_speed", "fast"),
+		CrawlMode:   g.str("crawl_mode", "classic"),
+		UserAgent:   g.str("user-agent", defaultUserAgent),
+		StealthMode: a.str("stealth_mode", "off"),
 
 		RespectRobots:    a.boolDef("respect_robots", true),
 		RespectNofollow:  a.boolDef("respect_nofollow", false), // matches Cmder default
