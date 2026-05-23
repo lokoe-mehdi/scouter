@@ -66,10 +66,8 @@ services:
       - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=15
-      # Delegate command='crawl' jobs to the Go worker (crawler-go). PHP workers
-      # then only run batch-categorize / delete / bulk-ai / resume jobs.
-      # Set to 0 to roll back to the PHP crawler.
-      - DELEGATE_CRAWL_TO_GO=${DELEGATE_CRAWL_TO_GO:-1}
+      # NB : le crawl PHP a été retiré (refacto.md §11). Le worker PHP ne prend
+      # plus QUE delete / batch-categorize / bulk-ai ; les crawls sont au worker Go.
       # Worker needs the encryption key to decrypt the OpenRouter API key
       # stored in app_settings (used by the Bulk AI Generator + any future
       # background AI job). Without this, AppSettings::get('ai.openrouter.api_key')

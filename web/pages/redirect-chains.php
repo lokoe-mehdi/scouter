@@ -4,7 +4,7 @@
  * PAGE REDIRECT CHAINS - Analyse des chaînes de redirection
  * ============================================================================
  * Utilise les données pré-calculées dans redirect_chains et crawls.
- * Les calculs sont faits en post-traitement (PostProcessor::redirectChainAnalysis).
+ * Les chaînes sont pré-calculées par le crawler Go (post-processing) et lues ici.
  */
 
 // ============================================================================

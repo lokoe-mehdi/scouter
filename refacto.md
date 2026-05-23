@@ -497,3 +497,62 @@ docker-compose.yml                → services (ajouter worker-go)
 ```
 </content>
 </invoke>
+
+---
+
+## 11. Roadmap — ménage final (post-validation)
+
+> Décisions verrouillées : la catégorisation **garde son doublon** (Go dans le crawl + PHP pour UI/IA/batch), protégé par un **test de parité Go↔PHP**. Le crawl reste ainsi auto-suffisant (catégorisation immédiate). Tout le reste du crawl PHP est supprimé une fois le Go validé en prod.
+
+### Gates (à faire AVANT toute suppression)
+- [ ] Valider le crawler Go en prod sur de vrais crawls (classic + JS + list) ~1 semaine. `DELEGATE_CRAWL_TO_GO=0` reste le rollback tant que ce n'est pas validé.
+- [ ] **Golden parity test** : figer un crawl PHP de référence (dump pages/links) et vérifier que le Go produit le même graphe. C'est ce qui autorise la suppression.
+
+### Suppression du crawl PHP — ✅ FAIT (sur la branche refactoring/crawl-core)
+- [x] `app/Core/` entier supprimé (Crawler, DepthCrawler, PageCrawler, Page)
+- [x] `app/Analysis/PostProcessor.php`, `Simhash.php`, `RobotsTxt.php` supprimés
+- [x] `app/Sitemap/` (SitemapParser, SitemapResult) supprimé
+- [x] `app/Util/JsRenderer.php`, `HtmlParser.php` supprimés
+- [x] `scouter.php` : `case "crawl"` retiré
+- [x] `app/Cli/Cmder.php` : `crawl()` retiré ; `batchCategorizeProject` appelle désormais directement `CategorizationService` (au lieu de `PostProcessor::categorize`)
+- [x] `app/Database/CrawlDatabase.php` : `runPostProcessing()` + `use PostProcessor` retirés
+- [x] `app/bin/worker.php` : orphan-recovery + poll filtrent `command <> 'crawl'` (inconditionnel)
+- [x] `composer.json` : mapping PSR-4 `App\Core\` retiré + `dump-autoload`
+- [x] `DELEGATE_CRAWL_TO_GO` retiré des compose (le worker PHP ne lit plus ce flag : filtre inconditionnel)
+- [x] Vérifié : `php -l` OK, autoload charge les classes gardées / les supprimées sont absentes, suite Go verte
+- [ ] (optionnel, plus tard) retirer les deps composer mortes : `chuyskywalker/rolling-curl`, `xparse/element-finder`, `fivefilters/readability.php` (nécessite `composer update`)
+
+### À GARDER (partagé — ne pas toucher)
+- `app/Analysis/CategorizationService.php` (UI/API/IA/batch) + son **doublon Go** `categorize.go`
+- `app/Util/SafeHttp.php` (clients IA, CrawlController)
+- `app/Database/CrawlDatabase.php` (19 appelants) + DeadlockRetry + tous les repositories
+- `app/bin/worker.php` (jobs non-crawl : delete, batch-categorize, bulk-ai) + `scheduler.php`
+
+### Tests PHP à supprimer (crawler-only)
+- [ ] tests/Feature/JsRendererTest.php
+- [ ] tests/Unit/PageTest.php, PageContentTest.php, PageTypeDetectionTest.php
+- [ ] tests/Unit/SimhashTest.php
+- [ ] tests/Unit/RobotsTxtTest.php
+- [ ] tests/Unit/SitemapParserTest.php, SitemapLogFormatTest.php
+- [ ] tests/Unit/ListModeCrawlTest.php
+- [ ] tests/Unit/CrawlConfigTest.php — À VÉRIFIER : garder si teste la création de config côté API, supprimer si teste la consommation par Cmder
+
+### Tests PHP à garder
+- Auth, API v1, OAuth, SQL explorer, Categorization* (Prompt/Controller/Repository), Scheduler, AsyncDeletion, Router, AppSettings, Budget, I18n, UrlHelper, OpenRedirect, etc.
+
+### Tests Go à construire
+- [x] Parité bit-pour-bit : PageID (crc32-bzip2), Simhash, rel2abs
+- [x] **Test de parité catégorisation Go↔PHP** — `tests/parity/run_categorization_parity.sh` + `internal/postprocess/parity_test.go` + `tests/parity/php_categorize.php`. VERT (12 URLs, include/exclude/multi-règles/casse/unicode/query/trailing-slash).
+- [x] Mapping config (JSONB → Config) — `internal/config/config_test.go`
+- [ ] Parsing de page (table-driven vs fixtures HTML réelles)
+- [ ] robots, sitemap, safehttp (unitaires)
+- [ ] Intégration end-to-end répétable (Postgres jetable + mini-site) — déjà prototypé manuellement
+- [ ] Golden parity DB vs crawl PHP réel (NÉCESSITE le crawl PHP encore présent → à faire AVANT la suppression)
+
+### Simplification finale — ✅ FAIT
+- [x] `DELEGATE_CRAWL_TO_GO` supprimé (worker PHP filtre `command='crawl'` de façon inconditionnelle). README / refacto à jour.
+
+### Reste avant merge vers main
+- [ ] **Golden parity DB** (crawl PHP réel vs Go) — ⚠️ impossible APRÈS cette suppression : le crawl PHP n'existe plus sur cette branche. À faire depuis `main` (PHP encore présent) si on veut cette preuve, OU s'appuyer sur la validation prod du Go.
+- [ ] Validation prod du worker Go sur de vrais crawls (classic + JS + list + resume).
+- [ ] Tests Go restants : parsing de page (fixtures), robots/sitemap/safehttp unitaires, intégration end-to-end répétable.

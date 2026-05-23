@@ -30,11 +30,11 @@ try {
     // 1. Re-queue running jobs (will be picked up again)
     // Utilisation de FOR UPDATE SKIP LOCKED pour éviter que tous les workers ne traitent le même orphelin
     $orphanStmt = $db->query("
-        UPDATE jobs 
+        UPDATE jobs
         SET status = 'queued', started_at = NULL, pid = NULL
         WHERE id IN (
-            SELECT id FROM jobs 
-            WHERE status = 'running' 
+            SELECT id FROM jobs
+            WHERE status = 'running' AND command <> 'crawl'
             FOR UPDATE SKIP LOCKED
         )
         RETURNING id, project_dir
@@ -62,9 +62,9 @@ try {
     
     // 2. Mark 'stopping' jobs as 'stopped' (they were being stopped when crash happened)
     $stoppingStmt = $db->query("
-        UPDATE jobs 
+        UPDATE jobs
         SET status = 'stopped', finished_at = NOW()
-        WHERE status = 'stopping'
+        WHERE status = 'stopping' AND command <> 'crawl'
         RETURNING id, project_dir
     ");
     $stoppingJobs = $stoppingStmt->fetchAll(PDO::FETCH_OBJ);
@@ -176,13 +176,11 @@ while ($running) {
         // Atomic poll for a queued job
         // FOR UPDATE SKIP LOCKED ensures multiple workers don't grab the same job
         //
-        // Cohabitation with the Go crawler (crawler-go): when DELEGATE_CRAWL_TO_GO
-        // is enabled, the PHP worker stops claiming command='crawl' jobs — those
-        // run on the Go worker instead. PHP keeps batch-categorize / delete /
-        // bulk-ai / resume jobs. The Go worker symmetrically claims ONLY
-        // command='crawl' (see crawler-go/internal/jobs).
-        $delegateCrawl = in_array(getenv('DELEGATE_CRAWL_TO_GO'), ['1', 'true'], true);
-        $crawlFilter = $delegateCrawl ? " AND command <> 'crawl' " : "";
+        // Le crawl est entièrement assuré par le worker Go (crawler-go) : le crawl
+        // PHP a été retiré (cf. refacto.md §11). Le worker PHP ne prend donc JAMAIS
+        // les jobs command='crawl' — il ne gère plus que delete / batch-categorize
+        // / bulk-ai. Le worker Go claim symétriquement uniquement command='crawl'.
+        $crawlFilter = " AND command <> 'crawl' ";
         $stmt = $db->query("
             SELECT * FROM jobs
             WHERE status = 'queued' $crawlFilter

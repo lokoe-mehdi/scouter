@@ -71,6 +71,10 @@ func (r *Runner) Run(ctx context.Context) error {
 	return nil
 }
 
+// Categorize runs only the categorization step. Exposed for the Go↔PHP parity
+// test and for any tooling that re-categorizes a crawl without re-crawling.
+func (r *Runner) Categorize(ctx context.Context) error { return r.categorize(ctx) }
+
 // interrupted mirrors PostProcessor::isCrawlInterrupted (only 'failed' aborts).
 func (r *Runner) interrupted(ctx context.Context) bool {
 	var status string

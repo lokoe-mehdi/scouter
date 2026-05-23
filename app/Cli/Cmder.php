@@ -3,7 +3,6 @@
 namespace App\Cli;
 
 use Spyc;
-use App\Core\Crawler;
 use App\Database\CrawlDatabase;
 use PDO;
 
@@ -72,95 +71,6 @@ class Cmder
     die();
   }
 
-  static function crawl($arg)
-  {
-    if ($arg == 'none') {
-        self::alert("Missing directory argument");
-        die();
-    }
-
-    $projectDir = self::getDir($arg);
-    
-    // Récupérer le crawl depuis PostgreSQL
-    $crawlRecord = CrawlDatabase::getCrawlByPath($projectDir);
-    
-    if (!$crawlRecord) {
-        self::alert("Crawl not found in database for path: $projectDir");
-        die();
-    }
-    
-    // Récupérer la config depuis la base de données (JSONB)
-    $data = json_decode($crawlRecord->config, true);
-    
-    if (empty($data) || !isset($data['general']) || !isset($data['general']['start'])) {
-        self::alert("Config invalide ou manquante pour crawl ID: {$crawlRecord->id}. La config doit contenir 'general.start'.");
-        die();
-    }
-    
-    // Fusionner les configurations general et advanced
-    $config = $data['advanced'] ?? [];
-    $config['crawl_speed'] = $data['general']['crawl_speed'] ?? 'fast';
-    $config['crawl_mode'] = $data['general']['crawl_mode'] ?? 'classic';
-    $config['user-agent'] = $data['general']['user-agent'] ?? 'Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)';
-    
-    // INJECTION DES VARIABLES D'ENVIRONNEMENT (WORKER)
-    // Si ces variables sont présentes (injectées par le worker), elles surchargent la config
-    if (getenv('MAX_CONCURRENT_CURL')) {
-        $config['max_concurrent_curl'] = (int)getenv('MAX_CONCURRENT_CURL');
-    }
-    if (getenv('MAX_CONCURRENT_CHROME')) {
-        $config['max_concurrent_chrome'] = (int)getenv('MAX_CONCURRENT_CHROME');
-    }
-    
-    // Propager follow_redirects, retry_failed_urls et crawl_type dans la config
-    $config['follow_redirects'] = $data['advanced']['follow_redirects'] ?? true;
-    $config['retry_failed_urls'] = $data['advanced']['retry_failed_urls'] ?? true;
-    $config['store_html'] = $data['advanced']['store_html'] ?? true;
-    $config['crawl_type'] = $data['general']['crawl_type'] ?? 'spider';
-
-    // Map the FLAT advanced flags to the NESTED keys the crawler actually reads
-    // (Crawler/DepthCrawler/PageCrawler look up $config['respect'][...],
-    // $config['customHeaders'] and $config['httpAuth']). Without this, those
-    // options stayed at their hard-coded defaults — e.g. canonical/robots were
-    // always respected and custom headers / HTTP auth were silently dropped.
-    // Defaults mirror the crawl form (ProjectController) to avoid behaviour drift.
-    $config['respect'] = [
-        'robots'    => $data['advanced']['respect_robots']    ?? true,
-        'nofollow'  => $data['advanced']['respect_nofollow']  ?? false,
-        'canonical' => $data['advanced']['respect_canonical'] ?? true,
-    ];
-    $config['customHeaders'] = $data['advanced']['custom_headers'] ?? [];
-    $auth = $data['advanced']['http_auth'] ?? null;
-    $config['httpAuth'] = [
-        'enabled'  => !empty($auth['username']),
-        'username' => $auth['username'] ?? '',
-        'password' => $auth['password'] ?? '',
-    ];
-
-    // Ajouter xPathExtractors et regexExtractors s'ils existent
-    if (isset($data['advanced']['xPathExtractors'])) {
-        $config['xPathExtractors'] = $data['advanced']['xPathExtractors'];
-    } else {
-        $config['xPathExtractors'] = [];
-    }
-    if (isset($data['advanced']['regexExtractors'])) {
-        $config['regexExtractors'] = $data['advanced']['regexExtractors'];
-    } else {
-        $config['regexExtractors'] = [];
-    }
-    
-    $crawl = new Crawler([
-        "crawl_id" => $crawlRecord->id,
-        "depthMax" => (int)($crawlRecord->depth_max ?? $data['general']['depthMax'] ?? 5),
-        "start" => $data['general']['start'],
-        "pattern" => $data['general']['domains'] ?? [],
-        "config" => $config,
-        "crawl_type" => $data['general']['crawl_type'] ?? 'spider',
-        "url_list" => $data['general']['url_list'] ?? []
-    ]);
-
-    $crawl->run();
-  }
   static function dashboard(){
     $web = self::$dir."web".DIRECTORY_SEPARATOR;
     
@@ -260,9 +170,11 @@ class Cmder
                   ':config2' => $yamlConfig
               ]);
 
-              // Run categorization
-              $postProcessor = new \App\Analysis\PostProcessor($crawl->id);
-              $postProcessor->categorize();
+              // Run categorization. PostProcessor a été retiré avec le crawl PHP
+              // (cf. refacto.md §11) ; on appelle directement CategorizationService
+              // (qui reste — partagé UI/API/IA/batch).
+              $service = new \App\Analysis\CategorizationService($db);
+              $service->applyCategorization($crawl->id, $yamlConfig, $projectId);
 
               // Update job progress
               if ($jobManager) {
