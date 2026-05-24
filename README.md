@@ -14,6 +14,7 @@
 ![PHP](https://img.shields.io/badge/PHP-8.1+-purple)
 ![Go](https://img.shields.io/badge/Go-1.25+-00ADD8)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue)
+![ClickHouse](https://img.shields.io/badge/ClickHouse-24+-FFCC01)
 ![Docker](https://img.shields.io/badge/Docker-required-blue)
 
 [**Quick start**](#-quick-start) · [**Features**](#-key-features) · [**Why Scouter**](#-why-scouter) · [**Docs**](#-documentation)
@@ -169,7 +170,7 @@ touches the `postgres_data` volume.
 | Crawl engine + post-processing | **Go 1.25** (`crawler-go/`) |
 | JS rendering | **Go + Rod** (headless Chrome, `renderer/`) |
 | Back office (UI / REST API / async jobs) | PHP 8.1+ |
-| Database | PostgreSQL 15+ |
+| Database | PostgreSQL 15+ (metadata + crawl frontier) · ClickHouse 24+ (crawl data warehouse + post-processing) |
 | Containerisation | Docker + Docker Compose |
 | Frontend | Vanilla HTML / CSS / JS (no build step) |
 | Tests | Pest (PHP) + `go test` (Go) |
