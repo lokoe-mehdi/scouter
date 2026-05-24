@@ -88,10 +88,10 @@ ORDER BY COALESCE(r.total, 0) + COALESCE(b.total, 0) DESC";
 // Response code x Category distribution (horizontal bar)
 // =========================================
 $sqlCodeCat = "
-    SELECT cat_id, code, COUNT(*) as count
+    SELECT category, code, COUNT(*) as count
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
-    GROUP BY cat_id, code ORDER BY count DESC
+    GROUP BY category, code ORDER BY count DESC
 ";
 $stmtCodeCatRef = $pdo->prepare($sqlCodeCat);
 $stmtCodeCatRef->execute([':crawl_id' => $safeCrawlId]);
@@ -121,16 +121,14 @@ if (!function_exists('codeFamily')) {
 // Organize by category -> code family for ref
 $refCodeCatData = [];
 foreach ($codeCatRef as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     if (!isset($refCodeCatData[$catName])) $refCodeCatData[$catName] = ['0xx'=>0,'1xx'=>0,'2xx'=>0,'3xx'=>0,'4xx'=>0,'5xx'=>0];
     $refCodeCatData[$catName][codeFamily($r->code)] += (int)$r->count;
 }
 // Same for base
 $baseCodeCatData = [];
 foreach ($codeCatBase as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     if (!isset($baseCodeCatData[$catName])) $baseCodeCatData[$catName] = ['0xx'=>0,'1xx'=>0,'2xx'=>0,'3xx'=>0,'4xx'=>0,'5xx'=>0];
     $baseCodeCatData[$catName][codeFamily($r->code)] += (int)$r->count;
 }
@@ -172,25 +170,25 @@ foreach (['2xx'=>[200,300],'3xx'=>[300,400],'4xx'=>[400,500],'5xx'=>[500,600]] a
 }
 $codeFamColsSql = implode(",\n", $codeFamCols);
 $sqlCodeCatDisplay = "SELECT
-    cat_id,
+    category,
 {$codeFamColsSql}
 FROM (
     SELECT
-        COALESCE(r.cat_id, b.cat_id) AS cat_id,
+        COALESCE(r.category, b.category) AS category,
         COALESCE(r.code, b.code) AS code,
         COALESCE(r.count, 0) AS r_count,
         COALESCE(b.count, 0) AS b_count
     FROM (
-        SELECT cat_id, code, COUNT(*) AS count FROM pages@{$safeCrawlId}
-        WHERE crawled = true AND in_crawl = TRUE GROUP BY cat_id, code
+        SELECT category, code, COUNT(*) AS count FROM pages@{$safeCrawlId}
+        WHERE crawled = true AND in_crawl = TRUE GROUP BY category, code
     ) r
     FULL OUTER JOIN (
-        SELECT cat_id, code, COUNT(*) AS count FROM pages@{$safeCompareId}
-        WHERE crawled = true AND in_crawl = TRUE GROUP BY cat_id, code
-    ) b ON r.cat_id = b.cat_id AND r.code = b.code
+        SELECT category, code, COUNT(*) AS count FROM pages@{$safeCompareId}
+        WHERE crawled = true AND in_crawl = TRUE GROUP BY category, code
+    ) b ON r.category = b.category AND r.code = b.code
 ) sub
-GROUP BY cat_id
-ORDER BY cat_id";
+GROUP BY category
+ORDER BY category";
 
 // Build cat_name -> id mapping for SQL generation (IDs are stable across crawls)
 $catNameToIds = [];
@@ -268,9 +266,9 @@ foreach ($categoriesMap as $id => $info) {
     Component::urlTable([
         'title' => __('comparison.code_changes_table_title'),
         'id' => 'code_changes_table',
-        'whereClause' => "WHERE c.crawled = true AND c.in_crawl = TRUE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.in_crawl = TRUE AND b.code != c.code
+        'whereClause' => "WHERE c.crawled = true AND c.in_crawl = TRUE AND c.url IN (
+            SELECT cur.url FROM pages_{$safeCrawlId} cur JOIN pages_{$safeCompareId} b ON cur.url = b.url
+            WHERE cur.code != b.code AND b.crawled = true AND b.in_crawl = TRUE
         )",
         'orderBy' => 'ORDER BY c.code DESC, c.inlinks DESC',
         'defaultColumns' => ['url', 'depth', 'code', 'category', 'inlinks', 'pri'],
