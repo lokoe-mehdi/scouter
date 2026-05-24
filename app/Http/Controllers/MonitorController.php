@@ -72,38 +72,50 @@ class MonitorController extends Controller
         }
         
         $crawlId = $crawlRecord->id;
-        
+
+        // On a migrated crawl the PG partitions are purged → read pages/html from
+        // ClickHouse via the same shim the reports use. (Without this the lookup
+        // hit empty PG and returned "URL non trouvée" even though the HTML tab,
+        // which already routes to CH, showed the source.)
+        $useCh = \App\Database\CrawlStore::usesClickHouse((int)$crawlId);
+        $dataDb = $useCh ? new \App\Database\ChPdo((int)$crawlId) : $this->db;
+
         // Récupérer l'URL et la date
         // Single-URL lookup: do NOT filter on in_crawl so admins can still inspect
         // sitemap-only URLs (mirrors QueryController's URL-details lookups).
-        $stmt = $this->db->prepare("SELECT url, date FROM pages WHERE crawl_id = :crawl_id AND id = :id");
+        $stmt = $dataDb->prepare("SELECT url, date FROM pages WHERE crawl_id = :crawl_id AND id = :id");
         $stmt->execute([':crawl_id' => $crawlId, ':id' => $id]);
         $urlData = $stmt->fetch(PDO::FETCH_OBJ);
-        
+
         if (!$urlData) {
             Response::html('URL non trouvée', 404);
         }
-        
+
         $pageUrl = $urlData->url;
         $crawlDate = $urlData->date;
-        
+
         $parsedUrl = parse_url($pageUrl);
         $baseUrl = $parsedUrl['scheme'] . '://' . $parsedUrl['host'];
         if (isset($parsedUrl['port'])) {
             $baseUrl .= ':' . $parsedUrl['port'];
         }
-        
+
         // Récupérer le HTML
-        $stmt = $this->db->prepare("SELECT html FROM html WHERE crawl_id = :crawl_id AND id = :id");
+        $stmt = $dataDb->prepare("SELECT html FROM html WHERE crawl_id = :crawl_id AND id = :id");
         $stmt->execute([':crawl_id' => $crawlId, ':id' => $id]);
         $result = $stmt->fetch(PDO::FETCH_OBJ);
-        
+
         if (!$result) {
             Response::html('HTML non trouvé pour cette URL', 404);
         }
-        
-        $decoded = base64_decode($result->html);
-        $html = @gzinflate($decoded) ?: $decoded;
+
+        // ClickHouse stores raw HTML (ZSTD codec); legacy PG stores base64+gzdeflate.
+        if ($useCh) {
+            $html = (string)$result->html;
+        } else {
+            $decoded = base64_decode($result->html);
+            $html = @gzinflate($decoded) ?: $decoded;
+        }
         
         $html = $this->convertRelativeToAbsolute($html, $baseUrl, $pageUrl);
         

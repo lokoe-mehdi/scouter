@@ -28,27 +28,23 @@ $hasCustomExtractions = count($customColumns) > 0;
 // Calculer le taux de complétion par catégorie pour chaque extracteur
 $completionByCategory = [];
 if ($hasCustomExtractions) {
-    // Récupérer les catégories avec leurs stats
-    $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
-    
     // Pour chaque extracteur, calculer le % de complétion par catégorie
     foreach ($customColumns as $colName) {
         $stmt = $pdo->prepare("
-            SELECT 
-                cat_id,
+            SELECT
+                category,
                 COUNT(*) as total,
                 SUM(CASE WHEN extracts->>:col_name IS NOT NULL AND extracts->>:col_name != '' THEN 1 ELSE 0 END) as filled
             FROM pages
             WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
-            GROUP BY cat_id
+            GROUP BY category
             ORDER BY COUNT(*) DESC
         ");
         $stmt->execute([':crawl_id' => $crawlId, ':col_name' => $colName]);
         $rows = $stmt->fetchAll(PDO::FETCH_OBJ);
-        
+
         foreach ($rows as $row) {
-            $catInfo = $categoriesMap[$row->cat_id] ?? null;
-            $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+            $catName = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
             
             if (!isset($completionByCategory[$catName])) {
                 $completionByCategory[$catName] = [
@@ -116,13 +112,13 @@ $chartSeries = [
     <?php
     // Requête SQL pour l'affichage du scope
     $sqlCompletionByCategory = "
-SELECT 
-    cat_id,
+SELECT
+    category,
     COUNT(*) as total,
     SUM(CASE WHEN extracts IS NOT NULL AND extracts != '{}'::jsonb AND extracts::text != '{}' THEN 1 ELSE 0 END) as filled
 FROM pages
 WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
-GROUP BY cat_id
+GROUP BY category
 ORDER BY COUNT(*) DESC";
     
     Component::chart([

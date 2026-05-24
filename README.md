@@ -6,12 +6,16 @@
 
 **AI-powered. MCP-ready. Self-hosted. Free forever.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-2.0.0-blue)]()
-[![PHP](https://img.shields.io/badge/PHP-8.1+-purple)]()
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue)]()
-[![Docker](https://img.shields.io/badge/Docker-required-blue)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tests](https://github.com/lokoe-mehdi/scouter/actions/workflows/tests.yml/badge.svg)](https://github.com/lokoe-mehdi/scouter/actions/workflows/tests.yml)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](#-contributing)
+&nbsp;
+![Version](https://img.shields.io/badge/version-0.7.0-blue)
+![PHP](https://img.shields.io/badge/PHP-8.1+-purple)
+![Go](https://img.shields.io/badge/Go-1.25+-00ADD8)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue)
+![ClickHouse](https://img.shields.io/badge/ClickHouse-24+-FFCC01)
+![Docker](https://img.shields.io/badge/Docker-required-blue)
 
 [**Quick start**](#-quick-start) · [**Features**](#-key-features) · [**Why Scouter**](#-why-scouter) · [**Docs**](#-documentation)
 
@@ -20,6 +24,7 @@
 ---
 
 <div align="center">
+
 ### 🎬 Watch the 2-minute demo
 
 [![Watch the Scouter demo](https://github.com/user-attachments/assets/744c6356-2172-4537-9cbd-09a3e192ab26)](https://youtu.be/WjL4pgtBM6w)
@@ -32,7 +37,7 @@
 
 ## What is Scouter?
 
-Scouter is a full-featured SEO crawler you run on your own server. Think Screaming Frog — but web-based, multi-user, **free**, fully open source, and now AI-native with a built-in MCP server so your favourite agents can crawl, query, and analyse sites on their own.
+Scouter is a full-featured SEO crawler you run on your own server. Think Screaming Frog, but web-based, multi-user, **free**, fully open source, and now AI-native with a built-in MCP server so your favourite agents can crawl, query, and analyse sites on their own.
 
 Built by an SEO consultant ([Lokoé](https://lokoe.fr)) for SEO consultants, devs, and anyone tired of paying $259/year for a desktop tool that hasn't changed since 2010.
 
@@ -40,11 +45,11 @@ Built by an SEO consultant ([Lokoé](https://lokoe.fr)) for SEO consultants, dev
 
 ## ✨ Why Scouter?
 
-- 🤖 **AI-native** — embedded chatbot (Dr. Brief) that analyses your crawl conversationally. Auto-categorise pages with LLMs. No upsell, no API-key gymnastics.
-- 🔌 **MCP server included** — plug Scouter into Claude, Cursor, or any MCP client and let your agents trigger crawls and query SEO data on their own. **The first open-source SEO crawler with native MCP support.**
-- 🌐 **Modern web UI** — multi-user, multi-project, accessible from anywhere on your network. No clunky desktop app, no file-locking nightmares.
-- 🆓 **Genuinely free** — no URL caps, no feature gates, no "pro tier coming soon".
-- 🐳 **One-command Docker install** — running in under 2 minutes.
+- 🤖 **AI-native:** embedded chatbot (Dr. Brief) that analyses your crawl conversationally. Auto-categorise pages with LLMs. No upsell, no API-key gymnastics.
+- 🔌 **MCP server included:** plug Scouter into Claude, Cursor, or any MCP client and let your agents trigger crawls and query SEO data on their own. **The first open-source SEO crawler with native MCP support.**
+- 🌐 **Modern web UI:** multi-user, multi-project, accessible from anywhere on your network. No clunky desktop app, no file-locking nightmares.
+- 🆓 **Genuinely free:** no URL caps, no feature gates, no "pro tier coming soon".
+- 🐳 **One-command Docker install:** running in under 2 minutes.
 
 ---
 
@@ -64,7 +69,7 @@ Built by an SEO consultant ([Lokoé](https://lokoe.fr)) for SEO consultants, dev
 | **AI assistant (chat with your crawl)** | ✅ | ❌ | ❌ |
 | **AI page categorisation** | ✅ | ❌ | ❌ |
 | **MCP server** | ✅ | ✅ | ❌ |
-| **Connexion Cloud / OAuth (Claude.ai Web)** | ✅ | ❌ | ❌ |
+| **Cloud connection / OAuth (Claude.ai Web)** | ✅ | ❌ | ❌ |
 | Price | **Free** | $279/yr | from $18/mo |
 
 ---
@@ -73,10 +78,10 @@ Built by an SEO consultant ([Lokoé](https://lokoe.fr)) for SEO consultants, dev
 
 ### 🤖 AI-powered
 
-- Dr. Brief - embedded AI assistant that answers questions about your crawl in plain English: *"which pages have weak internal linking?"*, *"summarise my duplicate content issues"*, *"flag the URLs missing structured data"*.
-- AI categorisation - auto-classify pages by intent, template, or any custom taxonomy.
-- AI Bulk Generation – Bulk generate content based on your crawl
-- Bring your own LLM — works with OpenAI, Anthropic, Gemini, or local stacks (Ollama, vLLM).
+- Dr. Brief: embedded AI assistant that answers questions about your crawl in plain English: *"which pages have weak internal linking?"*, *"summarise my duplicate content issues"*, *"flag the URLs missing structured data"*.
+- AI categorisation: auto-classify pages by intent, template, or any custom taxonomy.
+- AI bulk generation: bulk generate content based on your crawl.
+- Bring your own LLM: works with OpenAI, Anthropic, Gemini, or local stacks (Ollama, vLLM).
 
 <img width="999" height="692" alt="image" src="https://github.com/user-attachments/assets/6c0367dd-5b37-4994-abd8-4c279b5afdd9" />
 
@@ -119,7 +124,7 @@ Built by an SEO consultant ([Lokoé](https://lokoe.fr)) for SEO consultants, dev
 
 ---
 
-## 🚀 Quick start <span id="quick-start></div>
+## 🚀 Quick start
 
 ```bash
 git clone https://github.com/lokoe-mehdi/scouter.git
@@ -135,39 +140,61 @@ Then open [http://localhost:8080](http://localhost:8080) and create your admin a
 
 Scouter ships with a production-ready `docker-compose.yml`. One-click deploy on [Coolify](https://coolify.io/) or any Docker host.
 
+### Upgrading
+
+Pull and re-run `./start.sh`:
+
+```bash
+git pull && ./start.sh
+```
+
+`start.sh` rebuilds the changed images and starts the new services (the crawler
+is now a Go service, `crawler-go`). **Your data is preserved:** `start.sh` never
+touches the `postgres_data` volume.
+
+> ⚠️ Do **not** use `./bin/rebuild.sh` to upgrade: it wipes all volumes (`-v`),
+> including the database. It's only for a from-scratch local reset.
+>
+> ℹ️ On the first start after upgrading, `crawler-go` compiles once (~1-2 min,
+> needs internet). Crawls stay `queued` until it's up, so check
+> `docker compose -f docker-compose.local.yml logs -f crawler-go`
+> (it should print *"Go crawler started"*). On production (`docker-compose.yml`),
+> just redeploy/rebuild so the Go binary is built.
+
 ---
 
 ## 🛠️ Tech stack
 
 | Layer | Tech |
 |---|---|
-| Backend | PHP 8.1+ |
-| Database | PostgreSQL 15+ |
-| JS rendering | Go + Chromedp |
+| Crawl engine + post-processing | **Go 1.25** (`crawler-go/`) |
+| JS rendering | **Go + Rod** (headless Chrome, `renderer/`) |
+| Back office (UI / REST API / async jobs) | PHP 8.1+ |
+| Database | PostgreSQL 15+ (metadata + crawl frontier) · ClickHouse 24+ (crawl data warehouse + post-processing) |
 | Containerisation | Docker + Docker Compose |
 | Frontend | Vanilla HTML / CSS / JS (no build step) |
-| Tests | Pest PHP |
+| Tests | Pest (PHP) + `go test` (Go) |
 
 <details>
 <summary>📁 Repository layout</summary>
 
 ```
 scouter/
-├── app/
-│   ├── Analysis/       # SEO analysis (Simhash, robots.txt, post-processing)
+├── app/                # PHP back office (UI / API / jobs, NOT the crawl)
+│   ├── Analysis/       # Categorisation (CategorizationService)
 │   ├── Auth/           # Authentication & permissions
-│   ├── Cli/            # CLI commands (crawl, resume, stop)
-│   ├── Core/           # Crawler core (orchestrator, depth, page)
+│   ├── Cli/            # CLI commands (batch-categorize, delete...)
 │   ├── Database/       # PostgreSQL repositories
 │   ├── Http/           # REST API (router, controllers)
 │   ├── Job/            # Async job manager
-│   └── Util/           # XPath/Regex parser, JS renderer client
-├── renderer/           # Go + Chromedp JS renderer
+│   └── Util/           # Helpers (SafeHttp anti-SSRF...)
+├── crawler-go/         # Crawl engine + post-processing (Go), see refacto.md
+├── renderer/           # Go + Rod (headless Chrome) JS renderer
 ├── web/                # Web UI (pages, components, assets, API)
+├── bin/                # Shell utilities (rebuild, check-health, clean-jobs)
 ├── docker/             # Docker configuration
 ├── migrations/         # PostgreSQL migrations
-├── tests/              # Pest tests (Unit + Feature)
-├── docs/               # Documentation
+├── tests/              # Pest tests (Unit + Feature) + tests/parity
 └── cat.yml             # Default categorisation template
 ```
 
@@ -177,32 +204,28 @@ scouter/
 
 ## 📚 Documentation
 
-- [Installation](docs/INSTALLATION.md) — Docker, configuration, first launch
-- [Usage guide](docs/UTILISATION.md) — the UI, step by step
-- [Architecture](docs/ARCHITECTURE.md) — database, API, migrations
-- [REST API reference](docs/ROUTER.md)
-- [Worker architecture](docs/WORKER_ARCHITECTURE_PLAN.md)
-- [Testing guide](docs/TESTING.md)
-- [PHP class reference](docs/phpdoc/index.html) — generated with Doctum
+- [REST API](web/openapi.yaml): OpenAPI specification
 
 ### Useful commands
 
 ```bash
 ./start.sh                                          # Start (rebuild + up)
-docker-compose down                                 # Stop
-docker-compose logs -f app                          # Application logs
-docker-compose logs -f worker                       # Worker logs
-docker exec -it scouter bash                        # Container shell
+docker compose -f docker-compose.local.yml down     # Stop
+docker compose -f docker-compose.local.yml logs -f crawler-go   # Crawler (Go) logs
+docker compose -f docker-compose.local.yml logs -f worker       # PHP worker logs
 docker exec scouter php /app/migrations/migrate.php # Run migrations
-docker exec scouter ./vendor/bin/pest               # Run tests
-./generate-docs.sh                                  # Regenerate PHP docs
+docker exec scouter ./vendor/bin/pest               # Run PHP tests (Pest)
+docker compose -f docker-compose.local.yml exec crawler-go go test ./...  # Run Go tests
+bash tests/parity/run_categorization_parity.sh      # Go↔PHP categorization parity
+./bin/rebuild.sh                                    # Full clean rebuild
+./bin/check-health.sh                               # Health check
 ```
 
 ---
 
 ## 🤝 Contributing
 
-PRs welcome — open an issue first if you're planning a large change so we can align.
+PRs welcome: open an issue first if you're planning a large change so we can align. See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev setup, where code goes (PHP back office vs Go crawler), how to run the tests, and the PR process.
 
 If you build something cool on top of Scouter (an integration, a custom analyser, an agent), please share it. The point of going open source is to compound on what each of us builds.
 
@@ -210,14 +233,14 @@ If you build something cool on top of Scouter (an integration, a custom analyser
 
 ## 📄 License
 
-MIT — see [LICENSE](LICENSE). Copyright © 2026 **Lokoé SASU**.
+MIT. See [LICENSE](LICENSE). Copyright © 2026 **Lokoé SASU**.
 
 ---
 
 <div align="center">
 
-**Built with ❤️ by [Lokoé](https://lokoe.fr) — an indie SEO consultant.**
+**Built with ❤️ by [Lokoé](https://lokoe.fr), an indie SEO consultant.**
 
-⭐ Star the repo if Scouter saves you a Screaming Frog licence. It really helps.
+⭐ Star the repo if Scouter saves you a licence. It really helps.
 
 </div>

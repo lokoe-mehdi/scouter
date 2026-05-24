@@ -109,13 +109,13 @@ ORDER BY COALESCE(r.depth, b.depth)";
 // =========================================
 $sqlPrByCategory = "
     SELECT
-        cat_id,
+        category,
         SUM(pri) as total_pr,
         AVG(pri) as avg_pr,
         COUNT(*) as count
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND pri > 0 AND in_crawl = TRUE
-    GROUP BY cat_id
+    GROUP BY category
     ORDER BY AVG(pri) DESC
 ";
 
@@ -130,14 +130,12 @@ $prByCatBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
 // Build maps by category name
 $refCatData = [];
 foreach ($prByCatRef as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $refCatData[$catName] = $r;
 }
 $baseCatData = [];
 foreach ($prByCatBase as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $baseCatData[$catName] = $r;
 }
 
@@ -162,7 +160,7 @@ foreach ($allCatNames as $catName) {
 
 // SQL display
 $sqlPrByCatDisplay = "SELECT
-    COALESCE(r.cat_id, b.cat_id) AS cat_id,
+    COALESCE(r.category, b.category) AS category,
     COALESCE(r.total_pr, 0) AS ref_total_pr,
     COALESCE(r.avg_pr, 0) AS ref_avg_pr,
     COALESCE(r.count, 0) AS ref_count,
@@ -170,15 +168,15 @@ $sqlPrByCatDisplay = "SELECT
     COALESCE(b.avg_pr, 0) AS base_avg_pr,
     COALESCE(b.count, 0) AS base_count
 FROM (
-    SELECT cat_id, SUM(pri) AS total_pr, AVG(pri) AS avg_pr, COUNT(*) AS count
+    SELECT category, SUM(pri) AS total_pr, AVG(pri) AS avg_pr, COUNT(*) AS count
     FROM pages@{$safeCrawlId}
-    WHERE crawled = true AND pri > 0 AND in_crawl = TRUE GROUP BY cat_id
+    WHERE crawled = true AND pri > 0 AND in_crawl = TRUE GROUP BY category
 ) r
 FULL OUTER JOIN (
-    SELECT cat_id, SUM(pri) AS total_pr, AVG(pri) AS avg_pr, COUNT(*) AS count
+    SELECT category, SUM(pri) AS total_pr, AVG(pri) AS avg_pr, COUNT(*) AS count
     FROM pages@{$safeCompareId}
-    WHERE crawled = true AND pri > 0 AND in_crawl = TRUE GROUP BY cat_id
-) b ON r.cat_id = b.cat_id
+    WHERE crawled = true AND pri > 0 AND in_crawl = TRUE GROUP BY category
+) b ON r.category = b.category
 ORDER BY COALESCE(r.avg_pr, b.avg_pr) DESC";
 
 // =========================================
@@ -292,9 +290,9 @@ $catBarSeries[] = [
     Component::urlTable([
         'title' => __('comparison.pagerank_lost_table'),
         'id' => 'pagerank_lost_table',
-        'whereClause' => "WHERE c.crawled = true AND c.pri > 0 AND c.in_crawl = TRUE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.in_crawl = TRUE AND b.pri > c.pri
+        'whereClause' => "WHERE c.crawled = true AND c.pri > 0 AND c.in_crawl = TRUE AND c.url IN (
+            SELECT cur.url FROM pages_{$safeCrawlId} cur JOIN pages_{$safeCompareId} b ON cur.url = b.url
+            WHERE b.crawled = true AND b.in_crawl = TRUE AND b.pri > cur.pri
         )",
         'orderBy' => 'ORDER BY c.pri DESC',
         'defaultColumns' => ['url', 'category', 'pri', 'depth', 'inlinks', 'compliant'],

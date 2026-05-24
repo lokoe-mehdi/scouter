@@ -232,9 +232,9 @@ LIMIT 10";
     Component::urlTable([
         'title' => __('comparison.pagerank_leak_regressions_table'),
         'id' => 'pr_leak_regressions_table',
-        'whereClause' => "WHERE (c.external = true OR (c.crawled = true AND c.compliant = false)) AND c.pri > 0 AND c.in_crawl = TRUE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.in_crawl = TRUE AND b.pri < c.pri
+        'whereClause' => "WHERE (c.external = true OR (c.crawled = true AND c.compliant = false)) AND c.pri > 0 AND c.in_crawl = TRUE AND c.url IN (
+            SELECT cur.url FROM pages_{$safeCrawlId} cur JOIN pages_{$safeCompareId} b ON cur.url = b.url
+            WHERE b.in_crawl = TRUE AND b.pri < cur.pri
         )",
         'orderBy' => 'ORDER BY c.pri DESC',
         'defaultColumns' => ['url', 'category', 'pri', 'inlinks', 'compliant'],

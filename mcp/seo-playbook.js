@@ -51,8 +51,8 @@ explicitly asks for a single site-wide figure.
 - \`list_schedules\` / \`get_schedule(project_id)\` / \`set_schedule(...)\` / \`toggle_schedule(project_id,enabled)\` / \`delete_schedule(project_id)\` — manage recurring crawls (see "Scheduling").
 - \`get_crawl_schema(crawl_id)\` — queryable tables + columns. Call it ONCE before
   writing SQL on a crawl you haven't queried yet (don't guess column names).
-- \`run_sql(crawl_id, query, page, page_size, count)\` — one read-only PostgreSQL
-  SELECT / WITH … SELECT over a single crawl.
+- \`run_sql(crawl_id, query, page, page_size, count)\` — one read-only ClickHouse
+  SELECT / WITH … SELECT over a single crawl (PostgreSQL syntax is auto-translated).
 - \`create_crawl(config)\` — launch a NEW crawl. Only the start URL is mandatory
   (\`config.general.start\`, or \`url_list\` for list mode); everything else keeps
   template defaults. Spider: {general:{start:"https://…"}}; list:
@@ -166,8 +166,9 @@ with \`set_categorization\`.
   shapes.
 - **YAML format**: a mapping of \`category_name\` → \`{ include: [regex], exclude:
   [regex]?, color: "#hex", dom?: "domain" }\`. \`include\`/\`exclude\` regex match the
-  URL PATH (after the host). Patterns are PostgreSQL POSIX, case-insensitive;
-  anchor with \`^\`/\`$\`. **Order matters — first match wins**, so list narrow
+  URL PATH (after the host). Patterns are RE2 (ClickHouse), case-insensitive
+  (no backreferences/lookarounds); anchor with \`^\`/\`$\`. **Order matters — first
+  match wins**, so list narrow
   patterns (homepage \`^/?$\`) before broad ones (a \`.*\` catch-all last). Omit
   \`dom\` and Scouter fills the crawl's domain automatically. snake_case names.
 - **Deploy semantics**: \`set_categorization\` applies to the TARGET crawl
@@ -194,12 +195,24 @@ with \`set_categorization\`.
   targets waste internal authority — flag them (PR leak).
 - **Ideal sitemap** = every \`compliant = true\` page MINUS pagination.
 
-## SQL conventions (PostgreSQL 16)
+## SQL conventions (ClickHouse)
+The store is **ClickHouse**. The server auto-translates common PostgreSQL syntax
+(\`~*\`/\`~\`, \`::casts\`, \`COUNT(*) FILTER\`, \`->>\`, \`unnest\`, \`array_length\`), so the
+PG-style examples below still run — but prefer ClickHouse-native, and use it for the
+functions that DON'T translate (string/date/array funcs).
 - Tables (NO suffix, auto-scoped to the crawl): \`pages\`, \`links\`,
   \`crawl_categories\`, \`duplicate_clusters\`, \`page_schemas\`, \`redirect_chains\`.
   Query another crawl of the SAME project with \`pages@<id>\` (e.g. before/after).
-- POSIX regex \`~*\` (ci) / \`~\` (cs). Use \`COALESCE\`, \`STRING_AGG\`, \`CASE WHEN\`,
-  \`(col)::int\`, \`||\`, and especially \`COUNT(*) FILTER (WHERE …)\`.
+- Regex: \`match(col, '(?i)pat')\` (ci) / \`match(col, 'pat')\` (cs) — RE2 (\`~*\` accepted too).
+- Conditional counts: \`countIf(cond)\`, \`sumIf(expr, cond)\` (\`COUNT(*) FILTER\` accepted).
+  Casts: \`toInt64()\`/\`toFloat64()\`/\`toString()\`. String list: \`arrayStringConcat(groupArray(x), ',')\`
+  (NOT STRING_AGG). Dates: \`now() - INTERVAL 7 DAY\`. Concatenation: \`concat()\` or \`||\`.
+- **Category is a live column**: \`pages.category\` (the NAME) is computed at query time
+  from the project rules — filter/group by it directly (\`WHERE category = 'product'\`,
+  \`GROUP BY category\`). No stored cat_id (a synthetic \`cat_id\` + \`crawl_categories\`
+  join still work, but \`category\` is simpler).
+- Maps: \`extracts['k']\`, \`generation['k']\`, \`mapContains(extracts,'k')\`,
+  \`arrayJoin(mapKeys(extracts))\`. Arrays: \`has(schemas,'Product')\`, \`length(arr)\`.
 - Joins: \`pages.id = links.src\` / \`links.target\`. \`crawl_categories\` is already
   project-scoped — join it directly, NEVER add a \`project_id\` filter and NEVER
   wrap it in a CTE named \`crawl_categories\` (name collision → query fails).
@@ -210,8 +223,10 @@ response_time(ms float), inlinks(int), outlinks(int), pri(float, internal PageRa
 content_type, redirect_to, crawled, compliant, noindex, nofollow, canonical,
 external, blocked, in_crawl, in_sitemap, is_html, h1_multiple, headings_missing (bool),
 title, title_status(unique|empty|duplicate), h1, h1_status, metadesc, metadesc_status,
-canonical_value, schemas(text[]), word_count(int), simhash(bigint), cat_id(FK),
-extracts(jsonb — only custom xpath/regex extractors), generation(jsonb — Bulk-AI outputs).
+canonical_value, schemas(Array(String)), word_count(int), simhash(Int64),
+category(String — LIVE category name, computed from project rules; no stored cat_id),
+extracts(Map(String,String) — only custom xpath/regex extractors; extracts['k']),
+generation(Map(String,String) — Bulk-AI outputs; generation['k']).
 Only **h1** is stored as text; h2-h6 content is NOT available via SQL.
 **links**: src, target (pages.id), anchor, external(bool), nofollow(bool),
 type(ahref|canonical|redirect), xpath, position(Header|Navigation|Content|Aside|Footer).

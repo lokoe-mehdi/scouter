@@ -226,6 +226,11 @@ class AILinkFiltersController extends Controller
      */
     private function fetchGenerations(int $crawlId): array
     {
+        // CH: generation is a Map in page_generation (no JSONB) — reuse the shared
+        // ClickHouse discovery from AIUrlFiltersController.
+        if (\App\Database\CrawlStore::usesClickHouse($crawlId)) {
+            return AIUrlFiltersController::fetchGenerationsCH($crawlId, '[AILinkFilters]');
+        }
         try {
             $stmt = $this->db->prepare("
                 WITH samples AS (

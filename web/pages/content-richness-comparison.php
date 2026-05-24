@@ -199,14 +199,14 @@ FROM (
 // =========================================
 $sqlQualityByCategory = "
     SELECT
-        cat_id,
+        category,
         COUNT(CASE WHEN word_count <= 250 THEN 1 END) as poor,
         COUNT(CASE WHEN word_count > 250 AND word_count <= 500 THEN 1 END) as medium,
         COUNT(CASE WHEN word_count > 500 AND word_count <= 1200 THEN 1 END) as rich,
         COUNT(CASE WHEN word_count > 1200 THEN 1 END) as premium
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
-    GROUP BY cat_id
+    GROUP BY category
 ";
 
 $stmtRef = $pdo->prepare($sqlQualityByCategory);
@@ -222,14 +222,12 @@ $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 // Build maps by category name
 $refQualCatData = [];
 foreach ($qualCatRef as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $refQualCatData[$catName] = $r;
 }
 $baseQualCatData = [];
 foreach ($qualCatBase as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $baseQualCatData[$catName] = $r;
 }
 
@@ -268,28 +266,28 @@ foreach ($qualityLevels as $key => [$label, $color]) {
 
 // SQL display for category chart
 $sqlQualCatDisplay = "SELECT
-    COALESCE(r.cat_id, b.cat_id) AS cat_id,
+    COALESCE(r.category, b.category) AS category,
     COALESCE(r.poor, 0) AS ref_poor, COALESCE(r.medium, 0) AS ref_medium,
     COALESCE(r.rich, 0) AS ref_rich, COALESCE(r.premium, 0) AS ref_premium,
     COALESCE(b.poor, 0) AS base_poor, COALESCE(b.medium, 0) AS base_medium,
     COALESCE(b.rich, 0) AS base_rich, COALESCE(b.premium, 0) AS base_premium
 FROM (
-    SELECT cat_id,
+    SELECT category,
         COUNT(CASE WHEN word_count <= 250 THEN 1 END) AS poor,
         COUNT(CASE WHEN word_count > 250 AND word_count <= 500 THEN 1 END) AS medium,
         COUNT(CASE WHEN word_count > 500 AND word_count <= 1200 THEN 1 END) AS rich,
         COUNT(CASE WHEN word_count > 1200 THEN 1 END) AS premium
-    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
+    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY category
 ) r
 FULL OUTER JOIN (
-    SELECT cat_id,
+    SELECT category,
         COUNT(CASE WHEN word_count <= 250 THEN 1 END) AS poor,
         COUNT(CASE WHEN word_count > 250 AND word_count <= 500 THEN 1 END) AS medium,
         COUNT(CASE WHEN word_count > 500 AND word_count <= 1200 THEN 1 END) AS rich,
         COUNT(CASE WHEN word_count > 1200 THEN 1 END) AS premium
-    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
-) b ON r.cat_id = b.cat_id
-ORDER BY cat_id";
+    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY category
+) b ON r.category = b.category
+ORDER BY category";
 
 ?>
 
@@ -385,9 +383,9 @@ ORDER BY cat_id";
     Component::urlTable([
         'title' => __('comparison.poor_content_regressions_table'),
         'id' => 'poor_content_regressions_table',
-        'whereClause' => "WHERE c.crawled = true AND c.compliant = true AND c.word_count <= 250 AND c.in_crawl = TRUE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND b.word_count > 250 AND b.in_crawl = TRUE
+        'whereClause' => "WHERE c.crawled = true AND c.compliant = true AND c.word_count <= 250 AND c.in_crawl = TRUE AND c.url IN (
+            SELECT url FROM pages_{$safeCompareId} b
+            WHERE b.crawled = true AND b.compliant = true AND b.word_count > 250 AND b.in_crawl = TRUE
         )",
         'orderBy' => 'ORDER BY c.word_count ASC, c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'word_count', 'depth', 'inlinks'],

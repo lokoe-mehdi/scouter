@@ -224,9 +224,9 @@ $indexabilityBaseData = [
     Component::urlTable([
         'title'          => __('comparison.sitemap_urls_added_title'),
         'id'             => 'sitemap_added_table',
-        'whereClause'    => "WHERE c.in_sitemap = TRUE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.in_sitemap = FALSE
+        'whereClause'    => "WHERE c.in_sitemap = TRUE AND c.url IN (
+            SELECT url FROM pages_{$safeCompareId} b
+            WHERE b.in_sitemap = FALSE
         )",
         'orderBy'        => 'ORDER BY c.url ASC',
         'defaultColumns' => ['url', 'code', 'compliant', 'depth'],
@@ -243,9 +243,9 @@ $indexabilityBaseData = [
     Component::urlTable([
         'title'          => __('comparison.sitemap_urls_removed_title'),
         'id'             => 'sitemap_removed_table',
-        'whereClause'    => "WHERE c.in_sitemap = FALSE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.in_sitemap = TRUE
+        'whereClause'    => "WHERE c.in_sitemap = FALSE AND c.url IN (
+            SELECT url FROM pages_{$safeCompareId} b
+            WHERE b.in_sitemap = TRUE
         )",
         'orderBy'        => 'ORDER BY c.url ASC',
         'defaultColumns' => ['url', 'code', 'compliant', 'depth'],

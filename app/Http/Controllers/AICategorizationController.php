@@ -169,13 +169,18 @@ class AICategorizationController extends Controller
      */
     private function sampleCrawl(int $crawlId): array
     {
+        // On ClickHouse the PG partitions are purged → sample from CH. `$table`
+        // is only meaningful for the legacy PG path; for CH it's unused.
+        $useCh = \App\Database\CrawlStore::usesClickHouse($crawlId);
         $table = 'pages_' . $crawlId;
-        // Defensive: the table must exist as a partition; if not, return empty.
-        $exists = (bool)$this->db->query("
-            SELECT 1 FROM information_schema.tables WHERE table_name = " . $this->db->quote($table)
-        )->fetchColumn();
-        if (!$exists) {
-            return [];
+        if (!$useCh) {
+            // Defensive: the PG partition must exist; if not, return empty.
+            $exists = (bool)$this->db->query("
+                SELECT 1 FROM information_schema.tables WHERE table_name = " . $this->db->quote($table)
+            )->fetchColumn();
+            if (!$exists) {
+                return [];
+            }
         }
 
         $buckets = [
@@ -190,7 +195,7 @@ class AICategorizationController extends Controller
         $shortfall = 0;
         $remainingBuckets = [];
         foreach ($buckets as $name => $b) {
-            $rows = $this->randomFromBucket($table, $b['where'], $b['quota']);
+            $rows = $this->randomFromBucket($table, $b['where'], $b['quota'], [], $useCh, $crawlId);
             $picked = array_merge($picked, $rows);
             $got = count($rows);
             if ($got < $b['quota']) {
@@ -207,7 +212,9 @@ class AICategorizationController extends Controller
                 $table,
                 '(' . implode(' OR ', $remainingBuckets) . ')',
                 $shortfall,
-                $alreadyUrls
+                $alreadyUrls,
+                $useCh,
+                $crawlId
             );
             $picked = array_merge($picked, $extra);
         }
@@ -219,11 +226,31 @@ class AICategorizationController extends Controller
      * @param string[] $exclude URLs to skip (already picked)
      * @return array<int, array{url: string, h1: ?string, title: ?string}>
      */
-    private function randomFromBucket(string $table, string $where, int $limit, array $exclude = []): array
+    private function randomFromBucket(string $table, string $where, int $limit, array $exclude = [], bool $useCh = false, int $crawlId = 0): array
     {
         if ($limit <= 0) {
             return [];
         }
+
+        // ClickHouse: sample the internal pages of this crawl directly from CH
+        // (PG partitions purged). `rand()` for the random order, deduped per id,
+        // exclude already-picked URLs via an inline-quoted NOT IN.
+        if ($useCh) {
+            $ch  = \App\Database\ClickHouseDatabase::getInstance();
+            $db  = $ch->getDatabase();
+            $excludeSql = '';
+            if (!empty($exclude)) {
+                $exclude = array_slice($exclude, 0, 1000);
+                $quoted = array_map(fn($u) => "'" . str_replace("'", "''", (string)$u) . "'", $exclude);
+                $excludeSql = ' AND url NOT IN (' . implode(',', $quoted) . ')';
+            }
+            $sql = "SELECT url, h1, title
+                FROM (SELECT url, h1, title, depth, external FROM {$db}.pages WHERE crawl_id = " . (int)$crawlId . " LIMIT 1 BY id)
+                WHERE external = 0 AND {$where} {$excludeSql}
+                ORDER BY rand() LIMIT " . (int)$limit;
+            return $ch->select($sql) ?: [];
+        }
+
         $excludeSql = '';
         $params = [];
         if (!empty($exclude)) {

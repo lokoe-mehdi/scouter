@@ -4,7 +4,6 @@ namespace App\Database;
 
 use PDO;
 use PDOException;
-use App\Analysis\PostProcessor;
 
 /**
  * Gestion des données de crawl dans PostgreSQL
@@ -14,9 +13,9 @@ use App\Analysis\PostProcessor;
  * - Liens : insertion en batch
  * - HTML : stockage du contenu brut
  * - Statistiques : mise à jour des stats de crawl
- * 
- * Les analyses post-crawl sont déléguées à App\Analysis\PostProcessor.
- * 
+ *
+ * Le crawl + post-processing sont assurés par le worker Go (crawler-go/).
+ *
  * @package    Scouter
  * @subpackage Database
  * @author     Mehdi Colin
@@ -649,15 +648,4 @@ class CrawlDatabase
         return $stmt->fetch(PDO::FETCH_OBJ) ?: null;
     }
 
-    /**
-     * Exécute tous les post-traitements via PostProcessor
-     */
-    public function runPostProcessing(): void
-    {
-        $processor = new PostProcessor($this->crawlId);
-        $processor->run();
-        
-        // Mettre à jour les stats finales
-        $this->updateCrawlStats();
-    }
 }

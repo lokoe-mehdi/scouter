@@ -31,14 +31,35 @@ $aiRoleAllowed = \App\AI\BudgetService::isAiEligibleRole($_SESSION['role'] ?? nu
 $catYmlContent = "# " . __('categorize.yaml_comment_define') . "\n# " . __('categorize.yaml_comment_format') . "\n# " . __('categorize.yaml_comment_cat_name') . "\n#   - pattern1\n#   - pattern2\n";
 $yamlCategories = [];
 
+// IMPORTANT: categorization_config / crawl_categories / projects are PostgreSQL
+// METADATA tables. On a ClickHouse crawl `$pdo` is the ChPdo shim (CH connection),
+// which would send this SELECT to ClickHouse where the table doesn't exist → the
+// query silently fails and the editor shows an empty YAML. Always read metadata
+// through the raw PG handle ($pdoPg, set by dashboard.php; fallback for safety).
+$metaPdo = (isset($pdoPg) && $pdoPg instanceof \PDO)
+    ? $pdoPg
+    : \App\Database\PostgresDatabase::getInstance()->getConnection();
+
 try {
-    $stmt = $pdo->prepare("SELECT config FROM categorization_config WHERE crawl_id = :crawl_id");
+    $stmt = $metaPdo->prepare("SELECT config FROM categorization_config WHERE crawl_id = :crawl_id");
     $stmt->execute([':crawl_id' => $crawlId]);
     $configRow = $stmt->fetch(PDO::FETCH_OBJ);
-    
-    if ($configRow && !empty($configRow->config)) {
-        $catYmlContent = $configRow->config;
-        
+    $loaded = ($configRow && !empty($configRow->config)) ? $configRow->config : null;
+
+    // Fallback to the PROJECT-level config (the source of truth for the live
+    // category) when the crawl has no per-crawl config yet — otherwise the editor
+    // would look empty even though categorization is active.
+    if ($loaded === null && !empty($crawlRecord->project_id)) {
+        $pstmt = $metaPdo->prepare("SELECT categorization_config FROM projects WHERE id = :pid");
+        $pstmt->execute([':pid' => $crawlRecord->project_id]);
+        $proj = $pstmt->fetchColumn();
+        if (!empty($proj)) {
+            $loaded = $proj;
+        }
+    }
+
+    if ($loaded !== null) {
+        $catYmlContent = $loaded;
         // Parser le YAML pour récupérer les catégories
         $yamlData = \Spyc::YAMLLoadString($catYmlContent);
         if(is_array($yamlData)) {
@@ -53,7 +74,7 @@ try {
 
 // Récupération des catégories actuelles en base (sans LEFT JOIN coûteux)
 try {
-    $stmt = $pdo->prepare("SELECT id, cat, color FROM crawl_categories WHERE project_id = :project_id ORDER BY id");
+    $stmt = $metaPdo->prepare("SELECT id, cat, color FROM crawl_categories WHERE project_id = :project_id ORDER BY id");
     $stmt->execute([':project_id' => $crawlRecord->project_id]);
     $categories = $stmt->fetchAll(PDO::FETCH_OBJ);
 

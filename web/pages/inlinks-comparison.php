@@ -112,12 +112,12 @@ ORDER BY COALESCE(r.inlinks, b.inlinks)";
 // =========================================
 $sqlInlinksByCategory = "
     SELECT
-        cat_id,
+        category,
         COUNT(id) as url_count,
         ROUND(AVG(inlinks)::numeric, 2) as avg_inlinks
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
-    GROUP BY cat_id
+    GROUP BY category
     ORDER BY AVG(inlinks) DESC
 ";
 
@@ -132,14 +132,12 @@ $inlinksCatBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
 // Build maps by category name
 $refCatData = [];
 foreach ($inlinksCatRef as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $refCatData[$catName] = (float)$r->avg_inlinks;
 }
 $baseCatData = [];
 foreach ($inlinksCatBase as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $baseCatData[$catName] = (float)$r->avg_inlinks;
 }
 
@@ -155,21 +153,21 @@ foreach ($allCatNames as $catName) {
 
 // SQL display for category chart
 $sqlCatDisplay = "SELECT
-    COALESCE(r.cat_id, b.cat_id) AS cat_id,
+    COALESCE(r.category, b.category) AS category,
     COALESCE(r.avg_inlinks, 0) AS ref_avg_inlinks,
     COALESCE(b.avg_inlinks, 0) AS base_avg_inlinks
 FROM (
-    SELECT cat_id, ROUND(AVG(inlinks)::numeric, 2) AS avg_inlinks
+    SELECT category, ROUND(AVG(inlinks)::numeric, 2) AS avg_inlinks
     FROM pages@{$safeCrawlId}
     WHERE crawled = true AND compliant = true AND in_crawl = TRUE
-    GROUP BY cat_id
+    GROUP BY category
 ) r
 FULL OUTER JOIN (
-    SELECT cat_id, ROUND(AVG(inlinks)::numeric, 2) AS avg_inlinks
+    SELECT category, ROUND(AVG(inlinks)::numeric, 2) AS avg_inlinks
     FROM pages@{$safeCompareId}
     WHERE crawled = true AND compliant = true AND in_crawl = TRUE
-    GROUP BY cat_id
-) b ON r.cat_id = b.cat_id
+    GROUP BY category
+) b ON r.category = b.category
 ORDER BY COALESCE(r.avg_inlinks, 0) DESC";
 
 ?>
@@ -264,9 +262,9 @@ ORDER BY COALESCE(r.avg_inlinks, 0) DESC";
     Component::urlTable([
         'title' => __('comparison.inlinks_lost_table'),
         'id' => 'inlinks_lost_table',
-        'whereClause' => "WHERE c.crawled = true AND c.compliant = true AND c.in_crawl = TRUE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE AND b.inlinks > c.inlinks
+        'whereClause' => "WHERE c.crawled = true AND c.compliant = true AND c.in_crawl = TRUE AND c.url IN (
+            SELECT cur.url FROM pages_{$safeCrawlId} cur JOIN pages_{$safeCompareId} b ON cur.url = b.url
+            WHERE b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE AND b.inlinks > cur.inlinks
         )",
         'orderBy' => 'ORDER BY c.inlinks ASC',
         'defaultColumns' => ['url', 'category', 'inlinks', 'depth', 'pri'],

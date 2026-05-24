@@ -49,3 +49,99 @@ jobs:
 
       - name: Run tests
         run: vendor/bin/pest
+
+  # Tests du crawler Go (crawler-go/). Inclut les tests de parité bit-pour-bit
+  # (PageID, Simhash, rel2abs), le mapping config, ET le test de parité
+  # catégorisation Go↔PHP (le garde-fou du doublon) qui a besoin de PHP + Postgres.
+  go-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: scouter
+          POSTGRES_USER: scouter
+          POSTGRES_PASSWORD: scouter
+        options: >-
+          --health-cmd "pg_isready -U scouter"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      clickhouse:
+        # Ubuntu-based image (not -alpine): the alpine build fails to start as a
+        # GitHub Actions service — it spews "get_mempolicy: Operation not
+        # permitted" (NUMA syscalls blocked by the runner's seccomp profile
+        # without CAP_SYS_NICE) and never becomes healthy. --cap-add SYS_NICE
+        # makes the default seccomp profile allow those syscalls.
+        # No CLICKHOUSE_DB/USER/PASSWORD: those env vars make the entrypoint spin
+        # up a throwaway server to create them. We run as the built-in `default`
+        # user (no auth) and let the schema-load step CREATE DATABASE scouter.
+        image: clickhouse/clickhouse-server:24
+        options: >-
+          --cap-add SYS_NICE
+          --ulimit nofile=262144:262144
+          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+          --health-start-period 30s
+        ports:
+          - 8123:8123
+
+    env:
+      # Active le test de parité catégorisation contre le Postgres du CI.
+      PARITY_DATABASE_URL: postgresql://scouter:scouter@localhost:5432/scouter
+      PARITY_PDO_DSN: "pgsql:host=localhost;port=5432;dbname=scouter"
+      PARITY_PDO_USER: scouter
+      PARITY_PDO_PASS: scouter
+      # Active le test d'intégration ClickHouse (internal/db).
+      CLICKHOUSE_URL: http://localhost:8123
+      CLICKHOUSE_DB: scouter
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: crawler-go/go.sum
+
+      - name: Setup PHP (pour le test de parité catégorisation)
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_pgsql, dom, mbstring, curl
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Load database schema
+        run: psql -h localhost -U scouter -d scouter -f docker/postgres/init.sql
+        env:
+          PGPASSWORD: scouter
+
+      - name: Load ClickHouse schema
+        # The HTTP interface runs one statement per request; split init.sql on ';'
+        # and POST each chunk (newlines kept so -- line-comments stay scoped). This
+        # relies on no ';' appearing inside a comment/literal — see init.sql header.
+        run: |
+          while IFS= read -r -d ';' stmt; do
+            case "$stmt" in
+              *[A-Za-z]*) curl -sS "http://localhost:8123/" --data-binary "$stmt;" >/dev/null ;;
+            esac
+          done < docker/clickhouse/init.sql
+
+      - name: go vet
+        working-directory: crawler-go
+        run: go vet ./...
+
+      - name: go test
+        working-directory: crawler-go
+        run: go test ./... -count=1

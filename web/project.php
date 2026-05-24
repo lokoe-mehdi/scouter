@@ -612,9 +612,11 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     // Quick crawl — no confirmation, instant launch
     async function duplicateAndStart(projectDir, targetUserId) {
         const button = event.target.closest('button');
-        const originalHTML = button.innerHTML;
+        // Disable briefly to avoid a double-submit during the request, but NO
+        // loading spinner on the label — the launch is async and the real
+        // progress is shown by the CrawlPanel sidebar. The button is always
+        // re-enabled in finally, so it can never get stuck after the crawl.
         button.disabled = true;
-        button.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span>';
         try {
             const payload = { project: projectDir };
             if (targetUserId) payload.target_user_id = targetUserId;
@@ -625,8 +627,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                 // Rafraîchit la liste des crawls sans recharger la page (sinon ça
                 // fermerait la sidebar CrawlPanel qui vient de démarrer)
                 setTimeout(() => refreshCrawlList(), 1500);
-            } else { alert(__('common.error') + ': ' + (data.error || '')); button.disabled = false; button.innerHTML = originalHTML; }
-        } catch (e) { alert(__('common.error') + ': ' + e.message); button.disabled = false; button.innerHTML = originalHTML; }
+            } else {
+                alert(__('common.error') + ': ' + (data.error || ''));
+            }
+        } catch (e) {
+            alert(__('common.error') + ': ' + e.message);
+        } finally {
+            button.disabled = false;
+        }
     }
 
     // Clamp numeric inputs to min/max

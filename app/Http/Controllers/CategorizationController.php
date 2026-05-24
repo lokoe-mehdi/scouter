@@ -84,17 +84,33 @@ class CategorizationController extends Controller
         $projectRepo = new \App\Database\ProjectRepository();
         $projectRepo->setCategorizationConfig($projectId, $yamlContent);
 
-        // PHASE 2: Save to crawl-level config (fast, no heavy processing)
-        $stmt = $this->db->prepare("
+        // PHASE 2: Save the per-crawl config snapshot.
+        //
+        // Each crawl FREEZES the project config into its own categorization_config
+        // row at creation (see Cmder/scheduler), and the live `category` reads that
+        // per-crawl snapshot first (CategoryExpr::loadYaml). So saving only the
+        // current crawl would leave every OTHER crawl on its stale snapshot — the
+        // user edits the project's segments but sees no change elsewhere.
+        //
+        // Categorization is LIVE (no stored cat_id to rebuild), so making it
+        // project-wide is just a cheap UPSERT of the new YAML into every crawl's
+        // snapshot → instant everywhere, no re-processing. Do this for the whole
+        // project here (covers the current crawl too).
+        $crawlRepo = new \App\Database\CrawlRepository();
+        $allCrawls = $crawlRepo->getByProjectId($projectId);
+        $projectCrawlIds = array_map(fn($c) => (int)$c->id, $allCrawls);
+        if (!in_array((int)$crawlId, $projectCrawlIds, true)) {
+            $projectCrawlIds[] = (int)$crawlId;
+        }
+
+        $upsert = $this->db->prepare("
             INSERT INTO categorization_config (crawl_id, config)
             VALUES (:crawl_id, :config)
             ON CONFLICT (crawl_id) DO UPDATE SET config = :config2
         ");
-        $stmt->execute([
-            ':crawl_id' => $crawlId,
-            ':config' => $yamlContent,
-            ':config2' => $yamlContent
-        ]);
+        foreach ($projectCrawlIds as $cid) {
+            $upsert->execute([':crawl_id' => $cid, ':config' => $yamlContent, ':config2' => $yamlContent]);
+        }
 
         // PHASE 3: Apply SYNCHRONOUSLY to the current crawl so the user sees
         //          the new categories in the filters / dropdowns immediately
@@ -108,25 +124,44 @@ class CategorizationController extends Controller
         //          Explorer filters kept the old categories until the worker
         //          picked the job — which could be minutes if the queue was
         //          busy. Worth the trade-off for accurate immediate feedback.
+        // On ClickHouse there is NO stored cat_id: `category` is computed live at
+        // query time from the YAML we just saved, so persisting the config (phases
+        // 1-2) is all that's needed — the new rules show up immediately everywhere.
+        // The PG apply (UPDATE pages SET cat_id) and the per-crawl batch job below
+        // are skipped entirely (they'd write to purged PG and do nothing).
+        $useCh = \App\Database\CrawlStore::usesClickHouse((int)$crawlId);
         $currentCategorized = 0;
         $currentError = null;
-        try {
-            $service = new CategorizationService($this->db);
-            $currentCategorized = $service->applyCategorization($crawlId, $yamlContent, $projectId);
-        } catch (\Throwable $e) {
-            $currentError = $e->getMessage();
-            error_log('[Categorization] Sync apply on crawl ' . $crawlId . ' failed: ' . $e->getMessage());
+        if (!$useCh) {
+            try {
+                $service = new CategorizationService($this->db);
+                $currentCategorized = $service->applyCategorization($crawlId, $yamlContent, $projectId);
+            } catch (\Throwable $e) {
+                $currentError = $e->getMessage();
+                error_log('[Categorization] Sync apply on crawl ' . $crawlId . ' failed: ' . $e->getMessage());
+            }
+        } else {
+            // Live count for the success message (informational only).
+            try {
+                $rules = (new CategorizationService($this->db))->parseRules($categories);
+                $res = (new CategorizationService($this->db))->testCategorizationCH($crawlId, $rules);
+                foreach ($res['stats'] as $s) {
+                    if (($s['category'] ?? null) !== null) { $currentCategorized += (int)$s['count']; }
+                }
+            } catch (\Throwable $e) {
+                error_log('[Categorization] CH live count on crawl ' . $crawlId . ' failed: ' . $e->getMessage());
+            }
         }
 
         // PHASE 4: Async job for the OTHER crawls of the project (history
         //          versions the user isn't currently looking at). Skip when
         //          there are none — most projects have a single active crawl.
-        $crawlRepo = new \App\Database\CrawlRepository();
-        $allCrawls = $crawlRepo->getByProjectId($projectId);
+        //          (CH needs nothing here: PHASE 2 already propagated the live
+        //          config to every crawl. This is the PG cat_id rebuild only.)
         $otherCrawls = array_filter($allCrawls, fn($c) => (int)$c->id !== (int)$crawlId);
 
         $jobId = null;
-        if (!empty($otherCrawls)) {
+        if (!$useCh && !empty($otherCrawls)) {
             $jobManager = new \App\Job\JobManager();
             $jobId = $jobManager->createJob(
                 $projectDir,
@@ -212,7 +247,9 @@ class CategorizationController extends Controller
             $this->error($e->getMessage());
         }
 
-        $result = $service->testCategorization($crawlId, $rules);
+        $result = \App\Database\CrawlStore::usesClickHouse((int)$crawlId)
+            ? $service->testCategorizationCH($crawlId, $rules)
+            : $service->testCategorization($crawlId, $rules);
 
         // Remplacer NULL par le label "Non catégorisé" dans les URLs
         $uncategorizedLabel = 'Non catégorisé';
@@ -271,7 +308,37 @@ class CategorizationController extends Controller
         }
         
         $crawlId = $crawlRecord->id;
-        
+
+        // Category colours (project metadata) keyed by NAME — used by both stores.
+        $colors = [];
+        $cstmt = $this->db->prepare("SELECT cat, color FROM crawl_categories WHERE project_id = :pid");
+        $cstmt->execute([':pid' => $crawlRecord->project_id]);
+        while ($row = $cstmt->fetch(PDO::FETCH_ASSOC)) {
+            $colors[$row['cat']] = $row['color'];
+        }
+
+        if (\App\Database\CrawlStore::usesClickHouse((int)$crawlId)) {
+            // CH: counts computed LIVE from the saved rules (no stored cat_id; PG
+            // pages purged). category = '' / NULL → "uncategorised".
+            $catExpr = (new \App\Analysis\CategoryExpr($this->db))->forCrawl((int)$crawlId);
+            $ch = \App\Database\ClickHouseDatabase::getInstance();
+            $db = $ch->getDatabase();
+            $rows = $ch->select("SELECT {$catExpr} AS category, count() AS count
+                FROM (SELECT url FROM {$db}.pages WHERE crawl_id = " . (int)$crawlId . " AND external = 0 LIMIT 1 BY id)
+                GROUP BY category ORDER BY count DESC");
+            $stats = [];
+            foreach ($rows as $r) {
+                $name = (($r['category'] ?? '') !== '') ? $r['category'] : __('categorize.uncategorized');
+                $stats[] = [
+                    'category' => $name,
+                    'color'    => $colors[$r['category'] ?? ''] ?? '#95a5a6',
+                    'count'    => (int)$r['count'],
+                ];
+            }
+            $this->success(['stats' => $stats]);
+            return;
+        }
+
         $stmt = $this->db->prepare("
             SELECT
                 c.cat as category,
@@ -337,12 +404,23 @@ class CategorizationController extends Controller
         }
         $GLOBALS['categoryColors'] = $categoryColors;
         
+        // CH crawls have no stored cat_id: filter on the LIVE `category` name
+        // (exposed by the ChPdo shim). Legacy PG crawls filter on cat_id.
+        $useCh = \App\Database\CrawlStore::usesClickHouse((int)$crawlId);
+
         // Construire le WHERE avec le filtre de catégorie
         $catWhereConditions = ["c.external = false"];
         $catParams = [];
-        
+
         if (!empty($filterCat)) {
-            if ($filterCat === 'none') {
+            if ($useCh) {
+                if ($filterCat === 'none') {
+                    $catWhereConditions[] = "(c.category IS NULL OR c.category = '')";
+                } else {
+                    $catWhereConditions[] = "c.category = :filter_cat_name";
+                    $catParams[':filter_cat_name'] = $filterCat;
+                }
+            } elseif ($filterCat === 'none') {
                 $catWhereConditions[] = "c.cat_id IS NULL";
             } else {
                 $filterCatId = null;
@@ -358,13 +436,13 @@ class CategorizationController extends Controller
                 }
             }
         }
-        
+
         $catWhereClause = implode(' AND ', $catWhereConditions);
-        
+
         // Renvoyer du HTML comme l'ancien API
         header('Content-Type: text/html; charset=utf-8');
-        
-        $pdo = $this->db;
+
+        $pdo = $useCh ? new \App\Database\ChPdo((int)$crawlId) : $this->db;
         $urlTableConfig = [
             'title' => '',
             'id' => 'categorize_table',

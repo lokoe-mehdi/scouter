@@ -172,7 +172,7 @@ function getColumnMapping($prefix = 'c', $customExtractColumns = []) {
         'h1_status' => "{$prefix}.h1_status",
         'metadesc' => "{$prefix}.metadesc",
         'metadesc_status' => "{$prefix}.metadesc_status",
-        'category' => "{$prefix}.cat_id",
+        'category' => "{$prefix}.category",
         'h1_multiple' => "{$prefix}.h1_multiple",
         'headings_missing' => "{$prefix}.headings_missing",
         'word_count' => "{$prefix}.word_count"
@@ -227,10 +227,10 @@ function renderCodeCell($code) {
  * @param array $categoriesMap Mapping des catégories
  * @return string HTML de la cellule
  */
-function renderCategoryCell($catId, $categoriesMap) {
-    $catInfo = $categoriesMap[$catId] ?? null;
-    $category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
-    $bgColor = $catInfo ? ($catInfo['color'] ?? '#aaaaaa') : '#aaaaaa';
+function renderCategoryCell($category, $categoriesMap = null) {
+    // $category is now the live category NAME (no cat_id).
+    $category = (($category ?? '') !== '' && $category !== 'N/A') ? $category : __('common.uncategorized');
+    $bgColor = function_exists('getCategoryColor') ? getCategoryColor($category) : '#aaaaaa';
     $textColor = function_exists('getTextColorForBackground') ? getTextColorForBackground($bgColor) : '#fff';
     
     return '<span class="badge" style="background: ' . $bgColor . '; color: ' . $textColor . ';">' 

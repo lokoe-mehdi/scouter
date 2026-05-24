@@ -143,9 +143,15 @@ class ContextBuilder
             $placeholders[] = $key;
             $params[$key] = $pid;
         }
+        // Migrated crawl → read via the ChPdo shim (PG purged): it rewrites the
+        // virtual tables AND translates the PG-isms used here — `extracts->>'k'` /
+        // `generation->>'k'` become CH Map access `extracts['k']` / `generation['k']`.
+        $useCh = \App\Database\CrawlStore::usesClickHouse($crawlId);
+        $db = $useCh ? new \App\Database\ChPdo($crawlId) : $this->db;
+
         $sql = 'SELECT ' . implode(', ', $select)
              . ' FROM pages p WHERE crawl_id = :cid AND id IN (' . implode(',', $placeholders) . ')';
-        $stmt = $this->db->prepare($sql);
+        $stmt = $db->prepare($sql);
         $stmt->execute($params);
         $rowsById = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
@@ -155,7 +161,7 @@ class ContextBuilder
         // 2) Fetch visible_content if requested (separate table `html`).
         $visibleById = [];
         if ($needsVisible) {
-            $visibleById = $this->fetchVisibleContent($crawlId, $pageIds);
+            $visibleById = $this->fetchVisibleContent($crawlId, $pageIds, $useCh);
         }
 
         // 3) Assemble in the input order, drop NULLs, attach extract values.
@@ -235,7 +241,7 @@ class ContextBuilder
      *
      * @return array<string,string>  page_id => cleaned text (max 4k chars)
      */
-    private function fetchVisibleContent(int $crawlId, array $pageIds): array
+    private function fetchVisibleContent(int $crawlId, array $pageIds, bool $useCh = false): array
     {
         if (empty($pageIds)) return [];
         $placeholders = [];
@@ -245,13 +251,15 @@ class ContextBuilder
             $placeholders[] = $key;
             $params[$key] = $pid;
         }
+        $db = $useCh ? new \App\Database\ChPdo($crawlId) : $this->db;
         $sql = 'SELECT id, html FROM html WHERE crawl_id = :cid AND id IN (' . implode(',', $placeholders) . ')';
-        $stmt = $this->db->prepare($sql);
+        $stmt = $db->prepare($sql);
         $stmt->execute($params);
 
         $out = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            $raw = self::decodeStoredHtml($r['html']);
+            // CH stores raw HTML; legacy PG stores base64+gzdeflate.
+            $raw = $useCh ? (string)$r['html'] : self::decodeStoredHtml($r['html']);
             if ($raw === null || $raw === '') {
                 $out[$r['id']] = '';
                 continue;

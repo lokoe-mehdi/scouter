@@ -151,14 +151,14 @@ $idxBaseData = [
 // =========================================
 $sqlIndexabilityByCategory = "
     SELECT
-        cat_id,
+        category,
         SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) as indexable,
         SUM(CASE WHEN compliant = false AND canonical = false THEN 1 ELSE 0 END) as non_canonical,
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = true THEN 1 ELSE 0 END) as noindex,
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = false AND code != 200 THEN 1 ELSE 0 END) as bad_status
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true AND in_crawl = TRUE
-    GROUP BY cat_id
+    GROUP BY category
 ";
 
 $stmtRef = $pdo->prepare($sqlIndexabilityByCategory);
@@ -174,14 +174,12 @@ $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 // Build maps by category name
 $refIdxCatData = [];
 foreach ($idxCatRef as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $refIdxCatData[$catName] = $r;
 }
 $baseIdxCatData = [];
 foreach ($idxCatBase as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $baseIdxCatData[$catName] = $r;
 }
 
@@ -220,7 +218,7 @@ foreach ($reasons as $key => [$label, $color]) {
 
 // SQL display
 $sqlIdxCatDisplay = "SELECT
-    COALESCE(r.cat_id, b.cat_id) AS cat_id,
+    COALESCE(r.category, b.category) AS category,
     COALESCE(r.indexable, 0) AS ref_indexable,
     COALESCE(r.non_canonical, 0) AS ref_non_canonical,
     COALESCE(r.noindex, 0) AS ref_noindex,
@@ -230,22 +228,22 @@ $sqlIdxCatDisplay = "SELECT
     COALESCE(b.noindex, 0) AS base_noindex,
     COALESCE(b.bad_status, 0) AS base_bad_status
 FROM (
-    SELECT cat_id,
+    SELECT category,
         SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) AS indexable,
         SUM(CASE WHEN compliant = false AND canonical = false THEN 1 ELSE 0 END) AS non_canonical,
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = true THEN 1 ELSE 0 END) AS noindex,
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = false AND code != 200 THEN 1 ELSE 0 END) AS bad_status
-    FROM pages@{$safeCrawlId} WHERE crawled = true AND is_html = true AND in_crawl = TRUE GROUP BY cat_id
+    FROM pages@{$safeCrawlId} WHERE crawled = true AND is_html = true AND in_crawl = TRUE GROUP BY category
 ) r
 FULL OUTER JOIN (
-    SELECT cat_id,
+    SELECT category,
         SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) AS indexable,
         SUM(CASE WHEN compliant = false AND canonical = false THEN 1 ELSE 0 END) AS non_canonical,
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = true THEN 1 ELSE 0 END) AS noindex,
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = false AND code != 200 THEN 1 ELSE 0 END) AS bad_status
-    FROM pages@{$safeCompareId} WHERE crawled = true AND is_html = true AND in_crawl = TRUE GROUP BY cat_id
-) b ON r.cat_id = b.cat_id
-ORDER BY cat_id";
+    FROM pages@{$safeCompareId} WHERE crawled = true AND is_html = true AND in_crawl = TRUE GROUP BY category
+) b ON r.category = b.category
+ORDER BY category";
 
 ?>
 
@@ -329,9 +327,9 @@ ORDER BY cat_id";
     Component::urlTable([
         'title' => __('comparison.indexability_changes_table_title'),
         'id' => 'indexability_changes_table',
-        'whereClause' => "WHERE c.crawled = true AND c.is_html = true AND c.in_crawl = TRUE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.is_html = true AND b.in_crawl = TRUE AND b.compliant != c.compliant
+        'whereClause' => "WHERE c.crawled = true AND c.is_html = true AND c.in_crawl = TRUE AND c.url IN (
+            SELECT cur.url FROM pages_{$safeCrawlId} cur JOIN pages_{$safeCompareId} b ON cur.url = b.url
+            WHERE cur.compliant != b.compliant AND b.crawled = true AND b.is_html = true AND b.in_crawl = TRUE
         )",
         'orderBy' => 'ORDER BY c.compliant ASC, c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'compliant', 'code', 'noindex', 'canonical'],

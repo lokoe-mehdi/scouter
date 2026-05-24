@@ -71,8 +71,8 @@ $distribution = $stmt->fetchAll(PDO::FETCH_OBJ);
 // Moyenne et médiane de mots par catégorie
 // Tranches: Pauvre <=250, Moyen 250-500, Bon 500-1200, Premium 1200+
 $sqlByCategory = "
-    SELECT 
-        cat_id,
+    SELECT
+        category,
         COUNT(*) as total_pages,
         ROUND(AVG(word_count), 0) as avg_words,
         PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY word_count) as median_words,
@@ -85,19 +85,17 @@ $sqlByCategory = "
         COUNT(CASE WHEN word_count > 1200 THEN 1 END) as premium_pages
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
-    GROUP BY cat_id
+    GROUP BY category
     ORDER BY avg_words DESC
 ";
 $stmt = $pdo->prepare($sqlByCategory);
 $stmt->execute([':crawl_id' => $crawlId]);
 $byCategory = $stmt->fetchAll(PDO::FETCH_OBJ);
 
-// Convertir cat_id en nom de catégorie
-$categoriesMap = $GLOBALS['categoriesMap'] ?? [];
+// category est déjà le nom de la catégorie
 foreach ($byCategory as $row) {
-    $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
-    $row->color = $catInfo ? $catInfo['color'] : '#95a5a6';
+    $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
+    $row->color = getCategoryColor($row->category);
 }
 
 // Calculer les pourcentages pour les tranches de contenu

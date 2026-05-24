@@ -82,6 +82,21 @@ foreach ($virtualToReal as $virtual => $real) {
     $tables[$virtual] = $columnsByReal[$real] ?? [];
 }
 
+// On a ClickHouse-backed crawl the queries run against ClickHouse (the PG
+// partitions are purged), so the LEFT panel must show the CH virtual schema —
+// real CH types (Map/Array/UInt8…), the derived columns (inlinks, pri,
+// *_status), and the LIVE `category` (+ synthetic `cat_id`) — instead of the
+// stale PostgreSQL information_schema (which still lists the dropped `cat_id`
+// column and hides `category`). Mirrors exactly what the CH executor exposes.
+if (\App\Database\CrawlStore::usesClickHouse((int)$crawlId)) {
+    $tables = \App\Http\Controllers\ApiV1Controller::clickHouseVirtualSchema();
+    $tables['crawl_categories'] = [
+        ['name' => 'id', 'type' => 'Int32'],
+        ['name' => 'cat', 'type' => 'String'],
+        ['name' => 'color', 'type' => 'String'],
+    ];
+}
+
 // Requête passée en paramètre GET (depuis la modale scope)
 // Initial SQL : accept either `?query=<raw>` (legacy) or `?q=<base64url>` (Dr. Brief
 // deeplinks — base64 lets us pack complex SQL with quotes / newlines through the URL).
@@ -120,8 +135,8 @@ $savedQueries = [
     // === PAGERANK ===
     ['key' => 'top_pagerank',           'category_key' => 'pagerank', 'query' => "SELECT\n\turl,\n\tpri AS pagerank,\n\tinlinks,\n\toutlinks\nFROM pages\nWHERE crawled = true AND compliant = true\nORDER BY pagerank DESC\nLIMIT 50"],
     ['key' => 'high_pr_non_indexable',  'category_key' => 'pagerank', 'query' => "SELECT\n\turl,\n\tpri AS pagerank,\n\tcode,\n\tnoindex,\n\tcanonical,\n\tblocked\nFROM pages\nWHERE crawled = true AND compliant = false AND pri > 0\nORDER BY pagerank DESC\nLIMIT 50"],
-    ['key' => 'pr_leak_external',       'category_key' => 'pagerank', 'query' => "SELECT\n\tCOALESCE(SUBSTRING(url FROM '://([^/]+)'), 'unknown') AS domain,\n\tCOUNT(*) AS link_count,\n\tSUM(pri) AS total_pr\nFROM pages\nWHERE external = true\nGROUP BY domain\nORDER BY total_pr DESC\nLIMIT 30"],
-    ['key' => 'dead_end_with_pr',       'category_key' => 'pagerank', 'query' => "SELECT\n\tp.url,\n\tp.pri AS pagerank\nFROM pages p\nWHERE p.crawled = true\n  AND p.pri > 0\n  AND NOT EXISTS (SELECT 1 FROM links l WHERE l.src = p.id)\nORDER BY pagerank DESC\nLIMIT 50"],
+    ['key' => 'pr_leak_external',       'category_key' => 'pagerank', 'query' => "SELECT\n\tdomain,\n\tCOUNT(*) AS link_count,\n\tSUM(pri) AS total_pr\nFROM pages\nWHERE external = true\nGROUP BY domain\nORDER BY total_pr DESC\nLIMIT 30"],
+    ['key' => 'dead_end_with_pr',       'category_key' => 'pagerank', 'query' => "SELECT\n\tp.url,\n\tp.pri AS pagerank\nFROM pages p\nWHERE p.crawled = true\n  AND p.pri > 0\n  AND p.id NOT IN (SELECT src FROM links)\nORDER BY pagerank DESC\nLIMIT 50"],
 
     // === SEO TAGS ===
     ['key' => 'duplicate_titles',       'category_key' => 'seo_tags', 'query' => "SELECT\n\ttitle,\n\tCOUNT(*) AS pages_count\nFROM pages\nWHERE crawled = true AND title IS NOT NULL AND title != ''\nGROUP BY title\nHAVING COUNT(*) > 1\nORDER BY pages_count DESC\nLIMIT 50"],
@@ -146,14 +161,14 @@ $savedQueries = [
 
     // === DONNÉES STRUCTURÉES ===
     ['key' => 'schema_distribution',    'category_key' => 'structured_data', 'query' => "SELECT\n\tschema_type,\n\tCOUNT(*) AS pages_count\nFROM page_schemas\nGROUP BY schema_type\nORDER BY pages_count DESC"],
-    ['key' => 'indexable_no_schema',    'category_key' => 'structured_data', 'query' => "SELECT\n\tp.url,\n\tp.pri AS pagerank\nFROM pages p\nWHERE p.compliant = true\n  AND NOT EXISTS (SELECT 1 FROM page_schemas s WHERE s.page_id = p.id)\nORDER BY pagerank DESC\nLIMIT 100"],
+    ['key' => 'indexable_no_schema',    'category_key' => 'structured_data', 'query' => "SELECT\n\tp.url,\n\tp.pri AS pagerank\nFROM pages p\nWHERE p.compliant = true\n  AND p.id NOT IN (SELECT page_id FROM page_schemas)\nORDER BY pagerank DESC\nLIMIT 100"],
 
     // === CONTENU ===
     ['key' => 'thin_content',           'category_key' => 'content', 'query' => "SELECT\n\turl,\n\tword_count,\n\tpri AS pagerank\nFROM pages\nWHERE compliant = true AND word_count < 250 AND word_count > 0\nORDER BY pagerank DESC\nLIMIT 100"],
-    ['key' => 'word_count_by_category', 'category_key' => 'content', 'query' => "SELECT\n\tCOALESCE(c.cat, 'Uncategorized') AS category,\n\tCOUNT(*) AS pages,\n\tROUND(AVG(p.word_count)::numeric, 0) AS avg_words,\n\tMIN(p.word_count) AS min_words,\n\tMAX(p.word_count) AS max_words\nFROM pages p\nLEFT JOIN crawl_categories c ON c.id = p.cat_id\nWHERE p.compliant = true\nGROUP BY category\nORDER BY pages DESC"],
+    ['key' => 'word_count_by_category', 'category_key' => 'content', 'query' => "SELECT\n\tIF(category = '', 'Uncategorized', category) AS category,\n\tCOUNT(*) AS pages,\n\tROUND(AVG(word_count), 0) AS avg_words,\n\tMIN(word_count) AS min_words,\n\tMAX(word_count) AS max_words\nFROM pages\nWHERE compliant = true\nGROUP BY category\nORDER BY pages DESC"],
 
     // === VUE GLOBALE ===
-    ['key' => 'category_overview',      'category_key' => 'overview', 'query' => "SELECT\n\tCOALESCE(c.cat, 'Uncategorized') AS category,\n\tCOUNT(*) AS total_pages,\n\tSUM(CASE WHEN p.compliant THEN 1 ELSE 0 END) AS indexable_pages,\n\tROUND(100.0 * SUM(CASE WHEN p.compliant THEN 1 ELSE 0 END) / COUNT(*), 1) AS pct_indexable,\n\tROUND(AVG(p.pri)::numeric, 5) AS avg_pagerank,\n\tROUND(AVG(p.inlinks)::numeric, 1) AS avg_inlinks,\n\tROUND(AVG(p.word_count)::numeric, 0) AS avg_words\nFROM pages p\nLEFT JOIN crawl_categories c ON c.id = p.cat_id\nWHERE p.external = false AND p.in_crawl = true\nGROUP BY category\nORDER BY total_pages DESC"],
+    ['key' => 'category_overview',      'category_key' => 'overview', 'query' => "SELECT\n\tIF(category = '', 'Uncategorized', category) AS category,\n\tCOUNT(*) AS total_pages,\n\tSUM(CASE WHEN compliant THEN 1 ELSE 0 END) AS indexable_pages,\n\tROUND(100.0 * SUM(CASE WHEN compliant THEN 1 ELSE 0 END) / COUNT(*), 1) AS pct_indexable,\n\tROUND(AVG(pri), 5) AS avg_pagerank,\n\tROUND(AVG(inlinks), 1) AS avg_inlinks,\n\tROUND(AVG(word_count), 0) AS avg_words\nFROM pages\nWHERE external = false AND in_crawl = true\nGROUP BY category\nORDER BY total_pages DESC"],
 ];
 
 // Hydrate name/description/category depuis i18n

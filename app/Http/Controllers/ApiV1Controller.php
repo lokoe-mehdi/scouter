@@ -9,6 +9,8 @@ use App\Database\PostgresDatabase;
 use App\Database\ProjectRepository;
 use App\Database\CrawlRepository;
 use App\AI\SqlExecutor;
+use App\AI\ClickHouseSqlExecutor;
+use App\Database\CrawlStore;
 use App\Analysis\CategorizationService;
 use App\Api\PageContent;
 use App\Job\JobManager;
@@ -129,6 +131,23 @@ class ApiV1Controller extends Controller
         if ($crawl === null) return;
         $cid = (int)$crawl->id;
 
+        if (CrawlStore::usesClickHouse($cid)) {
+            Response::json([
+                'data' => [
+                    'tables' => self::clickHouseVirtualSchema(),
+                    'notes'  => 'ClickHouse data store. Use virtual names (`pages`, `links`, '
+                              . '`duplicate_clusters`, `page_schemas`, `redirect_chains`). '
+                              . '`pages.category` is computed live from the project rules (no cat_id). '
+                              . 'inlinks/pri/title_status/h1_status/metadesc_status/in_sitemap come from '
+                              . 'post-processing. ClickHouse SQL dialect (RE2 regex via match(), '
+                              . 'Map access extracts[\'k\']). Query other crawls of the SAME project with '
+                              . '`pages@<id>`. SELECT / WITH … SELECT only.',
+                ],
+                'meta' => ['crawl_id' => $cid, 'data_store' => 'clickhouse'],
+            ]);
+            return;
+        }
+
         // Virtual name → physical table (partitioned ones carry the crawl id).
         $map = [
             'pages'              => "pages_{$cid}",
@@ -167,6 +186,102 @@ class ApiV1Controller extends Controller
         ]);
     }
 
+    /**
+     * The virtual table schema exposed for ClickHouse crawls — read from the LIVE
+     * ClickHouse schema (system.columns) so it never drifts from reality, then
+     * augmented for `pages` with the columns the shim adds on top: the derived
+     * post-processing fields (page_metrics: inlinks/pri/*_status/in_sitemap),
+     * `generation` (page_generation Map) and the LIVE `category` (computed from the
+     * project rules at query time). The synthetic `cat_id` is intentionally NOT
+     * advertised — it isn't a real column (the shim still accepts it for legacy
+     * queries, but `category` is the real thing). `crawl_id` is hidden (the server
+     * scopes it automatically). Falls back to a static list if CH is unreachable.
+     *
+     * @return array<string,array<int,array{name:string,type:string}>>
+     */
+    public static function clickHouseVirtualSchema(): array
+    {
+        $col = fn(string $n, string $t) => ['name' => $n, 'type' => $t];
+        $tables = ['pages', 'links', 'duplicate_clusters', 'page_schemas', 'redirect_chains'];
+        $hidden = ['crawl_id'];
+
+        try {
+            $ch = ClickHouseDatabase::getInstance();
+            $db = $ch->getDatabase();
+            $out = [];
+            foreach ($tables as $t) {
+                $rows = $ch->select(
+                    "SELECT name, type FROM system.columns WHERE database = {db:String} AND table = {tbl:String} ORDER BY position",
+                    ['db' => $db, 'tbl' => $t]
+                );
+                $cols = [];
+                foreach ($rows as $r) {
+                    if (!in_array($r['name'], $hidden, true)) {
+                        $cols[] = $col($r['name'], $r['type']);
+                    }
+                }
+                if ($cols) {
+                    $out[$t] = $cols;
+                }
+            }
+            if (!empty($out['pages'])) {
+                // Derived columns the shim joins onto `pages` from page_metrics.
+                $pm = $ch->select(
+                    "SELECT name, type FROM system.columns WHERE database = {db:String} AND table = 'page_metrics' ORDER BY position",
+                    ['db' => $db]
+                );
+                foreach ($pm as $r) {
+                    if (!in_array($r['name'], ['crawl_id', 'id'], true)) {
+                        $out['pages'][] = $col($r['name'], $r['type']);
+                    }
+                }
+                // Bulk-AI generation (page_generation Map) + the live category NAME.
+                $out['pages'][] = $col('generation', 'Map(String, String)');
+                $out['pages'][] = $col('category', 'String (live — computed from project rules)');
+                return $out;
+            }
+        } catch (\Throwable $e) {
+            // fall through to the static fallback below
+        }
+
+        // Static fallback (CH unreachable): mirrors docker/clickhouse/init.sql.
+        return [
+            'pages' => [
+                $col('id', 'FixedString(8)'), $col('date', 'DateTime'), $col('domain', 'String'),
+                $col('url', 'String'), $col('depth', 'Int32'), $col('code', 'Int32'),
+                $col('response_time', 'Float64'), $col('outlinks', 'Int32'),
+                $col('content_type', 'String'), $col('redirect_to', 'String'),
+                $col('crawled', 'UInt8'), $col('compliant', 'UInt8'), $col('noindex', 'UInt8'),
+                $col('nofollow', 'UInt8'), $col('canonical', 'UInt8'), $col('canonical_value', 'String'),
+                $col('external', 'UInt8'), $col('blocked', 'UInt8'), $col('title', 'String'),
+                $col('h1', 'String'), $col('metadesc', 'String'), $col('extracts', 'Map(String, String)'),
+                $col('simhash', 'Nullable(Int64)'), $col('is_html', 'UInt8'), $col('h1_multiple', 'UInt8'),
+                $col('headings_missing', 'UInt8'), $col('schemas', 'Array(String)'), $col('word_count', 'Int32'),
+                $col('inlinks', 'Int32'), $col('pri', 'Float64'), $col('title_status', 'String'),
+                $col('h1_status', 'String'), $col('metadesc_status', 'String'), $col('in_sitemap', 'UInt8'),
+                $col('generation', 'Map(String, String)'), $col('category', 'String (live)'),
+            ],
+            'links' => [
+                $col('src', 'FixedString(8)'), $col('target', 'FixedString(8)'), $col('anchor', 'String'),
+                $col('external', 'UInt8'), $col('nofollow', 'UInt8'), $col('type', 'String'),
+                $col('xpath', 'Nullable(String)'), $col('position', 'String'),
+            ],
+            'duplicate_clusters' => [
+                $col('cluster_id', 'Int32'), $col('similarity', 'Int32'),
+                $col('page_count', 'Int32'), $col('page_ids', 'Array(String)'),
+            ],
+            'page_schemas' => [
+                $col('page_id', 'FixedString(8)'), $col('schema_type', 'String'),
+            ],
+            'redirect_chains' => [
+                $col('chain_id', 'Int32'), $col('source_id', 'FixedString(8)'), $col('source_url', 'String'),
+                $col('final_id', 'String'), $col('final_url', 'String'), $col('final_code', 'Int32'),
+                $col('final_compliant', 'UInt8'), $col('hops', 'Int32'), $col('is_loop', 'UInt8'),
+                $col('chain_ids', 'Array(String)'),
+            ],
+        ];
+    }
+
     // -------------------------------------------------------------------------
     // POST /api/v1/crawls/{id}/query  — paginated read-only SQL
     // -------------------------------------------------------------------------
@@ -185,7 +300,10 @@ class ApiV1Controller extends Controller
         $withCount = $request->get('count', true) !== false;
         $offset   = ($page - 1) * $pageSize;
 
-        $exec = (new SqlExecutor())->executePaginated($sql, $cid, $pageSize, $offset, $withCount);
+        $executor = CrawlStore::usesClickHouse($cid)
+            ? new ClickHouseSqlExecutor()
+            : new SqlExecutor();
+        $exec = $executor->executePaginated($sql, $cid, $pageSize, $offset, $withCount);
         if (!$exec['ok']) {
             Response::error($exec['error'] ?? 'Query failed', 422);
             return;
@@ -223,8 +341,14 @@ class ApiV1Controller extends Controller
         $url = trim((string)$request->get('url', ''));
         if ($url === '') { Response::error('`url` is required', 400); return; }
 
+        // Migrated crawl → PG partitions purged: read pages/html from ClickHouse
+        // via the shim. CH stores RAW html (ZSTD codec); legacy PG stores it
+        // base64+gzdeflate and needs PageContent::decode().
+        $useCh = CrawlStore::usesClickHouse($cid);
+        $dataDb = $useCh ? new \App\Database\ChPdo($cid) : $this->db;
+
         // Resolve the URL to a page in this crawl.
-        $stmt = $this->db->prepare("SELECT id, url, title FROM pages WHERE crawl_id = :cid AND url = :url LIMIT 1");
+        $stmt = $dataDb->prepare("SELECT id, url, title FROM pages WHERE crawl_id = :cid AND url = :url LIMIT 1");
         $stmt->execute([':cid' => $cid, ':url' => $url]);
         $page = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$page) { Response::notFound('URL not found in this crawl'); return; }
@@ -232,7 +356,7 @@ class ApiV1Controller extends Controller
         $base = ['url' => $page['url'], 'title' => $page['title'], 'has_html' => false, 'headings' => [], 'text' => '', 'word_count' => 0];
 
         // Fetch the stored HTML blob (may be absent if the crawl didn't keep HTML).
-        $stmt = $this->db->prepare("SELECT html FROM html WHERE crawl_id = :cid AND id = :id LIMIT 1");
+        $stmt = $dataDb->prepare("SELECT html FROM html WHERE crawl_id = :cid AND id = :id LIMIT 1");
         $stmt->execute([':cid' => $cid, ':id' => $page['id']]);
         $stored = $stmt->fetchColumn();
         if (!$stored) {
@@ -241,8 +365,8 @@ class ApiV1Controller extends Controller
             return;
         }
 
-        $raw = PageContent::decode($stored);
-        if ($raw === null) {
+        $raw = $useCh ? (string)$stored : PageContent::decode($stored);
+        if ($raw === null || $raw === '') {
             $base['note'] = 'Stored HTML could not be decoded.';
             Response::json(['data' => $base, 'meta' => ['crawl_id' => $cid]]);
             return;
@@ -279,14 +403,18 @@ class ApiV1Controller extends Controller
         $maxChars = (int)$request->get('max_chars', 1000000);
         $maxChars = max(1000, min($maxChars, 2000000));
 
-        $stmt = $this->db->prepare("SELECT id, url FROM pages WHERE crawl_id = :cid AND url = :url LIMIT 1");
+        // Migrated crawl → read from ClickHouse (raw html); legacy PG → decode.
+        $useCh = CrawlStore::usesClickHouse($cid);
+        $dataDb = $useCh ? new \App\Database\ChPdo($cid) : $this->db;
+
+        $stmt = $dataDb->prepare("SELECT id, url FROM pages WHERE crawl_id = :cid AND url = :url LIMIT 1");
         $stmt->execute([':cid' => $cid, ':url' => $url]);
         $page = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$page) { Response::notFound('URL not found in this crawl'); return; }
 
         $base = ['url' => $page['url'], 'has_html' => false, 'html' => '', 'length' => 0, 'truncated' => false];
 
-        $stmt = $this->db->prepare("SELECT html FROM html WHERE crawl_id = :cid AND id = :id LIMIT 1");
+        $stmt = $dataDb->prepare("SELECT html FROM html WHERE crawl_id = :cid AND id = :id LIMIT 1");
         $stmt->execute([':cid' => $cid, ':id' => $page['id']]);
         $stored = $stmt->fetchColumn();
         if (!$stored) {
@@ -295,8 +423,8 @@ class ApiV1Controller extends Controller
             return;
         }
 
-        $raw = PageContent::decode($stored);
-        if ($raw === null) {
+        $raw = $useCh ? (string)$stored : PageContent::decode($stored);
+        if ($raw === null || $raw === '') {
             $base['note'] = 'Stored HTML could not be decoded.';
             Response::json(['data' => $base, 'meta' => ['crawl_id' => $cid]]);
             return;
@@ -343,20 +471,44 @@ class ApiV1Controller extends Controller
 
         // Applied categories on THIS crawl — the proof the deploy reached it.
         // NULL cat = the "uncategorized" bucket (kept, with name=null).
-        $stmt = $this->db->prepare("
-            SELECT c.cat AS name, c.color AS color, COUNT(p.id) AS count
-            FROM pages p
-            LEFT JOIN crawl_categories c ON p.cat_id = c.id
-            WHERE p.crawl_id = :cid AND p.external = false
-            GROUP BY c.cat, c.color
-            ORDER BY count DESC
-        ");
-        $stmt->execute([':cid' => $cid]);
-        $categories = array_map(fn($r) => [
-            'name'  => $r['name'],
-            'color' => $r['name'] !== null ? ($r['color'] ?? '#95a5a6') : null,
-            'count' => (int)$r['count'],
-        ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+        // Colours are project metadata (crawl_categories), keyed by NAME for both stores.
+        $colors = [];
+        $cstmt = $this->db->prepare("SELECT cat, color FROM crawl_categories WHERE project_id = :pid");
+        $cstmt->execute([':pid' => $projectId]);
+        while ($r = $cstmt->fetch(PDO::FETCH_ASSOC)) { $colors[$r['cat']] = $r['color']; }
+
+        if (CrawlStore::usesClickHouse($cid)) {
+            // CH: no stored cat_id — count live from the crawl's saved rules.
+            $catExpr = (new \App\Analysis\CategoryExpr($this->db))->forCrawl($cid);
+            $chdb = \App\Database\ClickHouseDatabase::getInstance();
+            $db = $chdb->getDatabase();
+            $rows = $chdb->select("SELECT {$catExpr} AS category, count() AS count
+                FROM (SELECT url FROM {$db}.pages WHERE crawl_id = " . $cid . " AND external = 0 LIMIT 1 BY id)
+                GROUP BY category ORDER BY count DESC");
+            $categories = array_map(function ($r) use ($colors) {
+                $name = (($r['category'] ?? '') !== '') ? $r['category'] : null;
+                return [
+                    'name'  => $name,
+                    'color' => $name !== null ? ($colors[$name] ?? '#95a5a6') : null,
+                    'count' => (int)$r['count'],
+                ];
+            }, $rows);
+        } else {
+            $stmt = $this->db->prepare("
+                SELECT c.cat AS name, COUNT(p.id) AS count
+                FROM pages p
+                LEFT JOIN crawl_categories c ON p.cat_id = c.id
+                WHERE p.crawl_id = :cid AND p.external = false
+                GROUP BY c.cat
+                ORDER BY count DESC
+            ");
+            $stmt->execute([':cid' => $cid]);
+            $categories = array_map(fn($r) => [
+                'name'  => $r['name'],
+                'color' => $r['name'] !== null ? ($colors[$r['name']] ?? '#95a5a6') : null,
+                'count' => (int)$r['count'],
+            ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+        }
 
         Response::json([
             'data' => [
