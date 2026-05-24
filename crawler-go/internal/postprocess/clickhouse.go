@@ -46,6 +46,14 @@ func NewCHRunner(ch *db.CH, crawlID int, respectNofollow bool, logf func(string,
 func (r *CHRunner) t(name string) string { return r.ch.DB() + "." + name }
 func (r *CHRunner) cid() string          { return strconv.Itoa(r.crawlID) }
 
+// pd is the deduplicated `pages` source for this crawl. CH is append-only, so a
+// page re-written during the crawl (sitemap re-fetch, retries) leaves >1 row per
+// id; LIMIT 1 BY id keeps one (scoped to the crawl_id partition). Used by every
+// pages read so the derived tables are built from clean, one-row-per-page data.
+func (r *CHRunner) pd() string {
+	return "(SELECT * FROM " + r.t("pages") + " WHERE crawl_id = " + r.cid() + " LIMIT 1 BY id)"
+}
+
 // Run executes the CH post-processing steps, isolating failures per step.
 func (r *CHRunner) Run(ctx context.Context) {
 	if r == nil {
@@ -90,7 +98,7 @@ func (r *CHRunner) buildMetrics(ctx context.Context) error {
 			multiIf(title = '', 'empty', count() OVER (PARTITION BY title) > 1, 'duplicate', 'unique') AS title_status,
 			multiIf(h1 = '', 'empty', count() OVER (PARTITION BY h1) > 1, 'duplicate', 'unique') AS h1_status,
 			multiIf(metadesc = '', 'empty', count() OVER (PARTITION BY metadesc) > 1, 'duplicate', 'unique') AS metadesc_status
-		FROM ` + r.t("pages") + ` WHERE crawl_id = ` + cid + ` AND compliant = 1)`
+		FROM ` + r.pd() + ` WHERE compliant = 1)`
 
 	inlinksSub := `(SELECT target AS tid, count() AS inlinks FROM ` + r.t("links") +
 		` WHERE crawl_id = ` + cid + ` GROUP BY target)`
@@ -98,7 +106,7 @@ func (r *CHRunner) buildMetrics(ctx context.Context) error {
 	sql := `INSERT INTO ` + r.t("page_metrics") +
 		` (crawl_id, id, inlinks, pri, title_status, h1_status, metadesc_status, in_sitemap)
 		SELECT ` + cid + `, p.id, il.inlinks, pr.pr, st.title_status, st.h1_status, st.metadesc_status, 0
-		FROM ` + r.t("pages") + ` p
+		FROM ` + r.pd() + ` p
 		LEFT JOIN ` + inlinksSub + ` il ON il.tid = p.id
 		LEFT JOIN ` + r.t("pr_cur_"+cid) + ` pr ON pr.id = p.id
 		LEFT JOIN ` + statusSub + ` st ON st.id = p.id
@@ -122,7 +130,7 @@ func (r *CHRunner) computePageRank(ctx context.Context) error {
 		}
 	}
 
-	pagesCountStr, err := r.ch.QueryScalar(ctx, "SELECT count() FROM "+r.t("pages")+" WHERE crawl_id="+cid)
+	pagesCountStr, err := r.ch.QueryScalar(ctx, "SELECT count() FROM "+r.pd())
 	if err != nil {
 		return err
 	}
@@ -138,16 +146,15 @@ func (r *CHRunner) computePageRank(ctx context.Context) error {
 
 	if !hasLinks {
 		// No graph: pri stays 0 (matches PG, which skips the update entirely).
-		return r.ch.Exec(ctx, "INSERT INTO "+prCur+" SELECT id, 0, 0 FROM "+r.t("pages")+" WHERE crawl_id="+cid)
+		return r.ch.Exec(ctx, "INSERT INTO "+prCur+" SELECT id, 0, 0 FROM "+r.pd())
 	}
 
 	initPR := 1.0 / float64(pagesCount)
 	bonus := (1 - damping) / float64(pagesCount)
 	if err := r.ch.Exec(ctx, `INSERT INTO `+prCur+`
 		SELECT p.id, `+f(initPR)+`, ol.c
-		FROM `+r.t("pages")+` p
-		LEFT JOIN `+outlinksSub+` ol ON ol.sid = p.id
-		WHERE p.crawl_id=`+cid); err != nil {
+		FROM `+r.pd()+` p
+		LEFT JOIN `+outlinksSub+` ol ON ol.sid = p.id`); err != nil {
 		return err
 	}
 

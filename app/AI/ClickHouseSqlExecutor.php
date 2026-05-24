@@ -231,13 +231,16 @@ class ClickHouseSqlExecutor
         $cid = (int) $crawlId;
         if ($table === 'pages') {
             $cat = (new CategoryExpr(PostgresDatabase::getInstance()->getConnection()))->forCrawl($cid);
+            // Dedup on read (LIMIT 1 BY id; CH is append-only) and don't expose
+            // crawl_id from the joined subquery (the new analyzer can't resolve a
+            // shared column name across joins).
             return "(SELECT p.*, m.inlinks AS inlinks, m.pri AS pri, "
                 . "m.title_status AS title_status, m.h1_status AS h1_status, "
                 . "m.metadesc_status AS metadesc_status, m.in_sitemap AS in_sitemap, "
                 . "({$cat}) AS category "
-                . "FROM {$this->db}.pages p "
-                . "LEFT JOIN {$this->db}.page_metrics m ON m.crawl_id = p.crawl_id AND m.id = p.id "
-                . "WHERE p.crawl_id = {$cid}) AS {$table}";
+                . "FROM (SELECT * FROM {$this->db}.pages WHERE crawl_id = {$cid} LIMIT 1 BY id) p "
+                . "LEFT JOIN (SELECT id, inlinks, pri, title_status, h1_status, metadesc_status, in_sitemap "
+                . "FROM {$this->db}.page_metrics WHERE crawl_id = {$cid} LIMIT 1 BY id) m ON m.id = p.id) AS {$table}";
         }
         return "(SELECT * FROM {$this->db}.{$table} WHERE crawl_id = {$cid}) AS {$table}";
     }

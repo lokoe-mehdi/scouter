@@ -55,6 +55,59 @@ class CategoryExpr
         return $this->build($rules);
     }
 
+    /**
+     * Parsed rules for a crawl (YAML → [{name,domain,includes,excludes,color}]),
+     * or [] when none. Reused to build the live category expr AND the synthetic
+     * cat_id map the reports expect.
+     */
+    public function rulesForCrawl(int $crawlId): array
+    {
+        $yaml = $this->loadYaml($crawlId);
+        if ($yaml === null || trim($yaml) === '') {
+            return [];
+        }
+        try {
+            $categories = \Spyc::YAMLLoadString($yaml);
+            if (!is_array($categories)) {
+                return [];
+            }
+            return (new CategorizationService($this->pg))->parseRules($categories);
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Live synthetic `cat_id` expression: the 1-based rule index of the first
+     * matching rule (NULL if none). Matches the ids in the $categoriesMap the
+     * dashboard builds from the same rules, so reports that GROUP BY cat_id and
+     * look up $categoriesMap[cat_id] keep working unchanged on ClickHouse.
+     */
+    public function buildIdExpr(array $rules): string
+    {
+        $cases = [];
+        foreach ($rules as $i => $rule) {
+            $cases[] = "WHEN {$this->cond($rule)} THEN " . ($i + 1);
+        }
+        if (empty($cases)) {
+            return "NULL";
+        }
+        return "CASE " . implode(' ', $cases) . " ELSE NULL END";
+    }
+
+    /** The match condition for one rule (domain + includes [- excludes]). */
+    private function cond(array $rule): string
+    {
+        $dom = $this->lit('(?i)' . preg_quote($rule['domain'], '/'));
+        $inc = $this->lit('(?i)' . implode('|', $rule['includes']));
+        $c = "match(url, {$dom}) AND match(replaceRegexpOne(url, '^https?://[^/]+', ''), {$inc})";
+        if (!empty($rule['excludes'])) {
+            $exc = $this->lit('(?i)' . implode('|', $rule['excludes']));
+            $c .= " AND NOT match(replaceRegexpOne(url, '^https?://[^/]+', ''), {$exc})";
+        }
+        return $c;
+    }
+
     /** Build the CASE WHEN from parsed rules (first match wins, like PG). */
     public function build(array $rules): string
     {
