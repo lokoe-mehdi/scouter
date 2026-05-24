@@ -28,6 +28,7 @@ func (e *Engine) Crawl(ctx context.Context, newCrawl bool) error {
 // the post-processing sitemap step via a skip-link-extraction engine.
 func (e *Engine) FetchURLs(ctx context.Context, urls []string) error {
 	e.processURLs(ctx, urls, -1)
+	e.chStore.Flush(ctx) // drain the sitemap-pass pages/html into ClickHouse
 	return e.cdb.UpdateCrawlStats(ctx)
 }
 

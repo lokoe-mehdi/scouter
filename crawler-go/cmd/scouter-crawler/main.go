@@ -44,6 +44,14 @@ func main() {
 	}
 	defer pool.Close()
 
+	// ClickHouse is optional: nil when CLICKHOUSE_URL is unset (PG-only, unchanged).
+	ch, chErr := db.NewCHFromEnv(ctx)
+	if chErr != nil {
+		log.Printf("[%s] ClickHouse disabled (connect failed): %v", workerID, chErr)
+	} else if ch != nil {
+		log.Printf("[%s] ClickHouse enabled — dual-write + post-processing in CH", workerID)
+	}
+
 	mgr := jobs.New(pool, workerID)
 	if err := mgr.RecoverOrphans(ctx); err != nil {
 		log.Printf("[%s] orphan recovery: %v", workerID, err)
@@ -74,7 +82,7 @@ func main() {
 		go func(j jobs.Job) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			runJob(ctx, pool, mgr, j, rendererURLs)
+			runJob(ctx, pool, ch, mgr, j, rendererURLs)
 		}(*job)
 	}
 
@@ -84,7 +92,7 @@ func main() {
 
 // runJob executes one crawl + post-processing, mirroring scouter.php crawl +
 // Crawler::depthStarter finalization, with panic isolation.
-func runJob(ctx context.Context, pool *db.Pool, mgr *jobs.Manager, j jobs.Job, rendererURLs []string) {
+func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j jobs.Job, rendererURLs []string) {
 	// Per-crawl log file: the UI's live console reads logs/<projectDir>.log
 	// (JobController::parseLogFile). The engine emits "Depth N : X URLs/sec
 	// (done/total)" lines there; post-processing emits its step lines. Volume
@@ -148,8 +156,11 @@ func runJob(ctx context.Context, pool *db.Pool, mgr *jobs.Manager, j jobs.Job, r
 		return st == "stopping" || st == "stopped" || st == "failed"
 	}
 
+	chStore := crawl.NewCHStore(ch, rec.ID, logf)
+
 	engine := crawl.NewEngine(cdb, cfg, crawl.Options{
 		RendererURLs: rendererURLs,
+		CHStore:      chStore,
 		Logf:         logf,
 		StopCheck:    stopCheck,
 	})
@@ -173,6 +184,14 @@ func runJob(ctx context.Context, pool *db.Pool, mgr *jobs.Manager, j jobs.Job, r
 		line += fmt.Sprintf(" + %s in retry pauses", fmtDur(rp))
 	}
 	milestone(line)
+
+	// Drain any buffered crawl-data into ClickHouse before post-processing reads it.
+	// Detached context so a graceful stop still flushes what was crawled.
+	if chStore != nil {
+		flushCtx, cancelFlush := context.WithTimeout(context.Background(), 60*time.Second)
+		chStore.Flush(flushCtx)
+		cancelFlush()
+	}
 	milestone("Starting post-processing")
 
 	// Post-processing (status changes on the crawls row must NOT abort it, only a
@@ -185,6 +204,7 @@ func runJob(ctx context.Context, pool *db.Pool, mgr *jobs.Manager, j jobs.Job, r
 		smEngine := crawl.NewEngine(cdb, &smCfg, crawl.Options{
 			RendererURLs:       rendererURLs,
 			SkipLinkExtraction: true,
+			CHStore:            chStore,
 			Logf:               logf,
 			StopCheck:          func(context.Context) bool { return false }, // ignore stop during PP
 		})

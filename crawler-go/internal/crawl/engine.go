@@ -37,6 +37,7 @@ type Engine struct {
 	concurrency        int
 	targetPerSec       int
 	skipLinkExtraction bool
+	chStore            *CHStore // dual-write to ClickHouse (nil when CH disabled)
 	logf               func(string, ...any)
 	stopCheck          func(context.Context) bool
 
@@ -92,6 +93,7 @@ func (e *Engine) addRetryPause(d time.Duration) {
 type Options struct {
 	RendererURLs       []string
 	SkipLinkExtraction bool
+	CHStore            *CHStore // dual-write to ClickHouse (nil when CH disabled)
 	Logf               func(string, ...any)
 	StopCheck          func(context.Context) bool
 }
@@ -118,6 +120,7 @@ func NewEngine(cdb *db.CrawlDB, cfg *config.Config, opts Options) *Engine {
 		concurrency:        concurrency,
 		targetPerSec:       target,
 		skipLinkExtraction: opts.SkipLinkExtraction,
+		chStore:            opts.CHStore,
 		logf:               logf,
 		stopCheck:          stop,
 		// Single HTTP client, fetching over uTLS (Chrome TLS fingerprint). Never

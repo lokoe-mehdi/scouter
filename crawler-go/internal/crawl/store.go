@@ -66,8 +66,20 @@ func (e *Engine) storePage(ctx context.Context, p model.Page, depth int) error {
 	if err := e.cdb.UpdatePage(ctx, p.ID, sets); err != nil {
 		return err
 	}
+	// Dual-write the crawled page to ClickHouse (append-only; observed signals only).
+	e.chStore.AddPage(chPageRow{
+		CrawlID: e.cdb.CrawlID, ID: p.ID, Domain: p.Domain, URL: p.URL, Depth: depth,
+		Code: p.HTTPCode, ResponseTime: p.ResponseTime * 1000.0, Outlinks: countLinks,
+		ContentType: truncateStr(p.ContentType, 100), RedirectTo: p.RedirectTo,
+		Crawled: 1, Compliant: b2i(compliant), Noindex: b2i(p.Noindex), Nofollow: b2i(p.Nofollow),
+		Canonical: b2i(isCanonical), CanonicalValue: p.CanonicalURL, External: 0, Blocked: b2i(blocked),
+		Title: p.Title, H1: p.H1, MetaDesc: p.MetaDesc, Extracts: p.CustomExtract, Simhash: p.Simhash,
+		IsHTML: b2i(p.IsHTML), H1Multiple: b2i(p.H1Multiple), HeadingsMissing: b2i(p.HeadingsMissing),
+		Schemas: p.Schemas, WordCount: p.WordCount,
+	})
 	if p.DomHash != "" && len(p.Schemas) > 0 {
 		_ = e.cdb.InsertPageSchemas(ctx, p.ID, p.Schemas)
+		e.chStore.AddSchemas(p.ID, p.Schemas)
 	}
 
 	if e.skipLinkExtraction {
@@ -97,6 +109,10 @@ func (e *Engine) storeRedirect(ctx context.Context, p model.Page, depth int) err
 	}); err != nil {
 		return err
 	}
+	e.chStore.AddLinks([]chLinkRow{{
+		CrawlID: e.cdb.CrawlID, Src: p.ID, Target: id, Type: "redirect",
+		External: b2i(external), Nofollow: 0, Position: "Content",
+	}})
 	if !e.cfg.FollowRedirects {
 		return nil
 	}
@@ -126,6 +142,10 @@ func (e *Engine) storeLinks(ctx context.Context, p model.Page, depth int) error 
 		}); err != nil {
 			return err
 		}
+		e.chStore.AddLinks([]chLinkRow{{
+			CrawlID: e.cdb.CrawlID, Src: src, Target: cible, Type: "canonical",
+			External: b2i(external), Position: "Content",
+		}})
 		ext := external
 		if isList {
 			ext = true
@@ -140,6 +160,7 @@ func (e *Engine) storeLinks(ctx context.Context, p model.Page, depth int) error 
 	pageMetaNofollow := respectNofollow && p.Nofollow
 
 	links := make([]db.LinkRow, 0, len(p.Links))
+	chLinks := make([]chLinkRow, 0, len(p.Links))
 	pages := make([]db.PageRow, 0, len(p.Links))
 	for _, l := range p.Links {
 		var xptr *string
@@ -150,6 +171,10 @@ func (e *Engine) storeLinks(ctx context.Context, p model.Page, depth int) error 
 		links = append(links, db.LinkRow{
 			Src: src, Target: l.TargetID, Anchor: l.Anchor, Type: "ahref",
 			External: l.External, Nofollow: l.Nofollow, XPath: xptr, Position: positionOr(l.Position),
+		})
+		chLinks = append(chLinks, chLinkRow{
+			CrawlID: e.cdb.CrawlID, Src: src, Target: l.TargetID, Anchor: l.Anchor, Type: "ahref",
+			External: b2i(l.External), Nofollow: b2i(l.Nofollow), XPath: xptr, Position: positionOr(l.Position),
 		})
 		followable := !respectNofollow || (!pageMetaNofollow && !l.Nofollow)
 		ext := l.External
@@ -165,6 +190,7 @@ func (e *Engine) storeLinks(ctx context.Context, p model.Page, depth int) error 
 		if err := e.cdb.InsertLinks(ctx, links); err != nil {
 			return err
 		}
+		e.chStore.AddLinks(chLinks)
 	}
 	if len(pages) > 0 {
 		if err := e.cdb.InsertPages(ctx, pages); err != nil {
@@ -178,6 +204,7 @@ func (e *Engine) storeRaw(ctx context.Context, p model.Page) error {
 	if !e.cfg.StoreHTML || p.DomZip == "" {
 		return nil
 	}
+	e.chStore.AddHTMLZipped(p.ID, p.DomZip)
 	return e.cdb.InsertHTML(ctx, p.ID, p.DomZip)
 }
 
