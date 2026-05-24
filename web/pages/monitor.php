@@ -111,6 +111,19 @@ foreach ($projects as $proj) {
     $proj->size_bytes = $proj->size_pg + $proj->size_ch;
 }
 usort($projects, fn($a, $b) => $b->size_bytes <=> $a->size_bytes);
+
+// Per-crawl storage (PG vs CH) + migration state — lets the admin verify what's
+// been backfilled to ClickHouse and what's still on PostgreSQL.
+$crawlsStorage = [];
+$migCh = 0; $migPg = 0;
+foreach ($pdo->query("SELECT id, domain, COALESCE(data_store,'pg') AS data_store, status, crawled FROM crawls WHERE status != 'deleting' ORDER BY id DESC")->fetchAll(PDO::FETCH_OBJ) as $c) {
+    $c->size_pg = $partitionSizes[(int)$c->id] ?? 0;
+    $c->size_ch = $chPartitionSizes[(int)$c->id] ?? 0;
+    if ($c->data_store === 'clickhouse') { $migCh++; } else { $migPg++; }
+    $crawlsStorage[] = $c;
+}
+$migTotal = $migCh + $migPg;
+$migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
 ?>
 <!DOCTYPE html>
 <html lang="<?= I18n::getInstance()->getLang() ?>">
@@ -443,6 +456,37 @@ usort($projects, fn($a, $b) => $b->size_bytes <=> $a->size_bytes);
                     </a>
                 </div>
                 <?php endforeach; endif; ?>
+            </div>
+        </div>
+
+        <!-- Per-crawl storage (PG vs ClickHouse) + migration progress -->
+        <div class="mon-card">
+            <div class="mon-card-title">
+                <span class="material-symbols-outlined">swap_horiz</span>
+                Stockage par crawl (PostgreSQL → ClickHouse)
+                <span style="font-size: 0.7rem; background: var(--background, #f5f7fa); color: var(--text-secondary); padding: 2px 8px; border-radius: 10px; font-weight: 600; margin-left: 0.25rem;"><?= $migCh ?>/<?= $migTotal ?> migrés</span>
+            </div>
+            <div style="margin-bottom: 0.75rem;">
+                <div class="mon-db-bar"><div class="mon-db-bar-fill" style="width: <?= $migPct ?>%; background: linear-gradient(90deg,#336791,#ffcc00);"></div></div>
+                <div class="mon-db-hint"><?= $migCh ?> sur ClickHouse, <?= $migPg ?> encore sur PostgreSQL (backfill en cours). PG = lecture des rapports lente ; CH = rapide.</div>
+            </div>
+            <div style="display:grid; grid-template-columns: 70px 1fr 110px 90px 90px; gap:0.3rem; padding:0.4rem 0.5rem; font-size:0.72rem; text-transform:uppercase; color:var(--text-secondary); font-weight:700; border-bottom:1px solid var(--border-color,#eee);">
+                <span>Crawl</span><span>Domaine</span><span style="text-align:center;">Store</span><span style="text-align:right;">PG</span><span style="text-align:right;">ClickHouse</span>
+            </div>
+            <div style="max-height: 420px; overflow-y: auto;">
+                <?php foreach ($crawlsStorage as $c):
+                    $isCh = $c->data_store === 'clickhouse';
+                ?>
+                <div style="display:grid; grid-template-columns: 70px 1fr 110px 90px 90px; gap:0.3rem; padding:0.4rem 0.5rem; font-size:0.82rem; align-items:center; border-bottom:1px solid var(--border-color,#f3f3f3);">
+                    <span style="font-variant-numeric:tabular-nums; color:var(--text-secondary);">#<?= $c->id ?></span>
+                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="<?= htmlspecialchars($c->domain) ?>"><?= htmlspecialchars($c->domain) ?></span>
+                    <span style="text-align:center;">
+                        <span style="font-size:0.7rem; font-weight:700; padding:2px 7px; border-radius:10px; background:<?= $isCh ? 'rgba(255,204,0,.18)' : 'rgba(51,103,145,.15)' ?>; color:<?= $isCh ? '#a07b00' : '#336791' ?>;"><?= $isCh ? 'ClickHouse' : 'PostgreSQL' ?></span>
+                    </span>
+                    <span style="text-align:right; font-variant-numeric:tabular-nums; color:<?= $c->size_pg>0 && $isCh ? '#d97706' : 'var(--text-secondary)' ?>;"><?= $c->size_pg > 0 ? monitorFormatBytes($c->size_pg) : '—' ?></span>
+                    <span style="text-align:right; font-variant-numeric:tabular-nums; color:<?= $isCh ? 'var(--text-primary)' : 'var(--text-tertiary,#aaa)' ?>;"><?= $c->size_ch > 0 ? monitorFormatBytes($c->size_ch) : '—' ?></span>
+                </div>
+                <?php endforeach; ?>
             </div>
         </div>
     </div>
