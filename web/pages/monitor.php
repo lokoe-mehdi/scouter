@@ -67,7 +67,7 @@ $sizeStmt = $pdo->query("
     WHERE schemaname = 'public'
       AND tablename ~ '^(pages|links|html|page_schemas|duplicate_clusters|redirect_chains)_[0-9]+$'
 ");
-$partitionSizes = [];
+$partitionSizes = [];      // crawl_id => PG crawl-data bytes
 foreach ($sizeStmt->fetchAll(PDO::FETCH_OBJ) as $row) {
     // Extract crawl_id from table name (e.g. pages_123 → 123)
     preg_match('/_(\d+)$/', $row->tablename, $m);
@@ -75,14 +75,40 @@ foreach ($sizeStmt->fetchAll(PDO::FETCH_OBJ) as $row) {
         $partitionSizes[(int)$m[1]] = ($partitionSizes[(int)$m[1]] ?? 0) + (int)$row->size_bytes;
     }
 }
+$pgCrawlDataSize = array_sum($partitionSizes); // total PG crawl-data (partitions)
+
+// ClickHouse storage (compressed, on-disk) per crawl + total, from system.parts.
+// PARTITION BY crawl_id → the part `partition` IS the crawl id.
+$chPartitionSizes = [];
+$clickhouseSize = 0;
+$clickhouseEnabled = \App\Database\ClickHouseDatabase::enabled();
+if ($clickhouseEnabled) {
+    try {
+        $ch = \App\Database\ClickHouseDatabase::getInstance();
+        foreach ($ch->select("SELECT partition AS crawl_id, sum(bytes_on_disk) AS bytes FROM system.parts WHERE database = {db:String} AND active = 1 GROUP BY partition", ['db' => $ch->getDatabase()]) as $row) {
+            $cid = (int)($row['crawl_id'] ?? 0);
+            $chPartitionSizes[$cid] = ($chPartitionSizes[$cid] ?? 0) + (int)($row['bytes'] ?? 0);
+            $clickhouseSize += (int)($row['bytes'] ?? 0);
+        }
+    } catch (\Throwable $e) {
+        $clickhouseEnabled = false;
+    }
+}
+
+// Storage totals: PG database + ClickHouse, and the combined global figure.
+$storageGlobal = $globalDbSize + $clickhouseSize;
 
 foreach ($projects as $proj) {
-    $proj->size_bytes = 0;
+    $proj->size_bytes = 0;     // combined (PG crawl data + ClickHouse)
+    $proj->size_pg = 0;
+    $proj->size_ch = 0;
     $cids = $pdo->prepare("SELECT id FROM crawls WHERE project_id = :pid AND status != 'deleting'");
     $cids->execute([':pid' => $proj->id]);
     foreach ($cids->fetchAll(PDO::FETCH_COLUMN) as $cid) {
-        $proj->size_bytes += $partitionSizes[(int)$cid] ?? 0;
+        $proj->size_pg += $partitionSizes[(int)$cid] ?? 0;
+        $proj->size_ch += $chPartitionSizes[(int)$cid] ?? 0;
     }
+    $proj->size_bytes = $proj->size_pg + $proj->size_ch;
 }
 usort($projects, fn($a, $b) => $b->size_bytes <=> $a->size_bytes);
 ?>
@@ -281,10 +307,26 @@ usort($projects, fn($a, $b) => $b->size_bytes <=> $a->size_bytes);
                 <div class="mon-card">
                     <div class="mon-card-title"><span class="material-symbols-outlined">database</span> <?= __('monitor.storage') ?></div>
                     <div class="mon-db-size">
-                        <div class="mon-db-value"><?= monitorFormatBytes($globalDbSize) ?></div>
-                        <div class="mon-db-bar"><div class="mon-db-bar-fill" style="width: <?= round($dbBarPct, 1) ?>%; background: <?= $diskBarBg ?>;"></div></div>
-                        <div class="mon-db-hint">
-                            <?= __('monitor.db_size_hint') ?>
+                        <?php $globalBarPct = $diskTotalSpace > 0 ? min(100, ($storageGlobal / $diskTotalSpace) * 100) : 0; ?>
+                        <div class="mon-db-value"><?= monitorFormatBytes($storageGlobal) ?></div>
+                        <div class="mon-db-bar"><div class="mon-db-bar-fill" style="width: <?= round($globalBarPct, 1) ?>%; background: <?= $diskBarBg ?>;"></div></div>
+                        <!-- PostgreSQL vs ClickHouse breakdown -->
+                        <?php
+                            $pgPct = $storageGlobal > 0 ? round(100 * $globalDbSize / $storageGlobal) : 0;
+                            $chPct = $storageGlobal > 0 ? round(100 * $clickhouseSize / $storageGlobal) : 0;
+                        ?>
+                        <div style="display:flex; gap:1rem; margin-top:0.75rem; flex-wrap:wrap;">
+                            <div style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem;">
+                                <span style="width:10px;height:10px;border-radius:2px;background:#336791;display:inline-block;"></span>
+                                <strong>PostgreSQL</strong>&nbsp;<?= monitorFormatBytes($globalDbSize) ?> <span style="opacity:.6;">(<?= $pgPct ?>%)</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem;">
+                                <span style="width:10px;height:10px;border-radius:2px;background:#ffcc00;display:inline-block;"></span>
+                                <strong>ClickHouse</strong>&nbsp;<?php if ($clickhouseEnabled): ?><?= monitorFormatBytes($clickhouseSize) ?> <span style="opacity:.6;">(<?= $chPct ?>%)</span><?php else: ?><span style="opacity:.6;">désactivé</span><?php endif; ?>
+                            </div>
+                        </div>
+                        <div class="mon-db-hint" style="margin-top:0.6rem;">
+                            Total = PostgreSQL (métadonnées + frontier) + ClickHouse (données de crawl). PG fond après migration/purge.
                             <?php if ($diskKnown): ?>
                                 <br>
                                 <?= str_replace(':free', monitorFormatBytes($diskFreeSpace), __('monitor.disk_free_hint')) ?>

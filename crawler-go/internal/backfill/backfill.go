@@ -175,15 +175,20 @@ func (b *Backfiller) pages(ctx context.Context, crawlID int) error {
 	defer rows.Close()
 	batch := make([]any, 0, batchSize)
 	for rows.Next() {
+		// Nullable columns (TEXT/INT that PG may store as NULL — e.g. title/h1 on
+		// non-HTML pages, code on uncrawled redirect targets) are scanned into
+		// pointers and coalesced to ''/0 for ClickHouse (no NULLs in those CH cols).
 		var (
-			id, domain, url, contentType, redirectTo, canonicalValue, title, h1, metadesc string
-			depth, code, outlinks, wordCount                                              int
-			responseTime                                                                  float64
-			crawled, compliant, noindex, nofollow, canonical, external, blocked           bool
-			isHTML, h1Multiple, headingsMissing                                           *bool
-			extracts                                                                      []byte
-			simhash                                                                       *int64
-			schemas                                                                       []string
+			id                                                                  string
+			domain, url, contentType, redirectTo, canonicalValue, title, h1, metadesc *string
+			depth, outlinks, wordCount                                          int
+			code                                                                *int
+			responseTime                                                        *float64
+			crawled, compliant, noindex, nofollow, canonical, external, blocked bool
+			isHTML, h1Multiple, headingsMissing                                 *bool
+			extracts                                                            []byte
+			simhash                                                             *int64
+			schemas                                                             []string
 		)
 		if err := rows.Scan(&id, &domain, &url, &depth, &code, &responseTime, &outlinks, &contentType, &redirectTo,
 			&crawled, &compliant, &noindex, &nofollow, &canonical, &canonicalValue, &external, &blocked,
@@ -197,12 +202,20 @@ func (b *Backfiller) pages(ctx context.Context, crawlID int) error {
 		if schemas == nil {
 			schemas = []string{}
 		}
+		codeV := 0
+		if code != nil {
+			codeV = *code
+		}
+		rtV := 0.0
+		if responseTime != nil {
+			rtV = *responseTime
+		}
 		batch = append(batch, map[string]any{
-			"crawl_id": crawlID, "id": strings.TrimSpace(id), "domain": domain, "url": url, "depth": depth,
-			"code": code, "response_time": responseTime, "outlinks": outlinks, "content_type": contentType,
-			"redirect_to": redirectTo, "crawled": 1, "compliant": b2i(compliant), "noindex": b2i(noindex),
-			"nofollow": b2i(nofollow), "canonical": b2i(canonical), "canonical_value": canonicalValue,
-			"external": b2i(external), "blocked": b2i(blocked), "title": title, "h1": h1, "metadesc": metadesc,
+			"crawl_id": crawlID, "id": strings.TrimSpace(id), "domain": ps(domain), "url": ps(url), "depth": depth,
+			"code": codeV, "response_time": rtV, "outlinks": outlinks, "content_type": ps(contentType),
+			"redirect_to": ps(redirectTo), "crawled": 1, "compliant": b2i(compliant), "noindex": b2i(noindex),
+			"nofollow": b2i(nofollow), "canonical": b2i(canonical), "canonical_value": ps(canonicalValue),
+			"external": b2i(external), "blocked": b2i(blocked), "title": ps(title), "h1": ps(h1), "metadesc": ps(metadesc),
 			"extracts": extractsMap, "simhash": simhash, "is_html": pb2i(isHTML), "h1_multiple": pb2i(h1Multiple),
 			"headings_missing": pb2i(headingsMissing), "schemas": schemas, "word_count": wordCount,
 		})
@@ -228,16 +241,20 @@ func (b *Backfiller) links(ctx context.Context, crawlID int) error {
 	defer rows.Close()
 	batch := make([]any, 0, batchSize)
 	for rows.Next() {
-		var src, target, anchor, typ, position string
+		var src, target string
+		var anchor, typ, position, xpath *string
 		var external, nofollow bool
-		var xpath *string
 		if err := rows.Scan(&src, &target, &anchor, &external, &nofollow, &typ, &xpath, &position); err != nil {
 			return err
 		}
+		pos := ps(position)
+		if pos == "" {
+			pos = "Content"
+		}
 		batch = append(batch, map[string]any{
 			"crawl_id": crawlID, "src": strings.TrimSpace(src), "target": strings.TrimSpace(target),
-			"anchor": anchor, "external": b2i(external), "nofollow": b2i(nofollow), "type": typ,
-			"xpath": xpath, "position": position,
+			"anchor": ps(anchor), "external": b2i(external), "nofollow": b2i(nofollow), "type": ps(typ),
+			"xpath": xpath, "position": pos,
 		})
 		if len(batch) >= batchSize {
 			if err := b.ch.InsertJSONEachRow(ctx, b.ch.DB()+".links", batch); err != nil {
@@ -320,6 +337,14 @@ func pb2i(v *bool) int {
 		return 1
 	}
 	return 0
+}
+
+// ps derefs a nullable string column to "" when NULL.
+func ps(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 // unzip reverses PG's stored DomZip (base64 + raw flate) to raw HTML. The
