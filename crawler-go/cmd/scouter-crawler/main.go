@@ -301,6 +301,11 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 	if ch != nil {
 		chpp := postprocess.NewCHRunner(ch, rec.ID, postprocess.RespectNofollowFromConfig(rec.Config), logf)
 		chpp.Run(ctx)
+		// In full-CH mode the PG post-processor is skipped, so write the
+		// duplicate/redirect scorecard stats back to crawls.* from ClickHouse.
+		if dropPG {
+			backfill.New(pool, ch, logf).SyncStats(ctx, rec.ID)
+		}
 	}
 
 	ppDur := time.Since(ppStart)

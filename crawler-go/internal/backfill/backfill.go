@@ -111,6 +111,7 @@ func (b *Backfiller) PurgePG(ctx context.Context, target string) error {
 			b.logf("purge-pg crawl %d: skipped (data_store=%s, not migrated)", id, store)
 			continue
 		}
+		b.SyncStats(ctx, id) // refresh scorecard stats from CH (fixes crawls migrated before this)
 		// Re-verify ClickHouse has the data before the destructive PG drop.
 		var pgCount int
 		_ = b.pool.QueryRow(ctx, "SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND crawled=true AND in_crawl=true", id).Scan(&pgCount)
@@ -137,6 +138,29 @@ func (b *Backfiller) PurgePG(ctx context.Context, target string) error {
 // Crawl backfills one crawl PG -> CH, including HTML (single/manual use).
 func (b *Backfiller) Crawl(ctx context.Context, crawlID int) error {
 	return b.migrate(ctx, crawlID, true)
+}
+
+// SyncStats writes back the duplicate/redirect SCORECARD stats on the crawls row
+// from the ClickHouse derived tables. The CH post-processing computes
+// duplicate_clusters/redirect_chains but (unlike the PG post-processor) doesn't
+// touch crawls.* — so without this the reports' scorecards (e.g. "N clusters")
+// read stale PG zeros while the lists show the real CH rows. Idempotent.
+func (b *Backfiller) SyncStats(ctx context.Context, crawlID int) {
+	d := b.ch.DB()
+	cid := strconv.Itoa(crawlID)
+	n := func(q string) int {
+		s, _ := b.ch.QueryScalar(ctx, q)
+		v, _ := strconv.Atoi(strings.TrimSpace(s))
+		return v
+	}
+	clusters := n("SELECT count() FROM " + d + ".duplicate_clusters WHERE crawl_id=" + cid)
+	dupPages := n("SELECT toInt64(ifNull(sum(page_count),0)) FROM " + d + ".duplicate_clusters WHERE crawl_id=" + cid)
+	redirTotal := n("SELECT count() FROM (SELECT code FROM " + d + ".pages WHERE crawl_id=" + cid + " LIMIT 1 BY id) WHERE code >= 300 AND code < 400")
+	redirChains := n("SELECT count() FROM " + d + ".redirect_chains WHERE crawl_id=" + cid)
+	redirErrors := n("SELECT countIf(is_loop = 1 OR (final_code != 200 AND final_id != '')) FROM " + d + ".redirect_chains WHERE crawl_id=" + cid)
+	_, _ = b.pool.Exec(ctx, `UPDATE crawls SET clusters_duplicate=$1, compliant_duplicate=$2,
+		redirect_total=$3, redirect_chains_count=$4, redirect_chains_errors=$5 WHERE id=$6`,
+		clusters, dupPages, redirTotal, redirChains, redirErrors, crawlID)
 }
 
 // migrate does the PG->CH migration of one crawl. withHTML controls whether the
@@ -166,6 +190,7 @@ func (b *Backfiller) migrate(ctx context.Context, crawlID int, withHTML bool) er
 	var cfg []byte
 	_ = b.pool.QueryRow(ctx, "SELECT config FROM crawls WHERE id=$1", crawlID).Scan(&cfg)
 	postprocess.NewCHRunner(b.ch, crawlID, postprocess.RespectNofollowFromConfig(cfg), b.logf).Run(ctx)
+	b.SyncStats(ctx, crawlID) // write back duplicate/redirect scorecard stats
 
 	// Completeness check before flipping the read store.
 	var pgCount int
