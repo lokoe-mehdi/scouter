@@ -90,12 +90,21 @@ class ChPdo
 
     // -- SQL rewriting -------------------------------------------------------
 
-    /** Public so the SQL-icon display can show the actual CH query. */
     public function translate(string $sql): string
     {
         $sql = $this->rewriteTables($sql);
         $sql = $this->rewriteDialect($sql);
         return $sql;
+    }
+
+    /**
+     * Dialect-only translation (keeps the virtual `pages`/`links` names): used to
+     * render a chart's SQL-icon query so it is valid ClickHouse SQL the user can
+     * run in the CH SQL Explorer (which applies its own crawl scoping).
+     */
+    public function translateDialectOnly(string $sql): string
+    {
+        return $this->rewriteDialect($sql);
     }
 
     /** The observed `pages` columns, enumerated explicitly (NOT `p.*`): CH's new

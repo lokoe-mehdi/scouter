@@ -62,7 +62,10 @@ CREATE TABLE IF NOT EXISTS scouter.pages
     schemas           Array(String),
     word_count        Int32
 )
-ENGINE = MergeTree
+-- ReplacingMergeTree(date): CH is append-only and a page may be written more
+-- than once during a crawl (sitemap re-fetch, retries). Keep the latest by
+-- `date`. Reads still dedup with LIMIT 1 BY id (merges are async).
+ENGINE = ReplacingMergeTree(date)
 PARTITION BY crawl_id
 ORDER BY (crawl_id, id);
 
@@ -94,7 +97,7 @@ CREATE TABLE IF NOT EXISTS scouter.html
     id        FixedString(8),
     html      String CODEC(ZSTD(3))
 )
-ENGINE = MergeTree
+ENGINE = ReplacingMergeTree
 PARTITION BY crawl_id
 ORDER BY (crawl_id, id);
 
@@ -107,9 +110,11 @@ CREATE TABLE IF NOT EXISTS scouter.page_schemas
     page_id      FixedString(8),
     schema_type  String
 )
-ENGINE = MergeTree
+-- ORDER BY includes schema_type so ReplacingMergeTree dedups exact (page,type)
+-- rows without collapsing the several schema types a page can have.
+ENGINE = ReplacingMergeTree
 PARTITION BY crawl_id
-ORDER BY (crawl_id, page_id);
+ORDER BY (crawl_id, page_id, schema_type);
 
 -- ---------------------------------------------------------------------------
 -- page_metrics — DERIVED (post-processing). Rewritten per crawl via

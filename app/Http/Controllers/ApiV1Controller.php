@@ -210,7 +210,7 @@ class ApiV1Controller extends Controller
                 // derived (post-processing) + live categorization:
                 $col('inlinks', 'Int32'), $col('pri', 'Float64'), $col('title_status', 'String'),
                 $col('h1_status', 'String'), $col('metadesc_status', 'String'), $col('in_sitemap', 'UInt8'),
-                $col('category', 'String'),
+                $col('category', 'String'), $col('cat_id', 'Int32'),
             ],
             'links' => [
                 $col('src', 'FixedString(8)'), $col('target', 'FixedString(8)'), $col('anchor', 'String'),

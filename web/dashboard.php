@@ -126,16 +126,36 @@ if ($compareId) {
 // CHARGEMENT CENTRALISÉ DES CATÉGORIES
 // Évite les jointures sur la table categories partout
 // ============================================
+// Routing PG vs ClickHouse : un crawl `data_store=clickhouse` lit ses rapports
+// MONO-crawl dans ClickHouse (via le shim ChPdo). Les vues de COMPARAISON
+// (compareId présent) restent sur PostgreSQL — PG conserve les données pendant
+// la transition (dual-write), et la comparaison interroge deux crawls.
+$pdoPg = $pdo; // toujours PostgreSQL (comparaison, requêtes cross-crawl)
+$useChForReports = \App\Database\CrawlStore::usesClickHouse((int)$crawlId) && empty($compareId);
+
 $categoriesMap = [];
 $categoryColors = [];
-$stmt = $pdo->prepare("SELECT id, cat, color FROM crawl_categories WHERE project_id = :project_id");
-$stmt->execute([':project_id' => $crawlRecord->project_id]);
-while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-    $categoriesMap[$row['id']] = [
-        'cat' => $row['cat'],
-        'color' => $row['color']
-    ];
-    $categoryColors[$row['cat']] = $row['color'];
+if ($useChForReports) {
+    // cat_id synthétique (index de règle) + couleurs, depuis le YAML du projet.
+    $categoriesMap = \App\Database\ChPdo::categoriesMap((int)$crawlId);
+    foreach ($categoriesMap as $row) {
+        $categoryColors[$row['cat']] = $row['color'];
+    }
+    // Les rapports mono-crawl tapent désormais dans ClickHouse.
+    $pdo = new \App\Database\ChPdo((int)$crawlId);
+    // Exposé aux composants (chart.php) pour afficher la requête de l'icône SQL
+    // en dialecte ClickHouse.
+    $GLOBALS['chReportPdo'] = $pdo;
+} else {
+    $stmt = $pdo->prepare("SELECT id, cat, color FROM crawl_categories WHERE project_id = :project_id");
+    $stmt->execute([':project_id' => $crawlRecord->project_id]);
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $categoriesMap[$row['id']] = [
+            'cat' => $row['cat'],
+            'color' => $row['color']
+        ];
+        $categoryColors[$row['cat']] = $row['color'];
+    }
 }
 $GLOBALS['categoriesMap'] = $categoriesMap;
 $GLOBALS['categoryColors'] = $categoryColors;
