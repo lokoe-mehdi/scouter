@@ -130,7 +130,11 @@ if ($compareId) {
 // MONO-crawl dans ClickHouse (via le shim ChPdo). Les vues de COMPARAISON
 // (compareId présent) restent sur PostgreSQL — PG conserve les données pendant
 // la transition (dual-write), et la comparaison interroge deux crawls.
-$pdoPg = $pdo; // toujours PostgreSQL (comparaison, requêtes cross-crawl)
+$pdoPg = $pdo; // toujours PostgreSQL (fallback / requêtes cross-store)
+// Un crawl ClickHouse lit ses rapports MONO-crawl dans CH. Les vues de
+// COMPARAISON restent sur PostgreSQL (dual-write) : elles utilisent des
+// sous-requêtes corrélées cross-crawl (ex. b.depth != c.depth par URL) que
+// ClickHouse ne supporte pas — à porter via un JOIN de comparaison plus tard.
 $useChForReports = \App\Database\CrawlStore::usesClickHouse((int)$crawlId) && empty($compareId);
 
 $categoriesMap = [];
@@ -141,8 +145,8 @@ if ($useChForReports) {
     foreach ($categoriesMap as $row) {
         $categoryColors[$row['cat']] = $row['color'];
     }
-    // Les rapports mono-crawl tapent désormais dans ClickHouse.
-    $pdo = new \App\Database\ChPdo((int)$crawlId);
+    // Les rapports tapent dans ClickHouse (mono-crawl, ou 2 crawls en comparaison).
+    $pdo = new \App\Database\ChPdo((int)$crawlId, $compareId ? (int)$compareId : null);
     // Exposé aux composants (chart.php) pour afficher la requête de l'icône SQL
     // en dialecte ClickHouse.
     $GLOBALS['chReportPdo'] = $pdo;
@@ -288,11 +292,14 @@ if ($compareId && in_array($page ?? '', $comparisonPages)) {
     $safeCompId = intval($compareId);
     $safeCrId = intval($crawlId);
 
-    // New URLs: dans current, pas dans compare (NOT EXISTS est O(n) vs NOT IN qui est O(n²))
+    // NB : NOT IN / IN (non corrélé) plutôt que NOT EXISTS corrélé — ClickHouse ne
+    // supporte pas les sous-requêtes corrélées, et PostgreSQL gère NOT IN(subquery)
+    // efficacement (set hashé). url n'est jamais NULL ici.
+    // New URLs: dans current, pas dans compare.
     $stmt = $pdo->prepare("
         SELECT COUNT(*) FROM pages a
         WHERE a.crawl_id = :current AND a.crawled = true AND a.in_crawl = TRUE
-        AND NOT EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :compare AND b.crawled = true AND b.in_crawl = TRUE AND b.url = a.url)
+        AND a.url NOT IN (SELECT url FROM pages WHERE crawl_id = :compare AND crawled = true AND in_crawl = TRUE)
     ");
     $stmt->execute([':current' => $safeCrId, ':compare' => $safeCompId]);
     $compNewCount = (int)$stmt->fetchColumn();
@@ -301,7 +308,7 @@ if ($compareId && in_array($page ?? '', $comparisonPages)) {
     $stmt = $pdo->prepare("
         SELECT COUNT(*) FROM pages a
         WHERE a.crawl_id = :compare AND a.crawled = true AND a.in_crawl = TRUE
-        AND NOT EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :current AND b.crawled = true AND b.in_crawl = TRUE AND b.url = a.url)
+        AND a.url NOT IN (SELECT url FROM pages WHERE crawl_id = :current AND crawled = true AND in_crawl = TRUE)
     ");
     $stmt->execute([':compare' => $safeCompId, ':current' => $safeCrId]);
     $compLostCount = (int)$stmt->fetchColumn();
@@ -310,7 +317,7 @@ if ($compareId && in_array($page ?? '', $comparisonPages)) {
     $stmt = $pdo->prepare("
         SELECT COUNT(*) FROM pages a
         WHERE a.crawl_id = :current AND a.crawled = true AND a.in_crawl = TRUE
-        AND EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :compare AND b.crawled = true AND b.in_crawl = TRUE AND b.url = a.url)
+        AND a.url IN (SELECT url FROM pages WHERE crawl_id = :compare AND crawled = true AND in_crawl = TRUE)
     ");
     $stmt->execute([':current' => $safeCrId, ':compare' => $safeCompId]);
     $compCommonCount = (int)$stmt->fetchColumn();

@@ -36,26 +36,42 @@ class ChPdo
     private string $db;
     private int $crawlId;
     private int $projectId;
-    private string $catIdExpr;
-    private string $catNameExpr;
+    /** @var int[] the crawl(s) bare `pages`/`links` cover (current [+ compare]). */
+    private array $crawlIds;
+    /** @var array<int,array{0:string,1:string}> per-crawl {catIdExpr, catNameExpr} cache. */
+    private array $catCache = [];
     private string $crawlCategoriesSource;
 
-    public function __construct(int $crawlId)
+    public function __construct(int $crawlId, ?int $compareId = null)
     {
         $this->ch = ClickHouseDatabase::getInstance();
         $this->db = $this->ch->getDatabase();
         $this->crawlId = $crawlId;
+        $this->crawlIds = $compareId ? [$crawlId, $compareId] : [$crawlId];
 
         $pg = PostgresDatabase::getInstance()->getConnection();
         $stmt = $pg->prepare("SELECT project_id FROM crawls WHERE id = :id");
         $stmt->execute([':id' => $crawlId]);
         $this->projectId = (int) $stmt->fetchColumn();
 
-        $ce = new CategoryExpr($pg);
-        $rules = $ce->rulesForCrawl($crawlId);
-        $this->catIdExpr = $ce->buildIdExpr($rules);
-        $this->catNameExpr = $ce->build($rules);
+        $rules = (new CategoryExpr($pg))->rulesForCrawl($crawlId);
         $this->crawlCategoriesSource = $this->buildCrawlCategoriesSource($rules);
+    }
+
+    /** Cached {cat_id expr, category-name expr} for one crawl's YAML rules. */
+    private function catExprs(int $id): array
+    {
+        if (!isset($this->catCache[$id])) {
+            $ce = new CategoryExpr(PostgresDatabase::getInstance()->getConnection());
+            $rules = $ce->rulesForCrawl($id);
+            $this->catCache[$id] = [$ce->buildIdExpr($rules), $ce->build($rules)];
+        }
+        return $this->catCache[$id];
+    }
+
+    private function inList(array $ids): string
+    {
+        return implode(',', array_map('intval', $ids));
     }
 
     /** The synthetic categoriesMap the dashboard exposes to reports (id => {cat,color}). */
@@ -133,54 +149,55 @@ class ChPdo
         'schemas', 'word_count',
     ];
 
-    private function pagesSource(): string
+    /**
+     * The pages source over a set of crawl_ids, with category computed from
+     * $rulesId's rules. Dedup on read (CH is append-only): LIMIT 1 BY (crawl_id,id).
+     * Joined subqueries rename their keys (_mcid/_mid …) so only `p` exposes
+     * crawl_id — CH's new analyzer can't resolve a shared column name across joins.
+     */
+    private function pagesSourceFor(array $ids, int $rulesId): string
     {
-        $cid = $this->crawlId;
-        // Alias every column so the output names are unqualified (`crawl_id`, not
-        // `p.crawl_id`) — required for reports' WHERE/SELECT to resolve them.
+        $in = $this->inList($ids);
+        [$catId, $catName] = $this->catExprs($rulesId);
+        // Alias every column so output names are unqualified (`crawl_id`, not `p.crawl_id`).
         $pcols = implode(', ', array_map(fn($c) => "p.{$c} AS {$c}", self::PAGE_COLS));
-        // Dedup on read: CH is append-only, so a page re-written during the crawl
-        // (sitemap re-fetch, retries…) leaves >1 row per id. `LIMIT 1 BY id` keeps
-        // one per id (engine-independent; cheaper than FINAL, scoped to the
-        // crawl_id partition). Same for the derived/joined tables.
         return "(SELECT {$pcols}, "
-            . "{$this->catIdExpr} AS cat_id, "
-            . "({$this->catNameExpr}) AS category, "
+            . "{$catId} AS cat_id, ({$catName}) AS category, "
             . "m.inlinks AS inlinks, m.pri AS pri, "
             . "m.title_status AS title_status, m.h1_status AS h1_status, "
             . "m.metadesc_status AS metadesc_status, m.in_sitemap AS in_sitemap, "
-            . "g.generation AS generation, "
-            // CH `pages` holds only crawled pages, which are all in-crawl. Expose the
-            // frontier flag as a constant so reports' `AND in_crawl = TRUE` resolves.
-            . "toUInt8(1) AS in_crawl "
-            // The joined subqueries must NOT expose crawl_id: CH's new analyzer
-            // can't resolve an unqualified outer column when several joined sources
-            // share its name. Only `p` keeps crawl_id.
-            . "FROM (SELECT * FROM {$this->db}.pages WHERE crawl_id = {$cid} LIMIT 1 BY id) p "
-            . "LEFT JOIN (SELECT id, inlinks, pri, title_status, h1_status, metadesc_status, in_sitemap FROM {$this->db}.page_metrics WHERE crawl_id = {$cid} LIMIT 1 BY id) m ON m.id = p.id "
-            . "LEFT JOIN (SELECT id, generation FROM {$this->db}.page_generation WHERE crawl_id = {$cid} LIMIT 1 BY id) g ON g.id = p.id)";
+            . "g.generation AS generation, toUInt8(1) AS in_crawl "
+            . "FROM (SELECT * FROM {$this->db}.pages WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id)) p "
+            . "LEFT JOIN (SELECT crawl_id AS _mcid, id AS _mid, inlinks, pri, title_status, h1_status, metadesc_status, in_sitemap "
+            . "FROM {$this->db}.page_metrics WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id)) m ON m._mcid = p.crawl_id AND m._mid = p.id "
+            . "LEFT JOIN (SELECT crawl_id AS _gcid, id AS _gid, generation "
+            . "FROM {$this->db}.page_generation WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id)) g ON g._gcid = p.crawl_id AND g._gid = p.id)";
     }
 
-    private function simpleSource(string $table): string
+    private function simpleSourceFor(string $table, array $ids): string
     {
-        $cid = $this->crawlId;
-        // page_schemas / html can also have append dups → dedup on read.
+        $in = $this->inList($ids);
         if ($table === 'page_schemas') {
-            return "(SELECT * FROM {$this->db}.page_schemas WHERE crawl_id = {$cid} LIMIT 1 BY (page_id, schema_type))";
+            return "(SELECT * FROM {$this->db}.page_schemas WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, page_id, schema_type))";
         }
         if ($table === 'html') {
-            return "(SELECT * FROM {$this->db}.html WHERE crawl_id = {$cid} LIMIT 1 BY id)";
+            return "(SELECT * FROM {$this->db}.html WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id))";
         }
         // duplicate_clusters / redirect_chains: PG exposed a SERIAL `id`; CH names
         // it cluster_id / chain_id. Alias it so report SQL referencing `id` works.
         if ($table === 'duplicate_clusters') {
-            return "(SELECT *, cluster_id AS id FROM {$this->db}.duplicate_clusters WHERE crawl_id = {$cid})";
+            return "(SELECT *, cluster_id AS id FROM {$this->db}.duplicate_clusters WHERE crawl_id IN ({$in}))";
         }
         if ($table === 'redirect_chains') {
-            return "(SELECT *, chain_id AS id FROM {$this->db}.redirect_chains WHERE crawl_id = {$cid})";
+            return "(SELECT *, chain_id AS id FROM {$this->db}.redirect_chains WHERE crawl_id IN ({$in}))";
         }
         // links = intentional multi-row.
-        return "(SELECT * FROM {$this->db}.{$table} WHERE crawl_id = {$cid})";
+        return "(SELECT * FROM {$this->db}.{$table} WHERE crawl_id IN ({$in}))";
+    }
+
+    private function sourceFor(string $table, array $ids, int $rulesId): string
+    {
+        return $table === 'pages' ? $this->pagesSourceFor($ids, $rulesId) : $this->simpleSourceFor($table, $ids);
     }
 
     private function buildCrawlCategoriesSource(array $rules): string
@@ -205,34 +222,57 @@ class ChPdo
         'union','limit','offset','having','and','or','as','set','returning','window',
     ];
 
+    private const VTABLES = 'pages|links|page_schemas|duplicate_clusters|redirect_chains|html';
+
     private function rewriteTables(string $sql): string
     {
+        // 0) Normalise PG partition names (pages_123) to the @id form so the
+        //    multi-crawl rule below handles them (used by new-urls/lost-urls).
+        $sql = preg_replace('/\b(' . self::VTABLES . ')_(\d+)\b/i', '$1@$2', $sql);
+
+        // 1) Multi-crawl `table@<id>` (comparison reports) → that crawl's source,
+        //    with that crawl's own category rules.
+        $sql = preg_replace_callback(
+            '/\b(FROM|JOIN)\s+(' . self::VTABLES . ')@(\d+)\b(\s+(?:AS\s+)?([a-zA-Z_][a-zA-Z0-9_]*))?/i',
+            function ($m) {
+                $table = strtolower($m[2]);
+                $id = (int) $m[3];
+                $src = $this->sourceFor($table, [$id], $id);
+                return $m[1] . ' ' . $src . ' AS ' . $this->aliasFor($m[5] ?? '', $table, $m[4] ?? '');
+            },
+            $sql
+        );
+        // categories@<id> was a project-level table → crawl_categories (scoped).
+        $sql = preg_replace('/\bcategories@\d+\b/i', 'crawl_categories', $sql);
+
+        // 2) Bare virtual tables → the crawl set (current [+ compare]), current rules.
         $sources = [
-            'pages'              => $this->pagesSource(),
-            'links'              => $this->simpleSource('links'),
-            'page_schemas'       => $this->simpleSource('page_schemas'),
-            'duplicate_clusters' => $this->simpleSource('duplicate_clusters'),
-            'redirect_chains'    => $this->simpleSource('redirect_chains'),
-            'html'               => $this->simpleSource('html'),
+            'pages'              => $this->sourceFor('pages', $this->crawlIds, $this->crawlId),
+            'links'              => $this->simpleSourceFor('links', $this->crawlIds),
+            'page_schemas'       => $this->simpleSourceFor('page_schemas', $this->crawlIds),
+            'duplicate_clusters' => $this->simpleSourceFor('duplicate_clusters', $this->crawlIds),
+            'redirect_chains'    => $this->simpleSourceFor('redirect_chains', $this->crawlIds),
+            'html'               => $this->simpleSourceFor('html', $this->crawlIds),
             'crawl_categories'   => $this->crawlCategoriesSource,
         ];
         foreach ($sources as $name => $src) {
             $sql = preg_replace_callback(
                 '/\b(FROM|JOIN)\s+' . $name . '\b(\s+(?:AS\s+)?([a-zA-Z_][a-zA-Z0-9_]*))?/i',
-                function ($m) use ($src, $name) {
-                    $alias = $m[3] ?? '';
-                    if ($alias !== '' && !in_array(strtolower($alias), self::NOT_ALIAS, true)) {
-                        return $m[1] . ' ' . $src . ' AS ' . $alias;
-                    }
-                    // No (real) alias: default to the virtual name + re-append the
-                    // swallowed keyword (e.g. WHERE) if the regex captured one.
-                    $tail = isset($m[2]) ? $m[2] : '';
-                    return $m[1] . ' ' . $src . ' AS ' . $name . $tail;
-                },
+                fn($m) => $m[1] . ' ' . $src . ' AS ' . $this->aliasFor($m[3] ?? '', $name, $m[2] ?? ''),
                 $sql
             );
         }
         return $sql;
+    }
+
+    /** Resolve the alias to keep after a rewritten table (real alias, else the
+     *  virtual name + the swallowed trailing keyword like WHERE). */
+    private function aliasFor(string $captured, string $name, string $tail): string
+    {
+        if ($captured !== '' && !in_array(strtolower($captured), self::NOT_ALIAS, true)) {
+            return $captured;
+        }
+        return $name . $tail;
     }
 
     private function rewriteDialect(string $sql): string
