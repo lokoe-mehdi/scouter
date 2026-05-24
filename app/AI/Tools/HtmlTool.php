@@ -186,7 +186,9 @@ class HtmlTool
      */
     private static function fetchPages(array $urls, int $crawlId): array
     {
-        $db = PostgresDatabase::getInstance()->getConnection();
+        // Migrated crawls read from ClickHouse (PG purged); CH stores raw HTML.
+        $useCh = \App\Database\CrawlStore::usesClickHouse($crawlId);
+        $db = $useCh ? new \App\Database\ChPdo($crawlId) : PostgresDatabase::getInstance()->getConnection();
 
         // 1. URL → page id.
         $placeholders = [];
@@ -250,8 +252,8 @@ class HtmlTool
                 continue;
             }
 
-            $raw = self::decodeStoredHtml($stored);
-            if ($raw === null) {
+            $raw = $useCh ? (string)$stored : self::decodeStoredHtml($stored);
+            if ($raw === null || $raw === '') {
                 $out[] = [
                     'url'          => $u,
                     'html'         => '',

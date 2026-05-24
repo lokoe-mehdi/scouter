@@ -150,7 +150,9 @@ class HeadingsTool
      */
     private static function fetchHeadings(array $urls, int $crawlId): array
     {
-        $db = PostgresDatabase::getInstance()->getConnection();
+        // Migrated crawls read from ClickHouse (PG purged); CH stores raw HTML.
+        $useCh = \App\Database\CrawlStore::usesClickHouse($crawlId);
+        $db = $useCh ? new \App\Database\ChPdo($crawlId) : PostgresDatabase::getInstance()->getConnection();
 
         // 1. Resolve URLs → page IDs (one round-trip).
         $placeholders = [];
@@ -199,8 +201,8 @@ class HeadingsTool
                 $out[] = ['url' => $u, 'headings' => []];
                 continue;
             }
-            $htmlContent = self::decodeStoredHtml($htmlByPageId[$pageId]);
-            $headings = $htmlContent !== null ? self::extractHeadings($htmlContent) : [];
+            $htmlContent = $useCh ? (string)$htmlByPageId[$pageId] : self::decodeStoredHtml($htmlByPageId[$pageId]);
+            $headings = ($htmlContent !== null && $htmlContent !== '') ? self::extractHeadings($htmlContent) : [];
             $out[] = ['url' => $u, 'headings' => $headings];
         }
         return $out;

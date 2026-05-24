@@ -262,6 +262,11 @@ class AIUrlFiltersController extends Controller
      */
     private function fetchGenerations(int $crawlId): array
     {
+        // On ClickHouse, `generation` is a Map(String,String) in page_generation —
+        // no JSONB. Discover keys (+ best-effort type from the string values) there.
+        if (\App\Database\CrawlStore::usesClickHouse($crawlId)) {
+            return self::fetchGenerationsCH($crawlId, '[AIUrlFilters]');
+        }
         try {
             $stmt = $this->db->prepare("
                 WITH samples AS (
@@ -294,6 +299,54 @@ class AIUrlFiltersController extends Controller
             return $out;
         } catch (\Throwable $e) {
             error_log('[AIUrlFilters] fetchGenerations failed: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * ClickHouse variant of fetchGenerations(): `generation` is a
+     * Map(String,String) in page_generation. Sample keys+values, infer the
+     * dominant type from the (string) values (number / boolean / text).
+     *
+     * @return array<int, array{key:string,type:string}>
+     */
+    public static function fetchGenerationsCH(int $crawlId, string $logTag = '[AIFilters]'): array
+    {
+        try {
+            $ch = \App\Database\ClickHouseDatabase::getInstance();
+            $db = $ch->getDatabase();
+            $rows = $ch->select(
+                "SELECT k AS key, v AS val FROM ("
+                . " SELECT mapKeys(generation) AS ks, mapValues(generation) AS vs"
+                . " FROM {$db}.page_generation WHERE crawl_id = " . (int)$crawlId
+                . " LIMIT 1 BY id LIMIT 500"
+                . ") ARRAY JOIN ks AS k, vs AS v"
+            );
+            $byKey = [];
+            foreach ($rows as $r) {
+                $key = (string)$r['key'];
+                $v = trim((string)$r['val']);
+                if ($v === '') { continue; }
+                if (preg_match('/^-?\d+(\.\d+)?$/', $v))                 { $jt = 'number'; }
+                elseif (in_array(strtolower($v), ['true', 'false'], true)) { $jt = 'boolean'; }
+                else                                                       { $jt = 'string'; }
+                $byKey[$key][$jt] = ($byKey[$key][$jt] ?? 0) + 1;
+            }
+            $out = [];
+            foreach ($byKey as $key => $typeCounts) {
+                $total = array_sum($typeCounts);
+                arsort($typeCounts);
+                $dom = (string)array_key_first($typeCounts);
+                $pct = $total > 0 ? $typeCounts[$dom] / $total : 0;
+                if      ($dom === 'number'  && $pct >= 0.95) { $t = 'number'; }
+                elseif  ($dom === 'boolean' && $pct >= 0.95) { $t = 'boolean'; }
+                else                                          { $t = 'text'; }
+                $out[] = ['key' => $key, 'type' => $t];
+            }
+            usort($out, fn($a, $b) => strcmp($a['key'], $b['key']));
+            return $out;
+        } catch (\Throwable $e) {
+            error_log($logTag . ' fetchGenerationsCH failed: ' . $e->getMessage());
             return [];
         }
     }

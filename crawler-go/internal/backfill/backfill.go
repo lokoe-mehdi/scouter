@@ -76,13 +76,22 @@ func (b *Backfiller) All(ctx context.Context) error {
 	return nil
 }
 
+// resumeWindow is how long a user-stopped crawl keeps its PostgreSQL data so it
+// can still be resumed (the frontier — uncrawled pages rows — lives in PG). Past
+// this window the stopped crawl's PG partitions become purgeable like any other.
+const resumeWindow = "7 days"
+
 // PurgePG drops the PostgreSQL crawl-data partitions for crawls already on
 // ClickHouse, freeing disk. Re-verifies CH completeness before each destructive
-// drop (never purges PG if CH is missing data). target = "all" or a crawl id.
+// drop (never purges PG if CH is missing data). Stopped crawls newer than
+// resumeWindow are kept so they can still be resumed. target = "all" or a crawl id.
 func (b *Backfiller) PurgePG(ctx context.Context, target string) error {
 	var ids []int
 	if target == "all" {
-		rows, err := b.pool.Query(ctx, "SELECT id FROM crawls WHERE data_store='clickhouse' ORDER BY id")
+		rows, err := b.pool.Query(ctx, `SELECT id FROM crawls
+			WHERE data_store='clickhouse'
+			  AND NOT (status='stopped' AND finished_at > now() - interval '`+resumeWindow+`')
+			ORDER BY id`)
 		if err != nil {
 			return err
 		}
@@ -111,6 +120,14 @@ func (b *Backfiller) PurgePG(ctx context.Context, target string) error {
 			b.logf("purge-pg crawl %d: skipped (data_store=%s, not migrated)", id, store)
 			continue
 		}
+		// Keep a recently user-stopped crawl's PG data so it can still be resumed.
+		var inResumeWindow bool
+		_ = b.pool.QueryRow(ctx, `SELECT status='stopped' AND finished_at > now() - interval '`+resumeWindow+`'
+			FROM crawls WHERE id=$1`, id).Scan(&inResumeWindow)
+		if inResumeWindow {
+			b.logf("purge-pg crawl %d: skipped (stopped < %s ago — kept for resume)", id, resumeWindow)
+			continue
+		}
 		b.SyncStats(ctx, id) // refresh scorecard stats from CH (fixes crawls migrated before this)
 		// Re-verify ClickHouse has the data before the destructive PG drop.
 		var pgCount int
@@ -132,6 +149,54 @@ func (b *Backfiller) PurgePG(ctx context.Context, target string) error {
 		b.logf("purge-pg crawl %d: PostgreSQL data dropped (%d pages live in CH)", id, chCount)
 	}
 	b.logf("purge-pg: done")
+	return nil
+}
+
+// SweepOrphans drops leftover per-crawl PostgreSQL partition tables
+// (pages_<id>, links_<id>, html_<id>, …) whose crawl no longer has a row in
+// `crawls`. These are reliquats of deleted crawls: the FK cascade emptied the
+// rows but the partition tables (and their bloated indexes/TOAST) were never
+// dropped, so they hold disk forever. Safe by definition — no crawl row means
+// nothing to migrate and nothing to resume. Meant to run LAST, after migration
+// and PurgePG, so a not-yet-migrated crawl is never swept.
+func (b *Backfiller) SweepOrphans(ctx context.Context) error {
+	rows, err := b.pool.Query(ctx, `
+		SELECT DISTINCT (regexp_replace(c.relname,
+			'^(pages|links|html|page_schemas|duplicate_clusters|redirect_chains)_', ''))::int AS cid
+		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public' AND c.relkind = 'r'
+		  AND c.relname ~ '^(pages|links|html|page_schemas|duplicate_clusters|redirect_chains)_[0-9]+$'
+		  AND NOT EXISTS (SELECT 1 FROM crawls cr WHERE cr.id = (regexp_replace(c.relname,
+			'^(pages|links|html|page_schemas|duplicate_clusters|redirect_chains)_', ''))::int)
+		ORDER BY cid`)
+	if err != nil {
+		return err
+	}
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+
+	if len(ids) == 0 {
+		b.logf("sweep-orphans: none")
+		return nil
+	}
+	b.logf("sweep-orphans: %d orphan crawl(s) to drop (deleted crawls with leftover PG tables)", len(ids))
+	dropped := 0
+	for _, id := range ids {
+		if _, err := b.pool.Exec(ctx, "SELECT drop_crawl_partitions($1)", id); err != nil {
+			b.logf("sweep-orphans crawl %d: drop failed: %v", id, err)
+			continue
+		}
+		dropped++
+	}
+	b.logf("sweep-orphans: done (%d/%d dropped)", dropped, len(ids))
 	return nil
 }
 

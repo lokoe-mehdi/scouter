@@ -118,20 +118,35 @@ class BulkGenerateController extends Controller
             ['key' => 'in_crawl',         'label' => __('url_explorer.field_out_of_scope'),  'group' => 'KPI technique',  'always' => false, 'avg_tokens' => 2],
         ];
 
+        // ClickHouse crawls read extracts/generation keys from CH (PG purged;
+        // extracts is a Map, generation lives in page_generation).
+        $useCh = \App\Database\CrawlStore::usesClickHouse($crawlId);
+
         // Custom extracts for this crawl — surface them as a dedicated
         // group in the same context grid so the user can mix them with
         // standard page columns.
         try {
-            $stmt = $this->db->prepare("
-                SELECT DISTINCT jsonb_object_keys(extracts) AS k
-                FROM pages
-                WHERE crawl_id = :cid
-                  AND extracts IS NOT NULL
-                  AND jsonb_typeof(extracts) = 'object'
-                LIMIT 200
-            ");
-            $stmt->execute([':cid' => $crawlId]);
-            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $k) {
+            $extractKeys = [];
+            if ($useCh) {
+                $ch = \App\Database\ClickHouseDatabase::getInstance();
+                $db = $ch->getDatabase();
+                foreach ($ch->select("SELECT DISTINCT arrayJoin(mapKeys(extracts)) AS k
+                    FROM (SELECT extracts FROM {$db}.pages WHERE crawl_id = " . (int)$crawlId . " LIMIT 1 BY id) LIMIT 200") as $r) {
+                    $extractKeys[] = $r['k'];
+                }
+            } else {
+                $stmt = $this->db->prepare("
+                    SELECT DISTINCT jsonb_object_keys(extracts) AS k
+                    FROM pages
+                    WHERE crawl_id = :cid
+                      AND extracts IS NOT NULL
+                      AND jsonb_typeof(extracts) = 'object'
+                    LIMIT 200
+                ");
+                $stmt->execute([':cid' => $crawlId]);
+                $extractKeys = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            }
+            foreach ($extractKeys as $k) {
                 if (!is_string($k) || $k === '') continue;
                 $fields[] = [
                     'key'        => 'extract.' . $k,
@@ -151,35 +166,44 @@ class BulkGenerateController extends Controller
         // of a previous job as input context for a new one (e.g. "summary"
         // → "improved_summary").
         try {
-            $stmt = $this->db->prepare("
-                WITH samples AS (
-                    SELECT generation FROM pages
-                    WHERE crawl_id = :cid AND generation IS NOT NULL
-                      AND jsonb_typeof(generation) = 'object'
-                    LIMIT 500
-                )
-                SELECT j.key, jsonb_typeof(j.value) AS jtype, COUNT(*) AS n
-                FROM samples s, jsonb_each(s.generation) j
-                GROUP BY j.key, jsonb_typeof(j.value)
-            ");
-            $stmt->execute([':cid' => $crawlId]);
-            $byKey = [];
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $byKey[$row['key']][$row['jtype']] = (int)$row['n'];
+            $gens = [];
+            if ($useCh) {
+                // page_generation Map; reuse the shared CH key/type discovery.
+                $gens = \App\Http\Controllers\AIUrlFiltersController::fetchGenerationsCH($crawlId, '[BulkGenerate]');
+            } else {
+                $stmt = $this->db->prepare("
+                    WITH samples AS (
+                        SELECT generation FROM pages
+                        WHERE crawl_id = :cid AND generation IS NOT NULL
+                          AND jsonb_typeof(generation) = 'object'
+                        LIMIT 500
+                    )
+                    SELECT j.key, jsonb_typeof(j.value) AS jtype, COUNT(*) AS n
+                    FROM samples s, jsonb_each(s.generation) j
+                    GROUP BY j.key, jsonb_typeof(j.value)
+                ");
+                $stmt->execute([':cid' => $crawlId]);
+                $byKey = [];
+                foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                    $byKey[$row['key']][$row['jtype']] = (int)$row['n'];
+                }
+                ksort($byKey);
+                foreach ($byKey as $key => $typeCounts) {
+                    $total = array_sum($typeCounts);
+                    arsort($typeCounts);
+                    $dom = (string)array_key_first($typeCounts);
+                    $pct = $total > 0 ? $typeCounts[$dom] / $total : 0;
+                    if      ($dom === 'number'  && $pct >= 0.95) { $t = 'number'; }
+                    elseif  ($dom === 'boolean' && $pct >= 0.95) { $t = 'boolean'; }
+                    else                                          { $t = 'text'; }
+                    $gens[] = ['key' => $key, 'type' => $t];
+                }
             }
-            ksort($byKey);
-            foreach ($byKey as $key => $typeCounts) {
-                $total = array_sum($typeCounts);
-                arsort($typeCounts);
-                $dom = (string)array_key_first($typeCounts);
-                $pct = $total > 0 ? $typeCounts[$dom] / $total : 0;
-                // Same thresholds as the filters controllers.
-                if      ($dom === 'number'  && $pct >= 0.95) { $type = 'number';  $avg = 5;  }
-                elseif  ($dom === 'boolean' && $pct >= 0.95) { $type = 'boolean'; $avg = 2;  }
-                else                                          { $type = 'text';    $avg = 30; }
+            foreach ($gens as $g) {
+                $avg = $g['type'] === 'number' ? 5 : ($g['type'] === 'boolean' ? 2 : 30);
                 $fields[] = [
-                    'key'        => 'generation.' . $key,
-                    'label'      => $key . ' (' . $type . ')',
+                    'key'        => 'generation.' . $g['key'],
+                    'label'      => $g['key'] . ' (' . $g['type'] . ')',
                     'group'      => 'Générations IA',
                     'always'     => false,
                     'avg_tokens' => $avg,
@@ -211,22 +235,42 @@ class BulkGenerateController extends Controller
         if (!$crawl) { $this->error('Crawl not found', 404); return; }
         $this->authorize($crawl);
 
-        $keys = [];
+        $keys = self::generationKeys($crawlId, $this->db);
+        sort($keys);
+        $this->success(['keys' => $keys]);
+    }
+
+    /**
+     * Distinct generation keys already stored for a crawl. CH reads them from
+     * page_generation (Map); legacy PG from pages.generation (JSONB). Returns []
+     * on any error (table/column absent) — callers treat it as "no keys yet".
+     *
+     * @return array<int,string>
+     */
+    private static function generationKeys(int $crawlId, \PDO $pgDb): array
+    {
         try {
-            $stmt = $this->db->prepare("
+            if (\App\Database\CrawlStore::usesClickHouse($crawlId)) {
+                $ch = \App\Database\ClickHouseDatabase::getInstance();
+                $db = $ch->getDatabase();
+                $out = [];
+                foreach ($ch->select("SELECT DISTINCT arrayJoin(mapKeys(generation)) AS k
+                    FROM (SELECT generation FROM {$db}.page_generation WHERE crawl_id = " . (int)$crawlId . " LIMIT 1 BY id)") as $r) {
+                    if (($r['k'] ?? '') !== '') { $out[] = (string)$r['k']; }
+                }
+                return $out;
+            }
+            $stmt = $pgDb->prepare("
                 SELECT DISTINCT jsonb_object_keys(generation) AS k
                 FROM pages
-                WHERE crawl_id = :cid
-                  AND generation IS NOT NULL
+                WHERE crawl_id = :cid AND generation IS NOT NULL
                   AND jsonb_typeof(generation) = 'object'
             ");
             $stmt->execute([':cid' => $crawlId]);
-            $keys = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+            return $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
         } catch (\Throwable $e) {
-            // generation column missing or table absent — empty list, no error.
+            return [];
         }
-        sort($keys);
-        $this->success(['keys' => $keys]);
     }
 
     // -------------------------------------------------------------------------
@@ -521,15 +565,25 @@ class BulkGenerateController extends Controller
                     $placeholders[] = $k;
                     $params[$k] = $pid;
                 }
+                // CH: generation is a Map in page_generation (exposed by ChPdo);
+                // key-exists is mapContains(). Legacy PG: JSONB `?` operator.
+                $useCh = \App\Database\CrawlStore::usesClickHouse((int)$job['crawl_id']);
+                $statusDb = $useCh ? new \App\Database\ChPdo((int)$job['crawl_id']) : $this->db;
+                $keyExists = $useCh
+                    ? "mapContains(generation, '" . $this->safeSqlIdent($firstKey) . "')"
+                    : "generation ? '" . $this->safeSqlIdent($firstKey) . "'";
                 $sql = "SELECT id, url, generation FROM pages
                         WHERE crawl_id = :cid AND id IN (" . implode(',', $placeholders) . ")
-                          AND generation ? '" . $this->safeSqlIdent($firstKey) . "'
+                          AND {$keyExists}
                         ORDER BY id DESC LIMIT 10";
                 try {
-                    $stmt = $this->db->prepare($sql);
+                    $stmt = $statusDb->prepare($sql);
                     $stmt->execute($params);
                     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
-                        $gen = json_decode($r['generation'] ?? '{}', true) ?: [];
+                        // CH returns the Map already decoded to an array.
+                        $gen = is_array($r['generation'])
+                            ? $r['generation']
+                            : (json_decode($r['generation'] ?? '{}', true) ?: []);
                         $values = [];
                         foreach ($items as $it) {
                             $name = (string)($it['name'] ?? '');
@@ -725,19 +779,7 @@ class BulkGenerateController extends Controller
     /** Fetch the list of generation_keys already present in this crawl. */
     private function fetchExistingKeys(int $crawlId): array
     {
-        try {
-            $stmt = $this->db->prepare("
-                SELECT DISTINCT jsonb_object_keys(generation) AS k
-                FROM pages
-                WHERE crawl_id = :cid
-                  AND generation IS NOT NULL
-                  AND jsonb_typeof(generation) = 'object'
-            ");
-            $stmt->execute([':cid' => $crawlId]);
-            return $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
-        } catch (\Throwable $e) {
-            return [];
-        }
+        return self::generationKeys($crawlId, $this->db);
     }
 
     /** Sample N pages, build their context, return the avg token count. */

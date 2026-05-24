@@ -302,6 +302,15 @@ class BulkGenerator
     {
         if (empty($results)) return;
 
+        // ClickHouse: generation lives in page_generation (Map(String,String),
+        // ReplacingMergeTree). pages is immutable, so we read the current Map for
+        // each id, merge the new fields, and INSERT a fresh row (latest version
+        // wins). Map values are strings → stringify each generated value.
+        if (\App\Database\CrawlStore::usesClickHouse($crawlId)) {
+            $this->writeResultsCH($crawlId, $results);
+            return;
+        }
+
         // One UPDATE per page_id to preserve typing of each value (jsonb_build_object
         // with placeholders would lose the native types). Cheap because batches
         // are small (≤ 50). Wrapped in a transaction for atomicity per batch.
@@ -325,6 +334,40 @@ class BulkGenerator
             $this->db->rollBack();
             error_log('[BulkGenerator] writeResults failed: ' . $e->getMessage());
             throw $e;
+        }
+    }
+
+    /** ClickHouse variant of writeResults(): merge into page_generation (Map). */
+    private function writeResultsCH(int $crawlId, array $results): void
+    {
+        $ch = \App\Database\ClickHouseDatabase::getInstance();
+        $db = $ch->getDatabase();
+
+        // 1. Read the existing generation Map for the affected ids (dedup latest).
+        $ids = array_keys($results);
+        $quoted = implode(',', array_map(fn($id) => "'" . str_replace("'", "''", (string)$id) . "'", $ids));
+        $existing = [];
+        foreach ($ch->select("SELECT id, generation FROM {$db}.page_generation
+            WHERE crawl_id = " . (int)$crawlId . " AND id IN ({$quoted}) LIMIT 1 BY id") as $r) {
+            $existing[(string)$r['id']] = is_array($r['generation']) ? $r['generation'] : [];
+        }
+
+        // 2. Merge new fields (stringified — the Map is String→String) + INSERT.
+        $lines = [];
+        foreach ($results as $pid => $values) {
+            $map = $existing[(string)$pid] ?? [];
+            foreach ($values as $k => $v) {
+                if (is_bool($v))            { $map[(string)$k] = $v ? 'true' : 'false'; }
+                elseif (is_scalar($v) || $v === null) { $map[(string)$k] = (string)$v; }
+                else                        { $map[(string)$k] = json_encode($v, JSON_UNESCAPED_UNICODE); }
+            }
+            $lines[] = json_encode(
+                ['crawl_id' => (int)$crawlId, 'id' => (string)$pid, 'generation' => (object)$map],
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            );
+        }
+        if ($lines) {
+            $ch->exec("INSERT INTO {$db}.page_generation (crawl_id, id, generation) FORMAT JSONEachRow\n" . implode("\n", $lines));
         }
     }
 

@@ -112,7 +112,8 @@ export const TOOLS = [
   {
     name: 'run_sql',
     description:
-      "Run ONE read-only PostgreSQL SELECT/WITH over a crawl (whitelisted tables: pages, links, crawl_categories, duplicate_clusters, page_schemas, redirect_chains), paginated (page, page_size, count). " +
+      "Run ONE read-only ClickHouse SELECT/WITH over a crawl (whitelisted tables: pages, links, crawl_categories, duplicate_clusters, page_schemas, redirect_chains), paginated (page, page_size, count). " +
+      "SQL dialect is ClickHouse (RE2 regex via match(col,'(?i)pat'), Map access extracts['k'], conditional counts countIf(cond), live `category` column instead of cat_id); common PostgreSQL syntax (~*, ::casts, COUNT(*) FILTER, ->>) is auto-translated, but call get_crawl_schema for the exact ClickHouse columns/types. " +
       'METHODOLOGY (follow it): (1) For an audit, FIRST query the categories, then run ONE consolidated "site overview" query with COUNT(*) FILTER(WHERE …) GROUP BY category to get many KPIs at once — do NOT fire 50 tiny queries. ' +
       '(2) ALWAYS split distributions/KPIs BY CATEGORY (GROUP BY the category), not only globally — category is the level that localizes problems to a template. ' +
       '(3) Scope real pages with "crawled = true AND in_crawl = true". (4) Never end the SQL with ";" (the server appends LIMIT/OFFSET). Use the get_crawl_schema output for exact column names.',
@@ -222,7 +223,7 @@ export const TOOLS = [
       '  · exclude : (optional) list of regex; a URL is rejected if any exclude matches, even when include matched.\n' +
       '  · color   : hex color for the dashboard chart (e.g. "#6bd899").\n' +
       '  · dom     : (optional) the domain the rule applies to. OMIT it and Scouter fills in the crawl\'s domain automatically. Only set it to scope a rule to a specific domain.\n' +
-      'RULES: patterns are PostgreSQL POSIX regex, case-insensitive (~*); anchor with ^ for "starts with" and $ for end-of-path. ORDER MATTERS — first matching category wins, so list narrow patterns (e.g. homepage ^/?$) before broad ones (e.g. a ".*" catch-all). Names: lowercase snake_case.\n' +
+      'RULES: patterns are RE2 regex (ClickHouse), case-insensitive, no backreferences/lookarounds; anchor with ^ for "starts with" and $ for end-of-path. ORDER MATTERS — first matching category wins, so list narrow patterns (e.g. homepage ^/?$) before broad ones (e.g. a ".*" catch-all). Names: lowercase snake_case.\n' +
       'EXAMPLE yaml:\n' +
       'homepage:\n  include:\n    - ^/?$\n  color: "#4ecdc4"\nproduct:\n  include:\n    - ^/p/[0-9]+\n    - ^/product/[^/]+\n  exclude:\n    - /preview\n  color: "#6bd899"\nother:\n  include:\n    - .*\n  color: "#cccccc"\n' +
       'After calling, read deployment.status from the response (or poll get_categorization) to know when the project-wide deploy finished; the targeted crawl itself is already done.',

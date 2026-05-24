@@ -98,23 +98,42 @@ class ExportController extends Controller
                 $whereConditions[] = '(' . implode(' ' . $logic . ' ', $filterConditions) . ')';
             }
         }
-        
+
+        // The report's OWN scope (e.g. seo-tags table = only h1_multiple/headings
+        // problems) so the export matches the on-screen table, not the whole crawl.
+        // SELECT-safe guard: it's rendered server-side but client-submittable, so we
+        // only allow boolean conditions on the (crawl-scoped) `pages c` — no
+        // subqueries / DML / comments / cross-table access. Worst case a tampered
+        // value can only broaden within the user's OWN crawl (crawl_id is forced).
+        $reportWhere = preg_replace('/^\s*WHERE\s+/i', '', trim((string)$request->get('report_where', '')));
+        if ($reportWhere !== ''
+            && !preg_match('/[;]|--|\/\*|\*\/|\b(union|select|insert|update|delete|drop|alter|create|grant|truncate|into|information_schema|pg_catalog|system)\b/i', $reportWhere)) {
+            $whereConditions[] = '(' . $reportWhere . ')';
+        }
+
         $whereClause = implode(' AND ', $whereConditions);
-        
-        $query = "SELECT c.* FROM pages c WHERE " . $whereClause . " ORDER BY c.pri DESC";
-        $stmt = $this->db->prepare($query);
+
+        // Migrated crawl → read via ChPdo (PG purged). On CH there's no stored
+        // cat_id: expose the LIVE `category` (name) explicitly and use it directly.
+        $useCh = \App\Database\CrawlStore::usesClickHouse((int)$crawlId);
+        $db = $useCh ? new \App\Database\ChPdo((int)$crawlId) : $this->db;
+        $catSelect = $useCh ? ", c.category AS _category" : "";
+        $query = "SELECT c.*{$catSelect} FROM pages c WHERE " . $whereClause . " ORDER BY c.pri DESC";
+        $stmt = $db->prepare($query);
         $stmt->execute($params);
-        
+
         $filename = $crawlRecord->domain . '_export_' . date('Y-m-d') . '.csv';
-        
-        Response::csv($filename, function($output) use ($stmt, $selectedColumns, $categoriesMap) {
+
+        Response::csv($filename, function($output) use ($stmt, $selectedColumns, $categoriesMap, $useCh) {
             fputcsv($output, $selectedColumns, ';');
-            
+
             while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                 $line = [];
                 foreach ($selectedColumns as $col) {
                     if ($col === 'category') {
-                        $line[] = $categoriesMap[$row['cat_id']] ?? 'Non catégorisé';
+                        $line[] = $useCh
+                            ? (($row['_category'] ?? '') !== '' ? $row['_category'] : 'Non catégorisé')
+                            : ($categoriesMap[$row['cat_id']] ?? 'Non catégorisé');
                     } else {
                         $line[] = $row[$col] ?? '';
                     }
@@ -169,8 +188,9 @@ class ExportController extends Controller
             WHERE l.crawl_id = :crawl_id3
             ORDER BY cs.url
         ";
-        
-        $stmt = $this->db->prepare($query);
+
+        $db = \App\Database\CrawlStore::usesClickHouse((int)$crawlId) ? new \App\Database\ChPdo((int)$crawlId) : $this->db;
+        $stmt = $db->prepare($query);
         $stmt->execute([':crawl_id' => $crawlId, ':crawl_id2' => $crawlId, ':crawl_id3' => $crawlId]);
         
         $filename = $crawlRecord->domain . '_links_' . date('Y-m-d') . '.csv';
@@ -224,7 +244,8 @@ class ExportController extends Controller
             ORDER BY is_loop DESC, hops DESC
         ";
 
-        $stmt = $this->db->prepare($query);
+        $db = \App\Database\CrawlStore::usesClickHouse((int)$crawlId) ? new \App\Database\ChPdo((int)$crawlId) : $this->db;
+        $stmt = $db->prepare($query);
         $stmt->execute([':crawl_id' => $crawlId]);
 
         $filename = $crawlRecord->domain . '_redirect_chains_' . date('Y-m-d') . '.csv';

@@ -109,13 +109,13 @@ $cleanedOrderBy = preg_replace('/\bcs\./i', 's.', $orderBy);
 $cleanedOrderBy = preg_replace('/\bct\./i', 't.', $cleanedOrderBy);
 
 // Requête SQL complète pour les liens
-$tableSqlQuery = "SELECT 
+$tableSqlQuery = "SELECT
     s.url AS source_url,
     t.url AS target_url,
     l.anchor,
     l.type,
-    l.external,
-    l.nofollow,
+    l.external AS external,
+    l.nofollow AS nofollow,
     l.position,
     l.xpath
 FROM links l
@@ -474,11 +474,14 @@ if ($hasSourceFilter || $hasTargetFilter) {
         $linksOrderBy = 'ORDER BY ' . $columnMapping[$sortColumn] . ' ' . $sortDirection;
     }
     
-    // Requête liens avec jointure(s) minimale(s)
-    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external, l.nofollow, l.type, l.position, l.xpath
+    // Requête liens avec jointure(s) minimale(s).
+    // `external`/`nofollow` existent AUSSI dans `pages` (jointe) : sur ClickHouse,
+    // une colonne ambiguë garde son qualificatif (`l.external`) comme nom de clé →
+    // on les alias explicitement pour que $link['external']/['nofollow'] existent.
+    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external AS external, l.nofollow AS nofollow, l.type, l.position, l.xpath
                    FROM links l $joinClauses
-                   $fullWhereClause 
-                   $linksOrderBy 
+                   $fullWhereClause
+                   $linksOrderBy
                    LIMIT $perPage OFFSET $offset";
     $stmt = $pdo->prepare($linksQuery);
     $stmt->execute($sqlParams);
@@ -517,11 +520,11 @@ if ($hasSourceFilter || $hasTargetFilter) {
         }
     }
     
-    // Requête liens simple
-    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external, l.nofollow, l.type, l.position, l.xpath
-                   FROM links l 
-                   $linksWhereClause 
-                   $linksOrderBy 
+    // Requête liens simple (alias external/nofollow pour cohérence CH, cf. ci-dessus)
+    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external AS external, l.nofollow AS nofollow, l.type, l.position, l.xpath
+                   FROM links l
+                   $linksWhereClause
+                   $linksOrderBy
                    LIMIT $perPage OFFSET $offset";
     $stmt = $pdo->prepare($linksQuery);
     $stmt->execute($sqlParams);

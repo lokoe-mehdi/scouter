@@ -171,6 +171,49 @@ backfill) → PG **via un shim qui calcule quand même `category` en live** (tra
   dans le snapshot de **TOUS les crawls du projet** (instantané, c'est live → aucun
   recalcul). → save sur un crawl = catégories à jour partout dans le projet direct.
 
+- **Schéma SQL Explorer/API lu en LIVE depuis CH** + reste des read-paths AI câblés
+  CH (3e passe) : (a) `ApiV1Controller::clickHouseVirtualSchema()` lit
+  `system.columns` (vrai schéma CH, types réels) au lieu d'une liste figée → plus de
+  `cat_id` synthétique affiché (il n'existe pas dans la vraie table), + ajoute
+  `generation` (Map) et `category` (live) sur `pages`. (b) Read-paths AI restés en PG
+  → ChPdo : `ContextBuilder` (Dr Brief context ; `->>` auto-traduit en Map),
+  `HtmlTool`/`HeadingsTool` (HTML brut CH), `ApiV1Controller::content/html` (lookup
+  + HTML brut), `AIUrlFiltersController`/`AILinkFiltersController::fetchGenerations`
+  (generation = Map dans page_generation, type inféré des valeurs string).
+  (c) **Requêtes prédéfinies** du SQL Explorer corrigées pour CH : `pr_leak_external`
+  (SUBSTRING→colonne `domain`), `dead_end_with_pr` + `indexable_no_schema`
+  (`NOT EXISTS` corrélé → `NOT IN` non corrélé, CH ne supporte pas les sous-requêtes
+  corrélées). Les autres presets tournent nativement.
+  ✅ Vérifié : toutes les tables de crawl (pages/links/html/page_schemas/
+  duplicate_clusters/redirect_chains) sont lues via CH ; le seul accès PG restant aux
+  noms `pages`/`links` est le **write-path crawl-time** (frontier : PageRepository/
+  LinkRepository/CrawlDatabase) — c'est voulu.
+
+- **Audit complet read-paths PG (4e passe)** — derniers restes trouvés par sweep :
+  (a) `ExportController` (csv/linksCsv/redirectChainsCsv) lisait pages/links/
+  redirect_chains en PG → CSV vides ; routé ChPdo + `category` live au lieu de cat_id.
+  (b) `ApiV1Controller::getCategorization` (MCP `get_categorization`) : comptes par
+  catégorie en `cat_id` PG → branche CH live (CategoryExpr + count). (c) **Bulk AI
+  Generator** était entièrement NON migré : `BulkGenerator::writeResults` écrivait
+  `UPDATE pages SET generation` en PG → ajout `writeResultsCH` (read-merge-write dans
+  `page_generation`, Map, INSERT JSONEachRow) ; `BulkGenerateController` (contextFields/
+  existingKeys/status/fetchExistingKeys) lisait extracts/generation en JSONB PG →
+  branches CH (`mapKeys`/`mapContains`/`page_generation`, helper `generationKeys`).
+  ✅ Sweep confirmé : tous les read-paths de données de crawl passent par CH ; le seul
+  PG restant sur pages/links est le write-time (frontier) — voulu. C'était aussi
+  l'implémentation manquante de la décision §12 "le bulk-gen écrit dans page_generation".
+
+- **Export tableau + link-table (5e passe)** : (a) l'export CSV d'un tableau de
+  rapport (`url-table`) ignorait le **scope du rapport** (whereClause, ex. seo-tags =
+  h1_multiple/headings_missing) → exportait 100% du crawl. Fix : champ caché
+  `report_where` (rendu server-side) transmis à `ExportController::csv`, validé
+  SELECT-safe (pas de sous-requête/DML/`;`/commentaires → au pire élargit dans le
+  crawl de l'user, crawl_id forcé) et ajouté aux conditions. (b) `link-table.php` :
+  `l.external`/`l.nofollow` entrent en collision de nom avec `pages.external/nofollow`
+  (jointe) → sur CH la colonne ambiguë garde son qualificatif `l.external` comme clé →
+  `Warning: Undefined array key "external"`. Fix : `AS external`/`AS nofollow` sur les
+  requêtes links jointes. (Même classe que le `c.external` de url-outlinks.)
+
 ### Reste à faire
 - ⛔ **`in_sitemap`** dans CH : laissé à 0 dans page_metrics (la membership sitemap
   n'est pas encore portée dans CH). À traiter avec l'analyse sitemap dans CH.

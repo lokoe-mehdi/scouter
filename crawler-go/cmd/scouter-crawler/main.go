@@ -95,6 +95,11 @@ func main() {
 		if err := bf.PurgePG(ctx, target); err != nil {
 			log.Fatalf("purge-pg: %v", err)
 		}
+		if target == "all" {
+			if err := bf.SweepOrphans(ctx); err != nil {
+				log.Printf("[%s] purge-pg sweep-orphans error: %v", workerID, err)
+			}
+		}
 		log.Printf("[%s] purge-pg finished", workerID)
 		return
 	}
@@ -120,6 +125,12 @@ func main() {
 				log.Printf("[%s] auto-migration: purging migrated PG data…", workerID)
 				if err := bf.PurgePG(ctx, "all"); err != nil {
 					log.Printf("[%s] auto-migration purge error: %v", workerID, err)
+				}
+				// Last: sweep leftover partition tables of already-deleted crawls.
+				// Runs only after migration+purge so a not-yet-migrated crawl is
+				// never dropped here.
+				if err := bf.SweepOrphans(ctx); err != nil {
+					log.Printf("[%s] auto-migration sweep-orphans error: %v", workerID, err)
 				}
 			}
 			log.Printf("[%s] auto-migration finished", workerID)

@@ -114,14 +114,44 @@ usort($projects, fn($a, $b) => $b->size_bytes <=> $a->size_bytes);
 
 // Per-crawl storage (PG vs CH) + migration state — lets the admin verify what's
 // been backfilled to ClickHouse and what's still on PostgreSQL.
-$crawlsStorage = [];
+// Crawls are grouped by project (a project = a domain): each group sums the PG &
+// ClickHouse storage of its crawls and exposes a combined "total". Groups are
+// sorted by that total (heaviest first); within a group, crawls stay newest-first.
 $migCh = 0; $migPg = 0;
-foreach ($pdo->query("SELECT id, domain, COALESCE(data_store,'pg') AS data_store, status, crawled FROM crawls WHERE status != 'deleting' ORDER BY id DESC")->fetchAll(PDO::FETCH_OBJ) as $c) {
+$storageGroups = [];   // project_id => group bucket (name, domain, crawls, sums)
+foreach ($pdo->query("
+    SELECT cr.id, cr.domain, COALESCE(cr.data_store,'pg') AS data_store, cr.status, cr.crawled,
+           cr.project_id, p.name AS project_name
+    FROM crawls cr
+    LEFT JOIN projects p ON p.id = cr.project_id
+    WHERE cr.status != 'deleting'
+    ORDER BY cr.id DESC
+")->fetchAll(PDO::FETCH_OBJ) as $c) {
     $c->size_pg = $partitionSizes[(int)$c->id] ?? 0;
     $c->size_ch = $chPartitionSizes[(int)$c->id] ?? 0;
     if ($c->data_store === 'clickhouse') { $migCh++; } else { $migPg++; }
-    $crawlsStorage[] = $c;
+
+    $pid = (int)$c->project_id;
+    if (!isset($storageGroups[$pid])) {
+        $storageGroups[$pid] = (object)[
+            'project_id'   => $pid,
+            'project_name' => $c->project_name ?: ('#' . $pid),
+            'domain'       => $c->domain,
+            'crawls'       => [],
+            'size_pg'      => 0,
+            'size_ch'      => 0,
+            'size_total'   => 0,
+        ];
+    }
+    $g = $storageGroups[$pid];
+    $g->crawls[] = $c;
+    $g->size_pg += $c->size_pg;
+    $g->size_ch += $c->size_ch;
+    $g->size_total = $g->size_pg + $g->size_ch;
 }
+$storageGroups = array_values($storageGroups);
+usort($storageGroups, fn($a, $b) => $b->size_total <=> $a->size_total);
+
 $migTotal = $migCh + $migPg;
 $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
 ?>
@@ -265,6 +295,67 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
     }
     .mon-proj-link:hover { border-color: var(--primary-color); box-shadow: 0 2px 8px rgba(78,205,196,0.15); }
     .mon-proj-link .material-symbols-outlined { font-size: 14px; color: var(--primary-color); }
+
+    /* ── Storage by project (grouped, collapsible) ─────────────────────────── */
+    /* Tight table: rows glued together, white background, thin gray borders. */
+    .mon-store { display: flex; flex-direction: column; }
+    .mon-store-grid {
+        display: grid;
+        grid-template-columns: 22px 1fr 116px 96px 96px 100px;
+        gap: 0.5rem; align-items: center;
+        padding: 0.5rem 0.6rem;
+    }
+    .mon-store-head {
+        font-size: 0.65rem; font-weight: 700; color: var(--text-tertiary);
+        text-transform: uppercase; letter-spacing: 0.5px;
+        border-bottom: 2px solid var(--border-color);
+        padding-top: 0; padding-bottom: 0.55rem;
+    }
+    .mon-store-body { max-height: 520px; overflow-y: auto; }
+
+    /* Project group = just rows, no card / no gap */
+    .mon-store-proj {
+        cursor: pointer; user-select: none;
+        border-bottom: 1px solid var(--border-color);
+        transition: background 0.12s;
+    }
+    .mon-store-proj:hover { background: rgba(78,205,196,0.06); }
+    .mon-store-group.is-open .mon-store-proj { background: rgba(78,205,196,0.05); }
+    .mon-store-proj:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
+
+    .mon-store-chevron { font-size: 18px; color: var(--text-tertiary); transition: transform 0.2s ease, color 0.15s; }
+    .mon-store-group.is-open .mon-store-chevron { transform: rotate(90deg); color: var(--primary-color); }
+
+    .mon-store-name { font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mon-store-count {
+        font-weight: 600; color: var(--text-tertiary); font-size: 0.72rem;
+        background: var(--background); padding: 1px 8px; border-radius: 999px; margin-left: 0.4rem;
+    }
+
+    /* Numeric cells */
+    .mon-store-num { text-align: right; font-family: monospace; font-variant-numeric: tabular-nums; }
+    .mon-store-pg    { color: #336791; font-weight: 700; }
+    .mon-store-ch    { color: #b8860b; font-weight: 700; }
+    .mon-store-total { color: var(--text-primary); font-weight: 800; }
+    .mon-store-num.is-empty { color: var(--text-tertiary); font-weight: 500; }
+
+    /* Crawl detail rows: indented, very light background, glued under project */
+    .mon-store-crawl {
+        background: var(--background);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.82rem;
+    }
+    .mon-store-crawl-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); }
+    .mon-store-crawl-id { font-family: monospace; font-variant-numeric: tabular-nums; color: var(--text-tertiary); margin-right: 0.4rem; }
+
+    /* Store pill */
+    .mon-store-pill {
+        display: inline-flex; align-items: center; gap: 4px;
+        font-size: 0.68rem; font-weight: 700; padding: 2px 9px; border-radius: 999px;
+    }
+    .mon-store-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .mon-store-pill.is-ch { background: rgba(255,204,0,0.16); color: #b8860b; }
+    .mon-store-pill.is-pg { background: rgba(51,103,145,0.12); color: #336791; }
     </style>
 </head>
 <body>
@@ -433,23 +524,54 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
                 <div class="mon-db-bar"><div class="mon-db-bar-fill" style="width: <?= $migPct ?>%; background: linear-gradient(90deg,#336791,#ffcc00);"></div></div>
                 <div class="mon-db-hint"><?= $migCh ?> sur ClickHouse, <?= $migPg ?> encore sur PostgreSQL (backfill en cours). PG = lecture des rapports lente ; CH = rapide.</div>
             </div>
-            <div style="display:grid; grid-template-columns: 70px 1fr 110px 90px 90px; gap:0.3rem; padding:0.4rem 0.5rem; font-size:0.72rem; text-transform:uppercase; color:var(--text-secondary); font-weight:700; border-bottom:1px solid var(--border-color,#eee);">
-                <span>Crawl</span><span>Domaine</span><span style="text-align:center;">Store</span><span style="text-align:right;">PG</span><span style="text-align:right;">ClickHouse</span>
-            </div>
-            <div style="max-height: 420px; overflow-y: auto;">
-                <?php foreach ($crawlsStorage as $c):
-                    $isCh = $c->data_store === 'clickhouse';
-                ?>
-                <div style="display:grid; grid-template-columns: 70px 1fr 110px 90px 90px; gap:0.3rem; padding:0.4rem 0.5rem; font-size:0.82rem; align-items:center; border-bottom:1px solid var(--border-color,#f3f3f3);">
-                    <span style="font-variant-numeric:tabular-nums; color:var(--text-secondary);">#<?= $c->id ?></span>
-                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="<?= htmlspecialchars($c->domain) ?>"><?= htmlspecialchars($c->domain) ?></span>
-                    <span style="text-align:center;">
-                        <span style="font-size:0.7rem; font-weight:700; padding:2px 7px; border-radius:10px; background:<?= $isCh ? 'rgba(255,204,0,.18)' : 'rgba(51,103,145,.15)' ?>; color:<?= $isCh ? '#a07b00' : '#336791' ?>;"><?= $isCh ? 'ClickHouse' : 'PostgreSQL' ?></span>
-                    </span>
-                    <span style="text-align:right; font-variant-numeric:tabular-nums; color:<?= $c->size_pg>0 && $isCh ? '#d97706' : 'var(--text-secondary)' ?>;"><?= $c->size_pg > 0 ? monitorFormatBytes($c->size_pg) : '—' ?></span>
-                    <span style="text-align:right; font-variant-numeric:tabular-nums; color:<?= $isCh ? 'var(--text-primary)' : 'var(--text-tertiary,#aaa)' ?>;"><?= $c->size_ch > 0 ? monitorFormatBytes($c->size_ch) : '—' ?></span>
+            <div class="mon-store">
+                <!-- Header -->
+                <div class="mon-store-grid mon-store-head">
+                    <span></span>
+                    <span>Projet / Crawl</span>
+                    <span style="text-align:center;">Store</span>
+                    <span style="text-align:right;">PostgreSQL</span>
+                    <span style="text-align:right;">ClickHouse</span>
+                    <span style="text-align:right;">Total</span>
                 </div>
-                <?php endforeach; ?>
+                <div class="mon-store-body">
+                    <?php foreach ($storageGroups as $gi => $g): ?>
+                    <div class="mon-store-group" data-group="<?= $gi ?>">
+                        <!-- Project row (clickable, collapsed by default) -->
+                        <div class="mon-store-grid mon-store-proj" role="button" tabindex="0" aria-expanded="false">
+                            <span class="material-symbols-outlined mon-store-chevron">chevron_right</span>
+                            <span class="mon-store-name" title="<?= htmlspecialchars($g->project_name) ?>">
+                                <?= htmlspecialchars($g->project_name) ?>
+                                <span class="mon-store-count"><?= count($g->crawls) ?> crawl<?= count($g->crawls) > 1 ? 's' : '' ?></span>
+                            </span>
+                            <span></span>
+                            <span class="mon-store-num mon-store-pg<?= $g->size_pg > 0 ? '' : ' is-empty' ?>"><?= $g->size_pg > 0 ? monitorFormatBytes($g->size_pg) : '—' ?></span>
+                            <span class="mon-store-num mon-store-ch<?= $g->size_ch > 0 ? '' : ' is-empty' ?>"><?= $g->size_ch > 0 ? monitorFormatBytes($g->size_ch) : '—' ?></span>
+                            <span class="mon-store-num mon-store-total<?= $g->size_total > 0 ? '' : ' is-empty' ?>"><?= $g->size_total > 0 ? monitorFormatBytes($g->size_total) : '—' ?></span>
+                        </div>
+                        <!-- Crawl detail rows (hidden until expanded) -->
+                        <div class="mon-store-crawls" style="display:none;">
+                            <?php foreach ($g->crawls as $c):
+                                $isCh = $c->data_store === 'clickhouse';
+                                $cTotal = $c->size_pg + $c->size_ch;
+                            ?>
+                            <div class="mon-store-grid mon-store-crawl">
+                                <span></span>
+                                <span class="mon-store-crawl-name" title="<?= htmlspecialchars($c->domain) ?>">
+                                    <span class="mon-store-crawl-id">#<?= $c->id ?></span><?= htmlspecialchars($c->domain) ?>
+                                </span>
+                                <span style="text-align:center;">
+                                    <span class="mon-store-pill <?= $isCh ? 'is-ch' : 'is-pg' ?>"><?= $isCh ? 'ClickHouse' : 'PostgreSQL' ?></span>
+                                </span>
+                                <span class="mon-store-num<?= $c->size_pg > 0 ? '' : ' is-empty' ?>" style="<?= $c->size_pg > 0 ? 'color:#336791;' : '' ?>"><?= $c->size_pg > 0 ? monitorFormatBytes($c->size_pg) : '—' ?></span>
+                                <span class="mon-store-num<?= $c->size_ch > 0 ? '' : ' is-empty' ?>" style="<?= $c->size_ch > 0 ? 'color:#b8860b;' : '' ?>"><?= $c->size_ch > 0 ? monitorFormatBytes($c->size_ch) : '—' ?></span>
+                                <span class="mon-store-num mon-store-total<?= $cTotal > 0 ? '' : ' is-empty' ?>"><?= $cTotal > 0 ? monitorFormatBytes($cTotal) : '—' ?></span>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
             </div>
         </div>
     </div>
@@ -503,6 +625,22 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
 
     refresh();
     setInterval(refresh, 5000);
+
+    // Per-project storage groups: collapsed by default, click to expand/collapse.
+    function toggleStoreGroup(row) {
+        const group = row.closest('.mon-store-group');
+        const detail = group && group.querySelector('.mon-store-crawls');
+        if (!detail) return;
+        const open = group.classList.toggle('is-open');
+        detail.style.display = open ? '' : 'none';
+        row.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    document.querySelectorAll('.mon-store-proj').forEach(row => {
+        row.addEventListener('click', () => toggleStoreGroup(row));
+        row.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleStoreGroup(row); }
+        });
+    });
     </script>
 </body>
 </html>

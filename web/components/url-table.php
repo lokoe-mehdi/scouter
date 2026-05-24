@@ -496,6 +496,10 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
     <input type="hidden" name="filters" value="">
     <input type="hidden" name="search" value="">
     <input type="hidden" name="columns" id="exportColumns_<?= $componentId ?>" value="">
+    <!-- The report's OWN scope (e.g. seo-tags = h1_multiple OR headings_missing) so
+         the export matches the table, not the whole crawl. Server-validated in
+         ExportController (SELECT-safe boolean conditions only). -->
+    <input type="hidden" name="report_where" value="<?= htmlspecialchars($urlTableConfig['whereClause'] ?? '', ENT_QUOTES) ?>">
 </form>
 
 <!-- Résultats -->

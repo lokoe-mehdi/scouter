@@ -30,8 +30,10 @@ it('builds a case-insensitive RE2 match on url + path for a simple rule', functi
 
     expect($sql)->toStartWith('CASE WHEN ');
     expect($sql)->toEndWith(" ELSE '' END");
-    // domain match, case-insensitive, dot escaped by preg_quote:
-    expect($sql)->toContain("match(url, '(?i)shop\\.com')");
+    // domain match, case-insensitive. preg_quote escapes the dot (shop\.com), then
+    // lit() doubles every backslash so the CH string literal delivers the exact
+    // bytes to RE2 (a lone "\x" could otherwise be eaten as a CH string escape).
+    expect($sql)->toContain("match(url, '(?i)shop\\\\.com')");
     // include matched against the path (host stripped via replaceRegexpOne):
     expect($sql)->toContain("replaceRegexpOne(url, '^https?://[^/]+', '')");
     expect($sql)->toContain("'(?i)^/p/'");
