@@ -102,8 +102,16 @@ func (e *Engine) depthStarter(ctx context.Context, newCrawl bool) error {
 
 		e.startDepthProgress(i, total)
 
-		const maxPasses = 50
-		for passes := 0; passes < maxPasses; passes++ {
+		// Drain the whole depth: keep pulling batches until none remain. No fixed
+		// pass cap — the old 50-pass cap silently truncated large depths at
+		// 50*frontierBatch (=250k) URLs. Termination is guaranteed: every fetched
+		// page is marked crawled=true and ON CONFLICT dedups already-seen URLs, so
+		// the depth-i frontier strictly shrinks. Guard against a pathological page
+		// that never gets marked (e.g. a persistent store error): if the head of
+		// the queue doesn't advance across several passes, bail out of this depth.
+		prevHead := ""
+		stuck := 0
+		for {
 			if e.stopCheck(ctx) {
 				return errStopped
 			}
@@ -114,9 +122,19 @@ func (e *Engine) depthStarter(ctx context.Context, newCrawl bool) error {
 			if len(urls) == 0 {
 				break
 			}
+			if urls[0] == prevHead {
+				if stuck++; stuck >= 3 {
+					e.logf("depth %d: queue head not advancing (%s) — leaving this depth to avoid a loop", i, urls[0])
+					break
+				}
+			} else {
+				stuck = 0
+				prevHead = urls[0]
+			}
 			e.processURLs(ctx, urls, i)
-			_ = e.cdb.UpdateCrawlStats(ctx)
+			e.maybeUpdateStats(ctx) // throttled: avoids a full-partition scan per batch
 		}
+		_ = e.cdb.UpdateCrawlStats(ctx) // accurate count at the end of each depth
 	}
 	return nil
 }

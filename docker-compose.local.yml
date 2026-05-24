@@ -16,6 +16,34 @@ services:
     networks:
       - scouter-net
 
+  # ClickHouse — entrepôt des données de crawl (pages/links/html + post-proc).
+  # PostgreSQL garde la frontier + les métadonnées. Voir clickhouse.md.
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    ports:
+      - "8123:8123"  # HTTP interface (lectures rapports + writes crawler)
+      - "9000:9000"  # native (debug local via clickhouse-client)
+    environment:
+      - CLICKHOUSE_DB=scouter
+      - CLICKHOUSE_USER=scouter
+      - CLICKHOUSE_PASSWORD=scouter
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./docker/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    restart: unless-stopped
+    networks:
+      - scouter-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   # Application PHP principale
   scouter:
     build: .
@@ -30,6 +58,11 @@ services:
       - PHP_CLI_SERVER_WORKERS=8
       - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       - DATABASE_URL=postgresql://scouter:scouter@postgres:5432/scouter
+      # ClickHouse (entrepôt données de crawl). Vide = lectures sur PG (ancien comportement).
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=scouter
+      - CLICKHOUSE_USER=scouter
+      - CLICKHOUSE_PASSWORD=scouter
       # Master key used to encrypt secrets stored in app_settings (Gemini API key, etc.).
       # Local dev value — DO NOT reuse for production. Generate one with `openssl rand -hex 32`.
       - SCOUTER_ENCRYPTION_KEY=868ace624e48dc6da990d2512c380a9ec8b168e11c0fb4aff8393bb6a1d22809
@@ -39,6 +72,7 @@ services:
     depends_on:
       - renderer-1
       - postgres
+      - clickhouse
 
   # Serveur MCP (Model Context Protocol) — adaptateur au-dessus de /api/v1.
   mcp:
@@ -63,6 +97,10 @@ services:
       replicas: 4
     environment:
       - DATABASE_URL=postgresql://scouter:scouter@postgres:5432/scouter
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=scouter
+      - CLICKHOUSE_USER=scouter
+      - CLICKHOUSE_PASSWORD=scouter
       - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=15
@@ -81,6 +119,7 @@ services:
       - scouter-net
     depends_on:
       - postgres
+      - clickhouse
       - renderer-1
 
   # Go crawl worker (crawler-go) — replaces the PHP crawl path. One process,
@@ -101,6 +140,12 @@ services:
       - CGO_ENABLED=0
       - GOTOOLCHAIN=local
       - DATABASE_URL=postgresql://scouter:scouter@postgres:5432/scouter
+      # ClickHouse : si défini, le crawler appende les données + fait le post-proc dans CH.
+      # Vide = comportement PG-only inchangé (aucune régression).
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=scouter
+      - CLICKHOUSE_USER=scouter
+      - CLICKHOUSE_PASSWORD=scouter
       # 3 hostnames distincts (PAS un service répliqué) : le round-robin Go +
       # ses pools de connexions séparés répartissent vraiment sur les 3. Avec un
       # seul nom DNS + keep-alive, Go se collerait à un seul replica.
@@ -123,6 +168,7 @@ services:
       - scouter-net
     depends_on:
       - postgres
+      - clickhouse
       - renderer-1
       - renderer-2
       - renderer-3
@@ -158,6 +204,7 @@ networks:
 
 volumes:
   postgres_data:
+  clickhouse_data:
   # Persistent Go caches so `go run` recompiles in seconds on restart (dev only).
   go-build-cache:
   go-mod-cache:

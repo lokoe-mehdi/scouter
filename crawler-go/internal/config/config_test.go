@@ -21,7 +21,6 @@ func TestLoadMapping(t *testing.T) {
 			"respect_canonical": false,
 			"store_html": false,
 			"custom_headers": {"X-Test": "1"},
-			"stealth_mode": "auto",
 			"http_auth": {"username": "u", "password": "p"},
 			"xPathExtractors": {"price": "//span[@class='price']"},
 			"sitemap_urls": ["https://example.com/sitemap.xml"]
@@ -76,9 +75,6 @@ func TestLoadMapping(t *testing.T) {
 	if len(c.SitemapURLs) != 1 {
 		t.Errorf("sitemap_urls=%v", c.SitemapURLs)
 	}
-	if c.StealthMode != "auto" {
-		t.Errorf("stealth_mode=%q, want auto", c.StealthMode)
-	}
 }
 
 func TestLoadPrecedenceAndDefaults(t *testing.T) {
@@ -95,9 +91,6 @@ func TestLoadPrecedenceAndDefaults(t *testing.T) {
 	}
 	if c.CrawlSpeed != "fast" || c.CrawlMode != "classic" {
 		t.Errorf("defaults: speed=%q mode=%q", c.CrawlSpeed, c.CrawlMode)
-	}
-	if c.StealthMode != "off" {
-		t.Errorf("stealth_mode=%q, want off (default)", c.StealthMode)
 	}
 	if !c.RespectRobots || !c.RespectCanonical {
 		t.Error("robots/canonical should default true")

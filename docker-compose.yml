@@ -22,6 +22,29 @@ services:
       timeout: 5s
       retries: 5
 
+  # ClickHouse — entrepôt des données de crawl (pages/links/html + post-proc).
+  # PostgreSQL garde la frontier + les métadonnées. Voir clickhouse.md.
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    environment:
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-scouter}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-scouter}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./docker/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   # Application PHP principale (Le cerveau)
   scouter:
     build: .
@@ -31,6 +54,10 @@ services:
       - PHP_CLI_SERVER_WORKERS=8
       - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-scouter}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-scouter}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=30
       # Master key used to encrypt secrets stored in app_settings (Gemini API key, etc.).
@@ -48,6 +75,8 @@ services:
       renderer-3:
         condition: service_started
       postgres:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8080/ || exit 1"]
@@ -80,6 +109,10 @@ services:
       - 1.1.1.1
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-scouter}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-scouter}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
       - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=15
@@ -92,6 +125,8 @@ services:
       - ./logs:/app/logs
     depends_on:
       postgres:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
       renderer-1:
         condition: service_started
@@ -119,6 +154,12 @@ services:
       - 1.1.1.1
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # ClickHouse : si défini, le crawler appende les données + fait le post-proc dans CH.
+      # Vide = comportement PG-only inchangé (aucune régression).
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-scouter}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-scouter}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
       - RENDERER_URLS=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       # 4 crawls simultanés × 12 fetches parallèles = ~48 requêtes en vol.
       # Monter MAX_CONCURRENT_CURL seulement si le serveur cible encaisse (sinon
@@ -134,6 +175,8 @@ services:
       - ./logs:/app/logs
     depends_on:
       postgres:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
       renderer-1:
         condition: service_started
@@ -163,3 +206,4 @@ services:
 
 volumes:
   postgres_data:
+  clickhouse_data:

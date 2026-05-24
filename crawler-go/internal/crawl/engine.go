@@ -32,8 +32,7 @@ const (
 type Engine struct {
 	cfg                *config.Config
 	cdb                *db.CrawlDB
-	client             *http.Client
-	stealthClient      *http.Client // uTLS client; nil when stealth_mode=off
+	client             *http.Client // uTLS client (Chrome TLS fingerprint) by default
 	rendererURLs       []string
 	concurrency        int
 	targetPerSec       int
@@ -51,6 +50,28 @@ type Engine struct {
 	// total time spent idle in retry backoff pauses (excluded from the avg rate)
 	retryPauseMu sync.Mutex
 	retryPause   time.Duration
+
+	// throttle for UpdateCrawlStats (each call scans the whole partition; on a
+	// million-page crawl, calling it per 5000-batch would mean thousands of full
+	// scans). Updated at most every statsInterval.
+	statsMu   sync.Mutex
+	lastStats time.Time
+}
+
+const statsInterval = 10 * time.Second
+
+// maybeUpdateStats refreshes crawls.* stats at most once per statsInterval, to
+// keep the UI progress live without hammering PG with full-partition COUNTs on
+// huge crawls.
+func (e *Engine) maybeUpdateStats(ctx context.Context) {
+	e.statsMu.Lock()
+	if time.Since(e.lastStats) < statsInterval {
+		e.statsMu.Unlock()
+		return
+	}
+	e.lastStats = time.Now()
+	e.statsMu.Unlock()
+	_ = e.cdb.UpdateCrawlStats(ctx)
 }
 
 // RetryPause returns the cumulative time spent sleeping in retry backoff, so the
@@ -90,14 +111,7 @@ func NewEngine(cdb *db.CrawlDB, cfg *config.Config, opts Options) *Engine {
 	if stop == nil {
 		stop = func(context.Context) bool { return false }
 	}
-	transport := &http.Transport{
-		DialContext:         (&net.Dialer{Timeout: 3 * time.Second}).DialContext,
-		MaxIdleConns:        200,
-		MaxIdleConnsPerHost: concurrency * 2,
-		IdleConnTimeout:     60 * time.Second,
-		ForceAttemptHTTP2:   true,
-	}
-	e := &Engine{
+	return &Engine{
 		cfg:                cfg,
 		cdb:                cdb,
 		rendererURLs:       opts.RendererURLs,
@@ -106,22 +120,10 @@ func NewEngine(cdb *db.CrawlDB, cfg *config.Config, opts Options) *Engine {
 		skipLinkExtraction: opts.SkipLinkExtraction,
 		logf:               logf,
 		stopCheck:          stop,
-		client: &http.Client{
-			Transport: transport,
-			Timeout:   5 * time.Second,
-			CheckRedirect: func(*http.Request, []*http.Request) error {
-				return http.ErrUseLastResponse // never follow (PHP RollingCurl behaviour)
-			},
-		},
+		// Single HTTP client, fetching over uTLS (Chrome TLS fingerprint). Never
+		// follows redirects (PHP RollingCurl behaviour); the page parser handles them.
+		client: newUTLSClient(concurrency, 5*time.Second),
 	}
-	if cfg.StealthMode == "auto" || cfg.StealthMode == "always" {
-		if sc, err := newStealthClient(5*time.Second, false); err != nil {
-			logf("stealth client init failed, falling back to normal client: %v", err)
-		} else {
-			e.stealthClient = sc
-		}
-	}
-	return e
 }
 
 func speedToLimits(speed string) (concurrency, targetPerSec int) {
@@ -154,32 +156,11 @@ func (r fetchResult) retryable() bool {
 	return retryableCodes[r.code] || r.timedOut
 }
 
-// botBlocked reports whether a status code looks like an anti-bot block worth
-// retrying with the stealth (Chrome-impersonating) client.
-func botBlocked(code int) bool { return code == 403 || code == 429 || code == 503 }
-
-// fetchOne performs a single GET, picking the right HTTP client: the stealth
-// (Chrome-impersonating) client when stealth_mode=always, otherwise the normal
-// client with an automatic stealth retry on an anti-bot block when
-// stealth_mode=auto.
-func (e *Engine) fetchOne(ctx context.Context, rawURL string) fetchResult {
-	if e.cfg.StealthMode == "always" && e.stealthClient != nil {
-		return e.doFetch(ctx, rawURL, e.stealthClient, true)
-	}
-	res := e.doFetch(ctx, rawURL, e.client, false)
-	if e.cfg.StealthMode == "auto" && e.stealthClient != nil && botBlocked(res.code) {
-		if stealth := e.doFetch(ctx, rawURL, e.stealthClient, true); stealth.err == nil && !botBlocked(stealth.code) {
-			return stealth
-		}
-	}
-	return res
-}
-
-// doFetch performs a single GET (no redirect follow) with the given client,
+// fetchOne performs a single GET over the uTLS client (Chrome TLS fingerprint),
 // capturing TTFB and the Location header (resolved absolute). SSRF-validated
-// before the request. When stealth is true the User-Agent/Accept are left to the
-// stealth client, which sets a coherent Chrome header set.
-func (e *Engine) doFetch(ctx context.Context, rawURL string, client *http.Client, stealth bool) fetchResult {
+// before the request. It uses the User-Agent from the crawl config and never
+// executes JavaScript, so a non-JS crawl always returns the raw server response.
+func (e *Engine) fetchOne(ctx context.Context, rawURL string) fetchResult {
 	res := fetchResult{url: rawURL}
 	if err := analysis.ValidateURL(rawURL); err != nil {
 		res.err = err
@@ -191,10 +172,8 @@ func (e *Engine) doFetch(ctx context.Context, rawURL string, client *http.Client
 		res.err = err
 		return res
 	}
-	if !stealth {
-		req.Header.Set("User-Agent", e.cfg.UserAgent)
-		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	}
+	req.Header.Set("User-Agent", e.cfg.UserAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	for k, v := range e.cfg.CustomHeaders {
 		req.Header.Set(k, v)
 	}
@@ -209,7 +188,7 @@ func (e *Engine) doFetch(ctx context.Context, rawURL string, client *http.Client
 	}
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 
-	resp, err := client.Do(req)
+	resp, err := e.client.Do(req)
 	if err != nil {
 		res.err = err
 		res.timedOut = isTimeout(err)

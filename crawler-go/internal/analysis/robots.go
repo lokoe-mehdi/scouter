@@ -132,6 +132,11 @@ func buildRobotsRegex(rawRule string) *regexp.Regexp {
 	return re
 }
 
+// robotsCacheCap bounds the per-process robots.txt cache so a long-running
+// multi-crawl worker doesn't accumulate one entry per host forever. Eviction is
+// arbitrary (a re-fetch later is cheap and correct).
+const robotsCacheCap = 20000
+
 func (r *Robots) get(base string) string {
 	r.mu.Lock()
 	if v, ok := r.cache[base]; ok {
@@ -143,6 +148,12 @@ func (r *Robots) get(base string) string {
 	body := r.fetch(base + "/robots.txt")
 
 	r.mu.Lock()
+	if len(r.cache) >= robotsCacheCap {
+		for k := range r.cache { // Go randomizes map range order -> arbitrary eviction
+			delete(r.cache, k)
+			break
+		}
+	}
 	r.cache[base] = body
 	r.mu.Unlock()
 	return body
