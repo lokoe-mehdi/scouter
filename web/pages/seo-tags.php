@@ -54,8 +54,8 @@ $metaDescStats = [
 
 // Stats par catégorie (sans jointure)
 $sqlSeoByCategory = "
-    SELECT 
-        cat_id,
+    SELECT
+        category,
         COUNT(*) as total,
         SUM(CASE WHEN title_status = 'empty' THEN 1 ELSE 0 END) as title_empty,
         SUM(CASE WHEN title_status = 'duplicate' THEN 1 ELSE 0 END) as title_duplicate,
@@ -68,19 +68,17 @@ $sqlSeoByCategory = "
         SUM(CASE WHEN metadesc_status = 'unique' THEN 1 ELSE 0 END) as meta_desc_unique
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
-    GROUP BY cat_id
-    ORDER BY cat_id
+    GROUP BY category
+    ORDER BY category
 ";
 $stmt = $pdo->prepare($sqlSeoByCategory);
 $stmt->execute([':crawl_id' => $crawlId]);
 $categoryStatsDataRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
 
-// Convertir cat_id en nom de catégorie
-$categoriesMap = $GLOBALS['categoriesMap'] ?? [];
+// La colonne category contient déjà le nom de catégorie
 $categoryStatsData = [];
 foreach ($categoryStatsDataRaw as $row) {
-    $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
     $categoryStatsData[] = $row;
 }
 

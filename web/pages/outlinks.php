@@ -46,8 +46,8 @@ try {
     
     // Moyenne d'outlinks par catégorie (sans jointure)
     $stmt = $pdo->prepare("
-        SELECT 
-            cat_id,
+        SELECT
+            category,
             COUNT(id) as url_count,
             ROUND(AVG(outlinks)::numeric, 2) as avg_outlinks,
             MIN(outlinks) as min_outlinks,
@@ -55,18 +55,16 @@ try {
             SUM(outlinks) as total_outlinks
         FROM pages
         WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
-        GROUP BY cat_id
+        GROUP BY category
         ORDER BY AVG(outlinks) DESC
     ");
     $stmt->execute([':crawl_id' => $crawlId]);
     $outlinksByCategoryRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
-    
-    // Convertir cat_id en nom de catégorie
-    $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
+
+    // category est déjà le nom de la catégorie
     $outlinksByCategory = [];
     foreach ($outlinksByCategoryRaw as $row) {
-        $catInfo = $categoriesMap[$row->cat_id] ?? null;
-        $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+        $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
         $outlinksByCategory[] = $row;
     }
     
@@ -86,12 +84,12 @@ try {
     
     // Top 100 des URLs avec le plus d'outlinks (sans jointure)
     $stmt = $pdo->prepare("
-        SELECT 
+        SELECT
             url,
             outlinks,
             depth,
             code,
-            cat_id
+            category
         FROM pages
         WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
         ORDER BY outlinks DESC, url ASC
@@ -99,11 +97,10 @@ try {
     ");
     $stmt->execute([':crawl_id' => $crawlId]);
     $topOutlinksUrls = $stmt->fetchAll(PDO::FETCH_OBJ);
-    
-    // Ajouter le nom de catégorie
+
+    // category est déjà le nom de la catégorie
     foreach ($topOutlinksUrls as $row) {
-        $catInfo = $categoriesMap[$row->cat_id] ?? null;
-        $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+        $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
     }
     
 } catch(PDOException $e) {

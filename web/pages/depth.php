@@ -40,25 +40,23 @@ $depthStats = $stmt->fetchAll(PDO::FETCH_OBJ);
 
 // Distribution par profondeur et catégorie (sans jointure)
 $sqlDepthByCategory = "
-    SELECT 
+    SELECT
         depth,
-        cat_id,
+        category,
         COUNT(*) as count
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true AND in_crawl = TRUE
-    GROUP BY depth, cat_id
-    ORDER BY depth, cat_id
+    GROUP BY depth, category
+    ORDER BY depth, category
 ";
 $stmt = $pdo->prepare($sqlDepthByCategory);
 $stmt->execute([':crawl_id' => $crawlId]);
 $depthByCategoryRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
 
-// Convertir cat_id en nom de catégorie
-$categoriesMap = $GLOBALS['categoriesMap'] ?? [];
+// La colonne category contient déjà le nom de catégorie
 $depthByCategory = [];
 foreach ($depthByCategoryRaw as $row) {
-    $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
     $depthByCategory[] = $row;
 }
 

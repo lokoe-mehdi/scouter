@@ -53,7 +53,7 @@ if (!empty($allPageIds)) {
     }, array_unique($allPageIds)));
     
     $stmt = $pdo->query("
-        SELECT id, url, title, inlinks, cat_id
+        SELECT id, url, title, inlinks, category
         FROM pages
         WHERE crawl_id = $crawlId AND id IN ($placeholders) AND in_crawl = TRUE
     ");
@@ -97,13 +97,8 @@ foreach ($allClustersRaw as $cluster) {
     
     // Répartition par catégorie
     foreach ($clusterPages as $page) {
-        $catId = $page['cat_id'] ?? null;
-        $catName = __('common.uncategorized');
-        $catColor = '#95a5a6';
-        if ($catId && isset($categoriesMap[$catId])) {
-            $catName = $categoriesMap[$catId]['cat'];
-            $catColor = $categoriesMap[$catId]['color'];
-        }
+        $catName = (($page['category'] ?? '') !== '') ? $page['category'] : __('common.uncategorized');
+        $catColor = getCategoryColor($catName);
 
         if (!isset($dupByCategoryMap[$catName])) {
             $dupByCategoryMap[$catName] = ['count' => 0, 'color' => $catColor];
@@ -241,12 +236,12 @@ FROM totals,
             $catPieData[] = ['name' => __('duplication.no_duplicates'), 'y' => 1, 'color' => '#e5e7eb'];
         }
         
-        $sqlDupByCategory = "SELECT cat_id, COUNT(*) AS page_count
+        $sqlDupByCategory = "SELECT category, COUNT(*) AS page_count
 FROM pages
 WHERE crawled = true AND compliant = true AND in_crawl = TRUE AND id IN (
     SELECT unnest(page_ids) FROM duplicate_clusters WHERE similarity >= {$minSimilarityPercent}
 )
-GROUP BY cat_id ORDER BY page_count DESC";
+GROUP BY category ORDER BY page_count DESC";
 
         Component::chart([
             'type' => 'donut',
@@ -440,15 +435,10 @@ GROUP BY cat_id ORDER BY page_count DESC";
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php foreach ($pages as $page): 
+                                    <?php foreach ($pages as $page):
                                         // Récupérer la catégorie et sa couleur
-                                        $catId = $page['cat_id'] ?? null;
-                                        $catName = __('common.uncategorized');
-                                        $catColor = '#95a5a6';
-                                        if ($catId && isset($categoriesMap[$catId])) {
-                                            $catName = $categoriesMap[$catId]['cat'];
-                                            $catColor = $categoriesMap[$catId]['color'];
-                                        }
+                                        $catName = (($page['category'] ?? '') !== '') ? $page['category'] : __('common.uncategorized');
+                                        $catColor = getCategoryColor($catName);
                                         // Calculer la couleur du texte
                                         $textColor = getTextColorForBackground($catColor);
                                     ?>
@@ -546,8 +536,7 @@ function copyClustersToClipboard() {
     try {
         // Préparer les données PHP en JSON
         const allClusters = <?= json_encode($allClusters) ?>;
-        const categoriesMap = <?= json_encode($categoriesMap) ?>;
-        
+
         // Créer le contenu tab-separated (pour Excel/Sheets)
         let content = 'Cluster\t<?= __('common.category') ?>\tURL\tTitle\tInlinks\n';
         
@@ -557,11 +546,7 @@ function copyClustersToClipboard() {
             
             pages.forEach(page => {
                 // Récupérer la catégorie
-                const catId = page.cat_id;
-                let catName = '<?= __('common.uncategorized') ?>';
-                if (catId && categoriesMap[catId]) {
-                    catName = categoriesMap[catId].cat;
-                }
+                let catName = page.category ? page.category : '<?= __('common.uncategorized') ?>';
                 
                 // Nettoyer les valeurs pour le format TSV
                 const url = (page.url || '').replace(/\t/g, ' ').replace(/\n/g, ' ');

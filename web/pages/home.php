@@ -81,10 +81,10 @@ foreach ($codeDataRaw as $row) {
 
 // Distribution des catégories (sans jointure, on utilise le tableau PHP)
 $sqlCategories = "
-    SELECT cat_id, COUNT(*) as count
+    SELECT category, COUNT(*) as count
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
-    GROUP BY cat_id
+    GROUP BY category
     ORDER BY count DESC
     LIMIT 20
 ";
@@ -92,37 +92,34 @@ $stmt = $pdo->prepare($sqlCategories);
 $stmt->execute([':crawl_id' => $crawlId]);
 $catDataRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
 
-// Convertir cat_id en nom de catégorie
-$categoriesMap = $GLOBALS['categoriesMap'] ?? [];
+// La colonne category contient déjà le nom de catégorie
 $catData = [];
 foreach ($catDataRaw as $row) {
-    $catInfo = $categoriesMap[$row->cat_id] ?? null;
     $obj = new stdClass();
-    $obj->cat = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $obj->cat = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
     $obj->count = $row->count;
     $catData[] = $obj;
 }
 
 // Distribution PageRank par catégorie (sans jointure)
 $sqlPageRank = "
-    SELECT 
-        cat_id,
+    SELECT
+        category,
         SUM(pri) as total_pr
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND pri > 0 AND in_crawl = TRUE
-    GROUP BY cat_id
+    GROUP BY category
     ORDER BY total_pr DESC
 ";
 $stmt = $pdo->prepare($sqlPageRank);
 $stmt->execute([':crawl_id' => $crawlId]);
 $prByCategoryRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
 
-// Convertir cat_id en nom de catégorie
+// La colonne category contient déjà le nom de catégorie
 $prByCategory = [];
 foreach ($prByCategoryRaw as $row) {
-    $catInfo = $categoriesMap[$row->cat_id] ?? null;
     $obj = new stdClass();
-    $obj->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $obj->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
     $obj->total_pr = $row->total_pr;
     $prByCategory[] = $obj;
 }

@@ -35,24 +35,22 @@ $schemaDistribution = $stmt->fetchAll(PDO::FETCH_OBJ);
 
 // Nombre moyen de schemas par page par catégorie
 $sqlSchemaByCategory = "
-    SELECT 
-        p.cat_id,
+    SELECT
+        p.category,
         COUNT(DISTINCT p.id) as total_pages,
         COALESCE(AVG(array_length(p.schemas, 1)), 0) as avg_schemas
     FROM pages p
     WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.compliant = true AND p.in_crawl = TRUE
-    GROUP BY p.cat_id
+    GROUP BY p.category
     ORDER BY avg_schemas DESC
 ";
 $stmt = $pdo->prepare($sqlSchemaByCategory);
 $stmt->execute([':crawl_id' => $crawlId]);
 $schemaByCategory = $stmt->fetchAll(PDO::FETCH_OBJ);
 
-// Convertir cat_id en nom de catégorie via le tableau global
-$categoriesMap = $GLOBALS['categoriesMap'] ?? [];
+// Nom de catégorie (déjà fourni par la colonne category)
 foreach ($schemaByCategory as $row) {
-    $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
 }
 
 // Nombre total de types de schemas distincts

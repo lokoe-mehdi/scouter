@@ -36,26 +36,24 @@ $prByDepth = $stmt->fetchAll(PDO::FETCH_OBJ);
 
 // Distribution PageRank par catégorie (sans jointure)
 $sqlPrByCategory = "
-    SELECT 
-        cat_id,
+    SELECT
+        category,
         SUM(pri) as total_pr,
         AVG(pri) as avg_pr,
         COUNT(*) as count
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND pri > 0 AND in_crawl = TRUE
-    GROUP BY cat_id
+    GROUP BY category
     ORDER BY AVG(pri) DESC
 ";
 $stmt = $pdo->prepare($sqlPrByCategory);
 $stmt->execute([':crawl_id' => $crawlId]);
 $prByCategoryRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
 
-// Convertir cat_id en nom de catégorie
-$categoriesMap = $GLOBALS['categoriesMap'] ?? [];
+// category est déjà le nom de la catégorie
 $prByCategory = [];
 foreach ($prByCategoryRaw as $row) {
-    $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
     $prByCategory[] = $row;
 }
 
@@ -106,9 +104,9 @@ $crawlIdInt = intval($crawlId);
 
 // Compter les liens internes dofollow entre catégories
 $sqlFluxCategories = "
-    SELECT 
-        ps.cat_id as source_cat_id,
-        pt.cat_id as target_cat_id,
+    SELECT
+        ps.category as source_cat,
+        pt.category as target_cat,
         COUNT(*) as link_count
     FROM links l
     INNER JOIN pages ps ON ps.crawl_id = l.crawl_id AND ps.id = l.src AND ps.in_crawl = TRUE
@@ -116,8 +114,8 @@ $sqlFluxCategories = "
     WHERE l.crawl_id = {$crawlIdInt}
       AND l.nofollow = false
       AND ps.external = false AND pt.external = false
-      AND ps.cat_id IS NOT NULL AND pt.cat_id IS NOT NULL
-    GROUP BY ps.cat_id, pt.cat_id
+      AND ps.category != '' AND pt.category != ''
+    GROUP BY ps.category, pt.category
 ";
 $stmt = $pdo->prepare($sqlFluxCategories);
 $stmt->execute();
@@ -125,8 +123,8 @@ $linkCountsRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
 
 // Compter les liens vers l'externe par catégorie source
 $sqlExternalLinks = "
-    SELECT 
-        ps.cat_id as source_cat_id,
+    SELECT
+        ps.category as source_cat,
         COUNT(*) as link_count
     FROM links l
     INNER JOIN pages ps ON ps.crawl_id = l.crawl_id AND ps.id = l.src AND ps.in_crawl = TRUE
@@ -134,8 +132,8 @@ $sqlExternalLinks = "
     WHERE l.crawl_id = {$crawlIdInt}
       AND l.nofollow = false
       AND ps.external = false AND pt.external = true
-      AND ps.cat_id IS NOT NULL
-    GROUP BY ps.cat_id
+      AND ps.category != ''
+    GROUP BY ps.category
 ";
 $stmt = $pdo->prepare($sqlExternalLinks);
 $stmt->execute();
@@ -161,8 +159,8 @@ foreach ($linkCountsRaw as $row) {
 // Ajouter les liens externes (en %)
 foreach ($externalLinksRaw as $row) {
     $extRow = new stdClass();
-    $extRow->source_cat_id = $row->source_cat_id;
-    $extRow->target_cat_id = 'external';
+    $extRow->source_cat = $row->source_cat;
+    $extRow->target_cat = 'external';
     $extRow->link_count = $row->link_count;
     $extRow->flux_pr = $totalLinks > 0 ? round(((int)$row->link_count / $totalLinks) * 100, 2) : 0;
     $extRow->is_external = true;
@@ -178,16 +176,14 @@ $sourceNodes = [];
 $targetNodes = [];
 
 foreach ($fluxCategoriesRaw as $row) {
-    $sourceCatInfo = $categoriesMap[$row->source_cat_id] ?? null;
-    $sourceName = $sourceCatInfo ? $sourceCatInfo['cat'] : __('common.uncategorized');
-    
+    $sourceName = (($row->source_cat ?? '') !== '') ? $row->source_cat : __('common.uncategorized');
+
     // Gérer le cas externe
-    if ($row->target_cat_id === 'external') {
+    if ($row->target_cat === 'external') {
         $targetName = __('pagerank_leak.series_external');
         $targetColor = '#e74c3c'; // Rouge pour externe
     } else {
-        $targetCatInfo = $categoriesMap[$row->target_cat_id] ?? null;
-        $targetName = $targetCatInfo ? $targetCatInfo['cat'] : __('common.uncategorized');
+        $targetName = (($row->target_cat ?? '') !== '') ? $row->target_cat : __('common.uncategorized');
         $targetColor = getCategoryColor($targetName);
     }
     

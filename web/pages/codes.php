@@ -54,24 +54,22 @@ $codeStats = $stmt->fetchAll(PDO::FETCH_OBJ);
 
 // Distribution par catégorie et code HTTP (sans jointure, on utilise le tableau PHP)
 $sqlCodeByCategory = "
-    SELECT 
-        p.cat_id,
+    SELECT
+        p.category,
         p.code,
         COUNT(*) as count
     FROM pages p
     WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.in_crawl = TRUE
-    GROUP BY p.cat_id, p.code
-    ORDER BY count DESC, p.cat_id, p.code
+    GROUP BY p.category, p.code
+    ORDER BY count DESC, p.category, p.code
 ";
 $stmt = $pdo->prepare($sqlCodeByCategory);
 $stmt->execute([':crawl_id' => $crawlId]);
 $codeByCategory = $stmt->fetchAll(PDO::FETCH_OBJ);
 
-// Convertir cat_id en nom de catégorie via le tableau global
-$categoriesMap = $GLOBALS['categoriesMap'] ?? [];
+// La colonne category contient déjà le nom de catégorie
 foreach ($codeByCategory as $row) {
-    $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
 }
 
 /**
