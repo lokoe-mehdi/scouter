@@ -42,6 +42,10 @@ if (!function_exists('getCodeLabel')) { function getCodeLabel($c){return (string
 if (!function_exists('getCodeFullLabel')) { function getCodeFullLabel($c){return (string)$c;} }
 if (!function_exists('getCodeClass')) { function getCodeClass($c){return 'code';} }
 if (!function_exists('getTextColorForBackground')) { function getTextColorForBackground($c){return '#000';} }
+if (!function_exists('getCodeColor')) { function getCodeColor($c){return '#888';} }
+if (!function_exists('getCodeLabel')) { function getCodeLabel($c){return (string)$c;} }
+if (!function_exists('getCodeFullLabel')) { function getCodeFullLabel($c){return (string)$c;} }
+if (!function_exists('getCodeClass')) { function getCodeClass($c){return 'code';} }
 
 // Comparison scorecards (same NOT IN form dashboard.php precomputes).
 $safeCrId = $crawlId; $safeCompId = $compareId;

@@ -358,8 +358,10 @@ if($useSimplifiedMode) {
     
     // Vérifier si WHERE existe déjà
     if(stripos($whereClause, 'WHERE') !== false) {
-        // Ajouter le crawl_id après WHERE
-        $whereClause = preg_replace('/WHERE\s+/i', 'WHERE ' . $crawlIdCondition . ' AND ', $whereClause);
+        // Ajouter le crawl_id après LE PREMIER WHERE seulement (limit 1) — sinon on
+        // l'injecte aussi dans les sous-requêtes (NOT IN (SELECT ... WHERE ...)), ce
+        // qui les rend corrélées (c.crawl_id du scope parent) → ClickHouse refuse.
+        $whereClause = preg_replace('/WHERE\s+/i', 'WHERE ' . $crawlIdCondition . ' AND ', $whereClause, 1);
     } else {
         $whereClause = 'WHERE ' . $crawlIdCondition;
     }
