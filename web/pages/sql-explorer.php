@@ -150,10 +150,10 @@ $savedQueries = [
 
     // === CONTENU ===
     ['key' => 'thin_content',           'category_key' => 'content', 'query' => "SELECT\n\turl,\n\tword_count,\n\tpri AS pagerank\nFROM pages\nWHERE compliant = true AND word_count < 250 AND word_count > 0\nORDER BY pagerank DESC\nLIMIT 100"],
-    ['key' => 'word_count_by_category', 'category_key' => 'content', 'query' => "SELECT\n\tCOALESCE(c.cat, 'Uncategorized') AS category,\n\tCOUNT(*) AS pages,\n\tROUND(AVG(p.word_count)::numeric, 0) AS avg_words,\n\tMIN(p.word_count) AS min_words,\n\tMAX(p.word_count) AS max_words\nFROM pages p\nLEFT JOIN crawl_categories c ON c.id = p.cat_id\nWHERE p.compliant = true\nGROUP BY category\nORDER BY pages DESC"],
+    ['key' => 'word_count_by_category', 'category_key' => 'content', 'query' => "SELECT\n\tIF(category = '', 'Uncategorized', category) AS category,\n\tCOUNT(*) AS pages,\n\tROUND(AVG(word_count), 0) AS avg_words,\n\tMIN(word_count) AS min_words,\n\tMAX(word_count) AS max_words\nFROM pages\nWHERE compliant = true\nGROUP BY category\nORDER BY pages DESC"],
 
     // === VUE GLOBALE ===
-    ['key' => 'category_overview',      'category_key' => 'overview', 'query' => "SELECT\n\tCOALESCE(c.cat, 'Uncategorized') AS category,\n\tCOUNT(*) AS total_pages,\n\tSUM(CASE WHEN p.compliant THEN 1 ELSE 0 END) AS indexable_pages,\n\tROUND(100.0 * SUM(CASE WHEN p.compliant THEN 1 ELSE 0 END) / COUNT(*), 1) AS pct_indexable,\n\tROUND(AVG(p.pri)::numeric, 5) AS avg_pagerank,\n\tROUND(AVG(p.inlinks)::numeric, 1) AS avg_inlinks,\n\tROUND(AVG(p.word_count)::numeric, 0) AS avg_words\nFROM pages p\nLEFT JOIN crawl_categories c ON c.id = p.cat_id\nWHERE p.external = false AND p.in_crawl = true\nGROUP BY category\nORDER BY total_pages DESC"],
+    ['key' => 'category_overview',      'category_key' => 'overview', 'query' => "SELECT\n\tIF(category = '', 'Uncategorized', category) AS category,\n\tCOUNT(*) AS total_pages,\n\tSUM(CASE WHEN compliant THEN 1 ELSE 0 END) AS indexable_pages,\n\tROUND(100.0 * SUM(CASE WHEN compliant THEN 1 ELSE 0 END) / COUNT(*), 1) AS pct_indexable,\n\tROUND(AVG(pri), 5) AS avg_pagerank,\n\tROUND(AVG(inlinks), 1) AS avg_inlinks,\n\tROUND(AVG(word_count), 0) AS avg_words\nFROM pages\nWHERE external = false AND in_crawl = true\nGROUP BY category\nORDER BY total_pages DESC"],
 ];
 
 // Hydrate name/description/category depuis i18n
