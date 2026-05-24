@@ -54,15 +54,22 @@ crawl-par-crawl via `crawls.data_store` (`pg` | `clickhouse`).
   données). **Off par défaut** (sinon les rapports de comparaison, encore sur PG,
   casseraient).
 
-**Reste à faire (pas bloquant — PG dual-write fait tourner l'app) :**
-- ⛔ **Rapports de COMPARAISON** (`*-comparison.php`) : encore sur PG. Blocage réel —
-  ils utilisent des **sous-requêtes corrélées cross-crawl** (ex. `b.depth != c.depth`
-  par URL via `EXISTS (... b.url = c.url)`) que **ClickHouse ne supporte pas**. Il
-  faut réécrire `url-table.php` en **JOIN de comparaison** (référencer `cmp.depth` au
-  lieu d'un EXISTS corrélé) pour chaque rapport. Le shim `ChPdo` est DÉJÀ prêt pour la
-  comparaison (param `compareId`, `pages@id`/`pages_<id>`, NOT IN). Prérequis pour
-  activer `CLICKHOUSE_DROP_PG`. NB : les diffs new/lost-urls sont déjà dé-corrélés
-  (NOT IN), donc CH-compatibles.
+- ✅ **TOUS les rapports sur ClickHouse** (PG = crawl-time only). `dashboard.php`
+  route tout vers `ChPdo` (mono ET comparaison). `cat_id` éliminé partout :
+  catégorie = colonne `category` live (nom). **14 rapports mono-crawl + 16 rapports
+  de comparaison + url/link-explorer + composants** validés sur CH (harness
+  `ch_report_smoke.php` / `ch_compare_smoke.php`, crawl 631). Sous-requêtes
+  corrélées cross-crawl (EXISTS `b.url=c.url`, `b.depth!=c.depth`) réécrites en
+  `IN`/`NOT IN` non-corrélées (les value-change via un JOIN DANS la sous-requête).
+  Fix racine : url-table injectait `c.crawl_id` dans CHAQUE WHERE (corrélation) →
+  limité au 1er. Filtres catégorie des explorers = par nom.
+- ✅ **Backfill PG→CH** : `scouter-crawler backfill <id|all>` migre les crawls PG
+  existants dans CH (décode HTML, extracts→Map, recalcule le post-proc, flip
+  `data_store`). Validé sur crawl 630.
+
+**Reste à faire :**
+- ⛔ Activer `CLICKHOUSE_DROP_PG=1` une fois confiance acquise (drop PG en fin de
+  crawl). Tout est prêt — c'était bloqué par la comparaison, désormais sur CH.
 - ⛔ **`in_sitemap`** dans CH : laissé à 0 dans page_metrics (membership sitemap pas
   encore dans CH). À traiter avec l'analyse sitemap dans CH.
 - ⛔ **Prompts du chat IA** (`DrBriefPrompt`/`SqlGenPrompt`) : dialecte PG. (Le MCP
