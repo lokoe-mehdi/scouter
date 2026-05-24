@@ -81,7 +81,8 @@ jobs:
           --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
           --health-interval 5s
           --health-timeout 5s
-          --health-retries 10
+          --health-retries 15
+          --health-start-period 30s
         ports:
           - 8123:8123
 
