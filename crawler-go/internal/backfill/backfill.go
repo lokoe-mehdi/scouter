@@ -53,9 +53,24 @@ func (b *Backfiller) All(ctx context.Context) error {
 	}
 	rows.Close()
 	b.logf("backfill: %d crawl(s) to migrate", len(ids))
+	// Phase 1: pages/links/schemas + post-processing + flip data_store. This is
+	// what makes the REPORTS work, so every crawl becomes "migrated" fast — the
+	// heavy HTML (view-source only) is deferred to phase 2 so one huge crawl's
+	// HTML doesn't block all the others.
+	var done []int
 	for _, id := range ids {
-		if err := b.Crawl(ctx, id); err != nil {
+		if err := b.migrate(ctx, id, false); err != nil {
 			b.logf("backfill crawl %d FAILED: %v", id, err)
+			continue
+		}
+		done = append(done, id)
+	}
+	// Phase 2: backfill HTML for the migrated crawls (best-effort, non-blocking
+	// for the reports which already read ClickHouse).
+	b.logf("backfill: phase 2 — HTML for %d crawl(s)", len(done))
+	for _, id := range done {
+		if err := b.html(ctx, id); err != nil {
+			b.logf("backfill crawl %d: html partial (%v)", id, err)
 		}
 	}
 	return nil
@@ -119,13 +134,21 @@ func (b *Backfiller) PurgePG(ctx context.Context, target string) error {
 	return nil
 }
 
-// Crawl backfills one crawl PG -> CH and flips data_store.
+// Crawl backfills one crawl PG -> CH, including HTML (single/manual use).
 func (b *Backfiller) Crawl(ctx context.Context, crawlID int) error {
+	return b.migrate(ctx, crawlID, true)
+}
+
+// migrate does the PG->CH migration of one crawl. withHTML controls whether the
+// heavy HTML (view-source only) is migrated inline; All() defers it to phase 2.
+func (b *Backfiller) migrate(ctx context.Context, crawlID int, withHTML bool) error {
 	cid := strconv.Itoa(crawlID)
 	b.logf("backfill crawl %d: starting", crawlID)
 
-	// Idempotent: clear any prior CH data for this crawl.
-	for _, t := range []string{"pages", "links", "html", "page_schemas", "page_metrics", "duplicate_clusters", "redirect_chains"} {
+	// Idempotent: clear any prior CH data for this crawl (except HTML, which is
+	// dropped+rebuilt in its own step so a re-run doesn't wipe a good HTML copy).
+	tables := []string{"pages", "links", "page_schemas", "page_metrics", "duplicate_clusters", "redirect_chains"}
+	for _, t := range tables {
 		_ = b.ch.DropPartition(ctx, b.ch.DB()+"."+t, crawlID)
 	}
 
@@ -134,12 +157,6 @@ func (b *Backfiller) Crawl(ctx context.Context, crawlID int) error {
 	}
 	if err := b.links(ctx, crawlID); err != nil {
 		return fmt.Errorf("links: %w", err)
-	}
-	// HTML is non-critical (only the "view source" feature, not the reports) and
-	// the heaviest to stream. A failure here must not abort the whole migration —
-	// log and continue so pages/links/metrics still land and data_store flips.
-	if err := b.html(ctx, crawlID); err != nil {
-		b.logf("backfill crawl %d: html partial (%v) — continuing", crawlID, err)
 	}
 	if err := b.schemas(ctx, crawlID); err != nil {
 		return fmt.Errorf("page_schemas: %w", err)
@@ -162,7 +179,14 @@ func (b *Backfiller) Crawl(ctx context.Context, crawlID int) error {
 	if _, err := b.pool.Exec(ctx, "UPDATE crawls SET data_store='clickhouse' WHERE id=$1", crawlID); err != nil {
 		return fmt.Errorf("set data_store: %w", err)
 	}
-	b.logf("backfill crawl %d: done (%d pages in CH)", crawlID, chCount)
+	b.logf("backfill crawl %d: done (%d pages in CH) — reports now on ClickHouse", crawlID, chCount)
+
+	// HTML last (view-source only). All() defers this to phase 2 (withHTML=false).
+	if withHTML {
+		if err := b.html(ctx, crawlID); err != nil {
+			b.logf("backfill crawl %d: html partial (%v)", crawlID, err)
+		}
+	}
 	return nil
 }
 
@@ -273,6 +297,8 @@ func (b *Backfiller) links(ctx context.Context, crawlID int) error {
 }
 
 func (b *Backfiller) html(ctx context.Context, crawlID int) error {
+	// Own the html partition lifecycle (it's migrated separately from the rest).
+	_ = b.ch.DropPartition(ctx, b.ch.DB()+".html", crawlID)
 	rows, err := b.pool.Query(ctx, `SELECT id, html FROM html WHERE crawl_id=$1`, crawlID)
 	if err != nil {
 		return err

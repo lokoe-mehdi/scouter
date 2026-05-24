@@ -422,43 +422,6 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
             </div>
         </div>
 
-        <!-- Projects table -->
-        <div class="mon-card">
-            <div class="mon-card-title">
-                <span class="material-symbols-outlined">folder</span>
-                <?= __('monitor.projects') ?>
-                <span style="font-size: 0.7rem; background: var(--background, #f5f7fa); color: var(--text-secondary); padding: 2px 8px; border-radius: 10px; font-weight: 600; margin-left: 0.25rem;"><?= count($projects) ?></span>
-            </div>
-            <div class="mon-proj-head">
-                <span>Project</span>
-                <span>Owner</span>
-                <span style="text-align: center;">Crawls</span>
-                <span style="text-align: right;">Size</span>
-                <span></span>
-            </div>
-            <div class="mon-proj-list">
-                <?php if (empty($projects)): ?>
-                <div class="mon-empty">
-                    <span class="material-symbols-outlined">folder_off</span>
-                    No projects
-                </div>
-                <?php else: foreach ($projects as $proj):
-                    $sizeColor = $proj->size_bytes >= 1073741824 ? '#ef4444' : ($proj->size_bytes >= 104857600 ? '#d97706' : 'var(--text-primary)');
-                ?>
-                <div class="mon-proj-row">
-                    <span class="mon-proj-name" title="<?= htmlspecialchars($proj->name) ?>"><?= htmlspecialchars($proj->name) ?></span>
-                    <span class="mon-proj-owner" title="<?= htmlspecialchars($proj->owner) ?>"><?= htmlspecialchars($proj->owner) ?></span>
-                    <span class="mon-proj-count"><?= $proj->crawl_count ?></span>
-                    <span class="mon-proj-size" style="color: <?= $sizeColor ?>;"><?= monitorFormatBytes($proj->size_bytes) ?></span>
-                    <a href="../project.php?id=<?= $proj->id ?>" class="mon-proj-link">
-                        <span class="material-symbols-outlined">open_in_new</span>
-                        View
-                    </a>
-                </div>
-                <?php endforeach; endif; ?>
-            </div>
-        </div>
-
         <!-- Per-crawl storage (PG vs ClickHouse) + migration progress -->
         <div class="mon-card">
             <div class="mon-card-title">
