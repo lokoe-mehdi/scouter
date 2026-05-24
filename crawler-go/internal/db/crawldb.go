@@ -345,6 +345,13 @@ func (c *CrawlDB) SetStopped(ctx context.Context) error {
 	return err
 }
 
+// SetDataStore records where this crawl's data lives ('pg' | 'clickhouse'), so
+// the read layer can route queries. Set to 'clickhouse' at crawl start when CH
+// dual-write is active. Best-effort (the column exists after its migration).
+func (c *CrawlDB) SetDataStore(ctx context.Context, store string) {
+	_, _ = c.pool.Exec(ctx, "UPDATE crawls SET data_store=$1 WHERE id=$2", store, c.CrawlID)
+}
+
 // Pool exposes the underlying pool (used by postprocess which runs raw SQL).
 func (c *CrawlDB) Pool() *Pool { return c.pool }
 

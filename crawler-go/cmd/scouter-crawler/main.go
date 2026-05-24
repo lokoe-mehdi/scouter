@@ -157,6 +157,10 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 	}
 
 	chStore := crawl.NewCHStore(ch, rec.ID, logf)
+	if ch != nil {
+		// Route this crawl's reads to ClickHouse (data is dual-written there).
+		cdb.SetDataStore(ctx, "clickhouse")
+	}
 
 	engine := crawl.NewEngine(cdb, cfg, crawl.Options{
 		RendererURLs: rendererURLs,

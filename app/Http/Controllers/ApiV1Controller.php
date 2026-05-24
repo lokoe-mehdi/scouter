@@ -9,6 +9,8 @@ use App\Database\PostgresDatabase;
 use App\Database\ProjectRepository;
 use App\Database\CrawlRepository;
 use App\AI\SqlExecutor;
+use App\AI\ClickHouseSqlExecutor;
+use App\Database\CrawlStore;
 use App\Analysis\CategorizationService;
 use App\Api\PageContent;
 use App\Job\JobManager;
@@ -129,6 +131,23 @@ class ApiV1Controller extends Controller
         if ($crawl === null) return;
         $cid = (int)$crawl->id;
 
+        if (CrawlStore::usesClickHouse($cid)) {
+            Response::json([
+                'data' => [
+                    'tables' => $this->clickHouseVirtualSchema(),
+                    'notes'  => 'ClickHouse data store. Use virtual names (`pages`, `links`, '
+                              . '`duplicate_clusters`, `page_schemas`, `redirect_chains`). '
+                              . '`pages.category` is computed live from the project rules (no cat_id). '
+                              . 'inlinks/pri/title_status/h1_status/metadesc_status/in_sitemap come from '
+                              . 'post-processing. ClickHouse SQL dialect (RE2 regex via match(), '
+                              . 'Map access extracts[\'k\']). Query other crawls of the SAME project with '
+                              . '`pages@<id>`. SELECT / WITH … SELECT only.',
+                ],
+                'meta' => ['crawl_id' => $cid, 'data_store' => 'clickhouse'],
+            ]);
+            return;
+        }
+
         // Virtual name → physical table (partitioned ones carry the crawl id).
         $map = [
             'pages'              => "pages_{$cid}",
@@ -167,6 +186,53 @@ class ApiV1Controller extends Controller
         ]);
     }
 
+    /**
+     * The virtual table schema exposed for ClickHouse crawls (stable; mirrors
+     * the crawl_id-filtered subqueries built by ClickHouseSqlExecutor).
+     *
+     * @return array<string,array<int,array{name:string,type:string}>>
+     */
+    private function clickHouseVirtualSchema(): array
+    {
+        $col = fn(string $n, string $t) => ['name' => $n, 'type' => $t];
+        return [
+            'pages' => [
+                $col('id', 'FixedString(8)'), $col('date', 'DateTime'), $col('domain', 'String'),
+                $col('url', 'String'), $col('depth', 'Int32'), $col('code', 'Int32'),
+                $col('response_time', 'Float64'), $col('outlinks', 'Int32'),
+                $col('content_type', 'String'), $col('redirect_to', 'String'),
+                $col('crawled', 'UInt8'), $col('compliant', 'UInt8'), $col('noindex', 'UInt8'),
+                $col('nofollow', 'UInt8'), $col('canonical', 'UInt8'), $col('canonical_value', 'String'),
+                $col('external', 'UInt8'), $col('blocked', 'UInt8'), $col('title', 'String'),
+                $col('h1', 'String'), $col('metadesc', 'String'), $col('extracts', 'Map(String,String)'),
+                $col('simhash', 'Nullable(Int64)'), $col('is_html', 'UInt8'), $col('h1_multiple', 'UInt8'),
+                $col('headings_missing', 'UInt8'), $col('schemas', 'Array(String)'), $col('word_count', 'Int32'),
+                // derived (post-processing) + live categorization:
+                $col('inlinks', 'Int32'), $col('pri', 'Float64'), $col('title_status', 'String'),
+                $col('h1_status', 'String'), $col('metadesc_status', 'String'), $col('in_sitemap', 'UInt8'),
+                $col('category', 'String'),
+            ],
+            'links' => [
+                $col('src', 'FixedString(8)'), $col('target', 'FixedString(8)'), $col('anchor', 'String'),
+                $col('external', 'UInt8'), $col('nofollow', 'UInt8'), $col('type', 'String'),
+                $col('xpath', 'Nullable(String)'), $col('position', 'String'),
+            ],
+            'duplicate_clusters' => [
+                $col('cluster_id', 'Int32'), $col('similarity', 'Int32'),
+                $col('page_count', 'Int32'), $col('page_ids', 'Array(String)'),
+            ],
+            'page_schemas' => [
+                $col('page_id', 'FixedString(8)'), $col('schema_type', 'String'),
+            ],
+            'redirect_chains' => [
+                $col('chain_id', 'Int32'), $col('source_id', 'FixedString(8)'), $col('source_url', 'String'),
+                $col('final_id', 'String'), $col('final_url', 'String'), $col('final_code', 'Int32'),
+                $col('final_compliant', 'UInt8'), $col('hops', 'Int32'), $col('is_loop', 'UInt8'),
+                $col('chain_ids', 'Array(String)'),
+            ],
+        ];
+    }
+
     // -------------------------------------------------------------------------
     // POST /api/v1/crawls/{id}/query  — paginated read-only SQL
     // -------------------------------------------------------------------------
@@ -185,7 +251,10 @@ class ApiV1Controller extends Controller
         $withCount = $request->get('count', true) !== false;
         $offset   = ($page - 1) * $pageSize;
 
-        $exec = (new SqlExecutor())->executePaginated($sql, $cid, $pageSize, $offset, $withCount);
+        $executor = CrawlStore::usesClickHouse($cid)
+            ? new ClickHouseSqlExecutor()
+            : new SqlExecutor();
+        $exec = $executor->executePaginated($sql, $cid, $pageSize, $offset, $withCount);
         if (!$exec['ok']) {
             Response::error($exec['error'] ?? 'Query failed', 422);
             return;

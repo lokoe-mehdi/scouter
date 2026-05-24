@@ -88,7 +88,10 @@ CREATE TABLE crawls (
     redirect_total INTEGER DEFAULT 0,
     redirect_chains_count INTEGER DEFAULT 0,
     redirect_chains_errors INTEGER DEFAULT 0,
-    scheduled BOOLEAN DEFAULT FALSE
+    scheduled BOOLEAN DEFAULT FALSE,
+    -- Where this crawl's data lives: 'pg' (legacy) or 'clickhouse'. Set by the
+    -- Go crawler at crawl start when ClickHouse is enabled; routes the reads.
+    data_store VARCHAR(16) DEFAULT 'pg' CHECK (data_store IN ('pg', 'clickhouse'))
 );
 
 CREATE INDEX idx_crawls_path ON crawls(path);

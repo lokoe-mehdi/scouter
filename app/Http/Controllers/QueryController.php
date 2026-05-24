@@ -7,6 +7,8 @@ use App\Http\Request;
 use App\Http\Response;
 use App\Database\PostgresDatabase;
 use App\Database\CrawlDatabase;
+use App\Database\CrawlStore;
+use App\AI\ClickHouseSqlExecutor;
 use PDO;
 
 /**
@@ -71,6 +73,28 @@ class QueryController extends Controller
         }
 
         $crawlId = $crawlRecord->id;
+
+        // ClickHouse-backed crawl → delegate to the CH executor (crawl_id-forced
+        // subqueries, live `category`, CH dialect). PG path below otherwise.
+        if (CrawlStore::usesClickHouse((int)$crawlId)) {
+            $res = (new ClickHouseSqlExecutor())->execute($query, (int)$crawlId, 10000);
+            if (!$res['ok']) {
+                Response::forbidden($res['error'] ?? 'Query failed');
+                return;
+            }
+            $rows = array_map(function ($row) {
+                unset($row['crawl_id']);
+                return $row;
+            }, $res['rows']);
+            $columns = array_values(array_filter($res['columns'] ?? [], fn($c) => $c !== 'crawl_id'));
+            $this->json([
+                'type'    => 'select',
+                'columns' => $columns,
+                'rows'    => $rows,
+                'count'   => count($rows),
+            ]);
+            return;
+        }
 
         // SÉCURITÉ : Nettoyage et validation stricte
         $queryClean = preg_replace('/\/\*.*?\*\//s', ' ', $query); // strip block comments
