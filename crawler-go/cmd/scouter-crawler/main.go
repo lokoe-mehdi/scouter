@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"scouter-crawler/internal/backfill"
 	"scouter-crawler/internal/config"
 	"scouter-crawler/internal/crawl"
 	"scouter-crawler/internal/db"
@@ -50,6 +51,34 @@ func main() {
 		log.Printf("[%s] ClickHouse disabled (connect failed): %v", workerID, chErr)
 	} else if ch != nil {
 		log.Printf("[%s] ClickHouse enabled — dual-write + post-processing in CH", workerID)
+	}
+
+	// Backfill mode: `scouter-crawler backfill <crawlId|all>` migrates existing
+	// PostgreSQL crawls into ClickHouse, then exits.
+	if len(os.Args) > 1 && os.Args[1] == "backfill" {
+		if ch == nil {
+			log.Fatal("backfill requires CLICKHOUSE_URL to be set")
+		}
+		target := "all"
+		if len(os.Args) > 2 {
+			target = os.Args[2]
+		}
+		bf := backfill.New(pool, ch, func(f string, a ...any) { log.Printf(f, a...) })
+		if target == "all" {
+			if err := bf.All(ctx); err != nil {
+				log.Fatalf("backfill all: %v", err)
+			}
+		} else {
+			id, err := strconv.Atoi(target)
+			if err != nil {
+				log.Fatalf("backfill: invalid crawl id %q", target)
+			}
+			if err := bf.Crawl(ctx, id); err != nil {
+				log.Fatalf("backfill crawl %d: %v", id, err)
+			}
+		}
+		log.Printf("[%s] backfill finished", workerID)
+		return
 	}
 
 	mgr := jobs.New(pool, workerID)
