@@ -18,12 +18,15 @@
 -- Run automatically by the clickhouse-server image (mounted into
 -- /docker-entrypoint-initdb.d/). The `scouter` database/user are created by the
 -- image from CLICKHOUSE_DB / CLICKHOUSE_USER / CLICKHOUSE_PASSWORD env vars.
+--
+-- NOTE: keep this file free of ';' inside comments/literals — the CI loader
+-- (.github/workflows/tests.yml) splits it on ';' to POST each DDL over HTTP.
 -- ============================================================================
 
 CREATE DATABASE IF NOT EXISTS scouter;
 
 -- ---------------------------------------------------------------------------
--- pages — one row per crawled+parsed page (observed signals only; derived
+-- pages — one row per crawled+parsed page (observed signals only — derived
 -- fields live in page_metrics). Mirrors the observed columns of PG `pages`
 -- minus cat_id / inlinks / pri / *_status / in_sitemap (derived).
 -- ---------------------------------------------------------------------------
@@ -83,7 +86,7 @@ PARTITION BY crawl_id
 ORDER BY (crawl_id, src);
 
 -- ---------------------------------------------------------------------------
--- html — raw page HTML (ZSTD-compressed; replaces PG base64+gzdeflate).
+-- html — raw page HTML (ZSTD-compressed, replaces PG base64+gzdeflate).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS scouter.html
 (
