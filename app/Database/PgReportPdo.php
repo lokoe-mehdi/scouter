@@ -77,6 +77,9 @@ class PgReportPdo
 
     private function rewrite(string $sql): string
     {
+        // Normalise the SQL-Explorer multi-crawl syntax pages@<id> to pages_<id>
+        // so the rule below handles it (comparison reports use pages@<id>).
+        $sql = preg_replace('/\bpages@(\d+)\b/i', 'pages_$1', $sql);
         // pages_<id> (explicit partition, comparison) → that crawl's source.
         $sql = preg_replace_callback(
             '/\b(FROM|JOIN)\s+pages_(\d+)\b(\s+(?:AS\s+)?([a-zA-Z_][a-zA-Z0-9_]*))?/i',
