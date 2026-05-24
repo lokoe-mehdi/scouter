@@ -327,6 +327,7 @@ func (c *CrawlDB) UpdateCrawlStats(ctx context.Context) error {
 				crawled = (SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND crawled=true AND in_crawl=TRUE),
 				compliant = (SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND compliant=true AND in_crawl=TRUE),
 				duplicates = (SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND canonical=false AND in_crawl=TRUE),
+				critical_errors = (SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND code>=400 AND crawled=true AND in_crawl=TRUE),
 				response_time = ROUND(COALESCE((SELECT AVG(response_time) FROM pages WHERE crawl_id=$1 AND code=200 AND response_time>0 AND in_crawl=TRUE),0)::numeric, 2),
 				depth_max = COALESCE((SELECT MAX(depth) FROM pages WHERE crawl_id=$1 AND crawled=true AND in_crawl=TRUE),0),
 				in_progress = (SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND crawled=false AND external=false AND in_crawl=TRUE)

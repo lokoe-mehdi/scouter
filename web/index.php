@@ -57,10 +57,15 @@ function processCrawlsForProject($project, $crawls, $jobManager) {
             "name" => $crawl->domain,
             "date" => date("d/m/Y H:i", $timestamp),
             "timestamp" => $timestamp,
+            "started_at" => $crawl->started_at ?? null,
+            "finished_at" => $crawl->finished_at ?? null,
             "stats" => [
                 'urls' => $crawl->urls,
                 'crawled' => $crawl->crawled,
-                'compliant' => $crawl->compliant
+                'compliant' => $crawl->compliant,
+                'duplicates' => $crawl->duplicates ?? 0,
+                'critical_errors' => $crawl->critical_errors ?? 0,
+                'response_time' => $crawl->response_time ?? 0
             ],
             "job_status" => $jobStatus,
             "in_progress" => $crawl->in_progress ?? 0,
@@ -246,10 +251,43 @@ try {
     }
     unset($p);
     
+    // Erreurs critiques (pages 4xx/5xx) : UNE seule requête ClickHouse pour tous
+    // les crawls affichés, comptées à l'affichage (comme un KPI normal), injectées
+    // dans chaque crawl. Pas de colonne, pas de script.
+    $allCrawlIds = [];
+    foreach ([$myProjects, $sharedProjects, $otherProjects] as $list) {
+        foreach ($list as $p) {
+            foreach (($p->crawls ?? []) as $c) { $allCrawlIds[(int)$c->crawl_id] = true; }
+        }
+    }
+    if (!empty($allCrawlIds) && \App\Database\ClickHouseDatabase::enabled()) {
+        try {
+            $idList = implode(',', array_map('intval', array_keys($allCrawlIds)));
+            $critRows = \App\Database\ClickHouseDatabase::getInstance()->select(
+                "SELECT crawl_id, countDistinct(id) AS n FROM pages
+                 WHERE crawl_id IN ($idList) AND code >= 400 AND crawled = 1
+                 GROUP BY crawl_id"
+            );
+            $critMap = [];
+            foreach ($critRows as $cr) { $critMap[(int)$cr['crawl_id']] = (int)$cr['n']; }
+            foreach ([$myProjects, $sharedProjects, $otherProjects] as $list) {
+                foreach ($list as $p) {
+                    foreach (($p->crawls ?? []) as $c) {
+                        $stats = $c->stats;
+                        $stats['critical_errors'] = $critMap[(int)$c->crawl_id] ?? 0;
+                        $c->stats = $stats;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log("critical_errors CH query failed: " . $e->getMessage());
+        }
+    }
+
     // Calculer le total des projets pour l'affichage
     $totalProjects = count($myProjects) + count($sharedProjects) + count($otherProjects);
     $hasProjects = $totalProjects > 0;
-    
+
 } catch(Exception $e) {
     error_log("Erreur lors du chargement des projets: " . $e->getMessage());
     $hasProjects = false;
@@ -272,6 +310,7 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
     <link rel="stylesheet" href="assets/style.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/responsive.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/crawl-panel.css?v=<?= time() ?>">
+    <link rel="stylesheet" href="assets/home-redesign.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
     <style>
         .config-icon {
@@ -350,7 +389,26 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
     <div class="container-with-sidebar">
         <?php if($hasProjects): ?>
         <!-- Categories Sidebar -->
-        <aside class="categories-sidebar">
+        <aside class="categories-sidebar" id="categoriesSidebar">
+            <?php if (!$isViewer): ?>
+            <nav class="hp-sidebar-nav">
+                <a class="hp-nav-item active" data-navtab="my" onclick="switchProjectsTab('my'); return false;">
+                    <span class="material-symbols-outlined">folder</span>
+                    <span><?= __('index.tab_my_projects') ?></span>
+                </a>
+                <?php if ($isAdmin && !empty($otherProjects)): ?>
+                <a class="hp-nav-item" data-navtab="all" onclick="switchProjectsTab('all'); return false;">
+                    <span class="material-symbols-outlined">admin_panel_settings</span>
+                    <span><?= __('index.tab_all_projects') ?></span>
+                </a>
+                <?php elseif (!$isAdmin && !empty($sharedProjects)): ?>
+                <a class="hp-nav-item" data-navtab="shared" onclick="switchProjectsTab('shared'); return false;">
+                    <span class="material-symbols-outlined">group</span>
+                    <span><?= __('index.tab_shared') ?></span>
+                </a>
+                <?php endif; ?>
+            </nav>
+            <?php endif; ?>
             <div class="categories-sidebar-header">
                 <h3><?= __('index.categories') ?></h3>
                 <button class="btn-icon" onclick="openCategoriesModal()" title="<?= __('index.manage_categories') ?>" style="cursor:pointer">
@@ -385,12 +443,21 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                     <?= __('index.add_category') ?>
                 </button>
             </div>
+
+            <div class="sidebar-help">
+                <span class="material-symbols-outlined">menu_book</span>
+                <div>
+                    <h4><?= __('index.help_title') ?></h4>
+                    <p><?= __('index.help_text') ?></p>
+                    <a href="https://lokoe.fr/scouter" target="_blank" rel="noopener"><?= __('index.help_link') ?></a>
+                </div>
+            </div>
         </aside>
         <?php endif; ?>
         
         <!-- Main Content -->
         <div class="main-content-area">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+            <div class="hp-page-head" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                 <h1 class="page-title"><?= $isViewer ? __('index.viewer_title') : __('index.user_title') ?></h1>
                 <div style="display: flex; gap: 1rem;">
                     <?php if(!$hasProjects): ?>
@@ -489,23 +556,23 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                     </div>
                 <?php else: ?>
                     <!-- Admin/User: système d'onglets -->
-                    <div class="projects-tabs" style="display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border-color);">
-                        <button type="button" class="projects-tab active" onclick="switchProjectsTab('my')" data-tab="my" style="flex: 0 0 auto; padding: 0.75rem 1.5rem; background: none; border: none; cursor: pointer; font-weight: 600; color: var(--primary-color); border-bottom: 2px solid var(--primary-color); margin-bottom: -2px; display: flex; align-items: center; gap: 0.5rem;">
+                    <div class="projects-tabs" style="display: flex; margin-bottom: 1.25rem;">
+                        <button type="button" class="projects-tab active" onclick="switchProjectsTab('my')" data-tab="my">
                             <span class="material-symbols-outlined" style="font-size: 18px;">folder</span>
                             <?= __('index.tab_my_projects') ?>
-                            <span style="background: var(--primary-color); color: white; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.75rem;"><?= count($myProjects) ?></span>
+                            <span class="pc-tab-count"><?= count($myProjects) ?></span>
                         </button>
                         <?php if ($isAdmin && !empty($otherProjects)): ?>
-                        <button type="button" class="projects-tab" onclick="switchProjectsTab('all')" data-tab="all" style="flex: 0 0 auto; padding: 0.75rem 1.5rem; background: none; border: none; cursor: pointer; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; display: flex; align-items: center; gap: 0.5rem;">
+                        <button type="button" class="projects-tab" onclick="switchProjectsTab('all')" data-tab="all">
                             <span class="material-symbols-outlined" style="font-size: 18px;">admin_panel_settings</span>
                             <?= __('index.tab_all_projects') ?>
-                            <span style="background: #9B59B6; color: white; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.75rem;"><?= count($otherProjects) ?></span>
+                            <span class="pc-tab-count"><?= count($otherProjects) ?></span>
                         </button>
                         <?php elseif (!$isAdmin && !empty($sharedProjects)): ?>
-                        <button type="button" class="projects-tab" onclick="switchProjectsTab('shared')" data-tab="shared" style="flex: 0 0 auto; padding: 0.75rem 1.5rem; background: none; border: none; cursor: pointer; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; display: flex; align-items: center; gap: 0.5rem;">
+                        <button type="button" class="projects-tab" onclick="switchProjectsTab('shared')" data-tab="shared">
                             <span class="material-symbols-outlined" style="font-size: 18px;">group</span>
                             <?= __('index.tab_shared') ?>
-                            <span style="background: #F39C12; color: white; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.75rem;"><?= count($sharedProjects) ?></span>
+                            <span class="pc-tab-count"><?= count($sharedProjects) ?></span>
                         </button>
                         <?php endif; ?>
                     </div>
@@ -580,7 +647,48 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                     </div>
                     <?php endif; ?>
                 <?php endif; ?>
-                
+
+                <?php
+                // Pour un user : ses projets partagés. Pour un admin (pas de
+                // "partagés") : les projets des autres, pour que la bande soit visible.
+                $sharedSrc = !empty($sharedProjects) ? $sharedProjects : ($isAdmin ? ($otherProjects ?? []) : []);
+                $sharedTab = !empty($sharedProjects) ? 'shared' : 'all';
+                if (!$isViewer && !empty($sharedSrc)):
+                    require_once(__DIR__ . '/components/project-metrics.php');
+                    $sharedPreview = array_slice($sharedSrc, 0, 4);
+                    $sharedExtra = count($sharedSrc) - count($sharedPreview);
+                ?>
+                <section class="pc-shared-section">
+                    <div class="pc-shared-head">
+                        <h2><?= __('index.shared_with_me') ?></h2>
+                        <span class="count"><?= count($sharedSrc) ?></span>
+                        <a class="see-all" href="#" onclick="switchProjectsTab('<?= $sharedTab ?>'); return false;"><?= __('index.see_all') ?></a>
+                    </div>
+                    <div class="pc-shared-grid">
+                        <?php foreach ($sharedPreview as $sp):
+                            $spLatest = !empty($sp->crawls) ? $sp->crawls[0] : null;
+                            $spScore = $spLatest ? pcHealthScore((array)$spLatest->stats) : 0;
+                            $spOwner = $sp->owner_email ?? '';
+                        ?>
+                        <a class="pc-shared-card" href="project.php?id=<?= (int)$sp->id ?>">
+                            <img class="pc-favicon" alt="" onerror="this.style.display='none'"
+                                 src="https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://<?= htmlspecialchars($sp->name) ?>&size=16">
+                            <div class="pc-shared-info">
+                                <div class="pc-shared-name"><?= htmlspecialchars($sp->name) ?></div>
+                                <?php if ($spOwner): ?><div class="pc-shared-by"><?= __('index.shared_by') ?> <?= htmlspecialchars($spOwner) ?></div><?php endif; ?>
+                            </div>
+                            <?php if ($spLatest): ?><span class="pc-score-badge <?= pcScoreClass($spScore) ?>"><?= $spScore ?></span><?php endif; ?>
+                        </a>
+                        <?php endforeach; ?>
+                        <?php if ($sharedExtra > 0): ?>
+                        <a class="pc-shared-card" href="#" onclick="switchProjectsTab('<?= $sharedTab ?>'); return false;" style="justify-content:center; color:var(--text-secondary); font-weight:600;">
+                            <?= __('index.show_n_more', ['count' => $sharedExtra]) ?>
+                        </a>
+                        <?php endif; ?>
+                    </div>
+                </section>
+                <?php endif; ?>
+
             <?php endif; ?>
             </div><!-- /projectListContainer -->
         </div>
@@ -1509,6 +1617,11 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                 activePane.style.display = 'block';
             }
             
+            // Synchroniser la nav latérale (qui reflète les onglets)
+            document.querySelectorAll('.hp-nav-item[data-navtab]').forEach(n => {
+                n.classList.toggle('active', n.dataset.navtab === tabName);
+            });
+
             // Recalculer le message "aucun résultat" pour le nouveau panneau actif
             if (activePane) {
                 const activePaneCards = activePane.querySelectorAll('.domain-card');
@@ -1520,22 +1633,26 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
             }
         }
 
-        // Toggle domain accordion
+        // Mesure la hauteur réelle du header → variable CSS (hauteur exacte du
+        // conteneur = 100vh - header, sans nombre magique).
+        function measureHeaderHeight() {
+            const h = document.querySelector('.header');
+            if (h) document.documentElement.style.setProperty('--hp-header-h', h.offsetHeight + 'px');
+        }
+        measureHeaderHeight();
+        window.addEventListener('resize', measureHeaderHeight);
+        window.addEventListener('load', measureHeaderHeight);
+
+        // Toggle domain accordion (compact KPI row → crawl table)
         function toggleDomain(domainName) {
             const domainCrawls = document.getElementById(`domain-${domainName}`);
-            const header = document.querySelector(`#domain-${domainName}`)?.previousElementSibling;
-            const expandIcon = header?.querySelector('.expand-icon');
-            
             if (!domainCrawls) return;
-            
-            if (domainCrawls.style.display === 'none') {
-                domainCrawls.style.display = 'block';
-                if (expandIcon) expandIcon.textContent = 'expand_less';
-            } else {
-                domainCrawls.style.display = 'none';
-                if (expandIcon) expandIcon.textContent = 'expand_more';
-            }
+            const row = domainCrawls.closest('.pc-row');
+            const isHidden = domainCrawls.style.display === 'none' || getComputedStyle(domainCrawls).display === 'none';
+            domainCrawls.style.display = isHidden ? 'block' : 'none';
+            if (row) row.classList.toggle('open', isHidden);
         }
+
 
         // Category management
         let activeCategory = 'all';
@@ -1592,23 +1709,9 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                     const [type, direction] = currentSortOption.split('-');
                     
                     if (type === 'date') {
-                        // Sort by timestamp (date + time)
-                        const dateTimeA = a.querySelector('.domain-meta').textContent.match(/Dernier:\s*(\d{2}\/\d{2}\/\d{4})\s*(\d{2}:\d{2})/);
-                        const dateTimeB = b.querySelector('.domain-meta').textContent.match(/Dernier:\s*(\d{2}\/\d{2}\/\d{4})\s*(\d{2}:\d{2})/);
-                        
-                        if (dateTimeA && dateTimeB) {
-                            // Convert to comparable format: YYYYMMDDHHMM
-                            const [dayA, monthA, yearA] = dateTimeA[1].split('/');
-                            const [hourA, minA] = dateTimeA[2].split(':');
-                            valueA = parseInt(`${yearA}${monthA}${dayA}${hourA}${minA}`);
-                            
-                            const [dayB, monthB, yearB] = dateTimeB[1].split('/');
-                            const [hourB, minB] = dateTimeB[2].split(':');
-                            valueB = parseInt(`${yearB}${monthB}${dayB}${hourB}${minB}`);
-                        } else {
-                            valueA = 0;
-                            valueB = 0;
-                        }
+                        // Sort by the last-crawl timestamp carried on the card.
+                        valueA = parseInt(a.getAttribute('data-ts') || '0', 10);
+                        valueB = parseInt(b.getAttribute('data-ts') || '0', 10);
                     } else {
                         // Sort alphabetically by domain name
                         valueA = a.querySelector('.domain-name').textContent.trim().toLowerCase();
