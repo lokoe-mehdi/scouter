@@ -35,21 +35,34 @@ crawl-par-crawl via `crawls.data_store` (`pg` | `clickhouse`).
   Écrit page_metrics/duplicate_clusters/redirect_chains (DROP PARTITION + INSERT).
 - ✅ **Phase 3/4 (lecture + sécurité) — surface query** : `CategoryExpr` (catégo
   live = CASE WHEN RE2), `ClickHouseSqlExecutor` (crawl_id forcé par sous-requêtes
-  filtrées, dialecte CH, blocklist de fonctions, `category` live, jointure
+  filtrées, dialecte CH, blocklist de fonctions, `category` + `cat_id` live, jointure
   page_metrics), routage `CrawlStore::usesClickHouse`. **API v1 `/query` + `/schema`
   + SQL Explorer (`QueryController`) → CH** pour les crawls `data_store=clickhouse`.
   Le crawler pose `data_store='clickhouse'` au démarrage si CH actif.
+- ✅ **Rapports MONO-crawl sur ClickHouse** via le shim `ChPdo`/`ChStmt` (compatible
+  PDO) câblé dans `dashboard.php` : réécriture `pages`/`links`→sous-requêtes
+  crawl_id-filtrées (cat_id synthétique + `category` + colonnes page_metrics +
+  generation + dedup `LIMIT 1 BY id`), traduction du dialecte PG→CH. `$categoriesMap`
+  reconstruit depuis le YAML. **22 rapports validés** contre des données réelles
+  (home, depth, codes, code-changes, pagerank, pagerank-leak, inlinks, outlinks,
+  seo-tags, headings, content-richness, structured-data, response-time, extractions,
+  sitemap, redirect-chains, lost-urls, new-urls, url-explorer, link-explorer,
+  accessibility, duplication). Icône SQL des graphes en dialecte CH
+  (`translateDialectOnly`). Harness `scripts/ch_report_smoke.php`.
+- ✅ **Bascule complète (opt-in `CLICKHOUSE_DROP_PG`)** : saute le post-proc PG +
+  `drop_crawl_partitions` PG en fin de crawl `finished` (après contrôle que CH a les
+  données). **Off par défaut** (sinon les rapports de comparaison, encore sur PG,
+  casseraient).
 
 **Reste à faire (pas bloquant — PG dual-write fait tourner l'app) :**
-- ⛔ **Les ~40 pages de rapport `web/pages/*.php`** + composants url/link/redirect-table :
-  encore en PG (qui est dual-écrit, donc OK). À porter sur CH (dialecte + `category`
-  au lieu de `cat_id` + jointure page_metrics). À faire avec relecture visuelle.
-- ⛔ **`in_sitemap`** dans CH : laissé à 0 dans page_metrics (la membership sitemap
-  n'est pas encore dans CH). À traiter avec le rapport sitemap.
-- ⛔ **Prompts du chat IA** (`DrBriefPrompt`/`SqlGenPrompt`) : enseignent encore le
-  dialecte PG. (Le MCP `run_sql` passe par l'API `/query` + `/schema` CH, déjà OK.)
-- ⛔ **Catégorisation : suppression de `cat_id`** + de `applyCategorization` + job
-  batch-categorize + étape Go `categorize` : NON fait (toujours en place pour PG).
+- ⛔ **Rapports de COMPARAISON** (`*-comparison.php`, lost/new-urls, code-changes) :
+  encore sur PG (requêtes 2-crawls). Prérequis pour activer `CLICKHOUSE_DROP_PG`.
+- ⛔ **`in_sitemap`** dans CH : laissé à 0 dans page_metrics (membership sitemap pas
+  encore dans CH). À traiter avec l'analyse sitemap dans CH.
+- ⛔ **Prompts du chat IA** (`DrBriefPrompt`/`SqlGenPrompt`) : dialecte PG. (Le MCP
+  `run_sql` passe par l'API `/query` + `/schema` CH, déjà OK.)
+- ⛔ **Suppression définitive de `cat_id`** + `applyCategorization` + job
+  batch-categorize + étape Go `categorize` : NON fait (en place pour PG/comparaison).
 - ⛔ **Backfill** des crawls existants PG→CH (Phase 6), worker d'expiration 7j
   (Phase 5), `page_generation` bulk-AI, frontier PG slim : NON faits.
 

@@ -214,8 +214,18 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 		})
 		return smEngine.FetchURLs(c, urls)
 	}
+	// Full cutover (opt-in): when CLICKHOUSE_DROP_PG is set, ClickHouse is the
+	// sole store — skip the PG post-processing entirely (the PageRank perf win)
+	// and drop the PG crawl-data partitions at finish (below). Default OFF: PG
+	// post-processing still runs so the comparison reports (still on PG) work.
+	dropPG := ch != nil && envBoolFlag("CLICKHOUSE_DROP_PG")
+
 	ppStart := time.Now()
-	_ = pp.Run(ctx)
+	if dropPG {
+		milestone("ClickHouse is the sole store (CLICKHOUSE_DROP_PG=1) — skipping PostgreSQL post-processing")
+	} else {
+		_ = pp.Run(ctx)
+	}
 
 	// Post-processing in ClickHouse (PageRank/inlinks/semantic/duplicate/redirect)
 	// → derived tables. Runs in addition to PG during the dual-write transition.
@@ -245,8 +255,40 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 	default:
 		_ = cdb.FinishCrawl(ctx)
 		_ = mgr.UpdateStatus(ctx, j.ID, "completed", j.ProjectDir)
+		// Full cutover: drop the heavy PG crawl-data partitions to free disk —
+		// only for a finished crawl (stopped crawls keep PG for resume) and only
+		// after confirming ClickHouse holds the data.
+		if dropPG {
+			dropPGData(ctx, pool, ch, cdb, rec.ID, milestone)
+		}
 		milestone("Crawl completed successfully — " + totalLine)
 	}
+}
+
+// dropPGData drops a crawl's PostgreSQL data partitions once ClickHouse is
+// confirmed to hold the pages (guards against wiping PG if the CH write lagged).
+func dropPGData(ctx context.Context, pool *db.Pool, ch *db.CH, cdb *db.CrawlDB, crawlID int, milestone func(string)) {
+	pgCrawled := cdb.GetCrawledCount(ctx)
+	chStr, err := ch.QueryScalar(ctx, fmt.Sprintf("SELECT uniqExact(id) FROM %s.pages WHERE crawl_id=%d", ch.DB(), crawlID))
+	if err != nil {
+		milestone("PG drop skipped: could not verify ClickHouse (" + err.Error() + ")")
+		return
+	}
+	chCount, _ := strconv.Atoi(strings.TrimSpace(chStr))
+	if chCount == 0 || chCount < pgCrawled*9/10 {
+		milestone(fmt.Sprintf("PG drop skipped: ClickHouse has %d pages vs %d crawled — keeping PostgreSQL", chCount, pgCrawled))
+		return
+	}
+	if _, err := pool.Exec(ctx, "SELECT drop_crawl_partitions($1)", crawlID); err != nil {
+		milestone("PG drop failed: " + err.Error())
+		return
+	}
+	milestone(fmt.Sprintf("Dropped PostgreSQL crawl data — %d pages now live only in ClickHouse", chCount))
+}
+
+func envBoolFlag(key string) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
 }
 
 // fmtDur renders a duration compactly (rounded to 0.1s).

@@ -146,6 +146,10 @@ services:
       - CLICKHOUSE_DB=scouter
       - CLICKHOUSE_USER=scouter
       - CLICKHOUSE_PASSWORD=scouter
+      # Bascule COMPLÈTE (opt-in) : saute le post-proc PG et DROP les données PG
+      # en fin de crawl. À n'activer qu'une fois les rapports de COMPARAISON portés
+      # sur CH (ils lisent encore PG). Vide = off.
+      - CLICKHOUSE_DROP_PG=${CLICKHOUSE_DROP_PG:-}
       # 3 hostnames distincts (PAS un service répliqué) : le round-robin Go +
       # ses pools de connexions séparés répartissent vraiment sur les 3. Avec un
       # seul nom DNS + keep-alive, Go se collerait à un seul replica.
