@@ -31,20 +31,50 @@ class ChStmt
 
     public function execute(array $params = []): bool
     {
-        // Normalise keys (strip leading ':') and bind into {name:Type} placeholders.
-        $bind = [];
-        foreach ($params as $k => $v) {
-            $bind[ltrim((string) $k, ':')] = $v;
-        }
         $sql = $this->sql;
-        // Longest names first so :crawl_id is replaced before :crawl.
-        $names = array_keys($bind);
-        usort($names, fn($a, $b) => strlen($b) <=> strlen($a));
-        foreach ($names as $name) {
-            $type = $this->chType($bind[$name]);
-            $sql = preg_replace('/:' . preg_quote($name, '/') . '\b/', '{' . $name . ':' . $type . '}', $sql);
+        $bind = [];
+
+        if ($params && array_is_list($params)) {
+            // Positional (?) placeholders → {_p0:T}, {_p1:T}, … left to right.
+            $i = 0;
+            $sql = preg_replace_callback('/\?/', function () use (&$i, $params, &$bind) {
+                $name = '_p' . $i;
+                $val = $params[$i] ?? null;
+                $bind[$name] = $val;
+                $i++;
+                return '{' . $name . ':' . $this->chType($val) . '}';
+            }, $sql);
+        } else {
+            // Named (:name) placeholders. Normalise keys (strip leading ':').
+            foreach ($params as $k => $v) {
+                $bind[ltrim((string) $k, ':')] = $v;
+            }
+            // Longest names first so :crawl_id is replaced before :crawl.
+            $names = array_keys($bind);
+            usort($names, fn($a, $b) => strlen($b) <=> strlen($a));
+            foreach ($names as $name) {
+                $type = $this->chType($bind[$name]);
+                $sql = preg_replace('/:' . preg_quote($name, '/') . '\b/', '{' . $name . ':' . $type . '}', $sql);
+            }
         }
-        $this->rows = $this->pdo->runSelect($sql, $bind);
+
+        // Translate AFTER binding: placeholders are now {name:Type}, so the
+        // category regex injected by translate() (with its literal '?') is safe.
+        $sql = $this->pdo->translate($sql);
+
+        $rows = $this->pdo->runSelect($sql, $bind);
+        // CH returns Array(...) columns as JSON lists; reports written for PG
+        // expect the PG array literal '{a,b,c}'. Convert list-arrays (leave
+        // Map/object values, which arrive as assoc arrays, untouched).
+        foreach ($rows as &$row) {
+            foreach ($row as $col => $val) {
+                if (is_array($val) && array_is_list($val)) {
+                    $row[$col] = '{' . implode(',', array_map(fn($x) => is_array($x) ? json_encode($x) : (string) $x, $val)) . '}';
+                }
+            }
+        }
+        unset($row);
+        $this->rows = $rows;
         $this->cursor = 0;
         return true;
     }

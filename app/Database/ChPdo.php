@@ -35,6 +35,7 @@ class ChPdo
     private ClickHouseDatabase $ch;
     private string $db;
     private int $crawlId;
+    private int $projectId;
     private string $catIdExpr;
     private string $catNameExpr;
     private string $crawlCategoriesSource;
@@ -46,6 +47,10 @@ class ChPdo
         $this->crawlId = $crawlId;
 
         $pg = PostgresDatabase::getInstance()->getConnection();
+        $stmt = $pg->prepare("SELECT project_id FROM crawls WHERE id = :id");
+        $stmt->execute([':id' => $crawlId]);
+        $this->projectId = (int) $stmt->fetchColumn();
+
         $ce = new CategoryExpr($pg);
         $rules = $ce->rulesForCrawl($crawlId);
         $this->catIdExpr = $ce->buildIdExpr($rules);
@@ -67,7 +72,11 @@ class ChPdo
 
     public function prepare(string $sql): ChStmt
     {
-        return new ChStmt($this, $this->translate($sql));
+        // Pass the ORIGINAL SQL: ChStmt binds the ?/:named placeholders first,
+        // THEN calls translate(). Translating first would inject the category
+        // regex (which contains literal '?' like '\?utm_source' and '(?i)') and
+        // the positional-? binder would clobber it.
+        return new ChStmt($this, $sql);
     }
 
     public function query(string $sql): ChStmt
@@ -81,6 +90,12 @@ class ChPdo
     public function exec(string $sql)
     {
         return 0;
+    }
+
+    /** PDO::quote() equivalent for ClickHouse string literals. */
+    public function quote(string $value, int $type = 0): string
+    {
+        return "'" . str_replace(["\\", "'"], ["\\\\", "''"], $value) . "'";
     }
 
     public function runSelect(string $sql, array $params): array
@@ -121,7 +136,9 @@ class ChPdo
     private function pagesSource(): string
     {
         $cid = $this->crawlId;
-        $pcols = implode(', ', array_map(fn($c) => "p.{$c}", self::PAGE_COLS));
+        // Alias every column so the output names are unqualified (`crawl_id`, not
+        // `p.crawl_id`) — required for reports' WHERE/SELECT to resolve them.
+        $pcols = implode(', ', array_map(fn($c) => "p.{$c} AS {$c}", self::PAGE_COLS));
         // Dedup on read: CH is append-only, so a page re-written during the crawl
         // (sitemap re-fetch, retries…) leaves >1 row per id. `LIMIT 1 BY id` keeps
         // one per id (engine-independent; cheaper than FINAL, scoped to the
@@ -154,22 +171,30 @@ class ChPdo
         if ($table === 'html') {
             return "(SELECT * FROM {$this->db}.html WHERE crawl_id = {$cid} LIMIT 1 BY id)";
         }
-        // links = intentional multi-row; duplicate_clusters/redirect_chains are
-        // rebuilt clean (DROP PARTITION + INSERT).
+        // duplicate_clusters / redirect_chains: PG exposed a SERIAL `id`; CH names
+        // it cluster_id / chain_id. Alias it so report SQL referencing `id` works.
+        if ($table === 'duplicate_clusters') {
+            return "(SELECT *, cluster_id AS id FROM {$this->db}.duplicate_clusters WHERE crawl_id = {$cid})";
+        }
+        if ($table === 'redirect_chains') {
+            return "(SELECT *, chain_id AS id FROM {$this->db}.redirect_chains WHERE crawl_id = {$cid})";
+        }
+        // links = intentional multi-row.
         return "(SELECT * FROM {$this->db}.{$table} WHERE crawl_id = {$cid})";
     }
 
     private function buildCrawlCategoriesSource(array $rules): string
     {
+        $pid = $this->projectId;
         if (empty($rules)) {
             // Empty typed table so JOINs resolve and match nothing.
-            return "(SELECT toInt32(0) AS id, '' AS cat, '' AS color WHERE 0)";
+            return "(SELECT toInt32(0) AS id, '' AS cat, '' AS color, toInt32({$pid}) AS project_id WHERE 0)";
         }
         $rows = [];
         foreach ($rules as $i => $rule) {
             $cat = "'" . str_replace("'", "''", $rule['name']) . "'";
             $color = "'" . str_replace("'", "''", $rule['color']) . "'";
-            $rows[] = "SELECT toInt32(" . ($i + 1) . ") AS id, {$cat} AS cat, {$color} AS color";
+            $rows[] = "SELECT toInt32(" . ($i + 1) . ") AS id, {$cat} AS cat, {$color} AS color, toInt32({$pid}) AS project_id";
         }
         return "(" . implode(" UNION ALL ", $rows) . ")";
     }
@@ -213,15 +238,30 @@ class ChPdo
     private function rewriteDialect(string $sql): string
     {
         // Strip PostgreSQL type casts CH doesn't understand (::numeric, ::int…).
-        $sql = preg_replace('/::\s*(numeric|integer|int|bigint|smallint|float|double precision|real|text|varchar)\b/i', '', $sql);
+        $sql = preg_replace('/::\s*(numeric|integer|int|bigint|smallint|float|double precision|real|text|varchar|jsonb|json)\b/i', '', $sql);
+
+        // array_length(arr, 1) / array_length(arr) -> length(arr)
+        $sql = preg_replace('/\barray_length\s*\(\s*([^(),]+?)\s*(?:,\s*\d+\s*)?\)/i', 'length($1)', $sql);
+
+        // PERCENTILE_CONT(p) WITHIN GROUP (ORDER BY x) -> quantileExact(p)(x)
+        // MEDIAN() WITHIN GROUP (ORDER BY x)           -> quantileExact(0.5)(x)
+        $sql = preg_replace('/\bpercentile_cont\s*\(\s*([0-9.]+)\s*\)\s+within\s+group\s*\(\s*order\s+by\s+([^()]+?)\s*\)/i', 'quantileExact($1)($2)', $sql);
+        $sql = preg_replace('/\bmedian\s*\(\s*\)\s+within\s+group\s*\(\s*order\s+by\s+([^()]+?)\s*\)/i', 'quantileExact(0.5)($1)', $sql);
 
         // COUNT(*) FILTER (WHERE c) -> countIf(c)
         $sql = preg_replace('/\bCOUNT\s*\(\s*\*\s*\)\s+FILTER\s*\(\s*WHERE\s+(.*?)\)/is', 'countIf($1)', $sql);
         // FUNC(arg) FILTER (WHERE c) -> FUNCIf(arg, c)
         $sql = preg_replace('/\b([A-Za-z_]+)\s*\(([^()]*)\)\s+FILTER\s*\(\s*WHERE\s+(.*?)\)/is', '$1If($2, $3)', $sql);
 
-        // JSONB -> Map: x ->> 'k'  =>  x['k']
-        $sql = preg_replace("/->>\\s*'([^']*)'/", "['$1']", $sql);
+        // PG substring(x, 'regex') / substring(x FROM 'regex') -> CH extract().
+        // (CH substring is positional; only rewrite the string-pattern forms.)
+        $sql = preg_replace("/\\bsubstring\\s*\\(\\s*([^,()]+?)\\s*(?:,|\\bfrom\\b)\\s*('[^']*')\\s*\\)/i", 'extract($1, $2)', $sql);
+
+        // PG unnest(arr) (row-producing) -> CH arrayJoin(arr)
+        $sql = preg_replace('/\bunnest\s*\(/i', 'arrayJoin(', $sql);
+
+        // JSONB -> Map: x ->> 'k' | x ->> :param | x ->> {p:T}  =>  x['k'] etc.
+        $sql = preg_replace("/->>\\s*('[^']*'|:[A-Za-z_]\\w*|\\{[^}]*\\})/", "[$1]", $sql);
         // jsonb_object_keys(X) (row-producing) -> arrayJoin(mapKeys(X))
         $sql = preg_replace('/\bjsonb_object_keys\s*\(/i', 'arrayJoin(mapKeys(', $sql);
         $sql = preg_replace('/\barrayJoin\(mapKeys\(([^()]*)\)/i', 'arrayJoin(mapKeys($1))', $sql);

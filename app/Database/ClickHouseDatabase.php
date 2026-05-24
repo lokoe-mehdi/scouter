@@ -106,7 +106,10 @@ class ClickHouseDatabase
      */
     private function httpQuery(string $sql, array $params = []): string
     {
-        $query = ['database' => $this->db];
+        // prefer_column_name_to_alias=1 makes CH resolve an identifier to a column
+        // before a same-named SELECT alias — PostgreSQL's behaviour — which the
+        // reports rely on (e.g. `SUM(...) AS blocked` alongside `… blocked …`).
+        $query = ['database' => $this->db, 'prefer_column_name_to_alias' => '1'];
         foreach ($params as $name => $val) {
             $value = is_array($val) ? ($val[0] ?? '') : $val;
             if (is_bool($value)) {
