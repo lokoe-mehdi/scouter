@@ -155,23 +155,42 @@ class ChPdo
      * Joined subqueries rename their keys (_mcid/_mid …) so only `p` exposes
      * crawl_id — CH's new analyzer can't resolve a shared column name across joins.
      */
-    private function pagesSourceFor(array $ids, int $rulesId): string
+    /**
+     * @param array{cat:bool,metrics:bool,gen:bool} $feat which derived bits the
+     *   query actually needs — we only compute/join those (huge perf win on big
+     *   crawls: e.g. the category RE2 regex isn't evaluated when no query
+     *   references `category`/`cat_id`).
+     */
+    private function pagesSourceFor(array $ids, int $rulesId, array $feat): string
     {
         $in = $this->inList($ids);
-        [$catId, $catName] = $this->catExprs($rulesId);
         // Alias every column so output names are unqualified (`crawl_id`, not `p.crawl_id`).
-        $pcols = implode(', ', array_map(fn($c) => "p.{$c} AS {$c}", self::PAGE_COLS));
-        return "(SELECT {$pcols}, "
-            . "{$catId} AS cat_id, ({$catName}) AS category, "
-            . "m.inlinks AS inlinks, m.pri AS pri, "
-            . "m.title_status AS title_status, m.h1_status AS h1_status, "
-            . "m.metadesc_status AS metadesc_status, m.in_sitemap AS in_sitemap, "
-            . "g.generation AS generation, toUInt8(1) AS in_crawl "
-            . "FROM (SELECT * FROM {$this->db}.pages WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id)) p "
-            . "LEFT JOIN (SELECT crawl_id AS _mcid, id AS _mid, inlinks, pri, title_status, h1_status, metadesc_status, in_sitemap "
-            . "FROM {$this->db}.page_metrics WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id)) m ON m._mcid = p.crawl_id AND m._mid = p.id "
-            . "LEFT JOIN (SELECT crawl_id AS _gcid, id AS _gid, generation "
-            . "FROM {$this->db}.page_generation WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id)) g ON g._gcid = p.crawl_id AND g._gid = p.id)";
+        $cols = array_map(fn($c) => "p.{$c} AS {$c}", self::PAGE_COLS);
+        $joins = '';
+        if ($feat['cat']) {
+            [$catId, $catName] = $this->catExprs($rulesId);
+            $cols[] = "{$catId} AS cat_id";
+            $cols[] = "({$catName}) AS category";
+        }
+        if ($feat['metrics']) {
+            $cols[] = "m.inlinks AS inlinks";
+            $cols[] = "m.pri AS pri";
+            $cols[] = "m.title_status AS title_status";
+            $cols[] = "m.h1_status AS h1_status";
+            $cols[] = "m.metadesc_status AS metadesc_status";
+            $cols[] = "m.in_sitemap AS in_sitemap";
+            $joins .= " LEFT JOIN (SELECT crawl_id AS _mcid, id AS _mid, inlinks, pri, title_status, h1_status, metadesc_status, in_sitemap "
+                . "FROM {$this->db}.page_metrics WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id)) m ON m._mcid = p.crawl_id AND m._mid = p.id";
+        }
+        if ($feat['gen']) {
+            $cols[] = "g.generation AS generation";
+            $joins .= " LEFT JOIN (SELECT crawl_id AS _gcid, id AS _gid, generation "
+                . "FROM {$this->db}.page_generation WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id)) g ON g._gcid = p.crawl_id AND g._gid = p.id";
+        }
+        $cols[] = "toUInt8(1) AS in_crawl";
+        return "(SELECT " . implode(', ', $cols)
+            . " FROM (SELECT * FROM {$this->db}.pages WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id)) p"
+            . $joins . ")";
     }
 
     private function simpleSourceFor(string $table, array $ids): string
@@ -195,10 +214,13 @@ class ChPdo
         return "(SELECT * FROM {$this->db}.{$table} WHERE crawl_id IN ({$in}))";
     }
 
-    private function sourceFor(string $table, array $ids, int $rulesId): string
+    /** @param array{cat:bool,metrics:bool,gen:bool} $feat */
+    private function sourceFor(string $table, array $ids, int $rulesId, array $feat): string
     {
-        return $table === 'pages' ? $this->pagesSourceFor($ids, $rulesId) : $this->simpleSourceFor($table, $ids);
+        return $table === 'pages' ? $this->pagesSourceFor($ids, $rulesId, $feat) : $this->simpleSourceFor($table, $ids);
     }
+
+    private const ALL_FEAT = ['cat' => true, 'metrics' => true, 'gen' => true];
 
     /**
      * The crawl-scoped virtual source for one table+crawl (no alias). Public so
@@ -207,7 +229,18 @@ class ChPdo
      */
     public function virtualSource(string $table, int $id): string
     {
-        return $this->sourceFor($table, [$id], $id);
+        // Ad-hoc SQL Explorer: expose everything (can't know what the user wants).
+        return $this->sourceFor($table, [$id], $id, self::ALL_FEAT);
+    }
+
+    /** Which derived columns a query references (so we only build those). */
+    private function featuresOf(string $sql): array
+    {
+        return [
+            'cat'     => (bool) preg_match('/\b(category|cat_id)\b/i', $sql),
+            'metrics' => (bool) preg_match('/\b(inlinks|pri|title_status|h1_status|metadesc_status|in_sitemap)\b/i', $sql),
+            'gen'     => (bool) preg_match('/\bgeneration\b/i', $sql),
+        ];
     }
 
     private function buildCrawlCategoriesSource(array $rules): string
@@ -236,6 +269,9 @@ class ChPdo
 
     private function rewriteTables(string $sql): string
     {
+        // Only build the derived bits the query actually uses (perf).
+        $feat = $this->featuresOf($sql);
+
         // 0) Normalise PG partition names (pages_123) to the @id form so the
         //    multi-crawl rule below handles them (used by new-urls/lost-urls).
         $sql = preg_replace('/\b(' . self::VTABLES . ')_(\d+)\b/i', '$1@$2', $sql);
@@ -244,10 +280,10 @@ class ChPdo
         //    with that crawl's own category rules.
         $sql = preg_replace_callback(
             '/\b(FROM|JOIN)\s+(' . self::VTABLES . ')@(\d+)\b(\s+(?:AS\s+)?([a-zA-Z_][a-zA-Z0-9_]*))?/i',
-            function ($m) {
+            function ($m) use ($feat) {
                 $table = strtolower($m[2]);
                 $id = (int) $m[3];
-                $src = $this->sourceFor($table, [$id], $id);
+                $src = $this->sourceFor($table, [$id], $id, $feat);
                 return $m[1] . ' ' . $src . ' AS ' . $this->aliasFor($m[5] ?? '', $table, $m[4] ?? '');
             },
             $sql
@@ -257,7 +293,7 @@ class ChPdo
 
         // 2) Bare virtual tables → the crawl set (current [+ compare]), current rules.
         $sources = [
-            'pages'              => $this->sourceFor('pages', $this->crawlIds, $this->crawlId),
+            'pages'              => $this->sourceFor('pages', $this->crawlIds, $this->crawlId, $feat),
             'links'              => $this->simpleSourceFor('links', $this->crawlIds),
             'page_schemas'       => $this->simpleSourceFor('page_schemas', $this->crawlIds),
             'duplicate_clusters' => $this->simpleSourceFor('duplicate_clusters', $this->crawlIds),

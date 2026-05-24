@@ -78,8 +78,15 @@ class PgReportPdo
     private function rewrite(string $sql): string
     {
         // Normalise the SQL-Explorer multi-crawl syntax pages@<id> to pages_<id>
-        // so the rule below handles it (comparison reports use pages@<id>).
+        // (the real PG partition) so queries hit the partitioned tables directly.
         $sql = preg_replace('/\bpages@(\d+)\b/i', 'pages_$1', $sql);
+
+        // PERF: only inject the live `category` CASE WHEN (a regex ~* over every
+        // row) when the query actually references `category`. Otherwise leave the
+        // SQL untouched → native PG speed (partition pruning, no per-row regex).
+        if (!preg_match('/\bcategory\b/i', $sql)) {
+            return $sql;
+        }
         // pages_<id> (explicit partition, comparison) → that crawl's source.
         $sql = preg_replace_callback(
             '/\b(FROM|JOIN)\s+pages_(\d+)\b(\s+(?:AS\s+)?([a-zA-Z_][a-zA-Z0-9_]*))?/i',
