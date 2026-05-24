@@ -64,10 +64,10 @@ foreach (array_keys($allDepths) as $d) {
 // Depth x Category distribution (indexable HTML only)
 // =========================================
 $sqlDepthCat = "
-    SELECT depth, cat_id, COUNT(*) as count
+    SELECT depth, category, COUNT(*) as count
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
-    GROUP BY depth, cat_id ORDER BY depth, cat_id
+    GROUP BY depth, category ORDER BY depth, category
 ";
 $stmtCatRef = $pdo->prepare($sqlDepthCat);
 $stmtCatRef->execute([':crawl_id' => $safeCrawlId]);
@@ -91,15 +91,13 @@ $depthCatKeys = array_keys($allDepthsCat);
 // Organize by category name
 $refCatData = [];
 foreach ($depthCatRef as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     if (!isset($refCatData[$catName])) $refCatData[$catName] = [];
     $refCatData[$catName][$r->depth] = (int)$r->count;
 }
 $baseCatData = [];
 foreach ($depthCatBase as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     if (!isset($baseCatData[$catName])) $baseCatData[$catName] = [];
     $baseCatData[$catName][$r->depth] = (int)$r->count;
 }
@@ -119,11 +117,7 @@ function hexToRgba($hex, $alpha = 1.0) {
 $allCatNames = array_unique(array_merge(array_keys($refCatData), array_keys($baseCatData)));
 $depthCatSeries = [];
 
-// Build cat_name -> id mapping for SQL generation (IDs are stable across crawls)
-$catNameToIds = [];
-foreach ($categoriesMap as $id => $info) {
-    $catNameToIds[$info['cat']][] = $id;
-}
+// Categories are matched by NAME across crawls (same project rules)
 
 foreach ($allCatNames as $catName) {
     $color = getCategoryColor($catName);
@@ -153,27 +147,29 @@ foreach ($allCatNames as $catName) {
 
 // Build pivot SQL for the category chart
 $catCols = [];
+$uncategorizedLabel = __('common.uncategorized');
 foreach ($allCatNames as $catName) {
-    $ids = $catNameToIds[$catName] ?? [];
-    $inList = !empty($ids) ? implode(',', $ids) : '-1';
+    // Uncategorized maps to the empty category name in the data
+    $sqlName = ($catName === $uncategorizedLabel) ? '' : $catName;
+    $inList = "'" . str_replace("'", "''", $sqlName) . "'";
     $alias = preg_replace('/[^a-zA-Z0-9_]/', '_', $catName);
-    $catCols[] = "    SUM(CASE WHEN r.cat_id IN ({$inList}) THEN r.count ELSE 0 END) AS {$alias}_ref";
-    $catCols[] = "    SUM(CASE WHEN b.cat_id IN ({$inList}) THEN b.count ELSE 0 END) AS {$alias}_base";
+    $catCols[] = "    SUM(CASE WHEN r.category IN ({$inList}) THEN r.count ELSE 0 END) AS {$alias}_ref";
+    $catCols[] = "    SUM(CASE WHEN b.category IN ({$inList}) THEN b.count ELSE 0 END) AS {$alias}_base";
 }
 $catColsSql = implode(",\n", $catCols);
 $sqlDepthCatDisplay = "SELECT
     COALESCE(r.depth, b.depth) AS depth,
 {$catColsSql}
 FROM (
-    SELECT depth, cat_id, COUNT(*) AS count FROM pages@{$safeCrawlId}
+    SELECT depth, category, COUNT(*) AS count FROM pages@{$safeCrawlId}
     WHERE crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
-    GROUP BY depth, cat_id
+    GROUP BY depth, category
 ) r
 FULL OUTER JOIN (
-    SELECT depth, cat_id, COUNT(*) AS count FROM pages@{$safeCompareId}
+    SELECT depth, category, COUNT(*) AS count FROM pages@{$safeCompareId}
     WHERE crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
-    GROUP BY depth, cat_id
-) b ON r.depth = b.depth AND r.cat_id = b.cat_id
+    GROUP BY depth, category
+) b ON r.depth = b.depth AND r.category = b.category
 GROUP BY COALESCE(r.depth, b.depth)
 ORDER BY depth";
 
@@ -223,10 +219,10 @@ ORDER BY COALESCE(r.total, 0) + COALESCE(b.total, 0) DESC";
 // Response code x Category distribution (horizontal bar)
 // =========================================
 $sqlCodeCat = "
-    SELECT cat_id, code, COUNT(*) as count
+    SELECT category, code, COUNT(*) as count
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
-    GROUP BY cat_id, code ORDER BY count DESC
+    GROUP BY category, code ORDER BY count DESC
 ";
 $stmtCodeCatRef = $pdo->prepare($sqlCodeCat);
 $stmtCodeCatRef->execute([':crawl_id' => $safeCrawlId]);
@@ -252,16 +248,14 @@ if (!function_exists('codeFamily')) {
 // Organize by category -> code family for ref
 $refCodeCatData = [];
 foreach ($codeCatRef as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     if (!isset($refCodeCatData[$catName])) $refCodeCatData[$catName] = ['0xx'=>0,'1xx'=>0,'2xx'=>0,'3xx'=>0,'4xx'=>0,'5xx'=>0];
     $refCodeCatData[$catName][codeFamily($r->code)] += (int)$r->count;
 }
 // Same for base
 $baseCodeCatData = [];
 foreach ($codeCatBase as $r) {
-    $catInfo = $baselineCategoriesMap[$r->cat_id] ?? $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     if (!isset($baseCodeCatData[$catName])) $baseCodeCatData[$catName] = ['0xx'=>0,'1xx'=>0,'2xx'=>0,'3xx'=>0,'4xx'=>0,'5xx'=>0];
     $baseCodeCatData[$catName][codeFamily($r->code)] += (int)$r->count;
 }
@@ -304,25 +298,25 @@ foreach (['2xx'=>[200,300],'3xx'=>[300,400],'4xx'=>[400,500],'5xx'=>[500,600]] a
 }
 $codeFamColsSql = implode(",\n", $codeFamCols);
 $sqlCodeCatDisplay = "SELECT
-    cat_id,
+    category,
 {$codeFamColsSql}
 FROM (
     SELECT
-        COALESCE(r.cat_id, b.cat_id) AS cat_id,
+        COALESCE(r.category, b.category) AS category,
         COALESCE(r.code, b.code) AS code,
         COALESCE(r.count, 0) AS r_count,
         COALESCE(b.count, 0) AS b_count
     FROM (
-        SELECT cat_id, code, COUNT(*) AS count FROM pages@{$safeCrawlId}
-        WHERE crawled = true AND in_crawl = TRUE GROUP BY cat_id, code
+        SELECT category, code, COUNT(*) AS count FROM pages@{$safeCrawlId}
+        WHERE crawled = true AND in_crawl = TRUE GROUP BY category, code
     ) r
     FULL OUTER JOIN (
-        SELECT cat_id, code, COUNT(*) AS count FROM pages@{$safeCompareId}
-        WHERE crawled = true AND in_crawl = TRUE GROUP BY cat_id, code
-    ) b ON r.cat_id = b.cat_id AND r.code = b.code
+        SELECT category, code, COUNT(*) AS count FROM pages@{$safeCompareId}
+        WHERE crawled = true AND in_crawl = TRUE GROUP BY category, code
+    ) b ON r.category = b.category AND r.code = b.code
 ) sub
-GROUP BY cat_id
-ORDER BY cat_id";
+GROUP BY category
+ORDER BY category";
 
 // KPI values from pre-computed crawl stats
 $refUrls = $crawlRecord->urls ?? 0;

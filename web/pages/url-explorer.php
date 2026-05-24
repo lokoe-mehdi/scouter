@@ -203,17 +203,20 @@ function buildFilterConditions($items, &$params, &$paramCounter = 0) {
                     
                 case 'category':
                     if(!empty($value) && is_array($value)) {
-                        $catIds = array_map('intval', $value);
+                        // Filter by the live category NAME (no cat_id). The dropdown
+                        // sends category ids; resolve them to names via $categoriesMap.
+                        $catMap = $GLOBALS['categoriesMap'] ?? [];
                         $placeholders = [];
-                        foreach($catIds as $catId) {
+                        foreach($value as $v) {
+                            $name = isset($catMap[(int)$v]) ? $catMap[(int)$v]['cat'] : (string)$v;
                             $paramName = ':cat_' . $paramCounter++;
                             $placeholders[] = $paramName;
-                            $params[$paramName] = $catId;
+                            $params[$paramName] = $name;
                         }
                         if($operator === 'not_in') {
-                            $condition = '(c.cat_id NOT IN (' . implode(',', $placeholders) . ') OR c.cat_id IS NULL)';
+                            $condition = "(c.category NOT IN (" . implode(',', $placeholders) . ") OR c.category = '')";
                         } else {
-                            $condition = 'c.cat_id IN (' . implode(',', $placeholders) . ')';
+                            $condition = 'c.category IN (' . implode(',', $placeholders) . ')';
                         }
                     }
                     break;

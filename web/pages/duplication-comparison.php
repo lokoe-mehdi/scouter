@@ -115,7 +115,7 @@ FROM (
 // Chart 2: Duplicated pages by category (donut) ref vs base
 // =========================================
 $sqlDupByCategory = "
-    SELECT p.cat_id, COUNT(*) as page_count
+    SELECT p.category, COUNT(*) as page_count
     FROM pages p
     INNER JOIN (
         SELECT unnest(page_ids) as page_id
@@ -123,7 +123,7 @@ $sqlDupByCategory = "
         WHERE crawl_id = :crawl_id AND similarity >= 80
     ) dc ON p.id = dc.page_id
     WHERE p.crawl_id = :crawl_id2 AND p.in_crawl = TRUE
-    GROUP BY p.cat_id
+    GROUP BY p.category
     ORDER BY page_count DESC
 ";
 
@@ -140,9 +140,8 @@ $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 // Build donut data for ref
 $catRefData = [];
 foreach ($dupCatRef as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
-    $catColor = $catInfo ? $catInfo['color'] : '#95a5a6';
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
+    $catColor = getCategoryColor($r->category);
     $catRefData[] = [
         'name' => $catName . ' (' . __('comparison.badge_reference') . ')',
         'y' => (int)$r->page_count,
@@ -156,9 +155,8 @@ if (empty($catRefData)) {
 // Build donut data for base
 $catBaseData = [];
 foreach ($dupCatBase as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
-    $catColor = $catInfo ? $catInfo['color'] : '#95a5a6';
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
+    $catColor = getCategoryColor($r->category);
     $catBaseData[] = [
         'name' => $catName . ' (' . __('comparison.badge_baseline') . ')',
         'y' => (int)$r->page_count,
@@ -170,23 +168,23 @@ if (empty($catBaseData)) {
 }
 
 $sqlDupCatDisplay = "SELECT
-    COALESCE(r.cat_id, b.cat_id) AS cat_id,
+    COALESCE(r.category, b.category) AS category,
     COALESCE(r.page_count, 0) AS ref_count,
     COALESCE(b.page_count, 0) AS base_count
 FROM (
-    SELECT p.cat_id, COUNT(*) AS page_count
+    SELECT p.category, COUNT(*) AS page_count
     FROM pages p
     INNER JOIN (SELECT unnest(page_ids) AS page_id FROM duplicate_clusters WHERE crawl_id = {$safeCrawlId} AND similarity >= 80) dc ON p.id = dc.page_id
     WHERE p.crawl_id = {$safeCrawlId} AND p.in_crawl = TRUE
-    GROUP BY p.cat_id
+    GROUP BY p.category
 ) r
 FULL OUTER JOIN (
-    SELECT p.cat_id, COUNT(*) AS page_count
+    SELECT p.category, COUNT(*) AS page_count
     FROM pages p
     INNER JOIN (SELECT unnest(page_ids) AS page_id FROM duplicate_clusters WHERE crawl_id = {$safeCompareId} AND similarity >= 80) dc ON p.id = dc.page_id
     WHERE p.crawl_id = {$safeCompareId} AND p.in_crawl = TRUE
-    GROUP BY p.cat_id
-) b ON r.cat_id = b.cat_id
+    GROUP BY p.category
+) b ON r.category = b.category
 ORDER BY COALESCE(r.page_count, 0) + COALESCE(b.page_count, 0) DESC";
 
 ?>
