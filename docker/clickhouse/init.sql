@@ -19,8 +19,9 @@
 -- /docker-entrypoint-initdb.d/). The `scouter` database/user are created by the
 -- image from CLICKHOUSE_DB / CLICKHOUSE_USER / CLICKHOUSE_PASSWORD env vars.
 --
--- NOTE: keep this file free of ';' inside comments/literals — the CI loader
--- (.github/workflows/tests.yml) splits it on ';' to POST each DDL over HTTP.
+-- NOTE: keep this file free of the semicolon character inside comments and
+-- literals — the CI loader (.github/workflows/tests.yml) splits the file on
+-- semicolons to POST each DDL over HTTP.
 -- ============================================================================
 
 CREATE DATABASE IF NOT EXISTS scouter;
