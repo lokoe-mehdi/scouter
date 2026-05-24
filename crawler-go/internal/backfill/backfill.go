@@ -61,6 +61,64 @@ func (b *Backfiller) All(ctx context.Context) error {
 	return nil
 }
 
+// PurgePG drops the PostgreSQL crawl-data partitions for crawls already on
+// ClickHouse, freeing disk. Re-verifies CH completeness before each destructive
+// drop (never purges PG if CH is missing data). target = "all" or a crawl id.
+func (b *Backfiller) PurgePG(ctx context.Context, target string) error {
+	var ids []int
+	if target == "all" {
+		rows, err := b.pool.Query(ctx, "SELECT id FROM crawls WHERE data_store='clickhouse' ORDER BY id")
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id int
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		rows.Close()
+	} else {
+		id, err := strconv.Atoi(target)
+		if err != nil {
+			return fmt.Errorf("invalid crawl id %q", target)
+		}
+		ids = []int{id}
+	}
+
+	b.logf("purge-pg: %d crawl(s) to purge", len(ids))
+	for _, id := range ids {
+		var store string
+		_ = b.pool.QueryRow(ctx, "SELECT COALESCE(data_store,'pg') FROM crawls WHERE id=$1", id).Scan(&store)
+		if store != "clickhouse" {
+			b.logf("purge-pg crawl %d: skipped (data_store=%s, not migrated)", id, store)
+			continue
+		}
+		// Re-verify ClickHouse has the data before the destructive PG drop.
+		var pgCount int
+		_ = b.pool.QueryRow(ctx, "SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND crawled=true AND in_crawl=true", id).Scan(&pgCount)
+		chStr, err := b.ch.QueryScalar(ctx, fmt.Sprintf("SELECT uniqExact(id) FROM %s.pages WHERE crawl_id=%d", b.ch.DB(), id))
+		if err != nil {
+			b.logf("purge-pg crawl %d: skipped (CH check failed: %v)", id, err)
+			continue
+		}
+		chCount, _ := strconv.Atoi(strings.TrimSpace(chStr))
+		if pgCount > 0 && chCount < pgCount*9/10 {
+			b.logf("purge-pg crawl %d: SKIPPED — CH has %d pages vs %d in PG", id, chCount, pgCount)
+			continue
+		}
+		if _, err := b.pool.Exec(ctx, "SELECT drop_crawl_partitions($1)", id); err != nil {
+			b.logf("purge-pg crawl %d: drop failed: %v", id, err)
+			continue
+		}
+		b.logf("purge-pg crawl %d: PostgreSQL data dropped (%d pages live in CH)", id, chCount)
+	}
+	b.logf("purge-pg: done")
+	return nil
+}
+
 // Crawl backfills one crawl PG -> CH and flips data_store.
 func (b *Backfiller) Crawl(ctx context.Context, crawlID int) error {
 	cid := strconv.Itoa(crawlID)

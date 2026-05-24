@@ -81,6 +81,24 @@ func main() {
 		return
 	}
 
+	// Purge mode: `scouter-crawler purge-pg <crawlId|all>` drops the PostgreSQL
+	// crawl-data partitions for crawls already migrated to ClickHouse (frees disk).
+	if len(os.Args) > 1 && os.Args[1] == "purge-pg" {
+		if ch == nil {
+			log.Fatal("purge-pg requires CLICKHOUSE_URL to be set")
+		}
+		target := "all"
+		if len(os.Args) > 2 {
+			target = os.Args[2]
+		}
+		bf := backfill.New(pool, ch, func(f string, a ...any) { log.Printf(f, a...) })
+		if err := bf.PurgePG(ctx, target); err != nil {
+			log.Fatalf("purge-pg: %v", err)
+		}
+		log.Printf("[%s] purge-pg finished", workerID)
+		return
+	}
+
 	mgr := jobs.New(pool, workerID)
 	if err := mgr.RecoverOrphans(ctx); err != nil {
 		log.Printf("[%s] orphan recovery: %v", workerID, err)
