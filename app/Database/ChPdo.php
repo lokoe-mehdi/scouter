@@ -200,6 +200,16 @@ class ChPdo
         return $table === 'pages' ? $this->pagesSourceFor($ids, $rulesId) : $this->simpleSourceFor($table, $ids);
     }
 
+    /**
+     * The crawl-scoped virtual source for one table+crawl (no alias). Public so
+     * the SQL Explorer's ClickHouseSqlExecutor reuses the SAME `pages` shape as
+     * the report shim — they must never drift (e.g. on `in_crawl`/`cat_id`).
+     */
+    public function virtualSource(string $table, int $id): string
+    {
+        return $this->sourceFor($table, [$id], $id);
+    }
+
     private function buildCrawlCategoriesSource(array $rules): string
     {
         $pid = $this->projectId;

@@ -223,31 +223,15 @@ class ClickHouseSqlExecutor
     }
 
     /**
-     * The crawl_id-filtered subquery that backs a virtual table name. `pages`
-     * also gets the page_metrics columns + the live `category` expression.
+     * The crawl_id-filtered subquery that backs a virtual table name. Reuses the
+     * EXACT same source builder as the report shim (ChPdo) so the `pages` shape —
+     * cat_id, category, inlinks/pri/*_status/in_sitemap, generation, in_crawl —
+     * never drifts between the reports and the SQL Explorer.
      */
     private function tableSub(string $table, int $crawlId): string
     {
-        $cid = (int) $crawlId;
-        if ($table === 'pages') {
-            $ce = new CategoryExpr(PostgresDatabase::getInstance()->getConnection());
-            $rules = $ce->rulesForCrawl($cid);
-            $catName = $ce->build($rules);
-            $catId = $ce->buildIdExpr($rules);
-            // Dedup on read (LIMIT 1 BY id; CH is append-only) and don't expose
-            // crawl_id from the joined subquery (the new analyzer can't resolve a
-            // shared column name across joins). Expose both `category` (name) and a
-            // synthetic `cat_id` (rule index) so report SQL deep-linked from a chart
-            // works here too.
-            return "(SELECT p.*, m.inlinks AS inlinks, m.pri AS pri, "
-                . "m.title_status AS title_status, m.h1_status AS h1_status, "
-                . "m.metadesc_status AS metadesc_status, m.in_sitemap AS in_sitemap, "
-                . "({$catName}) AS category, {$catId} AS cat_id "
-                . "FROM (SELECT * FROM {$this->db}.pages WHERE crawl_id = {$cid} LIMIT 1 BY id) p "
-                . "LEFT JOIN (SELECT id, inlinks, pri, title_status, h1_status, metadesc_status, in_sitemap "
-                . "FROM {$this->db}.page_metrics WHERE crawl_id = {$cid} LIMIT 1 BY id) m ON m.id = p.id) AS {$table}";
-        }
-        return "(SELECT * FROM {$this->db}.{$table} WHERE crawl_id = {$cid}) AS {$table}";
+        $src = (new \App\Database\ChPdo((int) $crawlId))->virtualSource($table, (int) $crawlId);
+        return $src . ' AS ' . $table;
     }
 
     /** Append the read guardrails as a ClickHouse SETTINGS clause. */
