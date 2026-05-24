@@ -116,6 +116,14 @@ func main() {
 	if ch != nil && envBoolFlag("CLICKHOUSE_AUTO_MIGRATE") {
 		go func() {
 			bf := backfill.New(pool, ch, func(f string, a ...any) { log.Printf("[migrate] "+f, a...) })
+			// crawls.data_store is created by scouter's PHP migrations, which run
+			// independently and may not be applied yet here (crawler-go depends_on
+			// postgres+clickhouse, not scouter). Wait for the column so we don't
+			// bail out on a transient "column does not exist".
+			if err := bf.WaitForSchema(ctx); err != nil {
+				log.Printf("[%s] auto-migration: schema not ready, skipping: %v", workerID, err)
+				return
+			}
 			log.Printf("[%s] auto-migration: backfilling PG crawls into ClickHouse…", workerID)
 			if err := bf.All(ctx); err != nil {
 				log.Printf("[%s] auto-migration backfill error: %v", workerID, err)

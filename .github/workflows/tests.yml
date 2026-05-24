@@ -128,15 +128,15 @@ jobs:
           PGPASSWORD: scouter
 
       - name: Load ClickHouse schema
-        # The HTTP interface runs one statement per request; split init.sql on ';'
+        # The HTTP interface runs one statement per request; split schema.sql on ';'
         # and POST each chunk (newlines kept so -- line-comments stay scoped). This
-        # relies on no ';' appearing inside a comment/literal — see init.sql header.
+        # relies on no ';' appearing inside a comment/literal — see schema.sql header.
         run: |
           while IFS= read -r -d ';' stmt; do
             case "$stmt" in
               *[A-Za-z]*) curl -sS "http://localhost:8123/" --data-binary "$stmt;" >/dev/null ;;
             esac
-          done < docker/clickhouse/init.sql
+          done < crawler-go/internal/db/schema.sql
 
       - name: go vet
         working-directory: crawler-go

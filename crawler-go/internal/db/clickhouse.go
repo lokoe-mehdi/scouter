@@ -3,6 +3,7 @@ package db
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,14 @@ import (
 	"strings"
 	"time"
 )
+
+// schemaSQL is the canonical ClickHouse DDL (database + crawl-data tables). It is
+// embedded into the binary so the crawler can create the schema itself at boot —
+// see EnsureSchema. This is the single source of truth; docker-compose also mounts
+// this same file into the clickhouse image's /docker-entrypoint-initdb.d.
+//
+//go:embed schema.sql
+var schemaSQL string
 
 // CH is a minimal ClickHouse client over the HTTP interface. We deliberately
 // avoid a heavyweight driver: the crawler is network-bound on fetching, and the
@@ -53,6 +62,13 @@ func NewCHFromEnv(ctx context.Context) (*CH, error) {
 		lastErr = ch.Exec(pingCtx, "SELECT 1")
 		cancel()
 		if lastErr == nil {
+			// Guarantee the schema exists. The clickhouse image only runs its
+			// init.sql on a pristine volume, so a pre-existing or half-initialized
+			// volume leaves the tables missing — which silently breaks dual-write
+			// and backfill with "Table scouter.pages does not exist". Idempotent.
+			if err := ch.EnsureSchema(ctx); err != nil {
+				return nil, fmt.Errorf("clickhouse ensure schema: %w", err)
+			}
 			return ch, nil
 		}
 		select {
@@ -62,6 +78,37 @@ func NewCHFromEnv(ctx context.Context) (*CH, error) {
 		}
 	}
 	return nil, fmt.Errorf("clickhouse ping: %w", lastErr)
+}
+
+// EnsureSchema creates the ClickHouse database and crawl-data tables if they do
+// not exist, by running the embedded schema.sql. The DDL is idempotent
+// (CREATE … IF NOT EXISTS), so it is safe to run on every boot. We split on ';'
+// (the schema deliberately contains no ';' inside comments/literals — see its
+// header) and skip comment-only chunks, since ClickHouse rejects an empty query.
+func (c *CH) EnsureSchema(ctx context.Context) error {
+	for _, stmt := range strings.Split(schemaSQL, ";") {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" {
+			continue
+		}
+		// A chunk before the first ';' (and between statements) carries the
+		// preceding comment block; skip it if it has no actual SQL.
+		hasSQL := false
+		for _, line := range strings.Split(stmt, "\n") {
+			l := strings.TrimSpace(line)
+			if l != "" && !strings.HasPrefix(l, "--") {
+				hasSQL = true
+				break
+			}
+		}
+		if !hasSQL {
+			continue
+		}
+		if err := c.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("apply DDL: %w", err)
+		}
+	}
+	return nil
 }
 
 func getenvDef(key, def string) string {

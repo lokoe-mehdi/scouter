@@ -15,6 +15,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"scouter-crawler/internal/db"
 	"scouter-crawler/internal/postprocess"
@@ -34,6 +35,36 @@ func New(pool *db.Pool, ch *db.CH, logf func(string, ...any)) *Backfiller {
 }
 
 const batchSize = 2000
+
+// WaitForSchema blocks until the crawls.data_store column exists. That column is
+// added by the PHP migrations running in the *scouter* container — which the
+// crawler does not own and races against on a fresh deploy: the crawler can boot
+// (and fire auto-migration) before scouter has applied its migrations. Without
+// this guard the first All() fails with "column data_store does not exist" and
+// the auto-migration goroutine gives up, leaving every crawl on PostgreSQL until
+// a manual restart. Polls every 5s for up to ~5min.
+func (b *Backfiller) WaitForSchema(ctx context.Context) error {
+	for attempt := 0; attempt < 60; attempt++ {
+		var exists bool
+		err := b.pool.QueryRow(ctx,
+			`SELECT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_name = 'crawls' AND column_name = 'data_store'
+			)`).Scan(&exists)
+		if err == nil && exists {
+			return nil
+		}
+		if attempt == 0 {
+			b.logf("backfill: waiting for crawls.data_store column (PHP migrations)…")
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+	}
+	return fmt.Errorf("crawls.data_store column not present after wait — is scouter applying migrations?")
+}
 
 // All backfills every crawl that still has PG data and isn't yet on ClickHouse.
 func (b *Backfiller) All(ctx context.Context) error {

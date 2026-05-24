@@ -37,7 +37,11 @@ services:
         hard: 262144
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      - ./docker/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # Single source of truth with the crawler's embedded schema (EnsureSchema).
+      # Belt-and-suspenders: the crawler also applies this DDL at boot, so a stale
+      # or half-initialized CH volume (init runs only once, on a pristine volume)
+      # no longer leaves the tables missing.
+      - ./crawler-go/internal/db/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
     restart: unless-stopped
     healthcheck:
       # clickhouse-client is reliable inside the image (wget to localhost is refused).

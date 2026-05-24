@@ -35,8 +35,10 @@ backfill) → PG **via un shim qui calcule quand même `category` en live** (tra
   (après contrôle de complétude CH). Mettre `0` pour garder PostgreSQL.
 
 ### Fait & testé (contre clickhouse-server 24, données réelles)
-- ✅ **Fondations** : `docker/clickhouse/init.sql` (pages/links/html/page_schemas +
+- ✅ **Fondations** : `crawler-go/internal/db/schema.sql` (pages/links/html/page_schemas +
   dérivées page_metrics/duplicate_clusters/redirect_chains + page_generation).
+  Source unique : embarqué dans le binaire Go (`//go:embed`, appliqué au boot par
+  `CH.EnsureSchema`) ET monté dans l'image clickhouse (`/docker-entrypoint-initdb.d`).
   pages/html/page_schemas = **ReplacingMergeTree** (dédoublonnage physique de l'append).
   Service `clickhouse` dans les 2 compose + `.env.example` + service+schéma dans la CI
   (`.github/workflows/tests.yml`). Healthcheck = `clickhouse-client -q 'SELECT 1'`
@@ -214,6 +216,30 @@ backfill) → PG **via un shim qui calcule quand même `category` en live** (tra
   `Warning: Undefined array key "external"`. Fix : `AS external`/`AS nofollow` sur les
   requêtes links jointes. (Même classe que le `c.external` de url-outlinks.)
 
+- **Auto-migration bloquée à 0/N au boot (race de schéma)** : `crawler-go` ne
+  `depends_on` que postgres+clickhouse *healthy*, **pas** `scouter`. Or la colonne
+  `crawls.data_store` est créée par les **migrations PHP** (entrypoint de `scouter`).
+  Au démarrage à froid, `crawler-go` lançait l'auto-migration AVANT que `scouter`
+  ait appliqué ses migrations → `bf.All()` plantait sur `column "data_store" does
+  not exist (SQLSTATE 42703)` et la goroutine **abandonnait sans retry** → tous les
+  crawls restaient en PG (monitor figé à `0/N`) jusqu'à un restart manuel de
+  `crawler-go`. Fix : `Backfiller.WaitForSchema(ctx)` (poll `information_schema.columns`
+  toutes les 5 s, ~5 min max) appelé avant `bf.All()` dans la goroutine d'auto-migration
+  → le crawler attend que `scouter` ait migré au lieu de capituler. Idempotent au restart.
+- **Tables CH absentes → `Table scouter.pages does not exist` (UNKNOWN_TABLE)** :
+  `docker/clickhouse/init.sql` (monté dans `/docker-entrypoint-initdb.d`) ne s'exécute
+  QUE sur un volume CH **vierge**. Un premier boot CH raté crée le volume sans finir
+  l'init → au redeploy le volume n'est plus vide → init **skippé** → tables jamais
+  créées. Tout dual-write/backfill plante alors en `UNKNOWN_TABLE`, et des crawls
+  flippés `data_store=clickhouse` lors d'un run antérieur (où les tables existaient)
+  pointent sur du vide. Fix racine : le schéma est **embarqué dans le binaire Go**
+  (`crawler-go/internal/db/schema.sql` via `//go:embed`) et appliqué par
+  `CH.EnsureSchema(ctx)` après le ping dans `NewCHFromEnv` — idempotent (`CREATE …
+  IF NOT EXISTS`), à chaque boot, indépendant de l'état du volume. Le même fichier
+  est monté dans l'image CH (source unique ; le mount devient redondant/ceinture-
+  bretelles). Récupération prod : appliquer le schéma à la main + repasser les crawls
+  faussement `clickhouse` en `pg` + restart `crawler-go`.
+
 ### Reste à faire
 - ⛔ **`in_sitemap`** dans CH : laissé à 0 dans page_metrics (la membership sitemap
   n'est pas encore portée dans CH). À traiter avec l'analyse sitemap dans CH.
@@ -240,7 +266,7 @@ backfill) → PG **via un shim qui calcule quand même `category` en live** (tra
   `app/Http/Controllers/{ApiV1Controller,QueryController}.php`, `web/dashboard.php`,
   `web/components/{chart,url-table,link-table,table-core}.php`, `web/pages/*` (rapports
   mono + comparaison convertis cat_id→category), `web/pages/monitor.php`.
-- Infra : `docker/clickhouse/init.sql`, `docker-compose.yml` + `.local.yml`,
+- Infra : `crawler-go/internal/db/schema.sql` (embed + mount CH), `docker-compose.yml` + `.local.yml`,
   `.env.example`, `migrations/2026-05-24-09-00-crawl-data-store.php` (colonne
   `crawls.data_store`), `docker/postgres/init.sql` (colonne data_store),
   `scripts/ch_report_smoke.php`, `scripts/ch_compare_smoke.php`.
