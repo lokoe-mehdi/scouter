@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -112,6 +113,11 @@ func (c *CrawlDB) InsertPages(ctx context.Context, pages []PageRow) error {
 			order = append(order, p.ID)
 		}
 	}
+
+	// Sort ids so every concurrent upsert acquires row locks in the same global
+	// order. Without this, two workers upserting overlapping target rows (shared
+	// nav/footer/lang links) in different orders deadlock (40P01).
+	sort.Strings(order)
 
 	now := time.Now()
 	for _, chunk := range chunkIDs(order, 100) {
