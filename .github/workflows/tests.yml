@@ -72,11 +72,10 @@ jobs:
           - 5432:5432
       clickhouse:
         image: clickhouse/clickhouse-server:24-alpine
-        env:
-          CLICKHOUSE_DB: scouter
-          CLICKHOUSE_USER: scouter
-          CLICKHOUSE_PASSWORD: scouter
-          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+        # No CLICKHOUSE_DB/USER/PASSWORD: those env vars make the entrypoint spin
+        # up a throwaway server to create them, a dance that intermittently hangs
+        # on CI runners. We run as the built-in `default` user (no auth) and let
+        # the "Load ClickHouse schema" step CREATE DATABASE scouter itself.
         options: >-
           --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
           --health-interval 5s
@@ -95,8 +94,8 @@ jobs:
       # Active le test d'intégration ClickHouse (internal/db).
       CLICKHOUSE_URL: http://localhost:8123
       CLICKHOUSE_DB: scouter
-      CLICKHOUSE_USER: scouter
-      CLICKHOUSE_PASSWORD: scouter
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
 
     steps:
       - name: Checkout
@@ -129,7 +128,7 @@ jobs:
         run: |
           while IFS= read -r -d ';' stmt; do
             case "$stmt" in
-              *[A-Za-z]*) curl -sS -u scouter:scouter "http://localhost:8123/" --data-binary "$stmt;" >/dev/null ;;
+              *[A-Za-z]*) curl -sS "http://localhost:8123/" --data-binary "$stmt;" >/dev/null ;;
             esac
           done < docker/clickhouse/init.sql
 
