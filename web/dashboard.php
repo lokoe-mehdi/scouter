@@ -130,37 +130,17 @@ if ($compareId) {
 // MONO-crawl dans ClickHouse (via le shim ChPdo). Les vues de COMPARAISON
 // (compareId présent) restent sur PostgreSQL — PG conserve les données pendant
 // la transition (dual-write), et la comparaison interroge deux crawls.
-$pdoPg = $pdo; // toujours PostgreSQL (fallback / requêtes cross-store)
-// Un crawl ClickHouse lit ses rapports MONO-crawl dans CH. Les vues de
-// COMPARAISON restent sur PostgreSQL (dual-write) : elles utilisent des
-// sous-requêtes corrélées cross-crawl (ex. b.depth != c.depth par URL) que
-// ClickHouse ne supporte pas — à porter via un JOIN de comparaison plus tard.
-$useChForReports = \App\Database\CrawlStore::usesClickHouse((int)$crawlId) && empty($compareId);
-
-$categoriesMap = [];
+$pdoPg = $pdo; // PostgreSQL : crawl-time only (frontier). PAS pour les rapports.
+// TOUS les rapports (mono-crawl ET comparaison) lisent dans ClickHouse. PG ne
+// sert plus qu'au crawl ; les anciens crawls sont migrés par le backfill
+// (data_store=clickhouse). Catégorisation calculée en live (jamais de cat_id).
 $categoryColors = [];
-if ($useChForReports) {
-    // cat_id synthétique (index de règle) + couleurs, depuis le YAML du projet.
-    $categoriesMap = \App\Database\ChPdo::categoriesMap((int)$crawlId);
-    foreach ($categoriesMap as $row) {
-        $categoryColors[$row['cat']] = $row['color'];
-    }
-    // Les rapports tapent dans ClickHouse (mono-crawl, ou 2 crawls en comparaison).
-    $pdo = new \App\Database\ChPdo((int)$crawlId, $compareId ? (int)$compareId : null);
-    // Exposé aux composants (chart.php) pour afficher la requête de l'icône SQL
-    // en dialecte ClickHouse.
-    $GLOBALS['chReportPdo'] = $pdo;
-} else {
-    $stmt = $pdo->prepare("SELECT id, cat, color FROM crawl_categories WHERE project_id = :project_id");
-    $stmt->execute([':project_id' => $crawlRecord->project_id]);
-    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        $categoriesMap[$row['id']] = [
-            'cat' => $row['cat'],
-            'color' => $row['color']
-        ];
-        $categoryColors[$row['cat']] = $row['color'];
-    }
+$categoriesMap = \App\Database\ChPdo::categoriesMap((int)$crawlId);
+foreach ($categoriesMap as $row) {
+    $categoryColors[$row['cat']] = $row['color'];
 }
+$pdo = new \App\Database\ChPdo((int)$crawlId, $compareId ? (int)$compareId : null);
+$GLOBALS['chReportPdo'] = $pdo; // chart.php : icône SQL en dialecte ClickHouse
 $GLOBALS['categoriesMap'] = $categoriesMap;
 $GLOBALS['categoryColors'] = $categoryColors;
 

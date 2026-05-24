@@ -99,7 +99,7 @@ $scopeItems = extractScopeFromWhereClause($whereClause);
 // 1. Colonnes basées sur defaultColumns
 $sqlColumns = array_map(function($col) {
     // Mapper les noms de colonnes
-    if ($col === 'category') return 'cat_id';
+    if ($col === 'category') return 'category';
     return $col;
 }, $defaultColumns);
 $sqlColumnsStr = implode(', ', $sqlColumns);
@@ -121,7 +121,7 @@ if ($compareCrawlId && !empty($compareColumns)) {
     // Ajouter les colonnes de comparaison au SQL display
     $cmpCols = [];
     foreach ($compareColumns as $col) {
-        $sqlCol = ($col === 'category') ? 'cat_id' : $col;
+        $sqlCol = ($col === 'category') ? 'category' : $col;
         $cmpCols[] = "b." . $sqlCol . " AS base_" . $sqlCol;
     }
     $cmpColsStr = ", " . implode(", ", $cmpCols);
@@ -144,8 +144,8 @@ if (!empty($scopeItems) && !empty($sqlParams)) {
     }, $scopeItems);
 }
 
-// Remplacer "category" par "c.cat_id" dans ORDER BY (plus de jointure sur categories)
-$orderBy = preg_replace('/\bcategory\b/', 'c.cat_id', $orderBy);
+// "category" est désormais une colonne live (nom de catégorie) — pas de cat_id.
+$orderBy = preg_replace('/\bcategory\b/', 'c.category', $orderBy);
 
 // Colonnes disponibles
 $availableColumns = [
@@ -317,7 +317,7 @@ $columnMapping = [
     'h1_status' => 'c.h1_status',
     'metadesc' => 'c.metadesc',
     'metadesc_status' => 'c.metadesc_status',
-    'category' => 'c.cat_id',
+    'category' => 'c.category',
     'h1_multiple' => 'c.h1_multiple',
     'headings_missing' => 'c.headings_missing',
     'word_count' => 'c.word_count'
@@ -420,7 +420,7 @@ if($useSimplifiedMode) {
         c.h1_status,
         c.metadesc,
         c.metadesc_status,
-        c.cat_id,
+        c.category,
         c.h1_multiple,
         c.headings_missing,
         c.word_count
@@ -682,10 +682,9 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                         <?php elseif($renderCol === 'category'): ?>
                             <td class="col-category">
                                 <?php
-                                $catId = $url->cat_id ?? null;
-                                $catInfo = $categoriesMap[$catId] ?? null;
-                                $category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
-                                $bgColor = $catInfo ? ($catInfo['color'] ?? '#aaaaaa') : '#aaaaaa';
+                                // `category` is now the live category NAME (no cat_id).
+                                $category = ($url->category ?? '') !== '' ? $url->category : __('common.uncategorized');
+                                $bgColor = function_exists('getCategoryColor') ? getCategoryColor($category) : '#aaaaaa';
                                 $textColor = function_exists('getTextColorForBackground') ? getTextColorForBackground($bgColor) : '#fff';
                                 ?>
                                 <span class="badge" style="background: <?= $bgColor ?>; color: <?= $textColor ?>;">

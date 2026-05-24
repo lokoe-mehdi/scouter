@@ -108,6 +108,52 @@ class CategoryExpr
         return $c;
     }
 
+    /** PostgreSQL live `category` expression (POSIX ~*), inlined, for the PG
+     *  report shim. Mirrors build() but in PG dialect instead of CH match(). */
+    public function forCrawlPg(int $crawlId): string
+    {
+        $yaml = $this->loadYaml($crawlId);
+        if ($yaml === null || trim($yaml) === '') {
+            return "''";
+        }
+        try {
+            $categories = \Spyc::YAMLLoadString($yaml);
+            if (!is_array($categories)) {
+                return "''";
+            }
+            $rules = (new CategorizationService($this->pg))->parseRules($categories);
+        } catch (\Throwable $e) {
+            return "''";
+        }
+        return $this->buildPg($rules);
+    }
+
+    /** PG CASE WHEN from parsed rules (url ~* 'dom' AND url_path ~* 'inc' …). */
+    public function buildPg(array $rules): string
+    {
+        $cases = [];
+        foreach ($rules as $rule) {
+            // PG literal: escape ONLY single quotes (standard_conforming_strings
+            // keeps backslashes literal, so the regex escapes survive as-is —
+            // unlike CH's lit() which must double backslashes).
+            $litPg = fn(string $s) => "'" . str_replace("'", "''", $s) . "'";
+            $dom = $litPg(preg_quote($rule['domain'], '/'));
+            $inc = $litPg(implode('|', $rule['includes']));
+            $name = $litPg($rule['name']);
+            $path = "regexp_replace(url, '^https?://[^/]+', '')";
+            $cond = "url ~* {$dom} AND {$path} ~* {$inc}";
+            if (!empty($rule['excludes'])) {
+                $exc = $litPg(implode('|', $rule['excludes']));
+                $cond .= " AND NOT {$path} ~* {$exc}";
+            }
+            $cases[] = "WHEN {$cond} THEN {$name}";
+        }
+        if (empty($cases)) {
+            return "''";
+        }
+        return "CASE " . implode(' ', $cases) . " ELSE '' END";
+    }
+
     /** Build the CASE WHEN from parsed rules (first match wins, like PG). */
     public function build(array $rules): string
     {
