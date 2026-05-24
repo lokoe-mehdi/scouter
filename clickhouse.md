@@ -9,7 +9,49 @@
 > les transforme en **filtre SQL live** injecté dans les requêtes (ClickHouse
 > encaisse). Côté utilisateur : inchangé (éditeur de segments YAML).
 
-Ce document liste TOUT ce qu'il faut faire. Rien n'est codé pour l'instant.
+Ce document liste TOUT ce qu'il faut faire.
+
+---
+
+## ÉTAT D'IMPLÉMENTATION (2026-05-24)
+
+Approche retenue pour migrer **sans régression** : **dual-write derrière le flag
+`CLICKHOUSE_URL`**. Tant que le flag est absent → comportement PG-only identique.
+Quand il est défini, le crawler écrit AUSSI dans ClickHouse et y fait le
+post-processing ; **PostgreSQL reste écrit en entier** (source de vérité pendant la
+transition), donc tous les rapports PG continuent de marcher. La lecture bascule
+crawl-par-crawl via `crawls.data_store` (`pg` | `clickhouse`).
+
+**Fait & testé (contre clickhouse-server 24) :**
+- ✅ **Phase 0 (fondations)** : `docker/clickhouse/init.sql` (8 tables), service
+  `clickhouse` dans les 2 compose + `.env.example`, client Go HTTP
+  (`crawler-go/internal/db/clickhouse.go`), client PHP
+  (`app/Database/ClickHouseDatabase.php`). Service CH + schéma dans la CI.
+- ✅ **Phase 1 (écriture)** : dual-write pages/links/html/page_schemas dans CH
+  (`crawl/ch_store.go`, batché, append-only, HTML brut décodé depuis DomZip).
+- ✅ **Phase 2 (post-proc dans CH)** : `postprocess/clickhouse.go` — PageRank
+  (Memory tables, 30 itérations), page_metrics (inlinks + pri + statuts via window
+  functions), duplicate (exact en SQL + near-dup union-find), redirect-chains.
+  Écrit page_metrics/duplicate_clusters/redirect_chains (DROP PARTITION + INSERT).
+- ✅ **Phase 3/4 (lecture + sécurité) — surface query** : `CategoryExpr` (catégo
+  live = CASE WHEN RE2), `ClickHouseSqlExecutor` (crawl_id forcé par sous-requêtes
+  filtrées, dialecte CH, blocklist de fonctions, `category` live, jointure
+  page_metrics), routage `CrawlStore::usesClickHouse`. **API v1 `/query` + `/schema`
+  + SQL Explorer (`QueryController`) → CH** pour les crawls `data_store=clickhouse`.
+  Le crawler pose `data_store='clickhouse'` au démarrage si CH actif.
+
+**Reste à faire (pas bloquant — PG dual-write fait tourner l'app) :**
+- ⛔ **Les ~40 pages de rapport `web/pages/*.php`** + composants url/link/redirect-table :
+  encore en PG (qui est dual-écrit, donc OK). À porter sur CH (dialecte + `category`
+  au lieu de `cat_id` + jointure page_metrics). À faire avec relecture visuelle.
+- ⛔ **`in_sitemap`** dans CH : laissé à 0 dans page_metrics (la membership sitemap
+  n'est pas encore dans CH). À traiter avec le rapport sitemap.
+- ⛔ **Prompts du chat IA** (`DrBriefPrompt`/`SqlGenPrompt`) : enseignent encore le
+  dialecte PG. (Le MCP `run_sql` passe par l'API `/query` + `/schema` CH, déjà OK.)
+- ⛔ **Catégorisation : suppression de `cat_id`** + de `applyCategorization` + job
+  batch-categorize + étape Go `categorize` : NON fait (toujours en place pour PG).
+- ⛔ **Backfill** des crawls existants PG→CH (Phase 6), worker d'expiration 7j
+  (Phase 5), `page_generation` bulk-AI, frontier PG slim : NON faits.
 
 ---
 

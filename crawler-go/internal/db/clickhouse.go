@@ -45,12 +45,23 @@ func NewCHFromEnv(ctx context.Context) (*CH, error) {
 			Timeout: 5 * time.Minute, // post-processing queries can be long
 		},
 	}
-	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if err := ch.Exec(pingCtx, "SELECT 1"); err != nil {
-		return nil, fmt.Errorf("clickhouse ping: %w", err)
+	// Retry the ping for ~30s: the worker may boot before ClickHouse is ready
+	// (local compose waits only for "started", not "healthy").
+	var lastErr error
+	for attempt := 0; attempt < 15; attempt++ {
+		pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		lastErr = ch.Exec(pingCtx, "SELECT 1")
+		cancel()
+		if lastErr == nil {
+			return ch, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
 	}
-	return ch, nil
+	return nil, fmt.Errorf("clickhouse ping: %w", lastErr)
 }
 
 func getenvDef(key, def string) string {
