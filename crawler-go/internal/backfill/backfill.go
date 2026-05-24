@@ -135,8 +135,11 @@ func (b *Backfiller) Crawl(ctx context.Context, crawlID int) error {
 	if err := b.links(ctx, crawlID); err != nil {
 		return fmt.Errorf("links: %w", err)
 	}
+	// HTML is non-critical (only the "view source" feature, not the reports) and
+	// the heaviest to stream. A failure here must not abort the whole migration —
+	// log and continue so pages/links/metrics still land and data_store flips.
 	if err := b.html(ctx, crawlID); err != nil {
-		return fmt.Errorf("html: %w", err)
+		b.logf("backfill crawl %d: html partial (%v) — continuing", crawlID, err)
 	}
 	if err := b.schemas(ctx, crawlID); err != nil {
 		return fmt.Errorf("page_schemas: %w", err)
