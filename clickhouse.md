@@ -55,8 +55,14 @@ crawl-par-crawl via `crawls.data_store` (`pg` | `clickhouse`).
   casseraient).
 
 **Reste à faire (pas bloquant — PG dual-write fait tourner l'app) :**
-- ⛔ **Rapports de COMPARAISON** (`*-comparison.php`, lost/new-urls, code-changes) :
-  encore sur PG (requêtes 2-crawls). Prérequis pour activer `CLICKHOUSE_DROP_PG`.
+- ⛔ **Rapports de COMPARAISON** (`*-comparison.php`) : encore sur PG. Blocage réel —
+  ils utilisent des **sous-requêtes corrélées cross-crawl** (ex. `b.depth != c.depth`
+  par URL via `EXISTS (... b.url = c.url)`) que **ClickHouse ne supporte pas**. Il
+  faut réécrire `url-table.php` en **JOIN de comparaison** (référencer `cmp.depth` au
+  lieu d'un EXISTS corrélé) pour chaque rapport. Le shim `ChPdo` est DÉJÀ prêt pour la
+  comparaison (param `compareId`, `pages@id`/`pages_<id>`, NOT IN). Prérequis pour
+  activer `CLICKHOUSE_DROP_PG`. NB : les diffs new/lost-urls sont déjà dé-corrélés
+  (NOT IN), donc CH-compatibles.
 - ⛔ **`in_sitemap`** dans CH : laissé à 0 dans page_metrics (membership sitemap pas
   encore dans CH). À traiter avec l'analyse sitemap dans CH.
 - ⛔ **Prompts du chat IA** (`DrBriefPrompt`/`SqlGenPrompt`) : dialecte PG. (Le MCP
