@@ -185,7 +185,9 @@ func (c *CrawlDB) InsertLinks(ctx context.Context, links []LinkRow) error {
 func (c *CrawlDB) InsertHTML(ctx context.Context, pageID, htmlStr string) error {
 	const maxSize = 1 << 20
 	if len(htmlStr) > maxSize {
-		htmlStr = htmlStr[:maxSize] + "\n<!-- TRUNCATED -->"
+		// Rune-safe cut: slicing at a raw byte offset can split a multibyte char
+		// and leave a dangling byte that Postgres rejects as invalid UTF-8 (22021).
+		htmlStr = truncate(htmlStr, maxSize) + "\n<!-- TRUNCATED -->"
 	}
 	return withRetry(ctx, func() error {
 		_, err := c.pool.Exec(ctx, `

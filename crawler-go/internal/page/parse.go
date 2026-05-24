@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"scouter-crawler/internal/analysis"
 	"scouter-crawler/internal/model"
@@ -264,6 +265,16 @@ func decodeAndNormalize(body, contentType string) string {
 	// Page::encode: collapse \r\n and \n to spaces before further processing.
 	dom = strings.ReplaceAll(dom, "\r\n", " ")
 	dom = strings.ReplaceAll(dom, "\n", " ")
+	// charset.NewReader passes UTF-8 (and mis-detected) bodies through without
+	// validating, so a single bad byte — a truncated multibyte char, a wrong
+	// charset guess, or a body that never decoded (e.g. a still-compressed
+	// response) — would survive into title/h1/meta/links and make Postgres reject
+	// the whole page with "invalid byte sequence for encoding UTF8" (22021),
+	// silently dropping it. Coerce to valid UTF-8 here, the single chokepoint all
+	// text fields derive from. (PHP/MySQL tolerated this; PG/UTF8 does not.)
+	if !utf8.ValidString(dom) {
+		dom = strings.ToValidUTF8(dom, "�")
+	}
 	return dom
 }
 
