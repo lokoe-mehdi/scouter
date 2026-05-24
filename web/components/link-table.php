@@ -329,7 +329,7 @@ $columnMapping['source_metadesc_status'] = 'cs.metadesc_status';
 $columnMapping['source_h1_multiple'] = 'cs.h1_multiple';
 $columnMapping['source_headings_missing'] = 'cs.headings_missing';
 $columnMapping['source_word_count'] = 'cs.word_count';
-$columnMapping['source_category'] = 'cats.cat';
+$columnMapping['source_category'] = 'cs.category';
 $columnMapping['source_domain'] = 'cs.domain';
 $columnMapping['source_crawled'] = 'cs.crawled';
 $columnMapping['source_out_of_scope'] = '(cs.external = false AND cs.blocked = false AND cs.crawled = false)';
@@ -361,7 +361,7 @@ $columnMapping['target_metadesc_status'] = 'ct.metadesc_status';
 $columnMapping['target_h1_multiple'] = 'ct.h1_multiple';
 $columnMapping['target_headings_missing'] = 'ct.headings_missing';
 $columnMapping['target_word_count'] = 'ct.word_count';
-$columnMapping['target_category'] = 'catt.cat';
+$columnMapping['target_category'] = 'ct.category';
 $columnMapping['target_domain'] = 'ct.domain';
 $columnMapping['target_crawled'] = 'ct.crawled';
 $columnMapping['target_out_of_scope'] = '(ct.external = false AND ct.blocked = false AND ct.crawled = false)';
@@ -438,13 +438,13 @@ if ($needsSourceCatJoinForSort) {
     if (!$hasSourceFilter && !$needsSourceJoinForSort) {
         $joinClauses .= " LEFT JOIN pages cs ON l.src = cs.id AND cs.crawl_id = $crawlIdInt AND cs.in_crawl = TRUE";
     }
-    $joinClauses .= " LEFT JOIN crawl_categories cats ON cs.cat_id = cats.id";
+    // category is now a live column on the pages source (cs.category) — no join.
 }
 if ($needsTargetCatJoinForSort) {
     if (!$hasTargetFilter && !$needsTargetJoinForSort) {
         $joinClauses .= " LEFT JOIN pages ct ON l.target = ct.id AND ct.crawl_id = $crawlIdInt AND ct.in_crawl = TRUE";
     }
-    $joinClauses .= " LEFT JOIN crawl_categories catt ON ct.cat_id = catt.id";
+    // category is now a live column on the pages source (ct.category) — no join.
 }
 
 // Si on a besoin d'une jointure pour le tri, on doit passer en mode avec jointure
@@ -540,7 +540,7 @@ $pageIds = array_keys($pageIds);
 $pagesMap = [];
 if (!empty($pageIds)) {
     $placeholders = implode(',', array_fill(0, count($pageIds), '?'));
-    $pagesQuery = "SELECT id, url, domain, depth, code, cat_id, inlinks, outlinks, response_time, schemas,
+    $pagesQuery = "SELECT id, url, domain, depth, code, category, inlinks, outlinks, response_time, schemas,
                           compliant, canonical, canonical_value, noindex, blocked, redirect_to, content_type,
                           pri, title, title_status, h1, h1_status, metadesc, metadesc_status,
                           h1_multiple, headings_missing, extracts, word_count,
@@ -602,10 +602,9 @@ foreach ($linksRaw as $link) {
         $row->source_in_sitemap = $srcPage['in_sitemap'];
         $row->source_is_html = $srcPage['is_html'];
 
-        // Catégorie source
-        $srcCatId = $srcPage['cat_id'];
-        $row->source_category = isset($categoriesMap[$srcCatId]) ? $categoriesMap[$srcCatId]['cat'] : __('common.uncategorized');
-        $row->source_category_color = isset($categoriesMap[$srcCatId]) ? $categoriesMap[$srcCatId]['color'] : null;
+        // Catégorie source (nom live, plus de cat_id)
+        $row->source_category = (($srcPage['category'] ?? '') !== '') ? $srcPage['category'] : __('common.uncategorized');
+        $row->source_category_color = function_exists('getCategoryColor') ? getCategoryColor($row->source_category) : null;
         
         // Extracteurs source (JSONB)
         if (!empty($srcPage['extracts'])) {
@@ -655,10 +654,9 @@ foreach ($linksRaw as $link) {
         $row->target_in_sitemap = $targetPage['in_sitemap'];
         $row->target_is_html = $targetPage['is_html'];
 
-        // Catégorie target
-        $targetCatId = $targetPage['cat_id'];
-        $row->target_category = isset($categoriesMap[$targetCatId]) ? $categoriesMap[$targetCatId]['cat'] : __('common.uncategorized');
-        $row->target_category_color = isset($categoriesMap[$targetCatId]) ? $categoriesMap[$targetCatId]['color'] : null;
+        // Catégorie target (nom live, plus de cat_id)
+        $row->target_category = (($targetPage['category'] ?? '') !== '') ? $targetPage['category'] : __('common.uncategorized');
+        $row->target_category_color = function_exists('getCategoryColor') ? getCategoryColor($row->target_category) : null;
         
         // Extracteurs target (JSONB)
         if (!empty($targetPage['extracts'])) {
