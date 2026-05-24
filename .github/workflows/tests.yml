@@ -71,12 +71,18 @@ jobs:
         ports:
           - 5432:5432
       clickhouse:
-        image: clickhouse/clickhouse-server:24-alpine
+        # Ubuntu-based image (not -alpine): the alpine build fails to start as a
+        # GitHub Actions service — it spews "get_mempolicy: Operation not
+        # permitted" (NUMA syscalls blocked by the runner's seccomp profile
+        # without CAP_SYS_NICE) and never becomes healthy. --cap-add SYS_NICE
+        # makes the default seccomp profile allow those syscalls.
         # No CLICKHOUSE_DB/USER/PASSWORD: those env vars make the entrypoint spin
-        # up a throwaway server to create them, a dance that intermittently hangs
-        # on CI runners. We run as the built-in `default` user (no auth) and let
-        # the "Load ClickHouse schema" step CREATE DATABASE scouter itself.
+        # up a throwaway server to create them. We run as the built-in `default`
+        # user (no auth) and let the schema-load step CREATE DATABASE scouter.
+        image: clickhouse/clickhouse-server:24
         options: >-
+          --cap-add SYS_NICE
+          --ulimit nofile=262144:262144
           --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
           --health-interval 5s
           --health-timeout 5s
