@@ -160,9 +160,11 @@ services:
       - CLICKHOUSE_DB=${CLICKHOUSE_DB:-scouter}
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-scouter}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
-      # Bascule COMPLÈTE (opt-in) : saute le post-proc PG et DROP les données PG
-      # en fin de crawl. À n'activer qu'une fois les rapports de COMPARAISON portés
-      # sur CH (ils lisent encore PG). Vide = off.
+      # Auto-migration au démarrage : backfill des anciens crawls PG -> ClickHouse
+      # (non destructif). Vide = off en prod (lancer le backfill manuellement).
+      - CLICKHOUSE_AUTO_MIGRATE=${CLICKHOUSE_AUTO_MIGRATE:-}
+      # Bascule COMPLÈTE (opt-in, DESTRUCTIF) : saute le post-proc PG, DROP les
+      # données PG en fin de crawl, ET purge le PG des anciens crawls migrés. Vide = off.
       - CLICKHOUSE_DROP_PG=${CLICKHOUSE_DROP_PG:-}
       - RENDERER_URLS=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       # 4 crawls simultanés × 12 fetches parallèles = ~48 requêtes en vol.

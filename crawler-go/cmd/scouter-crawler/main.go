@@ -104,6 +104,28 @@ func main() {
 		log.Printf("[%s] orphan recovery: %v", workerID, err)
 	}
 
+	// Auto-migration on boot (opt-in): when CLICKHOUSE_AUTO_MIGRATE is set, migrate
+	// every not-yet-migrated PG crawl into ClickHouse — and, if CLICKHOUSE_DROP_PG
+	// is ALSO set, purge their PostgreSQL data afterwards. Runs in the background so
+	// the worker starts claiming crawls immediately; idempotent (skips done crawls).
+	if ch != nil && envBoolFlag("CLICKHOUSE_AUTO_MIGRATE") {
+		go func() {
+			bf := backfill.New(pool, ch, func(f string, a ...any) { log.Printf("[migrate] "+f, a...) })
+			log.Printf("[%s] auto-migration: backfilling PG crawls into ClickHouse…", workerID)
+			if err := bf.All(ctx); err != nil {
+				log.Printf("[%s] auto-migration backfill error: %v", workerID, err)
+				return
+			}
+			if envBoolFlag("CLICKHOUSE_DROP_PG") {
+				log.Printf("[%s] auto-migration: purging migrated PG data…", workerID)
+				if err := bf.PurgePG(ctx, "all"); err != nil {
+					log.Printf("[%s] auto-migration purge error: %v", workerID, err)
+				}
+			}
+			log.Printf("[%s] auto-migration finished", workerID)
+		}()
+	}
+
 	log.Printf("[%s] Go crawler started (maxConcurrentCrawls=%d, renderers=%v)", workerID, maxCrawls, rendererURLs)
 
 	sem := make(chan struct{}, maxCrawls)

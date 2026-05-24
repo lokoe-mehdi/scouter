@@ -146,9 +146,12 @@ services:
       - CLICKHOUSE_DB=scouter
       - CLICKHOUSE_USER=scouter
       - CLICKHOUSE_PASSWORD=scouter
-      # Bascule COMPLÈTE (opt-in) : saute le post-proc PG et DROP les données PG
-      # en fin de crawl. À n'activer qu'une fois les rapports de COMPARAISON portés
-      # sur CH (ils lisent encore PG). Vide = off.
+      # Auto-migration au démarrage : backfill des anciens crawls PG -> ClickHouse.
+      # Non destructif (garde PG). Idempotent (skip les crawls déjà migrés).
+      - CLICKHOUSE_AUTO_MIGRATE=${CLICKHOUSE_AUTO_MIGRATE:-1}
+      # Bascule COMPLÈTE (opt-in, DESTRUCTIF) : saute le post-proc PG, DROP les
+      # données PG en fin de crawl, ET purge le PG des anciens crawls après le
+      # backfill auto ci-dessus. Vide = off (PG gardé).
       - CLICKHOUSE_DROP_PG=${CLICKHOUSE_DROP_PG:-}
       # 3 hostnames distincts (PAS un service répliqué) : le round-robin Go +
       # ses pools de connexions séparés répartissent vraiment sur les 3. Avec un
