@@ -13,71 +13,204 @@ Ce document liste TOUT ce qu'il faut faire.
 
 ---
 
-## ÉTAT D'IMPLÉMENTATION (2026-05-24)
+## ÉTAT D'IMPLÉMENTATION (2026-05-24) — quasi complet, en prod-ready
 
-Approche retenue pour migrer **sans régression** : **dual-write derrière le flag
-`CLICKHOUSE_URL`**. Tant que le flag est absent → comportement PG-only identique.
-Quand il est défini, le crawler écrit AUSSI dans ClickHouse et y fait le
-post-processing ; **PostgreSQL reste écrit en entier** (source de vérité pendant la
-transition), donc tous les rapports PG continuent de marcher. La lecture bascule
-crawl-par-crawl via `crawls.data_store` (`pg` | `clickhouse`).
+> **État final atteint** : PostgreSQL ne sert plus qu'au **crawl-time** (frontier +
+> métadonnées). **TOUS les rapports lisent ClickHouse.** `cat_id` est éliminé des
+> requêtes (catégorie calculée en live). Les anciens crawls sont **backfillés** dans
+> CH, puis le PG correspondant est **purgé**. Migration + purge **automatiques au
+> boot** (`./start.sh` / Coolify). Les 251 crawls de l'instance de dev ont été migrés.
 
-**Fait & testé (contre clickhouse-server 24) :**
-- ✅ **Phase 0 (fondations)** : `docker/clickhouse/init.sql` (8 tables), service
-  `clickhouse` dans les 2 compose + `.env.example`, client Go HTTP
-  (`crawler-go/internal/db/clickhouse.go`), client PHP
-  (`app/Database/ClickHouseDatabase.php`). Service CH + schéma dans la CI.
-- ✅ **Phase 1 (écriture)** : dual-write pages/links/html/page_schemas dans CH
-  (`crawl/ch_store.go`, batché, append-only, HTML brut décodé depuis DomZip).
-- ✅ **Phase 2 (post-proc dans CH)** : `postprocess/clickhouse.go` — PageRank
-  (Memory tables, 30 itérations), page_metrics (inlinks + pri + statuts via window
-  functions), duplicate (exact en SQL + near-dup union-find), redirect-chains.
-  Écrit page_metrics/duplicate_clusters/redirect_chains (DROP PARTITION + INSERT).
-- ✅ **Phase 3/4 (lecture + sécurité) — surface query** : `CategoryExpr` (catégo
-  live = CASE WHEN RE2), `ClickHouseSqlExecutor` (crawl_id forcé par sous-requêtes
-  filtrées, dialecte CH, blocklist de fonctions, `category` + `cat_id` live, jointure
-  page_metrics), routage `CrawlStore::usesClickHouse`. **API v1 `/query` + `/schema`
-  + SQL Explorer (`QueryController`) → CH** pour les crawls `data_store=clickhouse`.
-  Le crawler pose `data_store='clickhouse'` au démarrage si CH actif.
-- ✅ **Rapports MONO-crawl sur ClickHouse** via le shim `ChPdo`/`ChStmt` (compatible
-  PDO) câblé dans `dashboard.php` : réécriture `pages`/`links`→sous-requêtes
-  crawl_id-filtrées (cat_id synthétique + `category` + colonnes page_metrics +
-  generation + dedup `LIMIT 1 BY id`), traduction du dialecte PG→CH. `$categoriesMap`
-  reconstruit depuis le YAML. **22 rapports validés** contre des données réelles
-  (home, depth, codes, code-changes, pagerank, pagerank-leak, inlinks, outlinks,
-  seo-tags, headings, content-richness, structured-data, response-time, extractions,
-  sitemap, redirect-chains, lost-urls, new-urls, url-explorer, link-explorer,
-  accessibility, duplication). Icône SQL des graphes en dialecte CH
-  (`translateDialectOnly`). Harness `scripts/ch_report_smoke.php`.
-- ✅ **Bascule complète (opt-in `CLICKHOUSE_DROP_PG`)** : saute le post-proc PG +
-  `drop_crawl_partitions` PG en fin de crawl `finished` (après contrôle que CH a les
-  données). **Off par défaut** (sinon les rapports de comparaison, encore sur PG,
-  casseraient).
+Le flag historique `CLICKHOUSE_URL` (absent = PG-only) existe toujours, mais la cible
+est désormais **CH partout**. La lecture est routée par `crawls.data_store`
+(`pg` | `clickhouse`) : un crawl migré → CH ; un crawl pas encore migré (pendant le
+backfill) → PG **via un shim qui calcule quand même `category` en live** (transitoire).
 
-- ✅ **TOUS les rapports sur ClickHouse** (PG = crawl-time only). `dashboard.php`
-  route tout vers `ChPdo` (mono ET comparaison). `cat_id` éliminé partout :
-  catégorie = colonne `category` live (nom). **14 rapports mono-crawl + 16 rapports
-  de comparaison + url/link-explorer + composants** validés sur CH (harness
-  `ch_report_smoke.php` / `ch_compare_smoke.php`, crawl 631). Sous-requêtes
-  corrélées cross-crawl (EXISTS `b.url=c.url`, `b.depth!=c.depth`) réécrites en
-  `IN`/`NOT IN` non-corrélées (les value-change via un JOIN DANS la sous-requête).
-  Fix racine : url-table injectait `c.crawl_id` dans CHAQUE WHERE (corrélation) →
-  limité au 1er. Filtres catégorie des explorers = par nom.
-- ✅ **Backfill PG→CH** : `scouter-crawler backfill <id|all>` migre les crawls PG
-  existants dans CH (décode HTML, extracts→Map, recalcule le post-proc, flip
-  `data_store`). Validé sur crawl 630.
+### Flags d'environnement (les deux ON par défaut dans les compose)
+- `CLICKHOUSE_URL=http://clickhouse:8123` (+ `CLICKHOUSE_DB/USER/PASSWORD`) : active CH.
+- `CLICKHOUSE_AUTO_MIGRATE=1` (défaut) : au démarrage du worker `crawler-go`, backfill
+  en tâche de fond de tous les crawls pas encore migrés (idempotent, saute les faits).
+- `CLICKHOUSE_DROP_PG=1` (défaut) : DESTRUCTIF — saute le post-proc PG, droppe les
+  données PG en fin de crawl, ET purge le PG des anciens crawls après le backfill auto
+  (après contrôle de complétude CH). Mettre `0` pour garder PostgreSQL.
 
-**Reste à faire :**
-- ⛔ Activer `CLICKHOUSE_DROP_PG=1` une fois confiance acquise (drop PG en fin de
-  crawl). Tout est prêt — c'était bloqué par la comparaison, désormais sur CH.
-- ⛔ **`in_sitemap`** dans CH : laissé à 0 dans page_metrics (membership sitemap pas
-  encore dans CH). À traiter avec l'analyse sitemap dans CH.
-- ⛔ **Prompts du chat IA** (`DrBriefPrompt`/`SqlGenPrompt`) : dialecte PG. (Le MCP
-  `run_sql` passe par l'API `/query` + `/schema` CH, déjà OK.)
-- ⛔ **Suppression définitive de `cat_id`** + `applyCategorization` + job
-  batch-categorize + étape Go `categorize` : NON fait (en place pour PG/comparaison).
-- ⛔ **Backfill** des crawls existants PG→CH (Phase 6), worker d'expiration 7j
-  (Phase 5), `page_generation` bulk-AI, frontier PG slim : NON faits.
+### Fait & testé (contre clickhouse-server 24, données réelles)
+- ✅ **Fondations** : `docker/clickhouse/init.sql` (pages/links/html/page_schemas +
+  dérivées page_metrics/duplicate_clusters/redirect_chains + page_generation).
+  pages/html/page_schemas = **ReplacingMergeTree** (dédoublonnage physique de l'append).
+  Service `clickhouse` dans les 2 compose + `.env.example` + service+schéma dans la CI
+  (`.github/workflows/tests.yml`). Healthcheck = `clickhouse-client -q 'SELECT 1'`
+  (le `wget` sur localhost est refusé dans l'image alpine).
+- ✅ **Clients** : Go HTTP (`crawler-go/internal/db/clickhouse.go` : InsertJSONEachRow,
+  QueryTSV/Scalar, DropPartition) ; PHP HTTP (`app/Database/ClickHouseDatabase.php`,
+  param `{name:Type}`, settings `prefer_column_name_to_alias=1`).
+- ✅ **Dual-write pendant le crawl** : `crawl/ch_store.go` append pages/links/html/
+  page_schemas dans CH (HTML brut décodé du DomZip). PG est aussi écrit (transition) ;
+  le crawler pose `data_store='clickhouse'` au démarrage du crawl si CH actif.
+- ✅ **Post-proc DANS ClickHouse** (`postprocess/clickhouse.go`, `CHRunner`) : inlinks,
+  **PageRank** (Memory tables `pr_cur/pr_next`, 30 itérations sur le graphe `links`),
+  statuts sémantiques (window funcs), duplicate (exact en SQL + near-dup Hamming
+  union-find en Go), redirect-chains. Écrit page_metrics/duplicate_clusters/
+  redirect_chains via **DROP PARTITION + INSERT** (idempotent). Lit des **pages
+  dédoublonnées** (`LIMIT 1 BY id`).
+- ✅ **TOUS les rapports sur ClickHouse** — `cat_id` éliminé, catégorie = colonne
+  `category` live (le NOM).
+  - **Shim `ChPdo`/`ChStmt`** (compatible PDO, `app/Database/`) câblé dans
+    `dashboard.php`. Réécrit `FROM/JOIN pages|links|…` en sous-requêtes
+    `crawl_id`-filtrées, expose `category` + `cat_id` (synthétique = index de règle)
+    + colonnes page_metrics + generation, dédoublonne (`LIMIT 1 BY id`), traduit le
+    dialecte PG→CH (`::cast`, `FILTER`→`countIf`, `->>'k'`/`:p`/`{p}`→Map, `unnest`→
+    `arrayJoin`, `substring(x[ ,/FROM]'re')`→`extract`, `array_length`→`length`,
+    `percentile_cont … WITHIN GROUP`→`quantileExact`, `pages_<id>`/`pages@<id>`→source
+    du crawl).
+  - **Multi-crawl / comparaison** : `ChPdo(crawlId, compareId)` couvre les 2 crawls ;
+    `<table>@<id>` géré ; sous-requêtes **corrélées** cross-crawl (que CH ne supporte
+    PAS : `EXISTS (… b.url=c.url [AND b.col!=c.col])`) réécrites en `IN`/`NOT IN` non
+    corrélées (les value-change via un JOIN **dans** la sous-requête `IN`).
+  - **PERF (important)** : la catégorie (regex RE2) + les jointures page_metrics/
+    page_generation ne sont injectées **que si la requête les référence**
+    (`featuresOf()`). → requêtes sans catégorie ≈ 48 ms même sur 260k pages ; avec
+    catégorie ≈ 140 ms. Sinon un gros crawl (152k pages) ramait.
+  - **`PgReportPdo`** (`app/Database/`) : shim PG symétrique pour les crawls PAS encore
+    migrés — injecte `category` en live (PG `~*`, **n'enrobe que si `category` est
+    référencé** → vitesse PG native sinon).
+  - **22 rapports validés** mono-crawl (harness `scripts/ch_report_smoke.php`) +
+    **16 rapports de comparaison** (`scripts/ch_compare_smoke.php`) + url/link-explorer
+    + composants `url-table`/`link-table`/`table-core`. Filtres catégorie des explorers
+    = par NOM. Icône SQL des graphes en dialecte CH (`translateDialectOnly`).
+  - **Fix racine url-table** : `c.crawl_id = X AND` était injecté dans **chaque** WHERE
+    (donc dans les sous-requêtes → corrélation → CH refuse) — limité au 1er WHERE.
+- ✅ **SQL Explorer / API v1 / MCP** : `ClickHouseSqlExecutor` (crawl_id forcé par
+  sous-requêtes, dialecte CH, blocklist de fonctions `file/url/remote/s3/system…`,
+  `category`+`cat_id` live, jointure page_metrics ; réutilise `ChPdo::virtualSource()`
+  → zéro divergence avec les rapports). `ApiV1Controller::query/schema` +
+  `QueryController::execute` routent vers CH si `data_store=clickhouse`.
+- ✅ **Catégorisation live** : `app/Analysis/CategoryExpr.php` — `build()` (CH `match()`
+  RE2), `buildPg()` (PG `~*`), `buildIdExpr()` (cat_id synthétique), `forCrawl()/
+  forCrawlPg()` (charge le YAML du crawl puis du projet). `CrawlStore::usesClickHouse()`
+  route. Couleurs par NOM via `getCategoryColor()` (déjà name-based dans le dashboard).
+- ✅ **Backfill PG→CH** : `scouter-crawler backfill <id|all>`
+  (`crawler-go/internal/backfill/backfill.go`). Lit les partitions PG, bulk-insert CH
+  (HTML décodé base64+flate, extracts→Map, NULL-safe sur title/h1/… et code/RT),
+  rejoue le post-proc CH, contrôle de complétude (counts CH ≥ 90% PG), flip
+  `data_store`. **2 phases** : (1) pages/links/schemas/post-proc/flip = rapports OK
+  vite ; (2) HTML (view-source, lourd) **en dernier, non-bloquant** pour ne pas qu'un
+  gros crawl bloque la file. Idempotent (DROP PARTITION avant). **`SyncStats`** recopie
+  les scorecards (clusters_duplicate, compliant_duplicate, redirect_*) de CH→`crawls.*`.
+- ✅ **Purge PG** : `scouter-crawler purge-pg <id|all>` — `drop_crawl_partitions` PG
+  des crawls `data_store=clickhouse`, **re-vérifie CH avant chaque drop** (jamais de
+  perte). Synchronise aussi les scorecards au passage.
+- ✅ **Auto-migration + purge au boot** : si `CLICKHOUSE_AUTO_MIGRATE`, le worker
+  backfill tout au démarrage (en goroutine, worker dispo tout de suite) ; si
+  `CLICKHOUSE_DROP_PG` aussi, purge ensuite. → `./start.sh`/Coolify migre + purge seul.
+- ✅ **monitor.php** : carte storage = **total global + détail PostgreSQL vs ClickHouse**
+  (taille CH via `system.parts`) + **storage par crawl** (PG / CH par crawl + badge
+  store) + **barre de progression migration** (X/Y migrés). Bloc "projects" retiré.
+- ✅ **CI** : service `clickhouse` + chargement du schéma + test d'intégration Go
+  (`internal/db/clickhouse_integration_test.go`, opt-in si `CLICKHOUSE_URL`).
+
+### Bugs corrigés en cours de route (pièges CH rencontrés)
+- Pages dupliquées (append-only + sitemap re-fetch/retries) → dédoublonnage `LIMIT 1
+  BY id` partout + ReplacingMergeTree.
+- Nouvel analyzer CH : ne résout pas une colonne via `t.*` à travers plusieurs JOINs,
+  ni une colonne partagée (crawl_id) entre sous-requêtes jointes → colonnes énumérées
+  explicitement + clés des sous-requêtes jointes renommées (`_mcid/_mid`).
+- Placeholders liés AVANT la traduction (la regex catégo contient des `?`/`(?i)`).
+- Arrays CH rendus en string PG `{a,b}` (compat `trim`/`explode`/`unnest` des rapports).
+- Backfill : NULL non scannables (title/h1/… nullable), html `unexpected EOF` (rendu
+  non-fatal), contention quand 2 backfills tournaient en // (un seul à la fois).
+- **Graphes vides (count/sum en strings)** : CH en `FORMAT JSON` quote les entiers
+  64 bits (UInt64/Int64, ce que renvoient `count()`/`sum()`) → `json_decode` donnait
+  des **strings** (`"95"`). Highcharts (pie/stacked) concatène alors les totaux au
+  lieu de les additionner → **slices/barres vides** (seo-tags, et tout rapport ne
+  castant pas en `(int)` ; headings marchait car il castait). Fix : `ClickHouseDatabase::httpQuery`
+  ajoute `output_format_json_quote_64bit_integers=0` → les agrégats reviennent en
+  nombres JSON (donc int/float PHP). Concerne TOUS les rapports CH d'un coup.
+- **Pages externes absentes de CH** (régression : rapport "top external domains" /
+  pagerank-leak, accessibility, pagerank, link-explorer vides). Cause : seules les
+  pages crawlées étaient écrites dans CH `pages` ; les targets externes
+  (`external=1, crawled=0`) restaient en PG (frontier). Fix : (a) dual-write live
+  `CHStore.AddExternalPage` (dédup par id) appelé aux 3 sites `InsertPage` externes
+  (redirect/canonical/ahref) dans `crawl/store.go` ; (b) backfill `pages()` =
+  `WHERE in_crawl AND (crawled OR external)` + `crawled` réel (plus codé en dur à 1).
+  Le post-proc lit `pages`, donc PageRank (dead-ends externes) + inlinks les couvrent
+  sans changement. ⚠️ Les 251 crawls **déjà migrés+purgés** ont perdu leurs pages
+  externes (PG droppé) → vides jusqu'à un re-crawl ; le fix vaut pour les nouveaux
+  crawls et tout crawl re-backfillé tant que son PG existe encore.
+
+- **URL-explorer / catégorisation / IA câblés sur CH** (étaient restés en PG brut →
+  vides après purge). (a) `QueryController` url-details/inlinks/outlinks/html-source/
+  quick-search routent vers `ChPdo` si CH (helper `reportDb()`), `category` (nom) au
+  lieu de `cat_id`, extracts Map déjà décodé, HTML brut (pas base64+gzip).
+  (b) `CategorizationController` stats/test/save/table en live CH (no cat_id) +
+  `CategorizationService::testCategorizationCH` ; save saute `applyCategorization`+batch.
+  (c) **Dr Brief `SqlQueryTool`** route vers `ClickHouseSqlExecutor` (était `SqlExecutor`
+  PG en dur). (d) `ClickHouseSqlExecutor` **traduit le dialecte PG** (réutilise
+  `ChPdo::translateDialectOnly`+`translateTablesOnly`, alias & crawl_categories gérés) et
+  `ChPdo::rewriteDialect` apprend `~*`/`~`→`match()` → SQL Explorer / Dr Brief / MCP
+  acceptent PG ET CH. (e) `SqlGenPrompt`/`DrBriefPrompt` ont une variante **dialecte CH**
+  (gate `ClickHouseDatabase::enabled()`) ; panel schéma SQL Explorer = schéma CH
+  (`category`, Map, dérivées) via `ApiV1Controller::clickHouseVirtualSchema()`.
+- **Preview / éditeur de segment / AI catégo câblés sur CH** (2e passe) :
+  (a) `MonitorController::preview` (onglet Preview du modal URL) lisait pages/html en
+  PG brut → "URL non trouvée" ; routé via ChPdo + HTML brut (pas base64+gzip).
+  (b) `web/pages/categorize.php` : éditeur vide car il lisait `categorization_config`
+  (table **PG**) via `$pdo`=**ChPdo** (envoyé à CH où la table n'existe pas → échec
+  silencieux). Corrigé : métadonnées via handle PG brut (`$pdoPg`/`$metaPdo`) + fallback
+  `projects.categorization_config` quand la config crawl-level manque.
+  (c) `AICategorizationController::sampleCrawl/randomFromBucket` échantillonnaient
+  `pages_<id>` (PG purgé) → "No internal crawled URLs found" ; branche CH
+  (`{db}.pages … rand() … LIMIT 1 BY id`).
+  ⚠️ **Leçon** : toute requête de **métadonnée** (categorization_config, projects,
+  crawl_categories, crawls) doit passer par le **PG brut**, jamais par `$pdo`=ChPdo
+  (qui route vers ClickHouse).
+- **Save catégorisation = propagation projet-wide** : chaque crawl FIGE la config
+  projet dans son `categorization_config` à la création (Cmder/scheduler), et la
+  catégorie live lit ce snapshot par-crawl EN PRIORITÉ → éditer le projet ne changeait
+  que le crawl courant. Fix : `CategorizationController::save` upsert le nouveau YAML
+  dans le snapshot de **TOUS les crawls du projet** (instantané, c'est live → aucun
+  recalcul). → save sur un crawl = catégories à jour partout dans le projet direct.
+
+### Reste à faire
+- ⛔ **`in_sitemap`** dans CH : laissé à 0 dans page_metrics (la membership sitemap
+  n'est pas encore portée dans CH). À traiter avec l'analyse sitemap dans CH.
+- ⚠️ **Template Dr Brief stocké** (`app_settings.ai.openrouter.dr_brief_prompt`) :
+  override le `defaultTemplate()`. S'il existe (custom admin), il garde son dialecte PG —
+  fonctionne quand même (l'executor traduit), mais pour le CH-natif il faut le reset
+  depuis /settings. Le défaut, lui, est CH-aware.
+- ⛔ **Suppression définitive côté schéma PG** : colonne `pages.cat_id`,
+  `CategorizationService::applyCategorization`, job `batch-categorize`, étape Go
+  `categorize.go` + test de parité — toujours en place (utile pour PG/transition).
+  À retirer une fois la migration 100% validée partout.
+- ⛔ **Frontier PG slim** : PG garde encore le schéma `pages` complet (pas une table
+  frontier dédiée) ; la purge vide les données mais le modèle "frontier slim" du §3
+  n'est pas implémenté tel quel. Les crawls EN COURS gardent leur `pages` PG.
+- ⛔ **Worker d'expiration 7 j** (crawls stoppés) + `crawls.resumable` : non fait.
+
+### Fichiers clés (réalisés)
+- Go : `crawler-go/internal/db/clickhouse.go`, `internal/crawl/ch_store.go`,
+  `internal/postprocess/clickhouse.go` (CHRunner), `internal/backfill/backfill.go`,
+  `internal/db/crawldb.go` (SetDataStore), `cmd/scouter-crawler/main.go` (CH client,
+  backfill/purge-pg/auto-migrate, CH post-proc + SyncStats).
+- PHP : `app/Database/{ClickHouseDatabase,ChPdo,ChStmt,PgReportPdo,CrawlStore}.php`,
+  `app/Analysis/CategoryExpr.php`, `app/AI/ClickHouseSqlExecutor.php`,
+  `app/Http/Controllers/{ApiV1Controller,QueryController}.php`, `web/dashboard.php`,
+  `web/components/{chart,url-table,link-table,table-core}.php`, `web/pages/*` (rapports
+  mono + comparaison convertis cat_id→category), `web/pages/monitor.php`.
+- Infra : `docker/clickhouse/init.sql`, `docker-compose.yml` + `.local.yml`,
+  `.env.example`, `migrations/2026-05-24-09-00-crawl-data-store.php` (colonne
+  `crawls.data_store`), `docker/postgres/init.sql` (colonne data_store),
+  `scripts/ch_report_smoke.php`, `scripts/ch_compare_smoke.php`.
+- Branche : `feat/clickhouse-migration` (non mergée, non poussée).
+
+### Commandes utiles
+```
+# migrer tous les anciens crawls PG -> CH (idempotent)
+docker compose -f docker-compose.local.yml run --rm crawler-go go run ./cmd/scouter-crawler backfill all
+# purger le PG des crawls migrés (re-vérifie CH avant chaque drop)
+docker compose -f docker-compose.local.yml run --rm crawler-go go run ./cmd/scouter-crawler purge-pg all
+# prod (binaire) : docker compose run --rm crawler-go backfill all  |  purge-pg all
+```
 
 ---
 

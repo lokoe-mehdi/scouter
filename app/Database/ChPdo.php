@@ -138,6 +138,19 @@ class ChPdo
         return $this->rewriteDialect($sql);
     }
 
+    /**
+     * Table-only rewriting (FROM/JOIN virtual names → crawl-scoped subqueries,
+     * `@id`, crawl_categories, aliases) without the dialect pass. Public so the
+     * SQL Explorer's ClickHouseSqlExecutor reuses the EXACT same table handling as
+     * the reports — including alias preservation and crawl_categories — instead of
+     * its own simpler substitution. (It runs the dialect pass separately, after
+     * its security checks, so the two stages stay independent.)
+     */
+    public function translateTablesOnly(string $sql): string
+    {
+        return $this->rewriteTables($sql);
+    }
+
     /** The observed `pages` columns, enumerated explicitly (NOT `p.*`): CH's new
      *  analyzer fails to resolve a column from `t.*` through multiple joins, so we
      *  list them so every output column — crawl_id included — is unambiguous. */
@@ -229,6 +242,13 @@ class ChPdo
      */
     public function virtualSource(string $table, int $id): string
     {
+        // crawl_categories is a project-level values table (id/cat/color), not a
+        // crawl-partitioned data table — return the inline source built from the
+        // YAML rules so PG-style `JOIN crawl_categories ON p.cat_id = c.id` works
+        // in the SQL Explorer / Dr Brief exactly like in the reports.
+        if ($table === 'crawl_categories') {
+            return $this->crawlCategoriesSource;
+        }
         // Ad-hoc SQL Explorer: expose everything (can't know what the user wants).
         return $this->sourceFor($table, [$id], $id, self::ALL_FEAT);
     }
@@ -323,6 +343,17 @@ class ChPdo
 
     private function rewriteDialect(string $sql): string
     {
+        // PG POSIX regex operators → CH RE2 match(). Done first (before cast/JSON
+        // rewrites) so the pattern literal is still intact. Left operand is a
+        // column (url, p.url) or a parenthesised expr; the right side is a string
+        // literal. `~*` is case-insensitive → inject the (?i) inline flag.
+        $reLit = "('(?:[^']|'')*')";
+        $reLhs = '([A-Za-z_][A-Za-z0-9_.]*|\([^()]*\))';
+        $sql = preg_replace_callback("/{$reLhs}\\s*!~\\*\\s*{$reLit}/", fn($m) => 'NOT match(' . $m[1] . ", '(?i)" . substr($m[2], 1) . ')', $sql);
+        $sql = preg_replace_callback("/{$reLhs}\\s*~\\*\\s*{$reLit}/",  fn($m) => 'match(' . $m[1] . ", '(?i)" . substr($m[2], 1) . ')', $sql);
+        $sql = preg_replace("/{$reLhs}\\s*!~\\s*{$reLit}/", 'NOT match($1, $2)', $sql);
+        $sql = preg_replace("/{$reLhs}\\s*~\\s*{$reLit}/",  'match($1, $2)', $sql);
+
         // Strip PostgreSQL type casts CH doesn't understand (::numeric, ::int…).
         $sql = preg_replace('/::\s*(numeric|integer|int|bigint|smallint|float|double precision|real|text|varchar|jsonb|json)\b/i', '', $sql);
 

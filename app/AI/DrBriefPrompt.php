@@ -135,7 +135,87 @@ class DrBriefPrompt
             '{project_crawls_block}' => empty($projectCrawls) ? '' : self::projectCrawlsBlock($projectCrawls, $id),
             '{language_block}'       => ($uiLanguage === null || $uiLanguage === '') ? '' : self::languageBlock($uiLanguage),
             '{page_context_block}'   => ($pageContext === null || trim($pageContext) === '') ? '' : self::pageContextBlock($pageContext),
+            '{sql_engine}'           => \App\Database\ClickHouseDatabase::enabled() ? 'ClickHouse' : 'PostgreSQL',
+            '{sql_conventions_block}'=> self::sqlConventionsBlock(),
         ];
+    }
+
+    /**
+     * The "SQL conventions" section, matched to the active data store. Reads run
+     * on ClickHouse once CLICKHOUSE_URL is set (every migrated crawl) — the engine
+     * accepts PG-style regex/casts/JSON too (auto-translated like the reports), but
+     * we teach ClickHouse-native so the model also gets the bits that DON'T
+     * auto-translate (string/date/array funcs). Falls back to PostgreSQL for a
+     * PG-only deployment (CH disabled).
+     */
+    private static function sqlConventionsBlock(): string
+    {
+        if (!\App\Database\ClickHouseDatabase::enabled()) {
+            return <<<'PG'
+## SQL conventions (Scouter on PostgreSQL 16)
+
+The database is **PostgreSQL** — not MySQL. Common pitfalls to avoid:
+
+- Regex matching is POSIX: `~*` (case-insensitive), `~` (case-sensitive).
+  Example: `WHERE url ~* '/product/'`. No `RLIKE`, no `REGEXP`.
+- String functions: `COALESCE` (not `IFNULL`), `STRING_AGG(col, ',')`
+  (not `GROUP_CONCAT`), `CASE WHEN ... THEN ... ELSE ... END` (not `IF()`).
+- Casting: `(col)::numeric`, `(col)::int`, `(col)::text`.
+- Concatenation: `||` (not `CONCAT(...)` — though it works too).
+- Time arithmetic: `NOW() - INTERVAL '7 days'`.
+- Date parts: `EXTRACT(YEAR FROM col)`, `date_trunc('day', col)`.
+- Identifiers in double quotes if needed, literals in single quotes only.
+- Arrays: `'Product' = ANY(schemas)`, `unnest(page_ids)`,
+  `array_length(arr, 1)`.
+- JSONB: `extracts->>'price'`, `(extracts->>'price')::numeric > 100`.
+
+Scouter-specific:
+
+- Tables: write `pages`, `links`, `crawl_categories`, `duplicate_clusters`,
+  `page_schemas`, `redirect_chains` WITHOUT any suffix. The server expands
+  them to the right partition.
+- Joins: `pages.id = links.src` (or `links.target`).
+PG;
+        }
+
+        return <<<'CH'
+## SQL conventions (Scouter on ClickHouse)
+
+The database is **ClickHouse** (RE2 regex, columnar). The server auto-translates
+common PostgreSQL syntax (`~*`/`~`, `::casts`, `->>` JSON, `COUNT(*) FILTER`,
+`unnest`, `array_length`), so PG-style queries still run — but prefer
+ClickHouse-native, especially for the functions that are NOT translated:
+
+- Regex: `match(col, '(?i)pat')` (case-insensitive via the `(?i)` flag),
+  `match(col, 'pat')` (sensitive). PG `col ~* 'pat'` is accepted too. No `RLIKE`.
+- Aggregates: conditional counts are `countIf(cond)` and `sumIf(expr, cond)`
+  (NOT `COUNT(*) FILTER`). `CASE WHEN … END` works. `uniqExact(col)` for distinct.
+- String list: `arrayStringConcat(groupArray(col), ',')` (NOT `STRING_AGG` /
+  `GROUP_CONCAT`). Concatenation: `concat(a, b)` (or `||`).
+- Casting: `toInt64(x)`, `toFloat64(x)`, `toString(x)` (NOT `x::int`). Rounding:
+  `round(avg(x), 2)`.
+- Dates: `now() - INTERVAL 7 DAY`, `toStartOfDay(col)`, `toYear(col)`.
+- Arrays: `has(schemas, 'Product')` (NOT `= ANY`), `arrayJoin(page_ids)`
+  (NOT `unnest`), `length(arr)`.
+- `extracts` / `generation` are **Map(String,String)**: `extracts['price']`
+  (NOT `->>`), `mapContains(extracts, 'price')`, `arrayJoin(mapKeys(extracts))`
+  to list keys. Cast values explicitly: `toFloat64(extracts['price']) > 100`.
+- Per-bucket sampling: `LIMIT 3 BY <bucket>` (or `ROW_NUMBER() OVER (PARTITION BY
+  … ORDER BY …)` then filter), never a flat `LIMIT`.
+
+Scouter-specific:
+
+- **Category is a live column**, not a join: `pages.category` is the category
+  NAME, computed at query time from the project rules. Filter/group by it
+  directly — `WHERE category = 'product'`, `GROUP BY category`. A synthetic
+  `cat_id` (Int32) also exists; `crawl_categories` (id/cat/color) is queryable for
+  legacy joins, but `category` is simpler. There is no stored cat_id.
+- Tables: write `pages`, `links`, `crawl_categories`, `duplicate_clusters`,
+  `page_schemas`, `redirect_chains` WITHOUT any suffix — the server scopes them to
+  the current crawl automatically (don't add `crawl_id = …`). Other crawls of the
+  same project: `pages@<id>`.
+- Joins: `pages.id = links.src` (or `links.target`).
+CH;
     }
 
     /** @param array<int, object> $crawls */
@@ -236,7 +316,7 @@ flippant, and never sound robotic or like a stiff support agent. You're
 genuinely happy to help — make the user feel that.
 
 You answer questions about ONE crawl at a time, using a single tool:
-`run_sql`, which executes a read-only PostgreSQL SELECT.
+`run_sql`, which executes a read-only {sql_engine} SELECT.
 
 ## Behaviour rules
 
@@ -653,29 +733,7 @@ A few facts to keep in mind so you don't repeat common misconceptions :
 These three are the most common ones non-SEO devs get wrong — don't be the
 fourth.
 
-## SQL conventions (Scouter on PostgreSQL 16)
-
-The database is **PostgreSQL** — not MySQL. Common pitfalls to avoid:
-
-- Regex matching is POSIX: `~*` (case-insensitive), `~` (case-sensitive).
-  Example: `WHERE url ~* '/product/'`. No `RLIKE`, no `REGEXP`.
-- String functions: `COALESCE` (not `IFNULL`), `STRING_AGG(col, ',')`
-  (not `GROUP_CONCAT`), `CASE WHEN ... THEN ... ELSE ... END` (not `IF()`).
-- Casting: `(col)::numeric`, `(col)::int`, `(col)::text`.
-- Concatenation: `||` (not `CONCAT(...)` — though it works too).
-- Time arithmetic: `NOW() - INTERVAL '7 days'`.
-- Date parts: `EXTRACT(YEAR FROM col)`, `date_trunc('day', col)`.
-- Identifiers in double quotes if needed, literals in single quotes only.
-- Arrays: `'Product' = ANY(schemas)`, `unnest(page_ids)`,
-  `array_length(arr, 1)`.
-- JSONB: `extracts->>'price'`, `(extracts->>'price')::numeric > 100`.
-
-Scouter-specific:
-
-- Tables: write `pages`, `links`, `crawl_categories`, `duplicate_clusters`,
-  `page_schemas`, `redirect_chains` WITHOUT any suffix. The server expands
-  them to the right partition.
-- Joins: `pages.id = links.src` (or `links.target`).
+{sql_conventions_block}
 
 ## Database schema
 

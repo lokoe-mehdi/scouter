@@ -140,6 +140,39 @@ class CategorizationService
     }
 
     /**
+     * ClickHouse counterpart of testCategorization(): preview the CANDIDATE rules
+     * against the crawl's ClickHouse data (the PG pages are purged once migrated).
+     * Builds the live CH `category` expression (RE2 match()) from the rules and
+     * runs it over the deduplicated, internal pages. Same return shape as the PG
+     * version: {stats:[{category,count}], urls:[{url,depth,code,category}]}.
+     */
+    public function testCategorizationCH(int $crawlId, array $rules): array
+    {
+        $catExpr = (new \App\Analysis\CategoryExpr($this->db))->build($rules); // references `url`, NULL when none
+        $ch = \App\Database\ClickHouseDatabase::getInstance();
+        $db = $ch->getDatabase();
+        $base = "(SELECT url, depth, code FROM {$db}.pages WHERE crawl_id = " . (int)$crawlId
+              . " AND external = 0 LIMIT 1 BY id)";
+
+        $stats = $ch->select("SELECT {$catExpr} AS category, count() AS count FROM {$base} GROUP BY category ORDER BY count DESC");
+        $urls  = $ch->select("SELECT url, depth, code, {$catExpr} AS category FROM {$base} ORDER BY url LIMIT 500");
+
+        // CH returns the unmatched bucket as '' (or NULL); normalise to null so the
+        // controller maps it to the "Non catégorisé" label exactly like the PG path.
+        $norm = function (array &$rows) {
+            foreach ($rows as &$r) {
+                if (($r['category'] ?? '') === '') {
+                    $r['category'] = null;
+                }
+            }
+        };
+        $norm($stats);
+        $norm($urls);
+
+        return ['stats' => $stats, 'urls' => $urls];
+    }
+
+    /**
      * Applique la catégorisation : 1 UPDATE SQL par catégorie
      *
      * Crée les catégories en base et applique les règles via UPDATE SQL

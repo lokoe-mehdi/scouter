@@ -134,7 +134,7 @@ class ApiV1Controller extends Controller
         if (CrawlStore::usesClickHouse($cid)) {
             Response::json([
                 'data' => [
-                    'tables' => $this->clickHouseVirtualSchema(),
+                    'tables' => self::clickHouseVirtualSchema(),
                     'notes'  => 'ClickHouse data store. Use virtual names (`pages`, `links`, '
                               . '`duplicate_clusters`, `page_schemas`, `redirect_chains`). '
                               . '`pages.category` is computed live from the project rules (no cat_id). '
@@ -192,7 +192,7 @@ class ApiV1Controller extends Controller
      *
      * @return array<string,array<int,array{name:string,type:string}>>
      */
-    private function clickHouseVirtualSchema(): array
+    public static function clickHouseVirtualSchema(): array
     {
         $col = fn(string $n, string $t) => ['name' => $n, 'type' => $t];
         return [

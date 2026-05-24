@@ -3,6 +3,8 @@
 namespace App\AI\Tools;
 
 use App\AI\SqlExecutor;
+use App\AI\ClickHouseSqlExecutor;
+use App\Database\CrawlStore;
 
 /**
  * The `run_sql` tool exposed to the model via OpenRouter.
@@ -78,7 +80,13 @@ class SqlQueryTool
         $query   = isset($args['query'])   ? (string)$args['query']   : '';
         $purpose = isset($args['purpose']) ? (string)$args['purpose'] : '';
 
-        $executor = new SqlExecutor();
+        // Route to the right engine: a migrated crawl (data_store=clickhouse)
+        // reads ClickHouse (PG partitions purged) — same contract/return shape as
+        // SqlExecutor. Mirrors ApiV1Controller / QueryController so Dr Brief, the
+        // SQL Explorer and the MCP all run on the same backend for a given crawl.
+        $executor = CrawlStore::usesClickHouse($crawlId)
+            ? new ClickHouseSqlExecutor()
+            : new SqlExecutor();
         $result = $executor->execute($query, $crawlId);
 
         if (!$result['ok']) {

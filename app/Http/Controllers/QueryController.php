@@ -337,22 +337,30 @@ class QueryController extends Controller
         }
         
         $crawlId = $crawlRecord->id;
-        
-        // Charger les catégories (project-level)
-        $categoriesMap = [];
-        $categoryColors = [];
+
+        // On ClickHouse crawls the PG partitions are purged → read through the same
+        // shim the reports use (ChPdo), which exposes the LIVE `category` (name) and
+        // a synthetic cat_id. The legacy PG path (raw pages with stored cat_id) is
+        // kept for crawls not yet migrated. Category colours are project metadata
+        // (crawl_categories), always in PG, keyed by category NAME for both.
+        $useCh = CrawlStore::usesClickHouse((int)$crawlId);
+        $dataDb = $useCh ? new \App\Database\ChPdo((int)$crawlId) : $this->db;
+
+        $categoriesMap = [];   // PG cat_id → name (legacy path only)
+        $categoryColors = [];  // name → color (both paths)
         $stmt = $this->db->prepare("SELECT id, cat, color FROM crawl_categories WHERE project_id = :project_id");
         $stmt->execute([':project_id' => $crawlRecord->project_id]);
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $categoriesMap[$row['id']] = $row['cat'];
             $categoryColors[$row['cat']] = $row['color'];
         }
-        
-        // Récupérer les détails de l'URL (inclut inlinks/outlinks counts pré-calculés)
-        $stmt = $this->db->prepare("
+
+        // `category` (live name) on CH ; `cat_id` (stored) on legacy PG.
+        $catCol = $useCh ? 'category' : 'cat_id';
+        $stmt = $dataDb->prepare("
             SELECT id, url, domain, depth, code, crawled, content_type, inlinks, outlinks, date,
                    nofollow, compliant, noindex, canonical, canonical_value, redirect_to,
-                   response_time, blocked, external, title, h1, metadesc, extracts, cat_id,
+                   response_time, blocked, external, title, h1, metadesc, extracts, {$catCol},
                    h1_multiple, headings_missing, schemas, word_count
             FROM pages WHERE crawl_id = :crawl_id AND url = :url
         ");
@@ -363,7 +371,9 @@ class QueryController extends Controller
             Response::notFound('URL not found');
         }
 
-        $catName = $categoriesMap[$urlData['cat_id']] ?? 'Non catégorisé';
+        $catName = $useCh
+            ? (($urlData['category'] ?? '') !== '' ? $urlData['category'] : 'Non catégorisé')
+            : ($categoriesMap[$urlData['cat_id']] ?? 'Non catégorisé');
         $urlData['category'] = $catName;
         $urlData['category_color'] = $categoryColors[$catName] ?? '#95a5a6';
 
@@ -373,14 +383,20 @@ class QueryController extends Controller
             'metadesc' => $urlData['metadesc'] ?? ''
         ];
 
-        $customExtracts = $urlData['extracts'] ? json_decode($urlData['extracts'], true) : [];
+        // extracts: CH (Map) is already decoded to an array by the shim; legacy PG
+        // returns a JSONB string.
+        $rawExtracts = $urlData['extracts'] ?? null;
+        $customExtracts = is_array($rawExtracts) ? $rawExtracts : ($rawExtracts ? json_decode($rawExtracts, true) : []);
 
         $urlData['response_time'] = (int)($urlData['response_time'] ?? 0);
         $urlData['depth'] = (int)($urlData['depth'] ?? 0);
         $urlData['code'] = (int)($urlData['code'] ?? 0);
 
+        // schemas: both paths render the PG array literal '{A,B}' (the shim mirrors it).
         $schemas = $urlData['schemas'] ?? '{}';
-        if ($schemas && $schemas !== '{}') {
+        if (is_array($schemas)) {
+            $urlData['schemas'] = $schemas;
+        } elseif ($schemas && $schemas !== '{}') {
             $schemas = trim($schemas, '{}');
             $urlData['schemas'] = !empty($schemas)
                 ? array_map(fn($s) => trim($s, '"'), explode(',', $schemas))
@@ -390,7 +406,7 @@ class QueryController extends Controller
         }
 
         // Vrai count depuis la table links (pages.outlinks peut être faux pour les non-canoniques)
-        $stmtOut = $this->db->prepare("SELECT COUNT(*) FROM links WHERE crawl_id = :crawl_id AND src = :id");
+        $stmtOut = $dataDb->prepare("SELECT COUNT(*) FROM links WHERE crawl_id = :crawl_id AND src = :id");
         $stmtOut->execute([':crawl_id' => $crawlId, ':id' => $urlData['id']]);
         $realOutlinks = (int)$stmtOut->fetchColumn();
 
@@ -403,6 +419,19 @@ class QueryController extends Controller
             'inlinks_count' => (int)($urlData['inlinks'] ?? 0),
             'outlinks_count' => $realOutlinks
         ]);
+    }
+
+    /**
+     * The PDO-compatible handle for a crawl's DATA (pages/links/html): the ChPdo
+     * shim for migrated crawls (PG purged → read ClickHouse, live `category`), or
+     * the raw PG connection for crawls not yet migrated. Metadata (crawl_categories
+     * colours, etc.) always stays on the raw PG `$this->db`.
+     */
+    private function reportDb(int $crawlId)
+    {
+        return CrawlStore::usesClickHouse($crawlId)
+            ? new \App\Database\ChPdo($crawlId)
+            : $this->db;
     }
 
     /**
@@ -431,12 +460,14 @@ class QueryController extends Controller
         }
 
         $crawlId = $crawlRecord->id;
+        $useCh = CrawlStore::usesClickHouse((int)$crawlId);
+        $db = $useCh ? new \App\Database\ChPdo((int)$crawlId) : $this->db;
 
         if ($pageId) {
-            $stmt = $this->db->prepare("SELECT id FROM pages WHERE crawl_id = :crawl_id AND id = :id");
+            $stmt = $db->prepare("SELECT id FROM pages WHERE crawl_id = :crawl_id AND id = :id");
             $stmt->execute([':crawl_id' => $crawlId, ':id' => $pageId]);
         } else {
-            $stmt = $this->db->prepare("SELECT id FROM pages WHERE crawl_id = :crawl_id AND url = :url");
+            $stmt = $db->prepare("SELECT id FROM pages WHERE crawl_id = :crawl_id AND url = :url");
             $stmt->execute([':crawl_id' => $crawlId, ':url' => $url]);
         }
         $page = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -445,7 +476,7 @@ class QueryController extends Controller
             Response::notFound('Page not found');
         }
 
-        return ['crawlId' => $crawlId, 'pageId' => $page['id'], 'projectId' => $crawlRecord->project_id];
+        return ['crawlId' => $crawlId, 'pageId' => $page['id'], 'projectId' => $crawlRecord->project_id, 'useCh' => $useCh];
     }
 
     /**
@@ -465,8 +496,9 @@ class QueryController extends Controller
             $categoryColors[$row['cat']] = $row['color'];
         }
 
-        $stmt = $this->db->prepare("
-            SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.pri, c.cat_id
+        $catSel = $ctx['useCh'] ? 'c.category' : 'c.cat_id';
+        $stmt = $this->reportDb($ctx['crawlId'])->prepare("
+            SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.pri, {$catSel}
             FROM links l
             JOIN pages c ON l.src = c.id AND c.crawl_id = :crawl_id AND c.in_crawl = TRUE
             WHERE l.crawl_id = :crawl_id2 AND l.target = :id
@@ -476,7 +508,9 @@ class QueryController extends Controller
         $inlinks = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($inlinks as &$link) {
-            $catName = $categoriesMap[$link['cat_id']] ?? 'Non catégorisé';
+            $catName = $ctx['useCh']
+                ? (($link['category'] ?? '') !== '' ? $link['category'] : 'Non catégorisé')
+                : ($categoriesMap[$link['cat_id']] ?? 'Non catégorisé');
             $link['category'] = $catName;
             $link['category_color'] = $categoryColors[$catName] ?? '#95a5a6';
         }
@@ -501,8 +535,9 @@ class QueryController extends Controller
             $categoryColors[$row['cat']] = $row['color'];
         }
 
-        $stmt = $this->db->prepare("
-            SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.external, c.cat_id
+        $catSel = $ctx['useCh'] ? 'c.category' : 'c.cat_id';
+        $stmt = $this->reportDb($ctx['crawlId'])->prepare("
+            SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.external AS external, {$catSel}
             FROM links l
             JOIN pages c ON l.target = c.id AND c.crawl_id = :crawl_id AND c.in_crawl = TRUE
             WHERE l.crawl_id = :crawl_id2 AND l.src = :id
@@ -511,7 +546,9 @@ class QueryController extends Controller
         $outlinks = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($outlinks as &$link) {
-            $catName = $categoriesMap[$link['cat_id']] ?? 'Non catégorisé';
+            $catName = $ctx['useCh']
+                ? (($link['category'] ?? '') !== '' ? $link['category'] : 'Non catégorisé')
+                : ($categoriesMap[$link['cat_id']] ?? 'Non catégorisé');
             $link['category'] = $catName;
             $link['category_color'] = $categoryColors[$catName] ?? '#95a5a6';
         }
@@ -546,8 +583,8 @@ class QueryController extends Controller
         }
         
         $crawlId = $crawlRecord->id;
-        
-        $stmt = $this->db->prepare("
+
+        $stmt = $this->reportDb((int)$crawlId)->prepare("
             SELECT url, title, code FROM pages
             WHERE crawl_id = :crawl_id AND url LIKE :search AND in_crawl = TRUE
             ORDER BY pri DESC LIMIT :limit
@@ -574,18 +611,23 @@ class QueryController extends Controller
     {
         $ctx = $this->resolvePageContext($request);
 
-        // Get HTML
-        $stmt = $this->db->prepare("SELECT html FROM html WHERE crawl_id = :crawl_id AND id = :id");
+        // Get HTML. ClickHouse stores RAW html (ZSTD column codec, decoded by the
+        // shim); legacy PG stores it base64 + gzdeflate and needs decoding.
+        $stmt = $this->reportDb($ctx['crawlId'])->prepare("SELECT html FROM html WHERE crawl_id = :crawl_id AND id = :id");
         $stmt->execute([':crawl_id' => $ctx['crawlId'], ':id' => $ctx['pageId']]);
         $htmlRow = $stmt->fetch(PDO::FETCH_ASSOC);
-        
+
         $htmlContent = null;
         $headings = [];
         if ($htmlRow && $htmlRow['html']) {
-            $decoded = base64_decode($htmlRow['html']);
-            if ($decoded !== false) {
-                $decompressed = @gzinflate($decoded);
-                $htmlContent = $decompressed !== false ? $decompressed : $decoded;
+            if (!empty($ctx['useCh'])) {
+                $htmlContent = $htmlRow['html']; // already raw HTML
+            } else {
+                $decoded = base64_decode($htmlRow['html']);
+                if ($decoded !== false) {
+                    $decompressed = @gzinflate($decoded);
+                    $htmlContent = $decompressed !== false ? $decompressed : $decoded;
+                }
             }
 
             // Extract headings from HTML

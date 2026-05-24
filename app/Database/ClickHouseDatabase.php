@@ -109,7 +109,18 @@ class ClickHouseDatabase
         // prefer_column_name_to_alias=1 makes CH resolve an identifier to a column
         // before a same-named SELECT alias — PostgreSQL's behaviour — which the
         // reports rely on (e.g. `SUM(...) AS blocked` alongside `… blocked …`).
-        $query = ['database' => $this->db, 'prefer_column_name_to_alias' => '1'];
+        //
+        // output_format_json_quote_64bit_integers=0 emits UInt64/Int64 (what
+        // count()/sum() return) as JSON *numbers* instead of quoted strings, so
+        // json_decode yields PHP ints/floats. Otherwise aggregates come back as
+        // strings ("95") and break consumers expecting numbers — e.g. Highcharts
+        // pie/stacked charts string-concatenate the totals and render blank slices
+        // (crawl counts stay well within PHP's 64-bit int, so no precision loss).
+        $query = [
+            'database'                              => $this->db,
+            'prefer_column_name_to_alias'           => '1',
+            'output_format_json_quote_64bit_integers' => '0',
+        ];
         foreach ($params as $name => $val) {
             $value = is_array($val) ? ($val[0] ?? '') : $val;
             if (is_bool($value)) {

@@ -55,6 +55,16 @@ if (!function_exists('getCodeColor'))  { function getCodeColor($c) { return '#88
 if (!function_exists('getCodeLabel'))  { function getCodeLabel($c) { return (string)$c; } }
 if (!function_exists('getCodeClass'))  { function getCodeClass($c) { return 'code'; } }
 if (!function_exists('getCodeFullLabel')) { function getCodeFullLabel($c) { return (string)$c; } }
+if (!function_exists('getTextColorForBackground')) { function getTextColorForBackground($hex) { return '#fff'; } }
+if (!function_exists('getCodeBackgroundColor')) { function getCodeBackgroundColor($c, $o = 0.3) { return '#888'; } }
+if (!function_exists('getCodeDisplayValue')) { function getCodeDisplayValue($c) { return $c; } }
+
+// Each report in dashboard.php runs in its own request with $globalStats freshly
+// set to the crawl record. Some reports (content-richness, structured-data)
+// reassign $globalStats to a local aggregate; since this harness runs them all in
+// ONE process, restore the crawl record before each so the leak can't cause a
+// false failure in a later report (e.g. accessibility's crawled/urls ratios).
+$freshGlobalStats = $crawlRecord;
 
 $reports = [
     'home','depth','codes','code-changes','pagerank','pagerank-leak','inlinks','outlinks',
@@ -71,6 +81,7 @@ foreach ($reports as $page) {
     $file = "/app/web/pages/{$page}.php";
     if (!is_file($file)) { echo "  skip  {$page} (no file)\n"; continue; }
     $_GET['page'] = $page; $_GET['crawl'] = $crawlId;
+    $globalStats = $freshGlobalStats; // undo any prior report's $globalStats reassignment
     ob_start();
     try {
         include $file;

@@ -82,6 +82,21 @@ foreach ($virtualToReal as $virtual => $real) {
     $tables[$virtual] = $columnsByReal[$real] ?? [];
 }
 
+// On a ClickHouse-backed crawl the queries run against ClickHouse (the PG
+// partitions are purged), so the LEFT panel must show the CH virtual schema —
+// real CH types (Map/Array/UInt8…), the derived columns (inlinks, pri,
+// *_status), and the LIVE `category` (+ synthetic `cat_id`) — instead of the
+// stale PostgreSQL information_schema (which still lists the dropped `cat_id`
+// column and hides `category`). Mirrors exactly what the CH executor exposes.
+if (\App\Database\CrawlStore::usesClickHouse((int)$crawlId)) {
+    $tables = \App\Http\Controllers\ApiV1Controller::clickHouseVirtualSchema();
+    $tables['crawl_categories'] = [
+        ['name' => 'id', 'type' => 'Int32'],
+        ['name' => 'cat', 'type' => 'String'],
+        ['name' => 'color', 'type' => 'String'],
+    ];
+}
+
 // Requête passée en paramètre GET (depuis la modale scope)
 // Initial SQL : accept either `?query=<raw>` (legacy) or `?q=<base64url>` (Dr. Brief
 // deeplinks — base64 lets us pack complex SQL with quotes / newlines through the URL).

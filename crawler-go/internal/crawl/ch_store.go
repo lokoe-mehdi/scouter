@@ -33,6 +33,7 @@ type CHStore struct {
 	links   []any
 	schemas []any
 	htmls   []any
+	seenExt map[string]struct{} // external page ids already appended (dedup)
 }
 
 // NewCHStore returns a store, or nil if ch is nil (CH disabled → no-op everywhere).
@@ -122,6 +123,38 @@ func (s *CHStore) AddPage(row chPageRow) {
 	}
 	s.mu.Lock()
 	s.pages = append(s.pages, row)
+	flush := len(s.pages) >= chBatch
+	s.mu.Unlock()
+	if flush {
+		s.flushPages(context.Background())
+	}
+}
+
+// AddExternalPage enqueues an external (uncrawled) link target as a `pages` row
+// — external=1, crawled=0, no observed signals. The PG frontier stores these so
+// PageRank can leak toward them and reports (pagerank-leak "top external
+// domains", outlinks…) can aggregate by domain; CH needs them too. Deduped by id
+// (an external URL is the target of many inbound links → inserted once). A row
+// later crawled (e.g. list-mode forced-external) is re-appended by AddPage with a
+// newer date, so ReplacingMergeTree(date) keeps the crawled version.
+func (s *CHStore) AddExternalPage(id, domain, url string, depth int, blocked bool) {
+	if s == nil || id == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.seenExt == nil {
+		s.seenExt = make(map[string]struct{})
+	}
+	if _, ok := s.seenExt[id]; ok {
+		s.mu.Unlock()
+		return
+	}
+	s.seenExt[id] = struct{}{}
+	s.pages = append(s.pages, chPageRow{
+		CrawlID: s.crawlID, ID: id, Domain: domain, URL: url, Depth: depth,
+		Crawled: 0, External: 1, Blocked: b2i(blocked),
+		Extracts: map[string]string{}, Schemas: []string{},
+	})
 	flush := len(s.pages) >= chBatch
 	s.mu.Unlock()
 	if flush {

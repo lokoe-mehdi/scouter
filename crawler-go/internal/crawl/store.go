@@ -117,6 +117,9 @@ func (e *Engine) storeRedirect(ctx context.Context, p model.Page, depth int) err
 		return nil
 	}
 	blocked := e.cfg.RespectRobots && !analysis.Allowed(url)
+	if external {
+		e.chStore.AddExternalPage(id, targetDomain(url), url, depth, blocked)
+	}
 	return e.cdb.InsertPage(ctx, db.PageRow{
 		ID: id, Domain: p.Domain, URL: url, Depth: depth, Code: 0,
 		Crawled: false, External: external, Blocked: blocked,
@@ -150,6 +153,9 @@ func (e *Engine) storeLinks(ctx context.Context, p model.Page, depth int) error 
 		if isList {
 			ext = true
 		}
+		if ext {
+			e.chStore.AddExternalPage(cible, domain, p.CanonicalURL, childDepth, blocked)
+		}
 		return e.cdb.InsertPage(ctx, db.PageRow{
 			ID: cible, Domain: domain, URL: p.CanonicalURL, Depth: childDepth,
 			Crawled: false, External: ext, Blocked: blocked, InCrawl: true,
@@ -180,6 +186,9 @@ func (e *Engine) storeLinks(ctx context.Context, p model.Page, depth int) error 
 		ext := l.External
 		if isList {
 			ext = true
+		}
+		if ext {
+			e.chStore.AddExternalPage(l.TargetID, targetDomain(l.Target), l.Target, childDepth, l.Blocked)
 		}
 		pages = append(pages, db.PageRow{
 			ID: l.TargetID, Domain: targetDomain(l.Target), URL: l.Target, Depth: childDepth,

@@ -220,7 +220,7 @@ func (b *Backfiller) pages(ctx context.Context, crawlID int) error {
 		SELECT id, domain, url, depth, code, response_time, outlinks, content_type, redirect_to,
 		       crawled, compliant, noindex, nofollow, canonical, canonical_value, external, blocked,
 		       title, h1, metadesc, extracts, simhash, is_html, h1_multiple, headings_missing, schemas, word_count
-		FROM pages WHERE crawl_id=$1 AND crawled=true AND in_crawl=true`, crawlID)
+		FROM pages WHERE crawl_id=$1 AND in_crawl=true AND (crawled=true OR external=true)`, crawlID)
 	if err != nil {
 		return err
 	}
@@ -265,7 +265,7 @@ func (b *Backfiller) pages(ctx context.Context, crawlID int) error {
 		batch = append(batch, map[string]any{
 			"crawl_id": crawlID, "id": strings.TrimSpace(id), "domain": ps(domain), "url": ps(url), "depth": depth,
 			"code": codeV, "response_time": rtV, "outlinks": outlinks, "content_type": ps(contentType),
-			"redirect_to": ps(redirectTo), "crawled": 1, "compliant": b2i(compliant), "noindex": b2i(noindex),
+			"redirect_to": ps(redirectTo), "crawled": b2i(crawled), "compliant": b2i(compliant), "noindex": b2i(noindex),
 			"nofollow": b2i(nofollow), "canonical": b2i(canonical), "canonical_value": ps(canonicalValue),
 			"external": b2i(external), "blocked": b2i(blocked), "title": ps(title), "h1": ps(h1), "metadesc": ps(metadesc),
 			"extracts": extractsMap, "simhash": simhash, "is_html": pb2i(isHTML), "h1_multiple": pb2i(h1Multiple),

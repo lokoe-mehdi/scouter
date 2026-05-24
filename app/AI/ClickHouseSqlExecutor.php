@@ -44,6 +44,9 @@ class ClickHouseSqlExecutor
 
     private const ALLOWED_BASE_TABLES = [
         'pages', 'links', 'duplicate_clusters', 'page_schemas', 'redirect_chains', 'html',
+        // Project-level category values table (id/cat/color) built live from the
+        // YAML rules — lets PG-style `JOIN crawl_categories ON p.cat_id = c.id` run.
+        'crawl_categories',
     ];
 
     private const HARD_ROW_CAP    = 10000;
@@ -162,37 +165,44 @@ class ClickHouseSqlExecutor
             }
             $projectId = (int) ($crawlRecord->project_id ?? 0);
 
-            // Multi-crawl table@<id> — validate same project, replace with that
-            // crawl's filtered subquery.
-            $transformed = preg_replace_callback(
-                '/\b(pages|links|duplicate_clusters|page_schemas|redirect_chains|html)@(\d+)\b/i',
-                function ($m) use ($projectId, &$error) {
-                    $refId = (int) $m[2];
-                    $ref = CrawlDatabase::getCrawlById($refId);
+            // Accept PostgreSQL-dialect SQL, not just ClickHouse-native: translate
+            // the PG-isms the report shim also normalises (::casts, ->>/JSON,
+            // COUNT(*) FILTER, ~*/~ POSIX regex, unnest, …) to ClickHouse, reusing
+            // the SAME translator (ChPdo) as the reports. So Dr Brief (whose prompt
+            // is PG-flavoured), the SQL Explorer and the MCP all run identically and
+            // a user typing either dialect just works. CH-native SQL is untouched —
+            // the rules only match PG patterns. Done AFTER the SELECT-only/forbidden
+            // checks (validated on the user's original input) and BEFORE table
+            // substitution (translation never touches FROM/JOIN names or `@id`).
+            $chpdo = new \App\Database\ChPdo($crawlId);
+            $clean = $chpdo->translateDialectOnly($clean);
+
+            // Multi-crawl `table@<id>`: SECURITY — only validate the referenced
+            // crawl is in the same project (the actual rewrite is delegated to
+            // ChPdo below, which also handles aliases + crawl_categories). PG-style
+            // `pages_<id>` is normalised to `@id` first so the check covers it.
+            $clean = preg_replace('/\b(pages|links|duplicate_clusters|page_schemas|redirect_chains|html)_(\d+)\b/i', '$1@$2', $clean);
+            if (preg_match_all('/\b(?:pages|links|duplicate_clusters|page_schemas|redirect_chains|html)@(\d+)\b/i', $clean, $atMatches)) {
+                foreach (array_unique($atMatches[1]) as $refId) {
+                    $ref = CrawlDatabase::getCrawlById((int) $refId);
                     if (!$ref || (int) ($ref->project_id ?? -1) !== $projectId) {
-                        $error = "Cannot query crawl {$refId}: not in the same project.";
-                        return $m[0];
+                        return ['ok' => false, 'error' => "Cannot query crawl {$refId}: not in the same project."];
                     }
-                    return $this->tableSub(strtolower($m[1]), $refId);
-                },
-                $clean
-            );
-            if (!empty($error)) {
-                return ['ok' => false, 'error' => $error];
+                }
             }
 
             // CTE names are allowed table references (extract before whitelist).
             $cteNames = [];
-            if (preg_match_all('/(?:\bWITH\s+|,\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(/i', $transformed, $cteMatches)) {
+            if (preg_match_all('/(?:\bWITH\s+|,\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(/i', $clean, $cteMatches)) {
                 foreach ($cteMatches[1] as $name) {
                     $cteNames[] = strtolower($name);
                 }
             }
 
-            // Whitelist check on the bare virtual names still present (those not
-            // already rewritten to subqueries via @id). Reserved-word table names
-            // following FROM/JOIN must be whitelisted base tables or CTEs.
-            preg_match_all('/\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)\b/i', $transformed, $tableMatches);
+            // Whitelist check: every FROM/JOIN target must be a whitelisted virtual
+            // table (optionally `@id`) or a CTE. Done on the user input, before the
+            // rewrite turns the names into subqueries.
+            preg_match_all('/\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)\b/i', $clean, $tableMatches);
             foreach (array_unique($tableMatches[1] ?? []) as $tableName) {
                 $low = strtolower($tableName);
                 if (in_array($low, self::ALLOWED_BASE_TABLES, true) || in_array($low, $cteNames, true)) {
@@ -204,14 +214,11 @@ class ClickHouseSqlExecutor
                 ];
             }
 
-            // Replace the current-crawl virtual base names with filtered subqueries.
-            foreach (self::ALLOWED_BASE_TABLES as $tbl) {
-                $transformed = preg_replace_callback(
-                    '/\b(FROM|JOIN)\s+' . $tbl . '\b/i',
-                    fn($m) => $m[1] . ' ' . $this->tableSub($tbl, $crawlId),
-                    $transformed
-                );
-            }
+            // Delegate the table rewriting to ChPdo — the SAME engine the reports
+            // use — so virtual names (bare + `@id`), aliases (`pages p`) and
+            // crawl_categories all resolve exactly like in the dashboard, with no
+            // duplicated/ad-hoc substitution drifting out of sync.
+            $transformed = $chpdo->translateTablesOnly($clean);
 
             $transformed = preg_replace('/;+\s*$/', '', rtrim($transformed));
             $deeplinkSql = preg_replace('/\bLIMIT\s+\d+\s*$/i', '', trim($clean));
@@ -220,18 +227,6 @@ class ClickHouseSqlExecutor
         } catch (\Throwable $e) {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
-    }
-
-    /**
-     * The crawl_id-filtered subquery that backs a virtual table name. Reuses the
-     * EXACT same source builder as the report shim (ChPdo) so the `pages` shape —
-     * cat_id, category, inlinks/pri/*_status/in_sitemap, generation, in_crawl —
-     * never drifts between the reports and the SQL Explorer.
-     */
-    private function tableSub(string $table, int $crawlId): string
-    {
-        $src = (new \App\Database\ChPdo((int) $crawlId))->virtualSource($table, (int) $crawlId);
-        return $src . ' AS ' . $table;
     }
 
     /** Append the read guardrails as a ClickHouse SETTINGS clause. */
