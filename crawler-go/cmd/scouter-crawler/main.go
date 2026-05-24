@@ -212,6 +212,14 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 	}
 	ppStart := time.Now()
 	_ = pp.Run(ctx)
+
+	// Post-processing in ClickHouse (PageRank/inlinks/semantic/duplicate/redirect)
+	// → derived tables. Runs in addition to PG during the dual-write transition.
+	if ch != nil {
+		chpp := postprocess.NewCHRunner(ch, rec.ID, postprocess.RespectNofollowFromConfig(rec.Config), logf)
+		chpp.Run(ctx)
+	}
+
 	ppDur := time.Since(ppStart)
 	milestone(fmt.Sprintf("Post-processing done in %s", fmtDur(ppDur)))
 
