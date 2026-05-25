@@ -175,11 +175,23 @@ try {
     // TRI ET ORGANISATION COMMUNES
     // ================================================================
     
-    // Fonction de tri par ID du dernier crawl (le plus récent = ID le plus grand)
-    $sortByLastCrawl = function($a, $b) {
-        $aId = !empty($a->crawls) ? $a->crawls[0]->crawl_id : 0;
-        $bId = !empty($b->crawls) ? $b->crawls[0]->crawl_id : 0;
-        return $bId - $aId;
+    // Tri par DATE du dernier crawl : on prend, pour chaque projet, l'activité de
+    // crawl la plus récente (finished_at si dispo, sinon started_at) parmi tous ses
+    // crawls. Plus fiable que l'ID — un vieux crawl repris récemment (id bas mais
+    // finished_at récent) remonte bien le projet en tête.
+    $projectLastCrawlTs = function($p) {
+        $max = 0;
+        foreach (($p->crawls ?? []) as $c) {
+            $t = max(
+                !empty($c->finished_at) ? (int)strtotime($c->finished_at) : 0,
+                !empty($c->started_at)  ? (int)strtotime($c->started_at)  : 0
+            );
+            if ($t > $max) $max = $t;
+        }
+        return $max;
+    };
+    $sortByLastCrawl = function($a, $b) use ($projectLastCrawlTs) {
+        return $projectLastCrawlTs($b) <=> $projectLastCrawlTs($a);
     };
     
     if (!empty($myProjects)) usort($myProjects, $sortByLastCrawl);
@@ -281,6 +293,25 @@ try {
             }
         } catch (\Throwable $e) {
             error_log("critical_errors CH query failed: " . $e->getMessage());
+        }
+    }
+
+    // Score de santé SEO (5 piliers) calculé dans ClickHouse pour tous les crawls
+    // affichés, injecté par crawl. Repli sur pcHealthScore (pur PHP) pour les
+    // crawls absents de CH (non migrés) — voir project-card.php.
+    require_once(__DIR__ . '/components/project-metrics.php');
+    $healthMap = chHealthScores(array_keys($allCrawlIds));
+    if (!empty($healthMap)) {
+        foreach ([$myProjects, $sharedProjects, $otherProjects] as $list) {
+            foreach ($list as $p) {
+                foreach (($p->crawls ?? []) as $c) {
+                    if (isset($healthMap[(int)$c->crawl_id])) {
+                        $stats = $c->stats;
+                        $stats['health_score'] = $healthMap[(int)$c->crawl_id];
+                        $c->stats = $stats;
+                    }
+                }
+            }
         }
     }
 
@@ -449,7 +480,7 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                 <div>
                     <h4><?= __('index.help_title') ?></h4>
                     <p><?= __('index.help_text') ?></p>
-                    <a href="https://lokoe.fr/scouter" target="_blank" rel="noopener"><?= __('index.help_link') ?></a>
+                    <a href="https://github.com/lokoe-mehdi/scouter" target="_blank" rel="noopener"><?= __('index.help_link') ?></a>
                 </div>
             </div>
         </aside>

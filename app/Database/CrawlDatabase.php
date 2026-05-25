@@ -648,4 +648,28 @@ class CrawlDatabase
         return $stmt->fetch(PDO::FETCH_OBJ) ?: null;
     }
 
+    /**
+     * Indique si un crawl peut encore être repris.
+     *
+     * La reprise rejoue la frontier (les URLs découvertes non crawlées), qui ne
+     * vit QUE dans la partition PostgreSQL `pages_<id>`. Quand le crawl est
+     * finalisé / purgé (drop_crawl_partitions, cf. CLICKHOUSE_DROP_PG), cette
+     * table disparaît : il ne reste que ClickHouse (lecture seule) et le crawl
+     * n'est plus reprenable, même si son statut est encore "stopped". On teste
+     * donc l'existence de la table `pages_<id>` plutôt que le seul statut.
+     *
+     * @param int $crawlId ID du crawl
+     *
+     * @return bool true si la frontier PG existe encore
+     */
+    public static function hasPgData(int $crawlId): bool
+    {
+        $db = PostgresDatabase::getInstance()->getConnection();
+        $stmt = $db->prepare(
+            "SELECT EXISTS(SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = :t)"
+        );
+        $stmt->execute([':t' => 'pages_' . $crawlId]);
+        return (bool) $stmt->fetchColumn();
+    }
+
 }

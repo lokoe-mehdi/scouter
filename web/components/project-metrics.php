@@ -27,6 +27,58 @@ if (!function_exists('pcHealthScore')) {
     }
 }
 
+if (!function_exists('chHealthScores')) {
+    /**
+     * Score de santé SEO 0-100 PAR crawl, calculé en direct dans ClickHouse —
+     * 5 piliers équipondérés : (1) indexabilité, (2) on-page (title+h1 uniques),
+     * (3) contenu non-thin (>500 mots), (4) distribution du PageRank interne vers
+     * les pages conformes, (5) profondeur ≤ seuil géométrique (arbre en base 5).
+     * UNE seule requête batchée pour tous les crawls passés. Retourne
+     * [crawl_id => int]. Vide si ClickHouse est désactivé OU pour un crawl pas
+     * encore migré (absent de CH) → l'appelant retombe alors sur pcHealthScore.
+     * (Le seul calcul de score qui touche CH au rendu ; le reste reste pur-PHP.)
+     */
+    function chHealthScores(array $crawlIds): array {
+        $crawlIds = array_values(array_unique(array_filter(array_map('intval', $crawlIds))));
+        if (empty($crawlIds) || !\App\Database\ClickHouseDatabase::enabled()) return [];
+        $idList = implode(',', $crawlIds);
+        // pages est ReplacingMergeTree → on déduplique (LIMIT 1 BY crawl_id,id) avant
+        // d'agréger ; title_status/h1_status/pri vivent dans page_metrics (dérivé).
+        $sql = "
+WITH per AS (
+  SELECT crawl_id, countIf(compliant=1 AND is_html=1) AS idx
+  FROM (SELECT crawl_id, id, compliant, is_html FROM pages WHERE crawl_id IN ($idList)
+        ORDER BY date DESC LIMIT 1 BY crawl_id, id)
+  GROUP BY crawl_id
+),
+thr AS (SELECT crawl_id, greatest(ceil(log((idx + 24) / 25.0) / log(5.0)), 1) AS max_depth FROM per)
+SELECT p.crawl_id AS crawl_id,
+  round((
+      countIf(p.compliant=1 AND p.is_html=1)*100.0 / nullIf(countIf(p.crawled=1 AND p.is_html=1),0)
+    + countIf(m.title_status='unique' AND m.h1_status='unique' AND p.compliant=1 AND p.is_html=1)*100.0 / nullIf(countIf(p.crawled=1 AND p.is_html=1),0)
+    + countIf(p.compliant=1 AND p.is_html=1 AND p.word_count>500)*100.0 / nullIf(countIf(p.compliant=1 AND p.is_html=1),0)
+    + sumIf(m.pri, p.compliant=1 AND p.is_html=1)*100.0 / nullIf(sum(m.pri),0)
+    + countIf(p.compliant=1 AND p.is_html=1 AND p.depth <= t.max_depth)*100.0 / nullIf(countIf(p.compliant=1 AND p.is_html=1),0)
+  ) / 5) AS score
+FROM (SELECT crawl_id, id, compliant, is_html, crawled, word_count, depth FROM pages WHERE crawl_id IN ($idList)
+      ORDER BY date DESC LIMIT 1 BY crawl_id, id) p
+LEFT JOIN page_metrics m ON m.crawl_id = p.crawl_id AND m.id = p.id
+JOIN thr t ON t.crawl_id = p.crawl_id
+GROUP BY p.crawl_id, t.max_depth";
+        $out = [];
+        try {
+            foreach (\App\Database\ClickHouseDatabase::getInstance()->select($sql) as $r) {
+                if (($r['score'] ?? null) !== null && $r['score'] !== '') {
+                    $out[(int)$r['crawl_id']] = (int)round(max(0, min(100, (float)$r['score'])));
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('chHealthScores CH query failed: ' . $e->getMessage());
+        }
+        return $out;
+    }
+}
+
 if (!function_exists('pcScoreColor')) {
     function pcScoreColor(int $score): string {
         if ($score >= 75) return '#2ECC71';   // vert
@@ -63,7 +115,7 @@ if (!function_exists('pcSparklineSvg')) {
      * Sparkline SVG lissée (courbe de Bézier Catmull-Rom) à partir d'une série
      * (ancien→récent). Trait fin, remplissage très léger. Couleur douce.
      */
-    function pcSparklineSvg(array $values, string $color = '#3DBE8B'): string {
+    function pcSparklineSvg(array $values, string $color = '#3DBE8B', ?array $domain = null): string {
         $values = array_values(array_filter($values, fn($v) => $v !== null));
         $n = count($values);
         if ($n === 0) return '<svg class="pc-spark" viewBox="0 0 120 36"></svg>';
@@ -71,15 +123,26 @@ if (!function_exists('pcSparklineSvg')) {
         $n = count($values);
 
         $w = 120; $h = 36; $pad = 4;
-        $min = min($values); $max = max($values);
+        // $domain = [min, max] force une échelle fixe (ex. [0,100] pour un score
+        // /100) : la courbe reflète alors le NIVEAU réel de la métrique au lieu
+        // d'être auto-zoomée sur son propre min/max — un score stable et haut rend
+        // une ligne haute et ~plate, pas une fausse grosse vague. Sinon (null) :
+        // auto-échelle, adaptée aux volumes (URLs, erreurs…).
+        if ($domain !== null) {
+            [$min, $max] = $domain;
+        } else {
+            $min = min($values); $max = max($values);
+        }
         $range = ($max - $min) ?: 1;
         $stepX = ($w - 2 * $pad) / ($n - 1);
 
-        // Points
+        // Points (fraction bornée à [0,1] pour rester dans le viewBox même si une
+        // valeur déborde d'un domaine fixe).
         $P = [];
         foreach ($values as $i => $v) {
+            $frac = max(0.0, min(1.0, ($v - $min) / $range));
             $x = $pad + $i * $stepX;
-            $y = $h - $pad - (($v - $min) / $range) * ($h - 2 * $pad);
+            $y = $h - $pad - $frac * ($h - 2 * $pad);
             $P[] = [$x, $y];
         }
 

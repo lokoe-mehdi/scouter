@@ -27,15 +27,27 @@ $latestStats = $latestCrawl ? (array)$latestCrawl->stats : [];
 $prevCrawl   = (count($crawls) > 1) ? $crawls[1] : null;
 $prevStats   = $prevCrawl ? (array)$prevCrawl->stats : [];
 
-$health     = $latestCrawl ? pcHealthScore($latestStats) : 0;
+// Score CH (5 piliers) si dispo (crawl migré), sinon repli pur-PHP pcHealthScore.
+$health     = $latestCrawl ? (int)($latestStats['health_score'] ?? pcHealthScore($latestStats)) : 0;
 $indexable  = (int)($latestStats['compliant'] ?? 0);
 $critical   = (int)($latestStats['critical_errors'] ?? 0);
-$lastTs     = $latestCrawl->timestamp ?? 0;
+// Timestamp de tri = date du dernier crawl du projet (finished_at sinon started_at,
+// le max sur tous les crawls). Aligné sur le tri serveur d'index.php pour que le
+// tri client "date" reste cohérent, y compris pour un vieux crawl repris récemment.
+$lastTs = 0;
+foreach ($crawls as $c) {
+    $t = max(
+        !empty($c->finished_at) ? (int)strtotime($c->finished_at) : 0,
+        !empty($c->started_at)  ? (int)strtotime($c->started_at)  : 0
+    );
+    if ($t > $lastTs) $lastTs = $t;
+}
 
 // Série de tendance (santé par crawl, du plus ancien au plus récent, max 12)
 $trend = [];
 foreach (array_reverse(array_slice($crawls, 0, 12)) as $c) {
-    $trend[] = pcHealthScore((array)$c->stats);
+    $cStats = (array)$c->stats;
+    $trend[] = (int)($cStats['health_score'] ?? pcHealthScore($cStats));
 }
 // Tendance en vert doux si stable/en hausse, rouge doux si dégradation nette.
 $trendColor = (count($trend) > 1 && $trend[count($trend)-1] < $trend[0] - 3) ? '#E0816F' : '#3DBE8B';
@@ -98,7 +110,7 @@ $trendColor = (count($trend) > 1 && $trend[count($trend)-1] < $trend[0] - 3) ? '
         <!-- KPI: Tendance -->
         <div class="pc-kpi pc-kpi-trend">
             <span class="pc-kpi-label"><?= __('index.kpi_trend') ?></span>
-            <?= pcSparklineSvg($trend, $trendColor) ?>
+            <?= pcSparklineSvg($trend, $trendColor, [0, 100]) ?>
         </div>
 
         <!-- Actions -->

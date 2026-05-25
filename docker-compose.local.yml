@@ -66,8 +66,8 @@ services:
       - CLICKHOUSE_USER=scouter
       - CLICKHOUSE_PASSWORD=scouter
       # Master key used to encrypt secrets stored in app_settings (Gemini API key, etc.).
-      # Local dev value — DO NOT reuse for production. Generate one with `openssl rand -hex 32`.
-      - SCOUTER_ENCRYPTION_KEY=868ace624e48dc6da990d2512c380a9ec8b168e11c0fb4aff8393bb6a1d22809
+      # Read from .env (gitignored). Generate one with `openssl rand -hex 32`.
+      - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY}
     restart: unless-stopped
     networks:
       - scouter-net
@@ -112,7 +112,8 @@ services:
       # stored in app_settings (used by the Bulk AI Generator + any future
       # background AI job). Without this, AppSettings::get('ai.openrouter.api_key')
       # returns null and jobs fail with "API key not configured".
-      - SCOUTER_ENCRYPTION_KEY=868ace624e48dc6da990d2512c380a9ec8b168e11c0fb4aff8393bb6a1d22809
+      # Read from .env (gitignored) — same key as the scouter service above.
+      - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY}
     volumes:
       - ./web:/app/web
       - ./app:/app/app
