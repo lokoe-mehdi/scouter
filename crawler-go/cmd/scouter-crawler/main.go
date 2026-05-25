@@ -23,6 +23,7 @@ import (
 	"scouter-crawler/internal/config"
 	"scouter-crawler/internal/crawl"
 	"scouter-crawler/internal/db"
+	"scouter-crawler/internal/governor"
 	"scouter-crawler/internal/jobs"
 	"scouter-crawler/internal/postprocess"
 )
@@ -67,6 +68,11 @@ func main() {
 		if target == "all" {
 			if err := bf.All(ctx); err != nil {
 				log.Fatalf("backfill all: %v", err)
+			}
+			// Retroactively optimize already-migrated crawls to the new read-perf
+			// baseline (deduped parts, opt-in projection).
+			if err := bf.OptimizeExisting(ctx); err != nil {
+				log.Printf("backfill optimize-ch: %v", err)
 			}
 		} else {
 			id, err := strconv.Atoi(target)
@@ -148,9 +154,22 @@ func main() {
 					log.Printf("[%s] auto-migration sweep-orphans error: %v", workerID, err)
 				}
 			}
+			// Retroactively optimize already-migrated crawls (deduped parts; opt-in
+			// projection materialization). Cheap and idempotent after the first pass.
+			if err := bf.OptimizeExisting(ctx); err != nil {
+				log.Printf("[%s] auto-migration optimize-ch error: %v", workerID, err)
+			}
 			log.Printf("[%s] auto-migration finished", workerID)
 		}()
 	}
+
+	// Process-wide CPU-pressure governor: a single dynamic in-flight ceiling
+	// shared by every crawl (and the sitemap pass), steered by host PSI so the box
+	// throttles under load instead of needing a reboot. Ceiling = today's static
+	// aggregate (maxCrawls × per-crawl fetch concurrency); floor = one fetch per
+	// crawl so none starves. Disabled (pinned at ceiling) when PSI is unreadable.
+	perCrawl := envInt("MAX_CONCURRENT_CURL", 12)
+	gov := governor.New(ctx, maxCrawls, maxCrawls*perCrawl, func(f string, a ...any) { log.Printf("[%s] "+f, append([]any{workerID}, a...)...) })
 
 	log.Printf("[%s] Go crawler started (maxConcurrentCrawls=%d, renderers=%v)", workerID, maxCrawls, rendererURLs)
 
@@ -177,7 +196,7 @@ func main() {
 		go func(j jobs.Job) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			runJob(ctx, pool, ch, mgr, j, rendererURLs)
+			runJob(ctx, pool, ch, mgr, j, rendererURLs, gov)
 		}(*job)
 	}
 
@@ -187,7 +206,7 @@ func main() {
 
 // runJob executes one crawl + post-processing, mirroring scouter.php crawl +
 // Crawler::depthStarter finalization, with panic isolation.
-func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j jobs.Job, rendererURLs []string) {
+func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j jobs.Job, rendererURLs []string, gov *governor.Governor) {
 	// Per-crawl log file: the UI's live console reads logs/<projectDir>.log
 	// (JobController::parseLogFile). The engine emits "Depth N : X URLs/sec
 	// (done/total)" lines there; post-processing emits its step lines. Volume
@@ -265,6 +284,7 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 
 	engine := crawl.NewEngine(cdb, cfg, crawl.Options{
 		RendererURLs: rendererURLs,
+		Governor:     gov,
 		CHStore:      chStore,
 		SlimPG:       dropPG,
 		Logf:         logf,
@@ -310,6 +330,7 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 		smEngine := crawl.NewEngine(cdb, &smCfg, crawl.Options{
 			RendererURLs:       rendererURLs,
 			SkipLinkExtraction: true,
+			Governor:           gov,
 			CHStore:            chStore,
 			SlimPG:             dropPG,
 			Logf:               logf,
@@ -361,6 +382,18 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 	default:
 		_ = cdb.FinishCrawl(ctx)
 		_ = mgr.UpdateStatus(ctx, j.ID, "completed", j.ProjectDir)
+		// Enqueue the PHP report-precompute job so the heavy report fragments
+		// (PageRank category flux/position…) are warm on the first view. Best-effort:
+		// the PHP report layer also lazy-warms them on first view if this is missed.
+		pname := j.ProjectName
+		if pname == "" {
+			pname = j.ProjectDir
+		}
+		if _, err := pool.Exec(ctx,
+			"INSERT INTO jobs (project_dir, project_name, command, status) VALUES ($1,$2,$3,'queued')",
+			j.ProjectDir, pname, fmt.Sprintf("precompute-reports:%d", rec.ID)); err != nil {
+			milestone("Report precompute enqueue skipped: " + err.Error())
+		}
 		// Full cutover: drop the heavy PG crawl-data partitions to free disk —
 		// only for a finished crawl (stopped crawls keep PG for resume) and only
 		// after confirming ClickHouse holds the data.

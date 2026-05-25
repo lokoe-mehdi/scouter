@@ -26,9 +26,10 @@ $sqlSeoStats = "
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
-$stmt = $pdo->prepare($sqlSeoStats);
-$stmt->execute([':crawl_id' => $crawlId]);
-$seoStats = $stmt->fetch(PDO::FETCH_OBJ);
+$seoStatsRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'seotags_stats', $pdo, $sqlSeoStats, [':crawl_id' => $crawlId], false
+);
+$seoStats = $seoStatsRows[0] ?? null;
 
 // Préparer les stats finales
 $titleStats = [
@@ -71,9 +72,9 @@ $sqlSeoByCategory = "
     GROUP BY category
     ORDER BY category
 ";
-$stmt = $pdo->prepare($sqlSeoByCategory);
-$stmt->execute([':crawl_id' => $crawlId]);
-$categoryStatsDataRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
+$categoryStatsDataRaw = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'seotags_by_category', $pdo, $sqlSeoByCategory, [':crawl_id' => $crawlId], true
+);
 
 // La colonne category contient déjà le nom de catégorie
 $categoryStatsData = [];

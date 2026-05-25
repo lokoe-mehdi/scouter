@@ -48,10 +48,17 @@ func (e *Engine) processClassic(ctx context.Context, urls []string, depth int) [
 		if tick != nil {
 			<-tick
 		}
-		sem <- struct{}{}
+		// Global CPU-pressure gate (shared across all crawls): blocks here when the
+		// host is contended, so launching many "unlimited" crawls throttles itself
+		// instead of saturating the box. Returns false on ctx cancel — don't Release.
+		if !e.gov.Acquire(ctx) {
+			break
+		}
+		sem <- struct{}{} // per-crawl politeness cap (also bounds per-host conns)
 		wg.Add(1)
 		go func(url string) {
 			defer wg.Done()
+			defer e.gov.Release()
 			defer func() { <-sem }()
 			r := e.fetchOne(ctx, normalizeSlash(url))
 			if e.cfg.RetryFailedURLs && r.retryable() {
@@ -95,10 +102,14 @@ func (e *Engine) retryFailed(ctx context.Context, failed []string, depth int) {
 		var mu sync.Mutex
 		var still []string
 		for _, u := range failed {
+			if !e.gov.Acquire(ctx) {
+				break
+			}
 			sem <- struct{}{}
 			wg.Add(1)
 			go func(url string) {
 				defer wg.Done()
+				defer e.gov.Release()
 				defer func() { <-sem }()
 				r := e.fetchOne(ctx, normalizeSlash(url))
 				if r.retryable() && attempt < maxRetries {

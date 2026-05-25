@@ -234,6 +234,8 @@ while ($running) {
             $isBatchCategorize = strpos($command, 'batch-categorize-project:') === 0;
             $isBulkAiGenerate  = strpos($command, 'bulk-ai-generate:') === 0;
             $isDeleteJob = strpos($command, 'delete-crawl:') === 0 || strpos($command, 'delete-project:') === 0;
+            $isPrecomputeProject = strpos($command, 'precompute-reports-project:') === 0;
+            $isPrecompute = !$isPrecomputeProject && strpos($command, 'precompute-reports:') === 0;
             $isResume = ($command === 'resume');
 
             if ($isResume) {
@@ -248,6 +250,9 @@ while ($running) {
             } elseif ($isBulkAiGenerate) {
                 $jobManager->addLog($job->id, "Worker $workerId starting bulk AI generation", 'info');
                 file_put_contents($logFile, "\n✨ Bulk AI generation\n=== WORKER STARTED JOB ===\n", FILE_APPEND);
+            } elseif ($isPrecompute || $isPrecomputeProject) {
+                $jobManager->addLog($job->id, "Worker $workerId starting report precompute", 'info');
+                file_put_contents($logFile, "\n📊 Report precompute\n=== WORKER STARTED JOB ===\n", FILE_APPEND);
             } else {
                 $jobManager->addLog($job->id, "Worker $workerId started processing", 'info');
                 file_put_contents($logFile, "\n=== WORKER STARTED CRAWL ===\n", FILE_APPEND);
@@ -319,6 +324,29 @@ while ($running) {
                 ];
                 $process = proc_open(
                     [$phpBin, $scouterScript, 'bulk-ai-generate', $command],
+                    $descriptors,
+                    $pipes,
+                    $basePath,
+                    $env
+                );
+            } elseif ($isPrecompute || $isPrecomputeProject) {
+                // Report precompute job. The report queries read ClickHouse via
+                // ChPdo, so the CLICKHOUSE_* vars MUST be forwarded — proc_open with
+                // an explicit $env does NOT inherit the parent's environment.
+                echo "[Worker $workerId] Executing report precompute: $command\n";
+                $precomputeModule = $isPrecomputeProject ? 'precompute-reports-project' : 'precompute-reports';
+                $env = array_filter([
+                    'DATABASE_URL'           => getenv('DATABASE_URL'),
+                    'PATH'                   => getenv('PATH'),
+                    'JOB_ID'                 => $job->id,
+                    'CLICKHOUSE_URL'         => getenv('CLICKHOUSE_URL'),
+                    'CLICKHOUSE_DB'          => getenv('CLICKHOUSE_DB'),
+                    'CLICKHOUSE_USER'        => getenv('CLICKHOUSE_USER'),
+                    'CLICKHOUSE_PASSWORD'    => getenv('CLICKHOUSE_PASSWORD'),
+                    'CLICKHOUSE_QUERY_CACHE' => getenv('CLICKHOUSE_QUERY_CACHE'),
+                ], fn($v) => $v !== false);
+                $process = proc_open(
+                    [$phpBin, $scouterScript, $precomputeModule, $command],
                     $descriptors,
                     $pipes,
                     $basePath,

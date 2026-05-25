@@ -91,6 +91,38 @@ switch($module){
     }
   break;
 
+  // Précalcul des fragments de rapport lourds (cf. App\Analysis\ReportPrecompute).
+  // Lancé par le worker PHP : à la fin d'un crawl ("precompute-reports:<crawlId>")
+  // et à chaque save de catégorisation ("precompute-reports-project:<projectId>").
+  case "precompute-reports":
+  case "precompute-reports-project":
+    $arg = (isset($argv[2])) ? $argv[2] : "none";
+    $jobManager = new \App\Job\JobManager();
+    try {
+        $id = (int) (explode(':', $arg)[1] ?? 0);
+        if ($id > 0) {
+            if ($module === 'precompute-reports-project') {
+                \App\Analysis\ReportPrecompute::recomputeProject($id);
+            } else {
+                \App\Analysis\ReportPrecompute::recompute($id);
+            }
+        }
+        $jobId = getenv('JOB_ID');
+        if ($jobId) {
+            $jobManager->updateJobStatus($jobId, 'completed');
+            $jobManager->addLog($jobId, "Report precompute completed", 'success');
+        }
+    } catch (\Throwable $e) {
+        $jobId = getenv('JOB_ID');
+        if ($jobId) {
+            $jobManager->updateJobStatus($jobId, 'failed');
+            $jobManager->setJobError($jobId, $e->getMessage());
+            $jobManager->addLog($jobId, "Report precompute failed: " . $e->getMessage(), 'error');
+        }
+        echo "\n\nERROR: " . $e->getMessage() . "\n";
+    }
+  break;
+
   case "dashboard":
     Cmder::dashboard();
   break;

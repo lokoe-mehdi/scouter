@@ -59,13 +59,10 @@ $sqlSeoStats = "
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
 
-$stmtRef = $pdo->prepare($sqlSeoStats);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$seoRef = $stmtRef->fetch(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlSeoStats);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$seoBase = $stmtBase->fetch(PDO::FETCH_OBJ);
+$seoRefRows  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'seotagscmp_stats', $pdo, $sqlSeoStats, [':crawl_id' => $safeCrawlId],   false);
+$seoRef  = $seoRefRows[0] ?? null;
+$seoBaseRows = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'seotagscmp_stats', $pdo, $sqlSeoStats, [':crawl_id' => $safeCompareId], false);
+$seoBase = $seoBaseRows[0] ?? null;
 
 // =========================================
 // Chart 1: Three donut charts — Title, H1, Meta Description
@@ -158,13 +155,8 @@ $sqlSeoByCat = "
     ORDER BY category
 ";
 
-$stmtCatRef = $pdo->prepare($sqlSeoByCat);
-$stmtCatRef->execute([':crawl_id' => $safeCrawlId]);
-$seoCatRef = $stmtCatRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtCatBase = $pdo->prepare($sqlSeoByCat);
-$stmtCatBase->execute([':crawl_id' => $safeCompareId]);
-$seoCatBase = $stmtCatBase->fetchAll(PDO::FETCH_OBJ);
+$seoCatRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'seotagscmp_by_category', $pdo, $sqlSeoByCat, [':crawl_id' => $safeCrawlId],   true);
+$seoCatBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'seotagscmp_by_category', $pdo, $sqlSeoByCat, [':crawl_id' => $safeCompareId], true);
 
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 

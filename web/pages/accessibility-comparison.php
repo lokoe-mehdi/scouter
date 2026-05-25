@@ -55,13 +55,10 @@ $sqlUrlDistribution = "
     WHERE crawl_id = :crawl_id AND in_crawl = TRUE
 ";
 
-$stmtRef = $pdo->prepare($sqlUrlDistribution);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$urlDistRef = $stmtRef->fetch(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlUrlDistribution);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$urlDistBase = $stmtBase->fetch(PDO::FETCH_OBJ);
+$urlDistRefRows  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'accesscmp_url_dist', $pdo, $sqlUrlDistribution, [':crawl_id' => $safeCrawlId],   false);
+$urlDistRef = $urlDistRefRows[0] ?? null;
+$urlDistBaseRows = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'accesscmp_url_dist', $pdo, $sqlUrlDistribution, [':crawl_id' => $safeCompareId], false);
+$urlDistBase = $urlDistBaseRows[0] ?? null;
 
 $sqlUrlDistributionDisplay = "-- Reference crawl
 SELECT 'reference' AS source,
@@ -109,13 +106,10 @@ $sqlNonIndexable = "
     WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true AND in_crawl = TRUE
 ";
 
-$stmtRef = $pdo->prepare($sqlNonIndexable);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$idxRef = $stmtRef->fetch(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlNonIndexable);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$idxBase = $stmtBase->fetch(PDO::FETCH_OBJ);
+$idxRefRows  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'accesscmp_indexability', $pdo, $sqlNonIndexable, [':crawl_id' => $safeCrawlId],   false);
+$idxRef = $idxRefRows[0] ?? null;
+$idxBaseRows = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'accesscmp_indexability', $pdo, $sqlNonIndexable, [':crawl_id' => $safeCompareId], false);
+$idxBase = $idxBaseRows[0] ?? null;
 
 $sqlNonIndexableDisplay = "-- Reference crawl
 SELECT 'reference' AS source,
@@ -161,13 +155,8 @@ $sqlIndexabilityByCategory = "
     GROUP BY category
 ";
 
-$stmtRef = $pdo->prepare($sqlIndexabilityByCategory);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$idxCatRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlIndexabilityByCategory);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$idxCatBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$idxCatRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'accesscmp_indexability_by_category', $pdo, $sqlIndexabilityByCategory, [':crawl_id' => $safeCrawlId],   true);
+$idxCatBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'accesscmp_indexability_by_category', $pdo, $sqlIndexabilityByCategory, [':crawl_id' => $safeCompareId], true);
 
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 

@@ -147,7 +147,7 @@ ORDER BY COUNT(*) DESC";
         'title' => __('extractions.table_title'),
         'id' => 'extractionsTable',
         'whereClause' => 'WHERE c.crawled = true AND c.in_crawl = TRUE',
-        'orderBy' => 'ORDER BY c.url ASC',
+        'orderBy' => '', // pas de tri (perf) — ordre natif du store
         'defaultColumns' => $defaultCols,
         'customExtractColumns' => $customColumns,
         'pdo' => $pdo,

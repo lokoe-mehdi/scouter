@@ -89,6 +89,20 @@ ENGINE = MergeTree
 PARTITION BY crawl_id
 ORDER BY (crawl_id, src);
 
+-- Secondary sort order on `target` for incoming-edge analytics (inlinks count,
+-- incoming PageRank, "who links to page X"): the base table is ordered by `src`,
+-- so target-keyed reads otherwise scan the whole partition. NARROW on purpose —
+-- only the small columns (no `anchor`/`xpath`) so the projection stays a fraction
+-- of the base size. Idempotent. NB: ADD PROJECTION only affects parts written
+-- AFTER it (new crawls), so it costs nothing on existing data until explicitly
+-- materialized (opt-in: CLICKHOUSE_MATERIALIZE_PROJECTIONS, which doubles those
+-- columns' storage for old crawls).
+ALTER TABLE scouter.links ADD PROJECTION IF NOT EXISTS proj_by_target
+(
+    SELECT crawl_id, src, target, nofollow, external, type, position
+    ORDER BY (crawl_id, target)
+);
+
 -- ---------------------------------------------------------------------------
 -- html — raw page HTML (ZSTD-compressed, replaces PG base64+gzdeflate).
 -- ---------------------------------------------------------------------------

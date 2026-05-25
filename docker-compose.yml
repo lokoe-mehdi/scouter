@@ -2,6 +2,13 @@ services:
   # Base de données PostgreSQL (avec init.sql intégré)
   postgres:
     build: ./docker/postgres
+    # cpu_shares = poids CPU RELATIF (défaut 1024), pas un plafond : ne mord que
+    # SOUS contention, et n'empêche jamais un conteneur de burster à 100% quand
+    # l'hôte est libre. Aucun nombre de cœurs en dur → reste adaptatif (cloud-ready).
+    # Ratio voulu ~4:1 en faveur de l'interactif (postgres / scouter / clickhouse)
+    # face au background (crawler / renderers / workers), pour que sous charge la
+    # latence des rapports et de l'UI passe avant le débit des crawls.
+    cpu_shares: 2048
     # Config "Ferrari" ajustée pour la stabilité :
     # - synchronous_commit=off : Rapide, risque minime de perte de données en cas de crash
     # - max_connections=200 : Réduit de 300 à 200 pour économiser la RAM
@@ -26,6 +33,10 @@ services:
   # PostgreSQL garde la frontier + les métadonnées. Voir clickhouse.md.
   clickhouse:
     image: clickhouse/clickhouse-server:24-alpine
+    # Interactif (sert les rapports PHP). Le travail background du crawler dans CH
+    # est déjà rendu "nice" au niveau threads (os_thread_priority, voir crawler-go),
+    # donc le conteneur garde un poids élevé pour ne pas pénaliser les rapports.
+    cpu_shares: 2048
     environment:
       - CLICKHOUSE_DB=${CLICKHOUSE_DB:-scouter}
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-scouter}
@@ -53,6 +64,7 @@ services:
   # Application PHP principale (Le cerveau)
   scouter:
     build: .
+    cpu_shares: 2048 # interactif (UI + API) — priorité face aux crawls sous charge
     expose:
       - 8080
     environment:
@@ -63,6 +75,10 @@ services:
       - CLICKHOUSE_DB=${CLICKHOUSE_DB:-scouter}
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-scouter}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      # Cache des résultats de rapport (query cache CH) pour les crawls TERMINÉS
+      # (données immuables). Auto-invalidé à l'édition des catégories (la regex est
+      # dans le SQL) ; flush explicite au re-backfill. Mettre 0 pour désactiver.
+      - CLICKHOUSE_QUERY_CACHE=${CLICKHOUSE_QUERY_CACHE:-1}
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=30
       # Master key used to encrypt secrets stored in app_settings (Gemini API key, etc.).
@@ -96,6 +112,7 @@ services:
   # un simple passthrough du header Authorization: Bearer sctr_… vers l'API.
   mcp:
     build: ./mcp
+    cpu_shares: 512 # léger adaptateur, background
     expose:
       - 3000
     environment:
@@ -108,6 +125,7 @@ services:
   # Service Worker 1 (Base & Anchor)
   worker-1: &worker-base
     build: .
+    cpu_shares: 512 # jobs background (delete / batch-categorize / bulk-ai) — hérité par worker-2..4
     entrypoint: ["php", "app/bin/worker.php"]
     restart: unless-stopped
     stop_grace_period: 3s
@@ -155,6 +173,7 @@ services:
   # command='crawl' jobs; cohabits with the PHP workers above.
   crawler-go:
     build: ./crawler-go
+    cpu_shares: 512 # background : sous contention il cède le CPU à l'interactif (couplé au gouverneur PSI interne)
     restart: unless-stopped
     stop_grace_period: 30s
     dns:
@@ -175,6 +194,14 @@ services:
       # données PG en fin de crawl, ET purge le PG des anciens crawls migrés (après
       # contrôle de complétude CH). Mettre 0 pour garder PostgreSQL.
       - CLICKHOUSE_DROP_PG=${CLICKHOUSE_DROP_PG:-1}
+      # Perf rapports : à la fin d'un crawl, OPTIMIZE FINAL des partitions (pages…)
+      # dédoublonne le ReplacingMergeTree → lectures plus rapides. Rétroactif sur
+      # les anciens crawls au boot (OptimizeExisting), sans coût disque.
+      # OPT-IN : matérialiser la projection links `proj_by_target` (accélère les
+      # agrégations par target) sur les ANCIENS crawls — DOUBLE le stockage des
+      # colonnes projetées de ces crawls, donc OFF par défaut. Les nouveaux crawls
+      # l'ont nativement et gratuitement.
+      - CLICKHOUSE_MATERIALIZE_PROJECTIONS=${CLICKHOUSE_MATERIALIZE_PROJECTIONS:-0}
       - RENDERER_URLS=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       # 4 crawls simultanés × 12 fetches parallèles = ~48 requêtes en vol.
       # Monter MAX_CONCURRENT_CURL seulement si le serveur cible encaisse (sinon
@@ -183,6 +210,28 @@ services:
       - MAX_CONCURRENT_CRAWLS=${MAX_CONCURRENT_CRAWLS:-4}
       - MAX_CONCURRENT_CURL=${MAX_CONCURRENT_CURL:-12}
       - POOL_CONNS_PER_CRAWL=${POOL_CONNS_PER_CRAWL:-8}
+      # --- Gouverneur CPU adaptatif (back-pressure PSI) -------------------------
+      # Le crawler lit /proc/pressure/cpu (PSI Linux) et ajuste tout seul le nombre
+      # de fetches simultanés (somme de TOUS les crawls) : il accélère tant que le
+      # CPU a de la marge, ralentit net dès que la pression monte. But : lancer
+      # autant de crawls "unlimited" qu'on veut sans jamais saturer l'hôte au point
+      # de devoir rebooter. AUCUN nombre de cœurs en dur — s'adapte au dispo (idéal
+      # cloud). Plafond = MAX_CONCURRENT_CRAWLS × MAX_CONCURRENT_CURL ; plancher =
+      # MAX_CONCURRENT_CRAWLS (≥1 fetch/crawl). Dans un conteneur, /proc/pressure
+      # n'est pas virtualisé → reflète la pression de l'HÔTE ENTIER (CH + renderers
+      # inclus), exactement ce qu'on veut. Si PSI absent (cgroup v1, kernel sans
+      # PSI), le gouverneur se met en retrait (plafond fixe) — zéro régression.
+      #   CPU_GOVERNOR=0           → désactive (revient au comportement statique)
+      #   PSI_LOW / PSI_HIGH       → seuils % de stall CPU sur 10s (défaut 15 / 50)
+      #   PSI_PATH                 → chemin du fichier PSI (défaut /proc/pressure/cpu)
+      - CPU_GOVERNOR=${CPU_GOVERNOR:-1}
+      - PSI_LOW=${PSI_LOW:-15}
+      - PSI_HIGH=${PSI_HIGH:-50}
+      # Priorité OS (nice) des threads des requêtes CH du crawler (background :
+      # dual-write, post-proc, OPTIMIZE, backfill). >0 = plus "nice" → cède le CPU
+      # aux rapports interactifs (PHP) et au reste de l'hôte sous contention.
+      # Pas de cap de cœurs (max_threads reste adaptatif). 0 = désactive le hint.
+      - CH_OS_THREAD_PRIORITY=${CH_OS_THREAD_PRIORITY:-5}
       - LOG_DIR=/app/logs
     volumes:
       # Shared with the scouter container so the UI's live console
@@ -203,6 +252,7 @@ services:
   # Service de rendu JavaScript (Puppeteer) - Multiple instances pour parallélisme
   renderer-1: &renderer-base
     build: ./renderer
+    cpu_shares: 512 # Chrome = gros consommateur ; background, hérité par renderer-2/3
     init: true
     expose:
       - 3000

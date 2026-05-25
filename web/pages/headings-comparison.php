@@ -52,13 +52,10 @@ $sqlHeadingsStats = "
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
 
-$stmtRef = $pdo->prepare($sqlHeadingsStats);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$statsRef = $stmtRef->fetch(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlHeadingsStats);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$statsBase = $stmtBase->fetch(PDO::FETCH_OBJ);
+$statsRefRows  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'headingscmp_stats', $pdo, $sqlHeadingsStats, [':crawl_id' => $safeCrawlId],   false);
+$statsRef  = $statsRefRows[0] ?? null;
+$statsBaseRows = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'headingscmp_stats', $pdo, $sqlHeadingsStats, [':crawl_id' => $safeCompareId], false);
+$statsBase = $statsBaseRows[0] ?? null;
 
 $sqlHeadingsStatsDisplay = "-- Reference crawl
 SELECT 'reference' AS source,
@@ -113,13 +110,8 @@ $sqlHeadingsByCategory = "
     ORDER BY category
 ";
 
-$stmtRef = $pdo->prepare($sqlHeadingsByCategory);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$catRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlHeadingsByCategory);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$catBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$catRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'headingscmp_by_category', $pdo, $sqlHeadingsByCategory, [':crawl_id' => $safeCrawlId],   true);
+$catBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'headingscmp_by_category', $pdo, $sqlHeadingsByCategory, [':crawl_id' => $safeCompareId], true);
 
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 

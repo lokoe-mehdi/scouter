@@ -49,9 +49,10 @@ $sqlSitemapDistribution = "
     FROM pages
     WHERE crawl_id = :cid
 ";
-$stmt = $pdo->prepare($sqlSitemapDistribution);
-$stmt->execute([':cid' => $crawlId]);
-$dist = $stmt->fetch(PDO::FETCH_OBJ);
+$distRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'sitemap_distribution', $pdo, $sqlSitemapDistribution, [':cid' => $crawlId], false
+);
+$dist = $distRows[0] ?? null;
 
 $sqlSitemapIndexability = "
     SELECT
@@ -62,9 +63,10 @@ $sqlSitemapIndexability = "
     FROM pages
     WHERE crawl_id = :cid AND in_sitemap = TRUE
 ";
-$stmt = $pdo->prepare($sqlSitemapIndexability);
-$stmt->execute([':cid' => $crawlId]);
-$sitemapIdx = $stmt->fetch(PDO::FETCH_OBJ);
+$sitemapIdxRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'sitemap_indexability', $pdo, $sqlSitemapIndexability, [':cid' => $crawlId], false
+);
+$sitemapIdx = $sitemapIdxRows[0] ?? null;
 
 $crawlOnly    = (int)($dist->crawl_only    ?? 0);
 $both         = (int)($dist->both          ?? 0);
@@ -72,12 +74,14 @@ $sitemapOnly  = (int)($dist->sitemap_only  ?? 0);
 $totalCrawl   = (int)($dist->total_crawl   ?? 0);
 $totalSitemap = (int)($dist->total_sitemap ?? 0);
 
-$crawlIndexableMissingStmt = $pdo->prepare("
-    SELECT COUNT(*) FROM pages
+$sqlCrawlIndexableMissing = "
+    SELECT COUNT(*) AS cnt FROM pages
     WHERE crawl_id = :cid AND in_crawl = TRUE AND compliant = TRUE AND in_sitemap = FALSE
-");
-$crawlIndexableMissingStmt->execute([':cid' => $crawlId]);
-$crawlOnlyIndexable = (int)$crawlIndexableMissingStmt->fetchColumn();
+";
+$crawlIndexableMissingRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'sitemap_crawl_only_indexable', $pdo, $sqlCrawlIndexableMissing, [':cid' => $crawlId], false
+);
+$crawlOnlyIndexable = (int)($crawlIndexableMissingRows[0]->cnt ?? 0);
 
 ?>
 

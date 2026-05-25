@@ -66,6 +66,10 @@ func (r *CHRunner) Run(ctx context.Context) {
 		{"ch-pagerank+metrics", r.buildMetrics},
 		{"ch-duplicate", r.duplicateAnalysis},
 		{"ch-redirect", r.redirectChainAnalysis},
+		// Last: collapse the crawl's ReplacingMergeTree duplicates now (crawl is
+		// done → no more inserts), so report reads hit fully-merged parts instead
+		// of paying the LIMIT 1 BY dedup over many small parts on every query.
+		{"ch-optimize", r.optimizeFinal},
 	}
 	for _, s := range steps {
 		if err := s.fn(ctx); err != nil {
@@ -112,6 +116,20 @@ func (r *CHRunner) buildMetrics(ctx context.Context) error {
 		LEFT JOIN ` + statusSub + ` st ON st.id = p.id
 		WHERE p.crawl_id = ` + cid
 	return r.ch.Exec(ctx, sql)
+}
+
+// optimizeFinal merges this crawl's partitions so subsequent report reads work
+// on fully-merged (deduplicated) parts. pages/html are ReplacingMergeTree, so
+// FINAL collapses the >1-row-per-id left by retries/sitemap re-fetches; the other
+// tables just benefit from part consolidation. Per-partition + best-effort: a
+// failure here only means reads stay at the pre-merge cost, never a data error.
+func (r *CHRunner) optimizeFinal(ctx context.Context) error {
+	for _, t := range []string{"pages", "page_metrics", "html", "page_schemas"} {
+		if err := r.ch.Exec(ctx, fmt.Sprintf("OPTIMIZE TABLE %s PARTITION %d FINAL", r.t(t), r.crawlID)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // computePageRank runs the iterative PageRank in ClickHouse and leaves the result
@@ -512,5 +530,3 @@ func quoteList(ids []string) string {
 	}
 	return strings.Join(parts, ",")
 }
-
-var _ = fmt.Sprintf

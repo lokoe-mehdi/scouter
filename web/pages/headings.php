@@ -19,9 +19,10 @@ $sqlHeadingsStats = "
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
-$stmt = $pdo->prepare($sqlHeadingsStats);
-$stmt->execute([':crawl_id' => $crawlId]);
-$headingsStats = $stmt->fetch(PDO::FETCH_OBJ);
+$headingsStatsRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'headings_stats', $pdo, $sqlHeadingsStats, [':crawl_id' => $crawlId], false
+);
+$headingsStats = $headingsStatsRows[0] ?? null;
 
 $total = (int)($headingsStats->total ?? 0);
 $h1MultipleCount = (int)($headingsStats->h1_multiple_count ?? 0);
@@ -43,9 +44,9 @@ $sqlHeadingsByCategory = "
     GROUP BY category
     ORDER BY category
 ";
-$stmt = $pdo->prepare($sqlHeadingsByCategory);
-$stmt->execute([':crawl_id' => $crawlId]);
-$categoryStatsRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
+$categoryStatsRaw = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'headings_by_category', $pdo, $sqlHeadingsByCategory, [':crawl_id' => $crawlId], true
+);
 
 // category est déjà le nom de la catégorie
 $h1ByCategory = [];
@@ -85,9 +86,10 @@ foreach ($categoryStatsRaw as $row) {
         WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
         AND (h1_multiple = true OR headings_missing = true)
     ";
-    $stmtProb = $pdo->prepare($sqlProblemCount);
-    $stmtProb->execute([':crawl_id' => $crawlId]);
-    $problemCount = (int)($stmtProb->fetch(PDO::FETCH_OBJ)->problem_count ?? 0);
+    $problemCountRows = \App\Analysis\ReportPrecompute::cached(
+        (int) $crawlId, 'headings_problem_count', $pdo, $sqlProblemCount, [':crawl_id' => $crawlId], false
+    );
+    $problemCount = (int)($problemCountRows[0]->problem_count ?? 0);
     $problemPercent = $total > 0 ? round(($problemCount / $total) * 100, 1) : 0;
     
     Component::card([

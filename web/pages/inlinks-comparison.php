@@ -54,13 +54,8 @@ $sqlInlinksDistribution = "
     ORDER BY inlinks ASC
 ";
 
-$stmtRef = $pdo->prepare($sqlInlinksDistribution);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$inlinksDistRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlInlinksDistribution);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$inlinksDistBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$inlinksDistRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'inlinkscmp_dist', $pdo, $sqlInlinksDistribution, [':crawl_id' => $safeCrawlId],   false);
+$inlinksDistBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'inlinkscmp_dist', $pdo, $sqlInlinksDistribution, [':crawl_id' => $safeCompareId], false);
 
 // Build cumulative percentage data for ref
 $totalUrlsRef = array_sum(array_column($inlinksDistRef, 'url_count'));
@@ -121,13 +116,8 @@ $sqlInlinksByCategory = "
     ORDER BY AVG(inlinks) DESC
 ";
 
-$stmtRef = $pdo->prepare($sqlInlinksByCategory);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$inlinksCatRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlInlinksByCategory);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$inlinksCatBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$inlinksCatRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'inlinkscmp_by_category', $pdo, $sqlInlinksByCategory, [':crawl_id' => $safeCrawlId],   true);
+$inlinksCatBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'inlinkscmp_by_category', $pdo, $sqlInlinksByCategory, [':crawl_id' => $safeCompareId], true);
 
 // Build maps by category name
 $refCatData = [];

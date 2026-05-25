@@ -77,7 +77,9 @@ class QueryController extends Controller
         // ClickHouse-backed crawl → delegate to the CH executor (crawl_id-forced
         // subqueries, live `category`, CH dialect). PG path below otherwise.
         if (CrawlStore::usesClickHouse((int)$crawlId)) {
-            $res = (new ClickHouseSqlExecutor())->execute($query, (int)$crawlId, 10000);
+            // rowLimit = 0 → open bar (pas de plafond de lignes) : la colonne lourde
+            // `html` est bloquée dans l'explorer, donc export CSV complet possible.
+            $res = (new ClickHouseSqlExecutor())->execute($query, (int)$crawlId, 0);
             if (!$res['ok']) {
                 Response::forbidden($res['error'] ?? 'Query failed');
                 return;

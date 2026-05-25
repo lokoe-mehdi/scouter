@@ -55,13 +55,8 @@ $sqlPrByDepth = "
     ORDER BY depth
 ";
 
-$stmtRef = $pdo->prepare($sqlPrByDepth);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$prByDepthRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlPrByDepth);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$prByDepthBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$prByDepthRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'prcmp_by_depth', $pdo, $sqlPrByDepth, [':crawl_id' => $safeCrawlId],   false);
+$prByDepthBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'prcmp_by_depth', $pdo, $sqlPrByDepth, [':crawl_id' => $safeCompareId], false);
 
 // Merge all depth levels from both crawls
 $allDepths = [];
@@ -119,13 +114,8 @@ $sqlPrByCategory = "
     ORDER BY AVG(pri) DESC
 ";
 
-$stmtRef = $pdo->prepare($sqlPrByCategory);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$prByCatRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlPrByCategory);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$prByCatBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$prByCatRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'prcmp_by_category', $pdo, $sqlPrByCategory, [':crawl_id' => $safeCrawlId],   true);
+$prByCatBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'prcmp_by_category', $pdo, $sqlPrByCategory, [':crawl_id' => $safeCompareId], true);
 
 // Build maps by category name
 $refCatData = [];

@@ -73,14 +73,46 @@ class ClickHouseDatabase
      *        (type defaults to String) or name => [value, 'Int32'].
      * @return array<int,array<string,mixed>>
      */
-    public function select(string $sql, array $params = []): array
+    public function select(string $sql, array $params = [], int $cacheTtl = 0): array
     {
-        $resp = $this->httpQuery($sql . "\nFORMAT JSON", $params);
+        $resp = $this->httpQuery($sql . "\nFORMAT JSON", $params, self::cacheSettings($cacheTtl));
         $decoded = json_decode($resp, true);
         if (!is_array($decoded) || !isset($decoded['data'])) {
             return [];
         }
         return $decoded['data'];
+    }
+
+    /**
+     * ClickHouse query-cache settings for a read, or [] to disable.
+     *
+     * The native query cache keys on the exact query text (+ params + user + db),
+     * so it auto-invalidates when the SQL changes — which it does whenever the
+     * project's category regex is edited (the regex is inlined into the report
+     * SQL). For finished crawls the data is immutable, so a long TTL is safe; the
+     * remaining edge (a crawl re-processed under the SAME id via resume/backfill)
+     * is covered by the TTL backstop + an explicit `SYSTEM DROP QUERY CACHE` the
+     * Go backfill issues after re-processing.
+     *
+     * nondeterministic_function_handling='ignore' guarantees enabling the cache
+     * never errors on a report that happens to call now()/today() — such queries
+     * are simply not cached instead of throwing.
+     *
+     * @return array<string,string>
+     */
+    private static function cacheSettings(int $ttl): array
+    {
+        if ($ttl <= 0 || getenv('CLICKHOUSE_QUERY_CACHE') === '0') {
+            return [];
+        }
+        return [
+            'use_query_cache'                                => '1',
+            'query_cache_ttl'                                => (string) $ttl,
+            'query_cache_nondeterministic_function_handling' => 'ignore',
+            // Only cache queries that took long enough to be worth it (ms); the
+            // slow report aggregations qualify, trivial lookups don't pollute it.
+            'query_cache_min_query_duration'                 => '150',
+        ];
     }
 
     /** Run a SELECT returning a single scalar (first row, first column), or null. */
@@ -103,8 +135,12 @@ class ClickHouseDatabase
     /**
      * Low-level HTTP call. Parameters are passed as `param_<name>` form fields
      * so ClickHouse binds them server-side ({name:Type} in the SQL).
+     *
+     * @param array<string,string> $settings extra ClickHouse settings appended to
+     *        the request query string (e.g. query-cache flags). Reserved names
+     *        (database, param_*, the JSON formatting flags) are not overridable.
      */
-    private function httpQuery(string $sql, array $params = []): string
+    private function httpQuery(string $sql, array $params = [], array $settings = []): string
     {
         // prefer_column_name_to_alias=1 makes CH resolve an identifier to a column
         // before a same-named SELECT alias — PostgreSQL's behaviour — which the
@@ -121,6 +157,16 @@ class ClickHouseDatabase
             'prefer_column_name_to_alias'           => '1',
             'output_format_json_quote_64bit_integers' => '0',
         ];
+        // Extra settings (e.g. query-cache) — never let them clobber the reserved
+        // routing/formatting keys or the bound param_* fields below.
+        foreach ($settings as $k => $v) {
+            if ($k === 'database' || strncmp($k, 'param_', 6) === 0
+                || $k === 'prefer_column_name_to_alias'
+                || $k === 'output_format_json_quote_64bit_integers') {
+                continue;
+            }
+            $query[$k] = (string) $v;
+        }
         foreach ($params as $name => $val) {
             $value = is_array($val) ? ($val[0] ?? '') : $val;
             if (is_bool($value)) {

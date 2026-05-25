@@ -14,9 +14,9 @@ try {
         GROUP BY outlinks
         ORDER BY outlinks DESC
     ";
-    $stmt = $pdo->prepare($sqlOutlinksDistribution);
-    $stmt->execute([':crawl_id' => $crawlId]);
-    $outlinksDistribution = $stmt->fetchAll(PDO::FETCH_OBJ);
+    $outlinksDistribution = \App\Analysis\ReportPrecompute::cached(
+        (int) $crawlId, 'outlinks_distribution', $pdo, $sqlOutlinksDistribution, [':crawl_id' => $crawlId], false
+    );
     
     // Calcul du total d'URLs pour les pourcentages
     $totalUrls = array_sum(array_column($outlinksDistribution, 'url_count'));
@@ -45,7 +45,7 @@ try {
     }
     
     // Moyenne d'outlinks par catégorie (sans jointure)
-    $stmt = $pdo->prepare("
+    $sqlOutlinksByCategory = "
         SELECT
             category,
             COUNT(id) as url_count,
@@ -57,9 +57,10 @@ try {
         WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
         GROUP BY category
         ORDER BY AVG(outlinks) DESC
-    ");
-    $stmt->execute([':crawl_id' => $crawlId]);
-    $outlinksByCategoryRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
+    ";
+    $outlinksByCategoryRaw = \App\Analysis\ReportPrecompute::cached(
+        (int) $crawlId, 'outlinks_by_category', $pdo, $sqlOutlinksByCategory, [':crawl_id' => $crawlId], true
+    );
 
     // category est déjà le nom de la catégorie
     $outlinksByCategory = [];
@@ -69,8 +70,8 @@ try {
     }
     
     // Statistiques globales (renommer pour éviter conflit)
-    $stmt = $pdo->prepare("
-        SELECT 
+    $sqlOutlinksStats = "
+        SELECT
             COUNT(*) as total_urls,
             ROUND(AVG(outlinks)::numeric, 2) as avg_outlinks,
             MIN(outlinks) as min_outlinks,
@@ -78,9 +79,11 @@ try {
             SUM(outlinks) as total_outlinks
         FROM pages
         WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
-    ");
-    $stmt->execute([':crawl_id' => $crawlId]);
-    $outlinksStats = $stmt->fetch(PDO::FETCH_OBJ);
+    ";
+    $outlinksStatsRows = \App\Analysis\ReportPrecompute::cached(
+        (int) $crawlId, 'outlinks_stats', $pdo, $sqlOutlinksStats, [':crawl_id' => $crawlId], false
+    );
+    $outlinksStats = $outlinksStatsRows[0] ?? null;
     
     // Top 100 des URLs avec le plus d'outlinks (sans jointure)
     $stmt = $pdo->prepare("

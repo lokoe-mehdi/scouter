@@ -55,15 +55,9 @@ $sqlOutlinksDistribution = "
     ORDER BY outlinks DESC
 ";
 
-// Reference crawl
-$stmtRef = $pdo->prepare($sqlOutlinksDistribution);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$outlinksDistRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-// Base crawl
-$stmtBase = $pdo->prepare($sqlOutlinksDistribution);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$outlinksDistBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+// Reference + base crawl (cached; warms both crawls)
+$outlinksDistRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'outlinkscmp_dist', $pdo, $sqlOutlinksDistribution, [':crawl_id' => $safeCrawlId],   false);
+$outlinksDistBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'outlinkscmp_dist', $pdo, $sqlOutlinksDistribution, [':crawl_id' => $safeCompareId], false);
 
 // Build cumulative data for reference
 $totalUrlsRef = array_sum(array_column($outlinksDistRef, 'url_count'));
@@ -136,13 +130,8 @@ $sqlByCategory = "
     ORDER BY AVG(outlinks) DESC
 ";
 
-$stmtRef = $pdo->prepare($sqlByCategory);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$catRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlByCategory);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$catBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$catRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'outlinkscmp_by_category', $pdo, $sqlByCategory, [':crawl_id' => $safeCrawlId],   true);
+$catBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'outlinkscmp_by_category', $pdo, $sqlByCategory, [':crawl_id' => $safeCompareId], true);
 
 // Build maps by category name
 $refCatData = [];
