@@ -107,21 +107,22 @@ func (b *Backfiller) All(ctx context.Context) error {
 	return nil
 }
 
-// resumeWindow is how long a user-stopped crawl keeps its PostgreSQL data so it
-// can still be resumed (the frontier — uncrawled pages rows — lives in PG). Past
-// this window the stopped crawl's PG partitions become purgeable like any other.
-const resumeWindow = "7 days"
-
 // PurgePG drops the PostgreSQL crawl-data partitions for crawls already on
 // ClickHouse, freeing disk. Re-verifies CH completeness before each destructive
-// drop (never purges PG if CH is missing data). Stopped crawls newer than
-// resumeWindow are kept so they can still be resumed. target = "all" or a crawl id.
+// drop (never purges PG if CH is missing data).
+//
+// target = "all": only FINISHED crawls are fully dropped (a catch-up for any that
+// escaped the at-finish drop). Stopped crawls are NEVER fully dropped here — their
+// frontier (pages_<id>) is kept indefinitely so they stay resumable with no time
+// limit. Their dead-weight links/HTML/schemas are stripped separately by
+// PurgeHeavyKeepFrontier, which keeps the frontier. target = <crawl id>:
+// force-drops that one crawl fully (manual override, any status).
 func (b *Backfiller) PurgePG(ctx context.Context, target string) error {
 	var ids []int
 	if target == "all" {
 		rows, err := b.pool.Query(ctx, `SELECT id FROM crawls
 			WHERE data_store='clickhouse'
-			  AND NOT (status='stopped' AND finished_at > now() - interval '`+resumeWindow+`')
+			  AND status IN ('finished','completed')
 			ORDER BY id`)
 		if err != nil {
 			return err
@@ -151,14 +152,6 @@ func (b *Backfiller) PurgePG(ctx context.Context, target string) error {
 			b.logf("purge-pg crawl %d: skipped (data_store=%s, not migrated)", id, store)
 			continue
 		}
-		// Keep a recently user-stopped crawl's PG data so it can still be resumed.
-		var inResumeWindow bool
-		_ = b.pool.QueryRow(ctx, `SELECT status='stopped' AND finished_at > now() - interval '`+resumeWindow+`'
-			FROM crawls WHERE id=$1`, id).Scan(&inResumeWindow)
-		if inResumeWindow {
-			b.logf("purge-pg crawl %d: skipped (stopped < %s ago — kept for resume)", id, resumeWindow)
-			continue
-		}
 		b.SyncStats(ctx, id) // refresh scorecard stats from CH (fixes crawls migrated before this)
 		// Re-verify ClickHouse has the data before the destructive PG drop.
 		var pgCount int
@@ -180,6 +173,78 @@ func (b *Backfiller) PurgePG(ctx context.Context, target string) error {
 		b.logf("purge-pg crawl %d: PostgreSQL data dropped (%d pages live in CH)", id, chCount)
 	}
 	b.logf("purge-pg: done")
+	return nil
+}
+
+// PurgeHeavyKeepFrontier strips the heavy crawl-data partitions
+// (links_<id>, html_<id>, page_schemas_<id>) off migrated crawls while KEEPING
+// the frontier (pages_<id>), so they stay resumable. This complements PurgePG:
+// PurgePG drops everything (incl. the frontier) for crawls past the resume
+// window, but it deliberately keeps recently-stopped crawls whole — and those
+// kept crawls were still carrying their links/HTML, which the resume never reads
+// (the resume only walks the pages frontier) and which the reports read from
+// ClickHouse. So this reclaims that dead weight on boot without losing resume.
+//
+// Targets clickhouse-migrated, non-running crawls that still have a heavy table.
+// Re-verifies ClickHouse has the data before each destructive drop (same guard as
+// PurgePG: never drop if CH is missing the pages). Idempotent.
+func (b *Backfiller) PurgeHeavyKeepFrontier(ctx context.Context) error {
+	rows, err := b.pool.Query(ctx, `
+		SELECT DISTINCT regexp_replace(t.tablename, '^(links|html|page_schemas)_', '')::int AS cid
+		FROM pg_tables t
+		JOIN crawls c ON c.id = regexp_replace(t.tablename, '^(links|html|page_schemas)_', '')::int
+		WHERE t.schemaname = 'public'
+		  AND t.tablename ~ '^(links|html|page_schemas)_[0-9]+$'
+		  AND COALESCE(c.data_store,'pg') = 'clickhouse'
+		  AND c.status NOT IN ('running','queued','processing','pending','stopping')
+		ORDER BY cid`)
+	if err != nil {
+		return err
+	}
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+
+	if len(ids) == 0 {
+		b.logf("slim-heavy: none")
+		return nil
+	}
+	b.logf("slim-heavy: %d crawl(s) with leftover links/html/page_schemas to strip", len(ids))
+	for _, id := range ids {
+		// Re-verify ClickHouse has the data before the destructive drop.
+		var pgCrawled int
+		_ = b.pool.QueryRow(ctx, "SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND crawled=true AND in_crawl=true", id).Scan(&pgCrawled)
+		chStr, err := b.ch.QueryScalar(ctx, fmt.Sprintf("SELECT uniqExact(id) FROM %s.pages WHERE crawl_id=%d", b.ch.DB(), id))
+		if err != nil {
+			b.logf("slim-heavy crawl %d: skipped (CH check failed: %v)", id, err)
+			continue
+		}
+		chCount, _ := strconv.Atoi(strings.TrimSpace(chStr))
+		if pgCrawled > 0 && chCount < pgCrawled*9/10 {
+			b.logf("slim-heavy crawl %d: SKIPPED — CH has %d pages vs %d crawled in PG", id, chCount, pgCrawled)
+			continue
+		}
+		var dropErr error
+		for _, tbl := range []string{"links", "html", "page_schemas"} {
+			if _, err := b.pool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s_%d", tbl, id)); err != nil {
+				dropErr = err
+				break
+			}
+		}
+		if dropErr != nil {
+			b.logf("slim-heavy crawl %d: drop failed: %v", id, dropErr)
+			continue
+		}
+		b.logf("slim-heavy crawl %d: links/html/page_schemas dropped, frontier (pages_%d) kept — still resumable", id, id)
+	}
+	b.logf("slim-heavy: done")
 	return nil
 }
 

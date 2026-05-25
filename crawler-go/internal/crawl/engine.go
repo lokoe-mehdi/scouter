@@ -42,8 +42,16 @@ type Engine struct {
 	targetPerSec       int
 	skipLinkExtraction bool
 	chStore            *CHStore // dual-write to ClickHouse (nil when CH disabled)
-	logf               func(string, ...any)
-	stopCheck          func(context.Context) bool
+	// slimPG: when ClickHouse is the sole store (CLICKHOUSE_DROP_PG), PostgreSQL
+	// only keeps the frontier (the uncrawled-URL queue + the few columns the BFS
+	// and crawls.* stats read). The heavy crawl data — links, raw HTML, page
+	// schemas and the analytical page columns — is written to ClickHouse only,
+	// since nothing reads it back from PG (reports go through ChPdo) and the PG
+	// post-processor is skipped in this mode. This stops PG from holding a full
+	// throwaway second copy that gets dropped at finish anyway.
+	slimPG    bool
+	logf      func(string, ...any)
+	stopCheck func(context.Context) bool
 
 	// live progress counters (per depth)
 	progMu    sync.Mutex
@@ -98,6 +106,7 @@ type Options struct {
 	RendererURLs       []string
 	SkipLinkExtraction bool
 	CHStore            *CHStore // dual-write to ClickHouse (nil when CH disabled)
+	SlimPG             bool     // write only the frontier to PG (see Engine.slimPG)
 	Logf               func(string, ...any)
 	StopCheck          func(context.Context) bool
 }
@@ -125,6 +134,7 @@ func NewEngine(cdb *db.CrawlDB, cfg *config.Config, opts Options) *Engine {
 		targetPerSec:       target,
 		skipLinkExtraction: opts.SkipLinkExtraction,
 		chStore:            opts.CHStore,
+		slimPG:             opts.SlimPG,
 		logf:               logf,
 		stopCheck:          stop,
 		// Single HTTP client, fetching over uTLS (Chrome TLS fingerprint). Never
