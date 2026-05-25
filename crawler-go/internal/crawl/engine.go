@@ -3,6 +3,8 @@
 package crawl
 
 import (
+	"compress/flate"
+	"compress/gzip"
 	"context"
 	"io"
 	"net"
@@ -12,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/andybalholm/brotli"
 
 	"scouter-crawler/internal/analysis"
 	"scouter-crawler/internal/config"
@@ -38,8 +42,16 @@ type Engine struct {
 	targetPerSec       int
 	skipLinkExtraction bool
 	chStore            *CHStore // dual-write to ClickHouse (nil when CH disabled)
-	logf               func(string, ...any)
-	stopCheck          func(context.Context) bool
+	// slimPG: when ClickHouse is the sole store (CLICKHOUSE_DROP_PG), PostgreSQL
+	// only keeps the frontier (the uncrawled-URL queue + the few columns the BFS
+	// and crawls.* stats read). The heavy crawl data — links, raw HTML, page
+	// schemas and the analytical page columns — is written to ClickHouse only,
+	// since nothing reads it back from PG (reports go through ChPdo) and the PG
+	// post-processor is skipped in this mode. This stops PG from holding a full
+	// throwaway second copy that gets dropped at finish anyway.
+	slimPG    bool
+	logf      func(string, ...any)
+	stopCheck func(context.Context) bool
 
 	// live progress counters (per depth)
 	progMu    sync.Mutex
@@ -94,6 +106,7 @@ type Options struct {
 	RendererURLs       []string
 	SkipLinkExtraction bool
 	CHStore            *CHStore // dual-write to ClickHouse (nil when CH disabled)
+	SlimPG             bool     // write only the frontier to PG (see Engine.slimPG)
 	Logf               func(string, ...any)
 	StopCheck          func(context.Context) bool
 }
@@ -121,6 +134,7 @@ func NewEngine(cdb *db.CrawlDB, cfg *config.Config, opts Options) *Engine {
 		targetPerSec:       target,
 		skipLinkExtraction: opts.SkipLinkExtraction,
 		chStore:            opts.CHStore,
+		slimPG:             opts.SlimPG,
 		logf:               logf,
 		stopCheck:          stop,
 		// Single HTTP client, fetching over uTLS (Chrome TLS fingerprint). Never
@@ -199,7 +213,7 @@ func (e *Engine) fetchOne(ctx context.Context, rawURL string) fetchResult {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, bodyMaxSize))
+	body, _ := io.ReadAll(io.LimitReader(decompressBody(resp), bodyMaxSize))
 	res.body = string(body)
 	res.code = resp.StatusCode
 	res.contentType = resp.Header.Get("Content-Type")
@@ -210,6 +224,28 @@ func (e *Engine) fetchOne(ctx context.Context, rawURL string) fetchResult {
 	}
 	res.redirectURL = resolveLocation(rawURL, resp)
 	return res
+}
+
+// decompressBody returns a reader that yields the decoded response body. Go's
+// transport transparently gunzips a response only when it set Accept-Encoding
+// itself; once a crawl config sends its own Accept-Encoding (e.g. a
+// browser-mimicking "gzip, deflate, br"), Go leaves the body compressed and
+// keeps the Content-Encoding header. Reading that raw would store binary garbage
+// — no parseable content, plus invalid UTF-8 bytes that Postgres rejects (22021).
+// So when the header survives, we decode it ourselves; identity/unknown passes
+// through untouched.
+func decompressBody(resp *http.Response) io.Reader {
+	switch strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding"))) {
+	case "gzip":
+		if zr, err := gzip.NewReader(resp.Body); err == nil {
+			return zr
+		}
+	case "deflate":
+		return flate.NewReader(resp.Body)
+	case "br":
+		return brotli.NewReader(resp.Body)
+	}
+	return resp.Body
 }
 
 func resolveLocation(base string, resp *http.Response) string {

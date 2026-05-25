@@ -42,23 +42,23 @@
         </div>
     <?php else: ?>
         <!-- Admin/User: système d'onglets -->
-        <div class="projects-tabs" style="display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border-color);">
-            <button type="button" class="projects-tab active" onclick="switchProjectsTab('my')" data-tab="my" style="flex: 0 0 auto; padding: 0.75rem 1.5rem; background: none; border: none; cursor: pointer; font-weight: 600; color: var(--primary-color); border-bottom: 2px solid var(--primary-color); margin-bottom: -2px; display: flex; align-items: center; gap: 0.5rem;">
+        <div class="projects-tabs" style="display: flex; margin-bottom: 1.25rem;">
+            <button type="button" class="projects-tab active" onclick="switchProjectsTab('my')" data-tab="my">
                 <span class="material-symbols-outlined" style="font-size: 18px;">folder</span>
                 <?= __('index.tab_my_projects') ?>
-                <span style="background: var(--primary-color); color: white; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.75rem;"><?= count($myProjects) ?></span>
+                <span class="pc-tab-count"><?= count($myProjects) ?></span>
             </button>
             <?php if ($isAdmin && !empty($otherProjects)): ?>
-            <button type="button" class="projects-tab" onclick="switchProjectsTab('all')" data-tab="all" style="flex: 0 0 auto; padding: 0.75rem 1.5rem; background: none; border: none; cursor: pointer; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; display: flex; align-items: center; gap: 0.5rem;">
+            <button type="button" class="projects-tab" onclick="switchProjectsTab('all')" data-tab="all">
                 <span class="material-symbols-outlined" style="font-size: 18px;">admin_panel_settings</span>
                 <?= __('index.tab_all_projects') ?>
-                <span style="background: #9B59B6; color: white; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.75rem;"><?= count($otherProjects) ?></span>
+                <span class="pc-tab-count"><?= count($otherProjects) ?></span>
             </button>
             <?php elseif (!$isAdmin && !empty($sharedProjects)): ?>
-            <button type="button" class="projects-tab" onclick="switchProjectsTab('shared')" data-tab="shared" style="flex: 0 0 auto; padding: 0.75rem 1.5rem; background: none; border: none; cursor: pointer; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; display: flex; align-items: center; gap: 0.5rem;">
+            <button type="button" class="projects-tab" onclick="switchProjectsTab('shared')" data-tab="shared">
                 <span class="material-symbols-outlined" style="font-size: 18px;">group</span>
                 <?= __('index.tab_shared') ?>
-                <span style="background: #F39C12; color: white; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.75rem;"><?= count($sharedProjects) ?></span>
+                <span class="pc-tab-count"><?= count($sharedProjects) ?></span>
             </button>
             <?php endif; ?>
         </div>

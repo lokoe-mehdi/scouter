@@ -1,99 +1,126 @@
 <?php
 /**
- * Composant: Carte Projet
- * 
+ * Composant: Carte Projet (ligne compacte "dashboard")
+ *
  * Variables attendues:
- * - $project: L'objet projet avec ses propriétés (inclut $project->categories)
- * - $crawls: Liste des crawls du projet
- * - $latestCrawl: Le crawl le plus récent
- * - $domainName: Le nom du domaine/projet
- * - $categories: Liste des catégories de l'utilisateur
- * - $canCreate: Si l'utilisateur peut créer
+ * - $project, $crawls, $latestCrawl, $domainName, $categories, $canCreate
+ *
+ * Rendu: une ligne condensée par projet (nom + KPIs Santé SEO / Pages indexables
+ * / Erreurs critiques / Tendance + Ouvrir), dépliable au clic vers la table des
+ * derniers crawls. Conserve les hooks JS existants (domain-card, .domain-name,
+ * data-category, #domain-project-ID, dropdowns catégorie/kebab).
  */
+
+require_once(__DIR__ . '/project-metrics.php');
 
 $projectId = $project->id ?? 0;
 $canManage = $project->can_manage ?? false;
-$isOwner = $project->is_owner ?? false;
+$isOwner   = $project->is_owner ?? false;
 $ownerEmail = $project->owner_email ?? '';
 
-// Catégories du projet (pour l'utilisateur courant)
 $projectCategories = $project->categories ?? [];
 $firstCategory = !empty($projectCategories) ? $projectCategories[0] : null;
 $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
+
+// --- Métriques du dernier crawl + variations vs crawl précédent --------------
+$latestStats = $latestCrawl ? (array)$latestCrawl->stats : [];
+$prevCrawl   = (count($crawls) > 1) ? $crawls[1] : null;
+$prevStats   = $prevCrawl ? (array)$prevCrawl->stats : [];
+
+// Score CH (5 piliers) si dispo (crawl migré), sinon repli pur-PHP pcHealthScore.
+$health     = $latestCrawl ? (int)($latestStats['health_score'] ?? pcHealthScore($latestStats)) : 0;
+$indexable  = (int)($latestStats['compliant'] ?? 0);
+$critical   = (int)($latestStats['critical_errors'] ?? 0);
+// Timestamp de tri = date du dernier crawl du projet (finished_at sinon started_at,
+// le max sur tous les crawls). Aligné sur le tri serveur d'index.php pour que le
+// tri client "date" reste cohérent, y compris pour un vieux crawl repris récemment.
+$lastTs = 0;
+foreach ($crawls as $c) {
+    $t = max(
+        !empty($c->finished_at) ? (int)strtotime($c->finished_at) : 0,
+        !empty($c->started_at)  ? (int)strtotime($c->started_at)  : 0
+    );
+    if ($t > $lastTs) $lastTs = $t;
+}
+
+// Série de tendance (santé par crawl, du plus ancien au plus récent, max 12)
+$trend = [];
+foreach (array_reverse(array_slice($crawls, 0, 12)) as $c) {
+    $cStats = (array)$c->stats;
+    $trend[] = (int)($cStats['health_score'] ?? pcHealthScore($cStats));
+}
+// Tendance en vert doux si stable/en hausse, rouge doux si dégradation nette.
+$trendColor = (count($trend) > 1 && $trend[count($trend)-1] < $trend[0] - 3) ? '#E0816F' : '#3DBE8B';
 ?>
-<div class="domain-card" data-category="<?= $firstCategory ? $firstCategory->id : 'uncategorized' ?>" data-project-id="<?= $projectId ?>">
-    <div class="domain-header" onclick="toggleDomain('project-<?= $projectId ?>')">
-        <div class="domain-info">
-            <div class="domain-name-row">
+<div class="domain-card pc-row" data-category="<?= $firstCategory ? $firstCategory->id : 'uncategorized' ?>" data-project-id="<?= $projectId ?>" data-ts="<?= (int)$lastTs ?>">
+    <div class="pc-main" onclick="toggleDomain('project-<?= $projectId ?>')">
+        <!-- Identité -->
+        <div class="pc-identity">
+            <div class="pc-name-line">
                 <?php if($firstCategory): ?>
-                    <span class="category-badge-simple category-badge-clickable" 
-                          style="border-left: 3px solid <?= htmlspecialchars($firstCategory->color) ?>;"
+                    <span class="pc-cat-tag category-badge-simple" style="border-left-color: <?= htmlspecialchars($firstCategory->color) ?>;"
                           onclick="event.stopPropagation(); toggleCategoryDropdown('project-<?= $projectId ?>')">
                         <?= htmlspecialchars($firstCategory->name) ?>
                     </span>
                 <?php else: ?>
-                    <span class="category-badge-simple category-badge-clickable category-badge-none"
+                    <span class="pc-cat-tag category-badge-simple"
                           onclick="event.stopPropagation(); toggleCategoryDropdown('project-<?= $projectId ?>')">
                         <?= __('index.filter_uncategorized') ?>
                     </span>
                 <?php endif; ?>
-                <img src="https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://<?= htmlspecialchars($domainName) ?>&size=16" 
-                     alt="" 
-                     class="domain-favicon"
-                     onerror="this.style.display='none'">
-                <h3 class="domain-name">
-                    <?= htmlspecialchars($domainName) ?>
-                </h3>
+                <img src="https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://<?= htmlspecialchars($domainName) ?>&size=16"
+                     alt="" class="pc-favicon domain-favicon" onerror="this.style.display='none'">
+                <h3 class="domain-name pc-name"><?= htmlspecialchars($domainName) ?></h3>
+            </div>
+            <div class="domain-meta pc-sub">
+                <span><?= __('index.last_crawl') ?> · <?= $latestCrawl ? $latestCrawl->date : 'N/A' ?></span>
                 <?php if(!$isOwner && $ownerEmail): ?>
-                <span class="owner-badge" style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 0.5rem;">
-                    (<?= htmlspecialchars($ownerEmail) ?>)
-                </span>
+                    <span class="pc-owner">· <?= htmlspecialchars($ownerEmail) ?></span>
                 <?php endif; ?>
             </div>
-            <div class="domain-meta">
-                <span><?= count($crawls) ?> crawl<?= count($crawls) > 1 ? 's' : '' ?></span>
-                <span>•</span>
-                <span><?= __('index.last_crawl') ?>: <?= $latestCrawl ? $latestCrawl->date : 'N/A' ?></span>
+        </div>
+
+        <!-- KPI: Santé SEO -->
+        <div class="pc-kpi pc-kpi-health">
+            <span class="pc-kpi-label"><?= __('index.kpi_health') ?></span>
+            <div class="pc-health">
+                <?= pcDonutSvg($health) ?>
+                <span class="pc-health-num"><?= $health ?><small>/100</small></span>
             </div>
         </div>
-        <div class="domain-actions">
-            <!-- Dropdown de catégorie -->
-            <div class="category-dropdown-menu" id="cat-dropdown-project-<?= $projectId ?>" onclick="event.stopPropagation()">
-                <div class="category-dropdown-header">
-                    <?= __('index.choose_category') ?>
-                </div>
-                <div class="category-dropdown-item <?= empty($projectCategories) ? 'active' : '' ?>" onclick="event.stopPropagation(); assignCategory(<?= $projectId ?>, null)">
-                    <span class="category-name"><?= __('index.filter_uncategorized') ?></span>
-                </div>
-                <?php foreach($categories as $cat): ?>
-                    <div class="category-dropdown-item <?= in_array($cat->id, $projectCategoryIds) ? 'active' : '' ?>" onclick="event.stopPropagation(); assignCategory(<?= $projectId ?>, <?= $cat->id ?>)">
-                        <span class="category-color-dot" style="background: <?= htmlspecialchars($cat->color) ?>;"></span>
-                        <span class="category-name"><?= htmlspecialchars($cat->name) ?></span>
-                    </div>
-                <?php endforeach; ?>
+
+        <!-- KPI: Pages indexables -->
+        <div class="pc-kpi">
+            <span class="pc-kpi-label"><?= __('index.kpi_indexable') ?></span>
+            <div class="pc-kpi-val">
+                <span class="pc-num"><?= number_format($indexable) ?></span>
+                <?= pcDelta($indexable, $prevStats['compliant'] ?? 0, true) ?>
             </div>
-            
-            
-            <?php 
-            // Trouver le dernier crawl terminé ou arrêté (pas en cours)
-            $lastFinishedCrawl = null;
-            foreach ($crawls as $c) {
-                $cStatus = $c->job_status ?? 'finished';
-                if (in_array($cStatus, ['completed', 'stopped', 'failed'])) {
-                    $lastFinishedCrawl = $c;
-                    break; // Les crawls sont triés par date desc, donc le premier trouvé est le plus récent
-                }
-            }
-            ?>
-            <a href="project.php?id=<?= $projectId ?>" class="btn btn-sm btn-primary" onclick="event.stopPropagation();">
-                <span class="material-symbols-outlined" style="font-size: 16px;">folder_open</span>
-                <?= __('index.view_project') ?>
+        </div>
+
+        <!-- KPI: Erreurs critiques -->
+        <div class="pc-kpi">
+            <span class="pc-kpi-label"><?= __('index.kpi_errors') ?></span>
+            <div class="pc-kpi-val">
+                <span class="pc-num"><?= number_format($critical) ?></span>
+                <?= pcDelta($critical, $prevStats['critical_errors'] ?? 0, false) ?>
+            </div>
+        </div>
+
+        <!-- KPI: Tendance -->
+        <div class="pc-kpi pc-kpi-trend">
+            <span class="pc-kpi-label"><?= __('index.kpi_trend') ?></span>
+            <?= pcSparklineSvg($trend, $trendColor, [0, 100]) ?>
+        </div>
+
+        <!-- Actions -->
+        <div class="pc-actions">
+            <a href="project.php?id=<?= $projectId ?>" class="pc-open-btn" onclick="event.stopPropagation();">
+                <?= __('index.open') ?>
             </a>
-            <span class="material-symbols-outlined expand-icon">expand_more</span>
-            
-            <!-- Menu Kebab (actions) - Only for owners -->
+
             <?php if($canManage): ?>
-            <div class="kebab-menu-wrapper">
+            <div class="pc-kebab-wrap kebab-menu-wrapper">
                 <button class="btn-kebab" onclick="toggleKebabMenu('project-<?= $projectId ?>'); event.stopPropagation();" title="Actions">
                     <span class="material-symbols-outlined">more_vert</span>
                 </button>
@@ -122,100 +149,87 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
                 </div>
             </div>
             <?php endif; ?>
+
+            <!-- Dropdown catégorie (réutilise le JS existant) -->
+            <div class="category-dropdown-menu" id="cat-dropdown-project-<?= $projectId ?>" onclick="event.stopPropagation()">
+                <div class="category-dropdown-header"><?= __('index.choose_category') ?></div>
+                <div class="category-dropdown-item <?= empty($projectCategories) ? 'active' : '' ?>" onclick="event.stopPropagation(); assignCategory(<?= $projectId ?>, null)">
+                    <span class="category-name"><?= __('index.filter_uncategorized') ?></span>
+                </div>
+                <?php foreach($categories as $cat): ?>
+                    <div class="category-dropdown-item <?= in_array($cat->id, $projectCategoryIds) ? 'active' : '' ?>" onclick="event.stopPropagation(); assignCategory(<?= $projectId ?>, <?= $cat->id ?>)">
+                        <span class="category-color-dot" style="background: <?= htmlspecialchars($cat->color) ?>;"></span>
+                        <span class="category-name"><?= htmlspecialchars($cat->name) ?></span>
+                    </div>
+                <?php endforeach; ?>
+            </div>
         </div>
     </div>
-    
+
     <?php if(!empty($crawls)): ?>
-    <div class="domain-crawls" id="domain-project-<?= $projectId ?>" style="display: none;">
-        <table class="crawls-table crawls-table-modern">
+    <div class="pc-crawls" id="domain-project-<?= $projectId ?>" style="display: none;">
+        <div class="pc-crawls-head">
+            <span><?= __('index.recent_crawls') ?></span>
+            <?php if (count($crawls) > 3): ?>
+            <a href="project.php?id=<?= $projectId ?>" onclick="event.stopPropagation();"><?= __('index.view_all_crawls', ['count' => count($crawls)]) ?></a>
+            <?php endif; ?>
+        </div>
+        <table class="pc-table">
             <thead>
                 <tr>
                     <th><?= __('index.col_date') ?></th>
                     <th><?= __('index.col_status') ?></th>
-                    <th>URLs</th>
                     <th><?= __('index.col_crawled') ?></th>
                     <th><?= __('index.col_indexable') ?></th>
-                    <th><?= __('index.col_configuration') ?></th>
-                    <?php if($canManage): ?><th style="text-align: center; width: 50px;"></th><?php endif; ?>
+                    <th><?= __('index.kpi_errors') ?></th>
+                    <th><?= __('index.col_time') ?></th>
+                    <?php if($canManage): ?><th style="text-align:right;"><?= __('index.col_actions') ?></th><?php endif; ?>
                 </tr>
             </thead>
             <tbody>
-                <?php foreach(array_slice($crawls, 0, 3) as $crawl):
-                    // Tous les crawls vont vers le dashboard
+                <?php foreach(array_slice($crawls, 0, 5) as $crawl):
                     $rowUrl = "dashboard.php?crawl=" . $crawl->crawl_id;
                     $isInProgress = in_array($crawl->job_status, ['running', 'queued', 'pending', 'processing', 'stopping']);
 
-                    // Badge de statut (style subtle)
-                    $badgeClass = 'status-badge status-completed';
-                    $badgeText = __('index.status_completed');
+                    // Badge de statut
+                    $st = $crawl->job_status ?? 'finished';
+                    if (in_array($st, ['running', 'stopping'])) { $badge = 'running'; $badgeText = __('index.status_running'); }
+                    elseif (in_array($st, ['queued', 'pending'])) { $badge = 'running'; $badgeText = __('index.status_queued'); }
+                    elseif ($st === 'processing') { $badge = 'running'; $badgeText = __('index.status_processing'); }
+                    elseif ($st === 'failed') { $badge = 'failed'; $badgeText = __('index.status_failed'); }
+                    elseif ($st === 'stopped') { $badge = 'stopped'; $badgeText = __('index.status_stopped'); }
+                    else { $badge = 'done'; $badgeText = __('index.status_completed'); }
 
-                    if ($crawl->job_status === 'running' || $crawl->job_status === 'stopping') {
-                        $badgeClass = 'status-badge status-running';
-                        $badgeText = __('index.status_running');
-                    } elseif (in_array($crawl->job_status, ['queued', 'pending'])) {
-                        $badgeClass = 'status-badge status-queued';
-                        $badgeText = __('index.status_queued');
-                    } elseif ($crawl->job_status === 'processing') {
-                        $badgeClass = 'status-badge status-processing';
-                        $badgeText = __('index.status_processing');
-                    } elseif ($crawl->job_status === 'failed') {
-                        $badgeClass = 'status-badge status-failed';
-                        $badgeText = __('index.status_failed');
-                    } elseif ($crawl->job_status === 'stopped') {
-                        $badgeClass = 'status-badge status-stopped';
-                        $badgeText = __('index.status_stopped');
-                    }
-                ?>
-                    <?php 
-                    // Determine row click action based on permissions
                     if ($canManage && $isInProgress) {
                         $rowAction = "openCrawlPanel('" . htmlspecialchars($crawl->dir) . "', '" . htmlspecialchars($domainName) . "', " . $crawl->crawl_id . ")";
                     } elseif (!$isInProgress) {
                         $rowAction = "window.location.href='" . $rowUrl . "'";
-                    } else {
-                        // Non-manager + in progress = no action
-                        $rowAction = "";
-                    }
-                    ?>
-                    <tr class="crawl-row-clickable" <?= $rowAction ? 'onclick="' . $rowAction . '"' : '' ?> <?= !$rowAction ? 'style="cursor: default;"' : '' ?>>
-                        <td class="crawl-date"><?= $crawl->date ?></td>
-                        <td><span class="<?= $badgeClass ?>"><?= $badgeText ?></span></td>
-                        <td class="crawl-stat"><?= ($crawl->in_progress ?? false) ? '<span class="stat-pending">-</span>' : number_format($crawl->stats['urls'] ?? 0) ?></td>
-                        <td class="crawl-stat"><?= ($crawl->in_progress ?? false) ? '<span class="stat-pending">-</span>' : number_format($crawl->stats['crawled'] ?? 0) ?></td>
-                        <td class="crawl-stat"><?= ($crawl->in_progress ?? false) ? '<span class="stat-pending">-</span>' : number_format($crawl->stats['compliant'] ?? 0) ?></td>
-                        <td>
-                            <div class="config-icons">
-                                <?php if (($crawl->crawl_type ?? 'spider') === 'list'): ?>
-                                    <span class="config-list-badge" title="<?= __('index.mode_url_list') ?>"><?= __('index.mode_list_short') ?></span>
-                                <?php endif; ?>
-                                <span class="material-symbols-outlined config-icon <?= ($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript' ? 'active' : 'inactive' ?>" title="<?= __('index.mode_javascript') ?>">javascript</span>
-                                <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['robots']) || !empty($crawl->config['advanced']['respect_robots'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_robots') ?>">smart_toy</span>
-                                <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['canonical']) || !empty($crawl->config['advanced']['respect_canonical'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_canonical') ?>">content_copy</span>
-                                <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['nofollow']) || !empty($crawl->config['advanced']['respect_nofollow'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_nofollow') ?>">link_off</span>
-                                <span class="material-symbols-outlined config-icon <?= ($crawl->config['advanced']['follow_redirects'] ?? true) ? 'active' : 'inactive' ?>" title="<?= __('index.follow_redirects') ?>">redo</span>
-                                <span class="material-symbols-outlined config-icon <?= ($crawl->config['advanced']['store_html'] ?? true) ? 'active' : 'inactive' ?>" title="<?= __('index.store_html') ?>">code</span>
-                                <?php if (($crawl->crawl_type ?? 'spider') !== 'list'): ?>
-                                    <span class="config-depth-badge" title="<?= __('index.max_depth') ?>"><?= $crawl->config['general']['depthMax'] ?? '-' ?></span>
-                                <?php endif; ?>
-                            </div>
-                        </td>
+                    } else { $rowAction = ""; }
+
+                    $cs = (array)$crawl->stats;
+                ?>
+                    <tr class="<?= $rowAction ? 'clickable' : '' ?>" <?= $rowAction ? 'onclick="' . $rowAction . '"' : '' ?>>
+                        <td class="pc-num"><?= $crawl->date ?></td>
+                        <td><span class="pc-badge <?= $badge ?>"><?= $badgeText ?></span></td>
+                        <td class="pc-num"><?= $isInProgress ? '—' : number_format($cs['crawled'] ?? 0) ?></td>
+                        <td class="pc-num"><?= $isInProgress ? '—' : number_format($cs['compliant'] ?? 0) ?></td>
+                        <td class="pc-num"><?= $isInProgress ? '—' : number_format($cs['critical_errors'] ?? 0) ?></td>
+                        <td class="pc-num"><?= $isInProgress ? '—' : pcDuration($crawl->started_at ?? null, $crawl->finished_at ?? null) ?></td>
                         <?php if($canManage): ?>
-                        <td class="crawl-action" onclick="event.stopPropagation();">
-                            <button type="button" class="action-icon" title="<?= $isInProgress ? __('index.monitoring') : __('index.view_logs') ?>" style="cursor:pointer; background:none; border:none; padding:0;" onclick="openCrawlPanel('<?= htmlspecialchars($crawl->dir) ?>', '<?= htmlspecialchars($domainName) ?>', <?= $crawl->crawl_id ?>)">
-                                <span class="material-symbols-outlined">terminal</span>
-                            </button>
+                        <td onclick="event.stopPropagation();">
+                            <div class="pc-table-actions">
+                                <a class="pc-act" href="<?= $rowUrl ?>" title="<?= __('index.view_logs') ?>"><span class="material-symbols-outlined">monitoring</span></a>
+                                <button type="button" class="pc-act" title="<?= $isInProgress ? __('index.monitoring') : __('index.view_logs') ?>"
+                                        onclick="openCrawlPanel('<?= htmlspecialchars($crawl->dir) ?>', '<?= htmlspecialchars($domainName) ?>', <?= $crawl->crawl_id ?>)">
+                                    <span class="material-symbols-outlined">terminal</span>
+                                </button>
+                            </div>
                         </td>
                         <?php endif; ?>
                     </tr>
                 <?php endforeach; ?>
             </tbody>
         </table>
-        <?php if (count($crawls) > 3): ?>
-        <a href="project.php?id=<?= $projectId ?>" class="crawl-view-all" onclick="event.stopPropagation();">
-            <?= __('index.view_all_crawls', ['count' => count($crawls)]) ?>
-            <span class="material-symbols-outlined" style="font-size: 14px;">arrow_forward</span>
-        </a>
-        <?php endif; ?>
     </div>
     <?php endif; ?>
 </div>

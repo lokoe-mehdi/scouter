@@ -34,33 +34,48 @@ func (e *Engine) storePage(ctx context.Context, p model.Page, depth int) error {
 
 	compliant := !blocked && !p.Noindex && canonicalForIndex && p.HTTPCode == 200 && p.DomHash != ""
 
-	sets := map[string]any{
-		"code":             p.HTTPCode,
-		"crawled":          true,
-		"content_type":     truncateStr(p.ContentType, 100),
-		"outlinks":         countLinks,
-		"nofollow":         p.Nofollow,
-		"compliant":        compliant,
-		"noindex":          p.Noindex,
-		"canonical":        isCanonical,
-		"canonical_value":  p.CanonicalURL,
-		"redirect_to":      p.RedirectTo,
-		"response_time":    p.ResponseTime * 1000.0,
-		"is_html":          p.IsHTML,
-		"simhash":          p.Simhash,
-		"h1_multiple":      p.H1Multiple,
-		"headings_missing": p.HeadingsMissing,
-	}
-	if p.DomHash != "" {
-		sets["title"] = p.Title
-		sets["h1"] = p.H1
-		sets["metadesc"] = p.MetaDesc
-		sets["word_count"] = p.WordCount
-		if len(p.CustomExtract) > 0 {
-			sets["extracts"] = p.CustomExtract
+	// slimPG: PG keeps only the frontier columns the BFS and crawls.* stats read
+	// (crawled flag, code, compliant, canonical, response_time). Everything else
+	// (title/h1/meta/word_count/simhash/schemas/extracts/…) lives in ClickHouse,
+	// which is the sole read store in this mode — see Engine.slimPG.
+	var sets map[string]any
+	if e.slimPG {
+		sets = map[string]any{
+			"code":          p.HTTPCode,
+			"crawled":       true,
+			"compliant":     compliant,
+			"canonical":     isCanonical,
+			"response_time": p.ResponseTime * 1000.0,
 		}
-		if len(p.Schemas) > 0 {
-			sets["schemas"] = p.Schemas
+	} else {
+		sets = map[string]any{
+			"code":             p.HTTPCode,
+			"crawled":          true,
+			"content_type":     truncateStr(p.ContentType, 100),
+			"outlinks":         countLinks,
+			"nofollow":         p.Nofollow,
+			"compliant":        compliant,
+			"noindex":          p.Noindex,
+			"canonical":        isCanonical,
+			"canonical_value":  p.CanonicalURL,
+			"redirect_to":      p.RedirectTo,
+			"response_time":    p.ResponseTime * 1000.0,
+			"is_html":          p.IsHTML,
+			"simhash":          p.Simhash,
+			"h1_multiple":      p.H1Multiple,
+			"headings_missing": p.HeadingsMissing,
+		}
+		if p.DomHash != "" {
+			sets["title"] = p.Title
+			sets["h1"] = p.H1
+			sets["metadesc"] = p.MetaDesc
+			sets["word_count"] = p.WordCount
+			if len(p.CustomExtract) > 0 {
+				sets["extracts"] = p.CustomExtract
+			}
+			if len(p.Schemas) > 0 {
+				sets["schemas"] = p.Schemas
+			}
 		}
 	}
 	if err := e.cdb.UpdatePage(ctx, p.ID, sets); err != nil {
@@ -78,7 +93,9 @@ func (e *Engine) storePage(ctx context.Context, p model.Page, depth int) error {
 		Schemas: p.Schemas, WordCount: p.WordCount,
 	})
 	if p.DomHash != "" && len(p.Schemas) > 0 {
-		_ = e.cdb.InsertPageSchemas(ctx, p.ID, p.Schemas)
+		if !e.slimPG {
+			_ = e.cdb.InsertPageSchemas(ctx, p.ID, p.Schemas)
+		}
 		e.chStore.AddSchemas(p.ID, p.Schemas)
 	}
 
@@ -104,10 +121,12 @@ func (e *Engine) storeRedirect(ctx context.Context, p model.Page, depth int) err
 		external = false
 	}
 
-	if err := e.cdb.InsertLink(ctx, db.LinkRow{
-		Src: p.ID, Target: id, Type: "redirect", External: external, Nofollow: false, Position: "Content",
-	}); err != nil {
-		return err
+	if !e.slimPG {
+		if err := e.cdb.InsertLink(ctx, db.LinkRow{
+			Src: p.ID, Target: id, Type: "redirect", External: external, Nofollow: false, Position: "Content",
+		}); err != nil {
+			return err
+		}
 	}
 	e.chStore.AddLinks([]chLinkRow{{
 		CrawlID: e.cdb.CrawlID, Src: p.ID, Target: id, Type: "redirect",
@@ -140,10 +159,12 @@ func (e *Engine) storeLinks(ctx context.Context, p model.Page, depth int) error 
 		external := isExternal(p.CanonicalURL, e.cfg.Domains)
 		blocked := e.cfg.RespectRobots && !analysis.Allowed(p.CanonicalURL)
 		domain := targetDomain(p.CanonicalURL)
-		if err := e.cdb.InsertLink(ctx, db.LinkRow{
-			Src: src, Target: cible, Type: "canonical", External: external, Position: "Content",
-		}); err != nil {
-			return err
+		if !e.slimPG {
+			if err := e.cdb.InsertLink(ctx, db.LinkRow{
+				Src: src, Target: cible, Type: "canonical", External: external, Position: "Content",
+			}); err != nil {
+				return err
+			}
 		}
 		e.chStore.AddLinks([]chLinkRow{{
 			CrawlID: e.cdb.CrawlID, Src: src, Target: cible, Type: "canonical",
@@ -196,11 +217,15 @@ func (e *Engine) storeLinks(ctx context.Context, p model.Page, depth int) error 
 		})
 	}
 	if len(links) > 0 {
-		if err := e.cdb.InsertLinks(ctx, links); err != nil {
-			return err
+		if !e.slimPG {
+			if err := e.cdb.InsertLinks(ctx, links); err != nil {
+				return err
+			}
 		}
 		e.chStore.AddLinks(chLinks)
 	}
+	// The frontier (uncrawled-URL queue) always goes to PG — that is the one thing
+	// ClickHouse can't do (transactional dedup + per-URL crawled state).
 	if len(pages) > 0 {
 		if err := e.cdb.InsertPages(ctx, pages); err != nil {
 			return err
@@ -214,6 +239,9 @@ func (e *Engine) storeRaw(ctx context.Context, p model.Page) error {
 		return nil
 	}
 	e.chStore.AddHTMLZipped(p.ID, p.DomZip)
+	if e.slimPG {
+		return nil
+	}
 	return e.cdb.InsertHTML(ctx, p.ID, p.DomZip)
 }
 

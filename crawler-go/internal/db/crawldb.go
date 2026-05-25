@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -113,6 +114,11 @@ func (c *CrawlDB) InsertPages(ctx context.Context, pages []PageRow) error {
 		}
 	}
 
+	// Sort ids so every concurrent upsert acquires row locks in the same global
+	// order. Without this, two workers upserting overlapping target rows (shared
+	// nav/footer/lang links) in different orders deadlock (40P01).
+	sort.Strings(order)
+
 	now := time.Now()
 	for _, chunk := range chunkIDs(order, 100) {
 		var sb strings.Builder
@@ -179,7 +185,9 @@ func (c *CrawlDB) InsertLinks(ctx context.Context, links []LinkRow) error {
 func (c *CrawlDB) InsertHTML(ctx context.Context, pageID, htmlStr string) error {
 	const maxSize = 1 << 20
 	if len(htmlStr) > maxSize {
-		htmlStr = htmlStr[:maxSize] + "\n<!-- TRUNCATED -->"
+		// Rune-safe cut: slicing at a raw byte offset can split a multibyte char
+		// and leave a dangling byte that Postgres rejects as invalid UTF-8 (22021).
+		htmlStr = truncate(htmlStr, maxSize) + "\n<!-- TRUNCATED -->"
 	}
 	return withRetry(ctx, func() error {
 		_, err := c.pool.Exec(ctx, `
@@ -319,6 +327,7 @@ func (c *CrawlDB) UpdateCrawlStats(ctx context.Context) error {
 				crawled = (SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND crawled=true AND in_crawl=TRUE),
 				compliant = (SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND compliant=true AND in_crawl=TRUE),
 				duplicates = (SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND canonical=false AND in_crawl=TRUE),
+				critical_errors = (SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND code>=400 AND crawled=true AND in_crawl=TRUE),
 				response_time = ROUND(COALESCE((SELECT AVG(response_time) FROM pages WHERE crawl_id=$1 AND code=200 AND response_time>0 AND in_crawl=TRUE),0)::numeric, 2),
 				depth_max = COALESCE((SELECT MAX(depth) FROM pages WHERE crawl_id=$1 AND crawled=true AND in_crawl=TRUE),0),
 				in_progress = (SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND crawled=false AND external=false AND in_crawl=TRUE)

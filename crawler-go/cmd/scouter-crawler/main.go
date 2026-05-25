@@ -134,6 +134,13 @@ func main() {
 				if err := bf.PurgePG(ctx, "all"); err != nil {
 					log.Printf("[%s] auto-migration purge error: %v", workerID, err)
 				}
+				// Strip the heavy links/HTML/schema partitions off the crawls PurgePG
+				// kept whole for resume (recently-stopped): the resume only needs the
+				// frontier (pages_<id>), and reports read ClickHouse — so those tables
+				// are pure dead weight. Keeps pages_<id> so they stay resumable.
+				if err := bf.PurgeHeavyKeepFrontier(ctx); err != nil {
+					log.Printf("[%s] auto-migration slim-heavy error: %v", workerID, err)
+				}
 				// Last: sweep leftover partition tables of already-deleted crawls.
 				// Runs only after migration+purge so a not-yet-migrated crawl is
 				// never dropped here.
@@ -250,9 +257,16 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 		cdb.SetDataStore(ctx, "clickhouse")
 	}
 
+	// Full cutover (CLICKHOUSE_DROP_PG): ClickHouse is the sole store. In this mode
+	// PG only carries the frontier (slimPG) — links/HTML/schemas/analytical columns
+	// go to ClickHouse only, since the PG post-processor is skipped and reports read
+	// CH. Default OFF keeps the full PG dual-write (the PG post-processor needs it).
+	dropPG := ch != nil && envBoolFlag("CLICKHOUSE_DROP_PG")
+
 	engine := crawl.NewEngine(cdb, cfg, crawl.Options{
 		RendererURLs: rendererURLs,
 		CHStore:      chStore,
+		SlimPG:       dropPG,
 		Logf:         logf,
 		StopCheck:    stopCheck,
 	})
@@ -297,17 +311,16 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 			RendererURLs:       rendererURLs,
 			SkipLinkExtraction: true,
 			CHStore:            chStore,
+			SlimPG:             dropPG,
 			Logf:               logf,
 			StopCheck:          func(context.Context) bool { return false }, // ignore stop during PP
 		})
 		return smEngine.FetchURLs(c, urls)
 	}
-	// Full cutover (opt-in): when CLICKHOUSE_DROP_PG is set, ClickHouse is the
-	// sole store — skip the PG post-processing entirely (the PageRank perf win)
-	// and drop the PG crawl-data partitions at finish (below). Default OFF: PG
-	// post-processing still runs so the comparison reports (still on PG) work.
-	dropPG := ch != nil && envBoolFlag("CLICKHOUSE_DROP_PG")
-
+	// dropPG (computed above) gates the PG post-processing: when ClickHouse is the
+	// sole store we skip it entirely (the PageRank perf win) and drop the PG
+	// crawl-data partitions at finish (below). Default OFF: PG post-processing
+	// still runs so the comparison reports (still on PG) work.
 	ppStart := time.Now()
 	if dropPG {
 		milestone("ClickHouse is the sole store (CLICKHOUSE_DROP_PG=1) — skipping PostgreSQL post-processing")
