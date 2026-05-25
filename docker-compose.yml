@@ -82,11 +82,13 @@ services:
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=30
       # Master key used to encrypt secrets stored in app_settings (Gemini API key, etc.).
-      # REQUIRED: set SCOUTER_ENCRYPTION_KEY in your .env (openssl rand -hex 32).
-      # Fail-closed (`:?`) — the stack refuses to start rather than silently fall back
-      # to a public default. Losing this value makes any encrypted setting unrecoverable,
-      # so back it up alongside your DB credentials.
-      - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY:?SCOUTER_ENCRYPTION_KEY is required — set it in .env (openssl rand -hex 32)}
+      # REQUIRED: set SCOUTER_ENCRYPTION_KEY in your .env / Coolify env (openssl rand -hex 32).
+      # No hardcoded default (the old public one was removed): if it's empty, AppSettings
+      # refuses to store/read secrets — fail-closed at the APP level, never a silent
+      # public-key fallback. (No compose `:?` guard: Coolify's build-arg parser chokes on
+      # the `:?…(…)` syntax.) Losing this value makes encrypted settings unrecoverable —
+      # back it up alongside your DB credentials.
+      - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY}
     volumes:
       - ./logs:/app/logs
     restart: unless-stopped
@@ -145,8 +147,8 @@ services:
       # plus QUE delete / batch-categorize / bulk-ai ; les crawls sont au worker Go.
       # Required to decrypt secrets stored in app_settings (OpenRouter API key
       # used by the Bulk AI Generator + any future background AI job).
-      # Same fail-closed env var as the scouter service above.
-      - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY:?SCOUTER_ENCRYPTION_KEY is required — set it in .env (openssl rand -hex 32)}
+      # Same env var as the scouter service above (no `:?` — Coolify-safe).
+      - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY}
     volumes:
       - ./logs:/app/logs
     depends_on:
