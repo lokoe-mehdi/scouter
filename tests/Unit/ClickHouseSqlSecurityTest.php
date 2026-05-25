@@ -148,6 +148,24 @@ describe('ClickHouse SQL — system database access', function () {
     });
 });
 
+describe('ClickHouse SQL — table whitelist', function () {
+
+    // The raw-HTML `html` table (hundreds of KB/row) is deliberately NOT queryable
+    // from the SQL Explorer: it's the only heavy column, and excluding it lets the
+    // explorer lift its row cap (open-bar export) without a memory blow-up. This
+    // pins that decision so it can't be silently re-added.
+    it('excludes the html table from the allowed base tables', function () {
+        $ref     = new ReflectionClass(\App\AI\ClickHouseSqlExecutor::class);
+        $allowed = $ref->getConstant('ALLOWED_BASE_TABLES');
+        expect($allowed)->toBeArray();
+        expect($allowed)->not->toContain('html');
+        // sanity: the legitimate data tables are still allowed
+        expect($allowed)->toContain('pages');
+        expect($allowed)->toContain('links');
+        expect($allowed)->toContain('crawl_categories');
+    });
+});
+
 describe('ClickHouse SQL — comment-hidden injection', function () {
 
     it('strips block comments before keyword scan', function () {
