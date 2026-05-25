@@ -42,14 +42,22 @@ class ClickHouseSqlExecutor
         'cluster', 'clusterallreplicas', 'dictionary', 'sqlite', 'azureblobstorage',
     ];
 
+    // NB : `html` (le HTML brut des pages, ~centaines de Ko/ligne) est VOLONTAIREMENT
+    // exclu — non requêtable depuis l'explorer SQL. C'est la seule colonne « lourde » ;
+    // l'exclure permet de lever tout plafond de lignes (open bar / export complet) sans
+    // risque mémoire. `SELECT * FROM pages` ne la contient pas (table séparée).
     private const ALLOWED_BASE_TABLES = [
-        'pages', 'links', 'duplicate_clusters', 'page_schemas', 'redirect_chains', 'html',
+        'pages', 'links', 'duplicate_clusters', 'page_schemas', 'redirect_chains',
         // Project-level category values table (id/cat/color) built live from the
         // YAML rules — lets PG-style `JOIN crawl_categories ON p.cat_id = c.id` run.
         'crawl_categories',
     ];
 
     private const HARD_ROW_CAP    = 10000;
+    // Plafond de l'explorer SQL (rowLimit <= 0) : haut pour permettre un gros export,
+    // mais borné pour ne pas saturer le navigateur / la réponse HTTP sur un crawl à
+    // plusieurs millions de lignes (ex. infinite). Au-delà → message "export CSV".
+    private const EXPLORER_ROW_CAP = 500000;
     private const PREVIEW_ROWS    = 100;
     private const TIMEOUT_SECONDS = 15;
 
@@ -69,17 +77,23 @@ class ClickHouseSqlExecutor
         if (!$prep['ok']) {
             return $prep;
         }
-        $cap = max(1, min($rowLimit, self::HARD_ROW_CAP));
-        $transformed = $prep['transformed'];
-        if (preg_match('/\bLIMIT\s+(\d+)/i', $transformed, $lm)) {
-            $newLimit = min((int)$lm[1], $cap);
-            $finalSql = preg_replace('/\bLIMIT\s+\d+/i', "LIMIT {$newLimit}", $transformed, 1);
-        } else {
-            $finalSql = $transformed . " LIMIT {$cap}";
-        }
+        // Open bar quand rowLimit <= 0 (l'explorer) : la colonne lourde `html` étant
+        // bloquée (cf. ALLOWED_BASE_TABLES), aucune bombe mémoire → on ne plafonne PAS
+        // le nombre de lignes, pour permettre un export CSV complet. Sinon (AI/aperçu,
+        // rowLimit > 0) on wrappe + plafonne. NB : on ne bricole PAS le LIMIT au regex —
+        // le SQL réécrit contient `LIMIT 1 BY id` (dédup) qu'un regex prendrait pour un
+        // vrai LIMIT.
+        // L'explorer (rowLimit <= 0) plafonne haut (EXPLORER_ROW_CAP) pour permettre un
+        // gros export ; les autres usages (AI/aperçu) à HARD_ROW_CAP. `html` étant bloqué,
+        // les lignes sont légères. Toujours wrappé + LIMIT (jamais de bricolage regex du
+        // `LIMIT 1 BY` de dédup). Au-delà du plafond, le front affiche déjà « X lignes sur
+        // :total — utilisez l'export CSV » (sql_explorer.display_limited_detail).
+        $cap = ($rowLimit <= 0) ? self::EXPLORER_ROW_CAP : max(1, min($rowLimit, self::HARD_ROW_CAP));
+        $finalSql = "SELECT * FROM (" . $prep['transformed'] . ") AS _scouter_q LIMIT {$cap}";
+        $big = ($cap > self::HARD_ROW_CAP);
 
         try {
-            $rows = $this->ch->select($this->withSettings($finalSql));
+            $rows = $this->ch->select($this->withSettings($finalSql, $big));
         } catch (\Throwable $e) {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
@@ -229,9 +243,21 @@ class ClickHouseSqlExecutor
         }
     }
 
-    /** Append the read guardrails as a ClickHouse SETTINGS clause. */
-    private function withSettings(string $sql): string
+    /**
+     * Append the read guardrails as a ClickHouse SETTINGS clause.
+     *
+     * $unlimited (l'explorer, html bloqué) : pas de plafond de lignes — export complet.
+     * Garde-fous conservés : temps d'exécution + un plafond mémoire généreux (1 Go) pour
+     * ne pas faire fondre le serveur sur un crawl démesuré.
+     */
+    private function withSettings(string $sql, bool $big = false): string
     {
+        if ($big) {
+            // Explorer : jusqu'à EXPLORER_ROW_CAP lignes (le LIMIT externe borne déjà) ;
+            // plafond mémoire généreux (1 Go) + temps élargi comme garde-fous.
+            return $sql . " SETTINGS max_execution_time = 60, max_result_rows = " . (self::EXPLORER_ROW_CAP + 1000)
+                . ", max_result_bytes = 1073741824, result_overflow_mode = 'throw'";
+        }
         return $sql . " SETTINGS max_execution_time = " . self::TIMEOUT_SECONDS
             . ", max_result_rows = " . (self::HARD_ROW_CAP + 1000)
             . ", max_result_bytes = 268435456, result_overflow_mode = 'throw'";

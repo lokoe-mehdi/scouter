@@ -52,13 +52,11 @@ $sqlDupStats = "
     WHERE dc.crawl_id = :crawl_id AND dc.similarity >= 80
 ";
 
-$stmtRef = $pdo->prepare($sqlDupStats);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$dupRef = $stmtRef->fetch(PDO::FETCH_OBJ);
+$dupRefRows  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'dupcmp_stats', $pdo, $sqlDupStats, [':crawl_id' => $safeCrawlId],   false);
+$dupRef = $dupRefRows[0] ?? null;
 
-$stmtBase = $pdo->prepare($sqlDupStats);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$dupBase = $stmtBase->fetch(PDO::FETCH_OBJ);
+$dupBaseRows = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'dupcmp_stats', $pdo, $sqlDupStats, [':crawl_id' => $safeCompareId], false);
+$dupBase = $dupBaseRows[0] ?? null;
 
 // Indexable page counts per crawl
 $sqlIndexable = "
@@ -66,13 +64,11 @@ $sqlIndexable = "
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
 
-$stmtRef = $pdo->prepare($sqlIndexable);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$indexableRef = (int)$stmtRef->fetchColumn();
+$indexableRefRows  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'dupcmp_indexable', $pdo, $sqlIndexable, [':crawl_id' => $safeCrawlId],   false);
+$indexableRef = (int)($indexableRefRows[0]->indexable ?? 0);
 
-$stmtBase = $pdo->prepare($sqlIndexable);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$indexableBase = (int)$stmtBase->fetchColumn();
+$indexableBaseRows = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'dupcmp_indexable', $pdo, $sqlIndexable, [':crawl_id' => $safeCompareId], false);
+$indexableBase = (int)($indexableBaseRows[0]->indexable ?? 0);
 
 // =========================================
 // Chart 1: Unique vs Near-duplicate vs Exact duplicate (donut) ref vs base

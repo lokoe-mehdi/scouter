@@ -36,6 +36,14 @@ type CH struct {
 	user   string
 	pass   string
 	client *http.Client
+	// settings are ClickHouse query settings appended to every request (URL query
+	// params). The Go crawler is the *background* CH actor (dual-write, post-proc,
+	// OPTIMIZE, backfill) — the PHP app serves the *interactive* reports — so we
+	// run all of it at a low OS thread priority (nice) by default. Under CPU
+	// contention the kernel lets the crawler's CH threads yield to interactive
+	// report queries and the rest of the host, without ever capping cores (stays
+	// adaptive: no machine-specific core count). See buildCHSettings.
+	settings url.Values
 }
 
 // NewCHFromEnv builds a CH from CLICKHOUSE_URL / CLICKHOUSE_DB / CLICKHOUSE_USER /
@@ -53,6 +61,7 @@ func NewCHFromEnv(ctx context.Context) (*CH, error) {
 		client: &http.Client{
 			Timeout: 5 * time.Minute, // post-processing queries can be long
 		},
+		settings: buildCHSettings(),
 	}
 	// Retry the ping for ~30s: the worker may boot before ClickHouse is ready
 	// (local compose waits only for "started", not "healthy").
@@ -118,8 +127,45 @@ func getenvDef(key, def string) string {
 	return def
 }
 
+// buildCHSettings assembles the ClickHouse query settings applied to every
+// request the Go crawler makes. Defaults bias all of it to the background:
+//
+//   - os_thread_priority: nice() value for the query's threads. >0 = lower OS
+//     priority, so under CPU contention these threads yield to interactive report
+//     queries (PHP) and the rest of the host. Positive nice needs no privilege.
+//     Adaptive by nature — it's a relative scheduler hint, not a core count.
+//
+// Overridable / extendable via env (all opt-in, empty = ClickHouse default):
+//
+//	CH_OS_THREAD_PRIORITY  nice value          (default 5; 0 disables the hint)
+//	CH_PRIORITY            CH query priority    (default unset; lower run first)
+//	CH_MAX_THREADS         cap threads/query    (default unset = adaptive to cores)
+//
+// CH_MAX_THREADS is left unset on purpose: ClickHouse already scales max_threads
+// to the available cores, which is exactly the adaptive behaviour we want.
+func buildCHSettings() url.Values {
+	v := url.Values{}
+	nice := getenvDef("CH_OS_THREAD_PRIORITY", "5")
+	if nice != "" && nice != "0" {
+		v.Set("os_thread_priority", nice)
+	}
+	if p := os.Getenv("CH_PRIORITY"); p != "" {
+		v.Set("priority", p)
+	}
+	if mt := os.Getenv("CH_MAX_THREADS"); mt != "" {
+		v.Set("max_threads", mt)
+	}
+	return v
+}
+
 func (c *CH) post(ctx context.Context, query string, body io.Reader) (*http.Response, error) {
-	u := c.base + "/?" + url.Values{"database": {c.db}}.Encode()
+	params := url.Values{"database": {c.db}}
+	for k, vs := range c.settings {
+		for _, val := range vs {
+			params.Add(k, val)
+		}
+	}
+	u := c.base + "/?" + params.Encode()
 	if query != "" {
 		u += "&query=" + url.QueryEscape(query)
 	}
@@ -217,6 +263,16 @@ func (c *CH) QueryScalar(ctx context.Context, sql string) (string, error) {
 // the post-processing before re-inserting derived tables, and by delete-crawl).
 func (c *CH) DropPartition(ctx context.Context, table string, crawlID int) error {
 	return c.Exec(ctx, fmt.Sprintf("ALTER TABLE %s DROP PARTITION %d", table, crawlID))
+}
+
+// DropQueryCache invalidates the ClickHouse query-result cache. Called after a
+// crawl is RE-processed under the same id (resume/backfill re-run), since the PHP
+// reports cache finished-crawl reads keyed on the (immutable) query text — without
+// this, a re-processed crawl would serve pre-reprocess results until the TTL. The
+// cache is server-wide; re-processing is infrequent, so a full drop is acceptable
+// (entries repopulate lazily on next view). No-op-safe if the cache is disabled.
+func (c *CH) DropQueryCache(ctx context.Context) error {
+	return c.Exec(ctx, "SYSTEM DROP QUERY CACHE")
 }
 
 // DB returns the configured database name (for qualifying table names).

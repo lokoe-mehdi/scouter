@@ -83,10 +83,17 @@ func (e *Engine) processJavascript(ctx context.Context, urls []string, depth int
 			be = len(urls)
 		}
 		batch := urls[b:be]
+		// Global CPU-pressure gate (one slot per render batch): parsing a batch's
+		// rendered HTML is the crawler-side CPU cost, so this throttles when many
+		// JS crawls run at once and the host is contended.
+		if !e.gov.Acquire(ctx) {
+			break
+		}
 		sem <- struct{}{}
 		wg.Add(1)
 		go func(batch []string) {
 			defer wg.Done()
+			defer e.gov.Release()
 			defer func() { <-sem }()
 			rurl := e.rendererURLs[int(atomic.AddUint64(&rr, 1))%rc]
 

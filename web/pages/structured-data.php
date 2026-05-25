@@ -7,16 +7,18 @@
  */
 
 // Stats globales sur les schemas
-$stmt = $pdo->prepare("
-    SELECT 
+$sqlSchemaGlobalStats = "
+    SELECT
         COUNT(DISTINCT p.id) as total_pages,
         COUNT(DISTINCT CASE WHEN array_length(p.schemas, 1) > 0 THEN p.id END) as pages_with_schema,
         COUNT(DISTINCT CASE WHEN array_length(p.schemas, 1) IS NULL OR array_length(p.schemas, 1) = 0 THEN p.id END) as pages_without_schema
     FROM pages p
     WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.compliant = true AND p.in_crawl = TRUE
-");
-$stmt->execute([':crawl_id' => $crawlId]);
-$globalStats = $stmt->fetch(PDO::FETCH_OBJ);
+";
+$globalStatsRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'structured_data_global_stats', $pdo, $sqlSchemaGlobalStats, [':crawl_id' => $crawlId], false
+);
+$globalStats = $globalStatsRows[0] ?? null;
 
 // Distribution des types de schemas (via table de liaison, filtré sur pages compliant)
 $sqlSchemaDistribution = "
@@ -29,9 +31,9 @@ $sqlSchemaDistribution = "
     GROUP BY ps.schema_type
     ORDER BY page_count DESC
 ";
-$stmt = $pdo->prepare($sqlSchemaDistribution);
-$stmt->execute([':crawl_id' => $crawlId]);
-$schemaDistribution = $stmt->fetchAll(PDO::FETCH_OBJ);
+$schemaDistribution = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'structured_data_distribution', $pdo, $sqlSchemaDistribution, [':crawl_id' => $crawlId], false
+);
 
 // Nombre moyen de schemas par page par catégorie
 $sqlSchemaByCategory = "
@@ -44,9 +46,9 @@ $sqlSchemaByCategory = "
     GROUP BY p.category
     ORDER BY avg_schemas DESC
 ";
-$stmt = $pdo->prepare($sqlSchemaByCategory);
-$stmt->execute([':crawl_id' => $crawlId]);
-$schemaByCategory = $stmt->fetchAll(PDO::FETCH_OBJ);
+$schemaByCategory = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'structured_data_by_category', $pdo, $sqlSchemaByCategory, [':crawl_id' => $crawlId], true
+);
 
 // Nom de catégorie (déjà fourni par la colonne category)
 foreach ($schemaByCategory as $row) {
@@ -246,7 +248,7 @@ $percentWithSchema = $globalStats->total_pages > 0
         'title' => __('structured_data.table_with'),
         'id' => 'structured_data_urls',
         'whereClause' => 'WHERE array_length(c.schemas, 1) > 0 AND c.crawled = true AND c.compliant = true AND c.in_crawl = TRUE',
-        'orderBy' => 'ORDER BY c.depth ASC, c.pri DESC',
+        'orderBy' => '', // pas de tri (perf) — ordre natif du store
         'defaultColumns' => ['url', 'depth', 'inlinks', 'outlinks', 'pri'],
         'pdo' => $pdo,
         'crawlId' => $crawlId,
@@ -263,7 +265,7 @@ $percentWithSchema = $globalStats->total_pages > 0
         'title' => __('structured_data.table_without'),
         'id' => 'no_structured_data_urls',
         'whereClause' => 'WHERE (array_length(c.schemas, 1) IS NULL OR array_length(c.schemas, 1) = 0) AND c.crawled = true AND c.compliant = true AND c.in_crawl = TRUE',
-        'orderBy' => 'ORDER BY c.depth ASC, c.pri DESC',
+        'orderBy' => '', // pas de tri (perf) — ordre natif du store
         'defaultColumns' => ['url', 'depth', 'inlinks', 'outlinks', 'pri'],
         'pdo' => $pdo,
         'crawlId' => $crawlId,

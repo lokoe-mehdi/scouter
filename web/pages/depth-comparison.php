@@ -50,13 +50,8 @@ $sqlDepthStats = "
     GROUP BY depth ORDER BY depth
 ";
 
-$stmtRef = $pdo->prepare($sqlDepthStats);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$depthStatsRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlDepthStats);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$depthStatsBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$depthStatsRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'depthcmp_dist', $pdo, $sqlDepthStats, [':crawl_id' => $safeCrawlId],   false);
+$depthStatsBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'depthcmp_dist', $pdo, $sqlDepthStats, [':crawl_id' => $safeCompareId], false);
 
 // Merge all depth levels
 $allDepths = [];
@@ -119,13 +114,8 @@ $sqlDepthCat = "
     GROUP BY depth, category ORDER BY depth, category
 ";
 
-$stmtCatRef = $pdo->prepare($sqlDepthCat);
-$stmtCatRef->execute([':crawl_id' => $safeCrawlId]);
-$depthCatRef = $stmtCatRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtCatBase = $pdo->prepare($sqlDepthCat);
-$stmtCatBase->execute([':crawl_id' => $safeCompareId]);
-$depthCatBase = $stmtCatBase->fetchAll(PDO::FETCH_OBJ);
+$depthCatRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'depthcmp_by_category', $pdo, $sqlDepthCat, [':crawl_id' => $safeCrawlId],   true);
+$depthCatBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'depthcmp_by_category', $pdo, $sqlDepthCat, [':crawl_id' => $safeCompareId], true);
 
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 

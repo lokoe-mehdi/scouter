@@ -54,13 +54,8 @@ $sqlSchemaDistribution = "
     ORDER BY page_count DESC
 ";
 
-$stmtRef = $pdo->prepare($sqlSchemaDistribution);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$schemaDistRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlSchemaDistribution);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$schemaDistBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$schemaDistRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'structdatacmp_types', $pdo, $sqlSchemaDistribution, [':crawl_id' => $safeCrawlId],   false);
+$schemaDistBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'structdatacmp_types', $pdo, $sqlSchemaDistribution, [':crawl_id' => $safeCompareId], false);
 
 $colors = ['#4ECDC4', '#FF6B6B', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'];
 
@@ -149,13 +144,8 @@ $sqlSchemaByCategory = "
     ORDER BY avg_schemas DESC
 ";
 
-$stmtRef = $pdo->prepare($sqlSchemaByCategory);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$schemaCatRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlSchemaByCategory);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$schemaCatBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$schemaCatRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'structdatacmp_by_category', $pdo, $sqlSchemaByCategory, [':crawl_id' => $safeCrawlId],   true);
+$schemaCatBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'structdatacmp_by_category', $pdo, $sqlSchemaByCategory, [':crawl_id' => $safeCompareId], true);
 
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 

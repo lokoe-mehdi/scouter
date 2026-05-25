@@ -121,13 +121,19 @@ class JobManager
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         
-        // SYNC: Mettre à jour le crawl status pour les jobs de crawl uniquement
-        // Les batch jobs (batch-categorize, etc.) ne doivent PAS toucher au crawl status
+        // SYNC: Mettre à jour le crawl status pour les jobs de crawl uniquement.
+        // Les jobs NON-crawl (batch-categorize, delete-*, precompute-reports*) ne
+        // doivent JAMAIS toucher au statut du crawl — sinon enqueuer un précalcul
+        // faisait passer le crawl en 'queued' → dashboard 302→home + crawl masqué
+        // du sélecteur (bug #575/#625).
         $jobStmt = $this->db->prepare("SELECT project_dir, command FROM jobs WHERE id = :job_id");
         $jobStmt->execute([':job_id' => $jobId]);
         $jobRow = $jobStmt->fetch(PDO::FETCH_OBJ);
 
-        if ($jobRow && $jobRow->project_dir && strpos($jobRow->command, 'batch-') !== 0 && strpos($jobRow->command, 'delete-') !== 0) {
+        if ($jobRow && $jobRow->project_dir
+            && strpos($jobRow->command, 'batch-') !== 0
+            && strpos($jobRow->command, 'delete-') !== 0
+            && strpos($jobRow->command, 'precompute-') !== 0) {
             $crawlStatusMap = [
                 'queued' => 'queued',
                 'running' => 'running',

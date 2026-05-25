@@ -73,13 +73,8 @@ $sqlDistribution = "
     ORDER BY sort_order
 ";
 
-$stmtRef = $pdo->prepare($sqlDistribution);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$distRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlDistribution);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$distBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$distRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'contentrichcmp_dist', $pdo, $sqlDistribution, [':crawl_id' => $safeCrawlId],   false);
+$distBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'contentrichcmp_dist', $pdo, $sqlDistribution, [':crawl_id' => $safeCompareId], false);
 
 // Merge all ranges
 $rangeLabels = ['0', '1-100', '101-300', '301-500', '501-800', '801-1200', '1201-2000', '2001-3000', '3000+'];
@@ -153,13 +148,10 @@ $sqlQuality = "
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
 
-$stmtRef = $pdo->prepare($sqlQuality);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$qualRef = $stmtRef->fetch(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlQuality);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$qualBase = $stmtBase->fetch(PDO::FETCH_OBJ);
+$qualRefRows  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'contentrichcmp_quality', $pdo, $sqlQuality, [':crawl_id' => $safeCrawlId],   false);
+$qualRef = $qualRefRows[0] ?? null;
+$qualBaseRows = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'contentrichcmp_quality', $pdo, $sqlQuality, [':crawl_id' => $safeCompareId], false);
+$qualBase = $qualBaseRows[0] ?? null;
 
 $qualRefData = [
     ['name' => __('content_richness.series_poor') . ' (' . __('comparison.badge_reference') . ')', 'y' => (int)($qualRef->poor ?? 0), 'color' => $colorPoor],
@@ -209,13 +201,8 @@ $sqlQualityByCategory = "
     GROUP BY category
 ";
 
-$stmtRef = $pdo->prepare($sqlQualityByCategory);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$qualCatRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlQualityByCategory);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$qualCatBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$qualCatRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'contentrichcmp_quality_by_category', $pdo, $sqlQualityByCategory, [':crawl_id' => $safeCrawlId],   true);
+$qualCatBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'contentrichcmp_quality_by_category', $pdo, $sqlQualityByCategory, [':crawl_id' => $safeCompareId], true);
 
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 

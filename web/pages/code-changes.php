@@ -51,13 +51,8 @@ $sqlCodeDist = "
     WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
     GROUP BY code ORDER BY total DESC
 ";
-$stmtCodeRef = $pdo->prepare($sqlCodeDist);
-$stmtCodeRef->execute([':crawl_id' => $safeCrawlId]);
-$codeStatsRef = $stmtCodeRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtCodeBase = $pdo->prepare($sqlCodeDist);
-$stmtCodeBase->execute([':crawl_id' => $safeCompareId]);
-$codeStatsBase = $stmtCodeBase->fetchAll(PDO::FETCH_OBJ);
+$codeStatsRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'codechanges_dist', $pdo, $sqlCodeDist, [':crawl_id' => $safeCrawlId],   false);
+$codeStatsBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'codechanges_dist', $pdo, $sqlCodeDist, [':crawl_id' => $safeCompareId], false);
 
 // Build donut data — Ref: full color, Base: 50% opacity
 $donutRefData = [];
@@ -93,13 +88,8 @@ $sqlCodeCat = "
     WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
     GROUP BY category, code ORDER BY count DESC
 ";
-$stmtCodeCatRef = $pdo->prepare($sqlCodeCat);
-$stmtCodeCatRef->execute([':crawl_id' => $safeCrawlId]);
-$codeCatRef = $stmtCodeCatRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtCodeCatBase = $pdo->prepare($sqlCodeCat);
-$stmtCodeCatBase->execute([':crawl_id' => $safeCompareId]);
-$codeCatBase = $stmtCodeCatBase->fetchAll(PDO::FETCH_OBJ);
+$codeCatRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'codechanges_by_category', $pdo, $sqlCodeCat, [':crawl_id' => $safeCrawlId],   true);
+$codeCatBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'codechanges_by_category', $pdo, $sqlCodeCat, [':crawl_id' => $safeCompareId], true);
 
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 

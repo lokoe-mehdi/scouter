@@ -41,6 +41,11 @@ class ChPdo
     /** @var array<int,array{0:string,1:string}> per-crawl {catIdExpr, catNameExpr} cache. */
     private array $catCache = [];
     private string $crawlCategoriesSource;
+    /** Query-cache TTL (s) passed to ClickHouse for report reads; 0 = no caching. */
+    private int $cacheTtl = 0;
+
+    /** ClickHouse query-cache TTL for an immutable (finished) crawl's reports. */
+    private const REPORT_CACHE_TTL = 21600; // 6h
 
     public function __construct(int $crawlId, ?int $compareId = null)
     {
@@ -53,6 +58,20 @@ class ChPdo
         $stmt = $pg->prepare("SELECT project_id FROM crawls WHERE id = :id");
         $stmt->execute([':id' => $crawlId]);
         $this->projectId = (int) $stmt->fetchColumn();
+
+        // Only cache reads when EVERY crawl involved is in a terminal state — its
+        // data is then immutable, so cached report results stay correct (a running
+        // crawl mutates between page loads and must never be served from cache).
+        $in = implode(',', array_map('intval', $this->crawlIds));
+        $statuses = $pg->query("SELECT status FROM crawls WHERE id IN ($in)")
+            ->fetchAll(\PDO::FETCH_COLUMN);
+        $terminal = ['finished', 'stopped', 'error'];
+        $allTerminal = !empty($statuses)
+            && count($statuses) === count($this->crawlIds)
+            && count(array_diff($statuses, $terminal)) === 0;
+        if ($allTerminal) {
+            $this->cacheTtl = self::REPORT_CACHE_TTL;
+        }
 
         $rules = (new CategoryExpr($pg))->rulesForCrawl($crawlId);
         $this->crawlCategoriesSource = $this->buildCrawlCategoriesSource($rules);
@@ -116,7 +135,7 @@ class ChPdo
 
     public function runSelect(string $sql, array $params): array
     {
-        return $this->ch->select($sql, $params);
+        return $this->ch->select($sql, $params, $this->cacheTtl);
     }
 
     // -- SQL rewriting -------------------------------------------------------

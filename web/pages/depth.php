@@ -34,9 +34,9 @@ $sqlDepthStats = "
     GROUP BY depth
     ORDER BY depth
 ";
-$stmt = $pdo->prepare($sqlDepthStats);
-$stmt->execute([':crawl_id' => $crawlId]);
-$depthStats = $stmt->fetchAll(PDO::FETCH_OBJ);
+$depthStats = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'depth_stats', $pdo, $sqlDepthStats, [':crawl_id' => $crawlId], false
+);
 
 // Distribution par profondeur et catégorie (sans jointure)
 $sqlDepthByCategory = "
@@ -49,9 +49,9 @@ $sqlDepthByCategory = "
     GROUP BY depth, category
     ORDER BY depth, category
 ";
-$stmt = $pdo->prepare($sqlDepthByCategory);
-$stmt->execute([':crawl_id' => $crawlId]);
-$depthByCategoryRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
+$depthByCategoryRaw = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'depth_by_category', $pdo, $sqlDepthByCategory, [':crawl_id' => $crawlId], true
+);
 
 // La colonne category contient déjà le nom de catégorie
 $depthByCategory = [];

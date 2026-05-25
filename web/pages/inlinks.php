@@ -14,9 +14,9 @@ try {
         GROUP BY inlinks
         ORDER BY inlinks ASC
     ";
-    $stmt = $pdo->prepare($sqlInlinksDistribution);
-    $stmt->execute([':crawl_id' => $crawlId]);
-    $inlinksDistribution = $stmt->fetchAll(PDO::FETCH_OBJ);
+    $inlinksDistribution = \App\Analysis\ReportPrecompute::cached(
+        (int) $crawlId, 'inlinks_distribution', $pdo, $sqlInlinksDistribution, [':crawl_id' => $crawlId], false
+    );
     
     // Calcul du total d'URLs pour les pourcentages
     $totalUrls = array_sum(array_column($inlinksDistribution, 'url_count'));
@@ -43,7 +43,7 @@ try {
     }
     
     // Moyenne d'inlinks par catégorie (sans jointure)
-    $stmt = $pdo->prepare("
+    $sqlInlinksByCategory = "
         SELECT
             category,
             COUNT(id) as url_count,
@@ -55,9 +55,10 @@ try {
         WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
         GROUP BY category
         ORDER BY AVG(inlinks) DESC
-    ");
-    $stmt->execute([':crawl_id' => $crawlId]);
-    $inlinksByCategoryRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
+    ";
+    $inlinksByCategoryRaw = \App\Analysis\ReportPrecompute::cached(
+        (int) $crawlId, 'inlinks_by_category', $pdo, $sqlInlinksByCategory, [':crawl_id' => $crawlId], true
+    );
 
     // category est déjà le nom de la catégorie
     $inlinksByCategory = [];
@@ -67,8 +68,8 @@ try {
     }
     
     // Statistiques globales (renommer pour éviter conflit avec $globalStats de dashboard)
-    $stmt = $pdo->prepare("
-        SELECT 
+    $sqlInlinksStats = "
+        SELECT
             COUNT(*) as total_urls,
             ROUND(AVG(inlinks)::numeric, 2) as avg_inlinks,
             MIN(inlinks) as min_inlinks,
@@ -76,9 +77,11 @@ try {
             SUM(inlinks) as total_inlinks
         FROM pages
         WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
-    ");
-    $stmt->execute([':crawl_id' => $crawlId]);
-    $inlinksStats = $stmt->fetch(PDO::FETCH_OBJ);
+    ";
+    $inlinksStatsRows = \App\Analysis\ReportPrecompute::cached(
+        (int) $crawlId, 'inlinks_stats', $pdo, $sqlInlinksStats, [':crawl_id' => $crawlId], false
+    );
+    $inlinksStats = $inlinksStatsRows[0] ?? null;
     
     // URLs avec 0 ou 1 inlinks (sans jointure)
     $stmt = $pdo->prepare("

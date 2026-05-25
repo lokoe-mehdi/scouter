@@ -75,13 +75,10 @@ $sqlSitemapDistribution = "
     WHERE crawl_id = :cid
 ";
 
-$stmtRef = $pdo->prepare($sqlSitemapDistribution);
-$stmtRef->execute([':cid' => $safeCrawlId]);
-$distRef = $stmtRef->fetch(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlSitemapDistribution);
-$stmtBase->execute([':cid' => $safeCompareId]);
-$distBase = $stmtBase->fetch(PDO::FETCH_OBJ);
+$distRefRows  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'sitemapcmp_dist', $pdo, $sqlSitemapDistribution, [':cid' => $safeCrawlId],   false);
+$distRef = $distRefRows[0] ?? null;
+$distBaseRows = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'sitemapcmp_dist', $pdo, $sqlSitemapDistribution, [':cid' => $safeCompareId], false);
+$distBase = $distBaseRows[0] ?? null;
 
 $sqlSitemapDistributionDisplay = "-- Reference crawl
 SELECT 'reference' AS source,
@@ -121,13 +118,10 @@ $sqlSitemapIndexability = "
     WHERE crawl_id = :cid AND in_sitemap = TRUE
 ";
 
-$stmtRef = $pdo->prepare($sqlSitemapIndexability);
-$stmtRef->execute([':cid' => $safeCrawlId]);
-$idxRef = $stmtRef->fetch(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlSitemapIndexability);
-$stmtBase->execute([':cid' => $safeCompareId]);
-$idxBase = $stmtBase->fetch(PDO::FETCH_OBJ);
+$idxRefRows  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'sitemapcmp_indexability', $pdo, $sqlSitemapIndexability, [':cid' => $safeCrawlId],   false);
+$idxRef = $idxRefRows[0] ?? null;
+$idxBaseRows = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'sitemapcmp_indexability', $pdo, $sqlSitemapIndexability, [':cid' => $safeCompareId], false);
+$idxBase = $idxBaseRows[0] ?? null;
 
 $sqlSitemapIndexabilityDisplay = "-- Reference crawl
 SELECT 'reference' AS source,

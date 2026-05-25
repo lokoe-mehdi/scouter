@@ -7,17 +7,19 @@
  */
 
 // Statistiques globales du PageRank
-$stmt = $pdo->prepare("
-    SELECT 
+$sqlPrStats = "
+    SELECT
         AVG(pri) as avg_pr,
         MAX(pri) as max_pr,
         MIN(pri) as min_pr,
         COUNT(CASE WHEN pri > 0 THEN 1 END) as pages_with_pr
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
-");
-$stmt->execute([':crawl_id' => $crawlId]);
-$prStats = $stmt->fetch(PDO::FETCH_OBJ);
+";
+$prStatsRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'pagerank_stats', $pdo, $sqlPrStats, [':crawl_id' => $crawlId], false
+);
+$prStats = $prStatsRows[0] ?? null;
 
 // Distribution PageRank par profondeur
 $sqlPrByDepth = "
@@ -30,9 +32,9 @@ $sqlPrByDepth = "
     GROUP BY depth
     ORDER BY depth
 ";
-$stmt = $pdo->prepare($sqlPrByDepth);
-$stmt->execute([':crawl_id' => $crawlId]);
-$prByDepth = $stmt->fetchAll(PDO::FETCH_OBJ);
+$prByDepth = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'pagerank_by_depth', $pdo, $sqlPrByDepth, [':crawl_id' => $crawlId], false
+);
 
 // Distribution PageRank par catégorie (sans jointure)
 $sqlPrByCategory = "
@@ -46,9 +48,9 @@ $sqlPrByCategory = "
     GROUP BY category
     ORDER BY AVG(pri) DESC
 ";
-$stmt = $pdo->prepare($sqlPrByCategory);
-$stmt->execute([':crawl_id' => $crawlId]);
-$prByCategoryRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
+$prByCategoryRaw = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'pagerank_by_category', $pdo, $sqlPrByCategory, [':crawl_id' => $crawlId], true
+);
 
 // category est déjà le nom de la catégorie
 $prByCategory = [];
@@ -86,9 +88,10 @@ $sqlPrByLinkPosition = "
     GROUP BY l.position
     ORDER BY sum_pr DESC
 ";
-$stmt = $pdo->prepare($sqlPrByLinkPosition);
-$stmt->execute([':crawl_id' => $crawlId]);
-$prByLinkPosition = $stmt->fetchAll(PDO::FETCH_OBJ);
+// Précalculé dans crawl_report_cache ; lazy-warm au 1er affichage.
+$prByLinkPosition = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'pagerank_position', $pdo, $sqlPrByLinkPosition, [':crawl_id' => $crawlId], false
+);
 
 // Normalisation en pourcentage (somme = 100%)
 $totalPrPosition = array_sum(array_map(fn($r) => (float)$r->sum_pr, $prByLinkPosition));
@@ -117,9 +120,9 @@ $sqlFluxCategories = "
       AND ps.category != '' AND pt.category != ''
     GROUP BY ps.category, pt.category
 ";
-$stmt = $pdo->prepare($sqlFluxCategories);
-$stmt->execute();
-$linkCountsRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
+$linkCountsRaw = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'pagerank_flux', $pdo, $sqlFluxCategories, [], true
+);
 
 // Compter les liens vers l'externe par catégorie source
 $sqlExternalLinks = "
@@ -135,9 +138,9 @@ $sqlExternalLinks = "
       AND ps.category != ''
     GROUP BY ps.category
 ";
-$stmt = $pdo->prepare($sqlExternalLinks);
-$stmt->execute();
-$externalLinksRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
+$externalLinksRaw = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'pagerank_external', $pdo, $sqlExternalLinks, [], true
+);
 
 // Calculer le total de tous les liens
 $totalLinks = 0;
@@ -391,7 +394,7 @@ usort($sankeyNodes, function($a, $b) use ($linksByCategory) {
     ?>
 
     <!-- ========================================
-         SECTION 3 : Tableau d'URLs
+         SECTION 3 : Tableau d'URLs (Top 100 PageRank)
          ======================================== -->
     <?php
     Component::urlTable([
@@ -403,6 +406,7 @@ usort($sankeyNodes, function($a, $b) use ($linksByCategory) {
         'pdo' => $pdo,
         'crawlId' => $crawlId,
         'perPage' => 10,
+        'maxResults' => 100, // plafonne à 100 résultats (top PageRank), pagination 10/page
         'projectDir' => $_GET['project'] ?? ''
     ]);
     ?>

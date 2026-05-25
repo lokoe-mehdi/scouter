@@ -51,13 +51,10 @@ $sqlPrDist = "
     WHERE crawl_id = :crawl_id AND (crawled = true OR external = true) AND in_crawl = TRUE
 ";
 
-$stmtRef = $pdo->prepare($sqlPrDist);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$prRef = $stmtRef->fetch(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlPrDist);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$prBase = $stmtBase->fetch(PDO::FETCH_OBJ);
+$prRefRows  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'prleakcmp_stats', $pdo, $sqlPrDist, [':crawl_id' => $safeCrawlId],   false);
+$prRef = $prRefRows[0] ?? null;
+$prBaseRows = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'prleakcmp_stats', $pdo, $sqlPrDist, [':crawl_id' => $safeCompareId], false);
+$prBase = $prBaseRows[0] ?? null;
 
 // Compute percentages
 $refTotal = (float)$prRef->external_pr + (float)$prRef->non_indexable_pr + (float)$prRef->indexable_pr;
@@ -112,13 +109,8 @@ $sqlTopDomains = "
     LIMIT 10
 ";
 
-$stmtRef = $pdo->prepare($sqlTopDomains);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$topDomainsRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlTopDomains);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$topDomainsBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$topDomainsRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'prleakcmp_top_domains', $pdo, $sqlTopDomains, [':crawl_id' => $safeCrawlId],   false);
+$topDomainsBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'prleakcmp_top_domains', $pdo, $sqlTopDomains, [':crawl_id' => $safeCompareId], false);
 
 // Merge domain names
 $refDomainMap = [];

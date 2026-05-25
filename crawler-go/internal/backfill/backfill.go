@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -301,6 +302,110 @@ func (b *Backfiller) Crawl(ctx context.Context, crawlID int) error {
 	return b.migrate(ctx, crawlID, true)
 }
 
+// OptimizeExisting brings already-migrated crawls up to the new read-perf baseline
+// retroactively — the at-finish OPTIMIZE/projection (added with this change) only
+// apply to crawls processed afterwards. It:
+//  1. OPTIMIZE … FINAL the pages/page_metrics partitions of terminal ClickHouse
+//     crawls whose parts are still fragmented (>1 active part). Cheap, adds no
+//     storage, lets report reads work on deduplicated parts. Running crawls are
+//     skipped (never optimize a partition still being written).
+//  2. (opt-in, CLICKHOUSE_MATERIALIZE_PROJECTIONS) materialize the links
+//     `proj_by_target` projection for old partitions that lack it — this DOUBLES
+//     the projected columns' storage for those crawls, so it is OFF by default.
+//
+// Best-effort and idempotent: after the first pass partitions are single-part and
+// no longer selected, so re-running on every boot is nearly free.
+func (b *Backfiller) OptimizeExisting(ctx context.Context) error {
+	d := b.ch.DB()
+
+	// Terminal CH crawls only (never touch a running crawl's partition).
+	terminal := map[int]bool{}
+	rows, err := b.pool.Query(ctx, `SELECT id FROM crawls
+		WHERE COALESCE(data_store,'pg')='clickhouse'
+		  AND status IN ('finished','stopped','error')`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err == nil {
+			terminal[id] = true
+		}
+	}
+	rows.Close()
+	if len(terminal) == 0 {
+		b.logf("optimize-ch: no terminal ClickHouse crawls")
+		return nil
+	}
+
+	// 1. Optimize fragmented pages/page_metrics partitions.
+	optimized := 0
+	for _, tbl := range []string{"pages", "page_metrics"} {
+		parts, _ := b.ch.QueryTSV(ctx, fmt.Sprintf(
+			"SELECT partition FROM system.parts WHERE database='%s' AND table='%s' AND active GROUP BY partition HAVING count() > 1", d, tbl))
+		for _, row := range parts {
+			if len(row) == 0 {
+				continue
+			}
+			cid, perr := strconv.Atoi(strings.TrimSpace(row[0]))
+			if perr != nil || !terminal[cid] {
+				continue
+			}
+			if err := b.ch.Exec(ctx, fmt.Sprintf("OPTIMIZE TABLE %s.%s PARTITION %d FINAL", d, tbl, cid)); err != nil {
+				b.logf("optimize-ch %s crawl %d: %v", tbl, cid, err)
+				continue
+			}
+			optimized++
+		}
+	}
+	b.logf("optimize-ch: optimized %d fragmented partition(s)", optimized)
+
+	// 2. Opt-in: materialize the links target-projection for old crawls.
+	if envBool("CLICKHOUSE_MATERIALIZE_PROJECTIONS") {
+		b.materializeLinksProjection(ctx, terminal)
+	}
+	return nil
+}
+
+// materializeLinksProjection triggers (async) materialization of the
+// proj_by_target projection on `links` partitions that don't have it yet.
+func (b *Backfiller) materializeLinksProjection(ctx context.Context, terminal map[int]bool) {
+	d := b.ch.DB()
+	have := map[string]bool{}
+	pp, _ := b.ch.QueryTSV(ctx, fmt.Sprintf(
+		"SELECT DISTINCT partition FROM system.projection_parts WHERE database='%s' AND table='links' AND projection_name='proj_by_target' AND active", d))
+	for _, r := range pp {
+		if len(r) > 0 {
+			have[strings.TrimSpace(r[0])] = true
+		}
+	}
+	parts, _ := b.ch.QueryTSV(ctx, fmt.Sprintf(
+		"SELECT DISTINCT partition FROM system.parts WHERE database='%s' AND table='links' AND active", d))
+	done := 0
+	for _, r := range parts {
+		if len(r) == 0 {
+			continue
+		}
+		p := strings.TrimSpace(r[0])
+		cid, perr := strconv.Atoi(p)
+		if perr != nil || !terminal[cid] || have[p] {
+			continue
+		}
+		if err := b.ch.Exec(ctx, fmt.Sprintf("ALTER TABLE %s.links MATERIALIZE PROJECTION proj_by_target IN PARTITION %d", d, cid)); err != nil {
+			b.logf("materialize-proj crawl %d: %v", cid, err)
+			continue
+		}
+		done++
+	}
+	b.logf("materialize-proj: triggered for %d partition(s) (async mutation)", done)
+}
+
+// envBool reports whether an env var is set to a truthy value.
+func envBool(key string) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
 // SyncStats writes back the duplicate/redirect SCORECARD stats on the crawls row
 // from the ClickHouse derived tables. The CH post-processing computes
 // duplicate_clusters/redirect_chains but (unlike the PG post-processor) doesn't
@@ -365,6 +470,9 @@ func (b *Backfiller) migrate(ctx context.Context, crawlID int, withHTML bool) er
 	if _, err := b.pool.Exec(ctx, "UPDATE crawls SET data_store='clickhouse' WHERE id=$1", crawlID); err != nil {
 		return fmt.Errorf("set data_store: %w", err)
 	}
+	// This crawl was (re)processed: drop the report query cache so a previously
+	// cached view of it (from a prior store/run) is not served stale.
+	_ = b.ch.DropQueryCache(ctx)
 	b.logf("backfill crawl %d: done (%d pages in CH) — reports now on ClickHouse", crawlID, chCount)
 
 	// HTML last (view-source only). All() defers this to phase 2 (withHTML=false).

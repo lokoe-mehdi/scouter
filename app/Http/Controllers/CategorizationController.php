@@ -112,6 +112,21 @@ class CategorizationController extends Controller
             $upsert->execute([':crawl_id' => $cid, ':config' => $yamlContent, ':config2' => $yamlContent]);
         }
 
+        // Les fragments de rapport précalculés liés aux catégories (flux Sankey, liens
+        // externes, distribution par catégorie) viennent de changer. On les MET À JOUR
+        // (recalcule + réécrit la table) — on ne vide JAMAIS, pour que le rapport lise
+        // toujours une table à jour et reste rapide. Synchrone pour le crawl COURANT
+        // (celui que l'utilisateur regarde) → son affichage juste après est rapide ET
+        // frais. Les AUTRES crawls du projet sont rafraîchis en fond par le worker.
+        try {
+            \App\Analysis\ReportPrecompute::recompute((int) $crawlId, true); // fragments catégorie-dépendants
+            $jm = new \App\Job\JobManager();
+            $precomputeJobId = $jm->createJob($projectDir, 'Report Precompute', "precompute-reports-project:{$projectId}");
+            $jm->updateJobStatus($precomputeJobId, 'queued');
+        } catch (\Throwable $e) {
+            error_log('[Categorization] update report precompute failed: ' . $e->getMessage());
+        }
+
         // PHASE 3: Apply SYNCHRONOUSLY to the current crawl so the user sees
         //          the new categories in the filters / dropdowns immediately
         //          on next page load. Categorization is just a few regex

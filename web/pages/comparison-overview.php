@@ -34,13 +34,8 @@ $sqlDepthRef = "
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
     GROUP BY depth ORDER BY depth
 ";
-$stmtDepthRef = $pdo->prepare($sqlDepthRef);
-$stmtDepthRef->execute([':crawl_id' => $safeCrawlId]);
-$depthRef = $stmtDepthRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtDepthBase = $pdo->prepare($sqlDepthRef);
-$stmtDepthBase->execute([':crawl_id' => $safeCompareId]);
-$depthBase = $stmtDepthBase->fetchAll(PDO::FETCH_OBJ);
+$depthRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'overviewcmp_depth', $pdo, $sqlDepthRef, [':crawl_id' => $safeCrawlId],   false);
+$depthBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'overviewcmp_depth', $pdo, $sqlDepthRef, [':crawl_id' => $safeCompareId], false);
 
 // Merge depth levels from both crawls
 $allDepths = [];
@@ -69,13 +64,8 @@ $sqlDepthCat = "
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
     GROUP BY depth, category ORDER BY depth, category
 ";
-$stmtCatRef = $pdo->prepare($sqlDepthCat);
-$stmtCatRef->execute([':crawl_id' => $safeCrawlId]);
-$depthCatRef = $stmtCatRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtCatBase = $pdo->prepare($sqlDepthCat);
-$stmtCatBase->execute([':crawl_id' => $safeCompareId]);
-$depthCatBase = $stmtCatBase->fetchAll(PDO::FETCH_OBJ);
+$depthCatRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'overviewcmp_depth_category', $pdo, $sqlDepthCat, [':crawl_id' => $safeCrawlId],   true);
+$depthCatBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'overviewcmp_depth_category', $pdo, $sqlDepthCat, [':crawl_id' => $safeCompareId], true);
 
 // Categories are project-level: same IDs across all crawls
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
@@ -182,13 +172,8 @@ $sqlCodeDist = "
     WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
     GROUP BY code ORDER BY total DESC
 ";
-$stmtCodeRef = $pdo->prepare($sqlCodeDist);
-$stmtCodeRef->execute([':crawl_id' => $safeCrawlId]);
-$codeStatsRef = $stmtCodeRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtCodeBase = $pdo->prepare($sqlCodeDist);
-$stmtCodeBase->execute([':crawl_id' => $safeCompareId]);
-$codeStatsBase = $stmtCodeBase->fetchAll(PDO::FETCH_OBJ);
+$codeStatsRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'overviewcmp_code_dist', $pdo, $sqlCodeDist, [':crawl_id' => $safeCrawlId],   false);
+$codeStatsBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'overviewcmp_code_dist', $pdo, $sqlCodeDist, [':crawl_id' => $safeCompareId], false);
 
 // Build donut data — Ref: full color, Base: 50% opacity
 $donutRefData = [];
@@ -224,13 +209,8 @@ $sqlCodeCat = "
     WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
     GROUP BY category, code ORDER BY count DESC
 ";
-$stmtCodeCatRef = $pdo->prepare($sqlCodeCat);
-$stmtCodeCatRef->execute([':crawl_id' => $safeCrawlId]);
-$codeCatRef = $stmtCodeCatRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtCodeCatBase = $pdo->prepare($sqlCodeCat);
-$stmtCodeCatBase->execute([':crawl_id' => $safeCompareId]);
-$codeCatBase = $stmtCodeCatBase->fetchAll(PDO::FETCH_OBJ);
+$codeCatRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'overviewcmp_code_category', $pdo, $sqlCodeCat, [':crawl_id' => $safeCrawlId],   true);
+$codeCatBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'overviewcmp_code_category', $pdo, $sqlCodeCat, [':crawl_id' => $safeCompareId], true);
 
 // Helper: group code into family
 if (!function_exists('codeFamily')) {

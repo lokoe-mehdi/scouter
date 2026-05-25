@@ -161,6 +161,11 @@ if ($useCh) {
 $GLOBALS['categoriesMap'] = $categoriesMap;
 $GLOBALS['categoryColors'] = $categoryColors;
 
+// NB : pas d'auto-warm en fond ici — le cache se remplit en lazy-warm au premier
+// affichage de chaque rapport (ReportPrecompute::cached). L'ancien ensureWarm
+// ré-enqueuait en boucle des jobs qui ne pouvaient rien précalculer (et flippait
+// le statut du crawl).
+
 // Charger les statistiques globales
 $crawlRepo = new CrawlRepository();
 $globalStats = $crawlRecord;
@@ -200,8 +205,11 @@ try {
         $cId = $crawl->id ?? $crawl->crawl_id ?? null;
         if (!$cId) continue;
         
-        // Ne pas afficher les crawls avec 0 URLs (en cours ou échoués)
-        if (empty($crawl->urls) || intval($crawl->urls) === 0) {
+        // Ne masquer que les crawls RÉELLEMENT vides (0 URL ET 0 page crawlée).
+        // En mode ClickHouse, le stat `urls` de la ligne PostgreSQL peut rester à 0
+        // (non resynchronisé depuis CH) alors que le crawl a des données — sans ce
+        // garde-fou, un crawl valide disparaissait du sélecteur (cf. bug #575/#625).
+        if (intval($crawl->urls ?? 0) === 0 && intval($crawl->crawled ?? 0) === 0) {
             continue;
         }
         

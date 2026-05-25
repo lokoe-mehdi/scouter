@@ -29,6 +29,10 @@ $pdo = $urlTableConfig['pdo'] ?? null;
 $projectDir = $urlTableConfig['projectDir'] ?? '';
 $defaultColumns = $urlTableConfig['defaultColumns'] ?? ['url', 'depth', 'code', 'category'];
 $perPage = $urlTableConfig['perPage'] ?? 100;
+// Plafond optionnel du nombre total de résultats (0 = illimité). Utile pour un
+// "Top N" : la requête reste triée + paginée normalement, on borne juste le total
+// (donc le nombre de pages) — chaque page renvoie bien les bonnes lignes du tri.
+$maxResults = (int)($urlTableConfig['maxResults'] ?? 0);
 $crawlId = $urlTableConfig['crawlId'] ?? null;
 $compareCrawlId = $urlTableConfig['compareCrawlId'] ?? null;
 $compareColumnsExplicit = $urlTableConfig['compareColumns'] ?? null; // null = auto-detect
@@ -459,6 +463,9 @@ $sqlCount = $pdo->prepare($countQuery);
 $sqlCount->execute($sqlParams);
 $result = $sqlCount->fetch(PDO::FETCH_OBJ);
 $totalResults = $result ? $result->total : 0;
+if ($maxResults > 0 && $totalResults > $maxResults) {
+    $totalResults = $maxResults; // borne le "Top N" : pagination limitée à ce total
+}
 $totalPages = ceil($totalResults / $perPage);
 
 // Expose EVERY matching page id (the whole filtered set, not just the displayed
