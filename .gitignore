@@ -7,3 +7,4 @@ composer.lock
 .phpunit.cache/
 # Composer binary — le build Docker utilise l'image composer:latest, pas ce phar
 composer.phar
+.env.autosize

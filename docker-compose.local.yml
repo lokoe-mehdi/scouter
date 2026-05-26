@@ -2,6 +2,12 @@ services:
   # Base de données PostgreSQL
   postgres:
     image: postgres:16-alpine
+    # mem_limit AUTO-DIMENSIONNÉ par scripts/autosize.sh (lancé par start.sh) en
+    # fraction de la RAM hôte → somme < RAM dispo, un conteneur qui dérape redémarre
+    # au lieu de tuer l'hôte. Plus de quota cpus en dur : cpu_shares (poids relatif)
+    # s'adapte à tout nombre de cœurs. Les défauts ne sont qu'un secours.
+    mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
+    cpu_shares: 2048 # interactif — priorité face aux crawls sous contention
     ports:
       - "5432:5432"
     command: postgres -c max_locks_per_transaction=256
@@ -20,6 +26,9 @@ services:
   # PostgreSQL garde la frontier + les métadonnées. Voir clickhouse.md.
   clickhouse:
     image: clickhouse/clickhouse-server:24-alpine
+    # CH 24 borne son max_server_memory_usage sur ce cgroup → pas de creep RAM.
+    mem_limit: ${CLICKHOUSE_MEM_LIMIT:-4g}
+    cpu_shares: 2048 # interactif (sert les rapports)
     ports:
       - "8123:8123"  # HTTP interface (lectures rapports + writes crawler)
       - "9000:9000"  # native (debug local via clickhouse-client)
@@ -34,7 +43,10 @@ services:
         hard: 262144
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      - ./docker/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # Source unique partagée avec le schéma embarqué du crawler (EnsureSchema),
+      # comme en prod (docker-compose.yml). L'ancien chemin ./docker/clickhouse/init.sql
+      # n'existe pas et faisait échouer/diverger l'install locale à neuf.
+      - ./crawler-go/internal/db/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
     restart: unless-stopped
     networks:
       - scouter-net
@@ -49,6 +61,8 @@ services:
   # Application PHP principale
   scouter:
     build: .
+    mem_limit: ${SCOUTER_MEM_LIMIT:-1g}
+    cpu_shares: 2048 # interactif (UI + API)
     ports:
       - "8080:8080"
     volumes:
@@ -79,6 +93,8 @@ services:
   # Serveur MCP (Model Context Protocol) — adaptateur au-dessus de /api/v1.
   mcp:
     build: ./mcp
+    mem_limit: ${MCP_MEM_LIMIT:-256m}
+    cpu_shares: 512 # léger adaptateur, background
     expose:
       - 3000
     environment:
@@ -92,6 +108,9 @@ services:
   # Service Worker (Crawl)
   worker:
     build: .
+    # Appliqué à CHACUN des 4 réplicas : défaut 384m × 4 = 1,5 Go.
+    mem_limit: ${WORKER_MEM_LIMIT:-384m}
+    cpu_shares: 512 # jobs background (delete / batch-categorize / bulk-ai)
     entrypoint: ["php", "app/bin/worker.php"]
     restart: unless-stopped
     deploy:
@@ -137,6 +156,9 @@ services:
     image: golang:1.25-alpine
     working_dir: /src
     command: go run ./cmd/scouter-crawler
+    # Pose le cgroup memory.max → active GOMEMLIMIT auto dans le crawler (~1,8 Go).
+    mem_limit: ${CRAWLER_MEM_LIMIT:-2g}
+    cpu_shares: 512 # background : cède le CPU à l'interactif (couplé au gouverneur PSI)
     restart: unless-stopped
     stop_grace_period: 30s
     environment:
@@ -188,6 +210,9 @@ services:
   # Tune RAM/débit par renderer via MAX_CONCURRENT_PAGES / PAGE_POOL_SIZE.
   renderer-1: &renderer-base
     build: ./renderer
+    # Borne Chrome. Hérité par renderer-2/3 : défaut 1 Go × 3 = 3 Go.
+    mem_limit: ${RENDERER_MEM_LIMIT:-1g}
+    cpu_shares: 512 # Chrome = gros consommateur ; background, hérité par renderer-2/3
     init: true
     expose:
       - 3000

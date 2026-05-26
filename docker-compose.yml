@@ -2,6 +2,16 @@ services:
   # Base de données PostgreSQL (avec init.sql intégré)
   postgres:
     build: ./docker/postgres
+    # Les mem_limit sont AUTO-DIMENSIONNÉS par scripts/autosize.sh en fraction de
+    # la RAM réelle de l'hôte (lancé par start.sh ; sourcé dans .env.autosize). Sur
+    # Coolify : lancer scripts/autosize.sh une fois OU poser ces vars dans l'UI. La
+    # SOMME des mem_limit reste < RAM dispo : un conteneur qui dérape est OOM-killé
+    # + redémarré (restart: unless-stopped) AU LIEU de tuer l'hôte. Côté crawler,
+    # poser ce cgroup memory.max ACTIVE le GOMEMLIMIT auto (applyMemoryLimit).
+    # Le CPU n'a PLUS de quota en dur : seul cpu_shares (poids relatif) reste, donc
+    # ça s'adapte à n'importe quel nombre de cœurs sans sur-souscription. Les
+    # défauts ci-dessous ne servent que de secours si autosize n'a pas tourné.
+    mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
     # cpu_shares = poids CPU RELATIF (défaut 1024), pas un plafond : ne mord que
     # SOUS contention, et n'empêche jamais un conteneur de burster à 100% quand
     # l'hôte est libre. Aucun nombre de cœurs en dur → reste adaptatif (cloud-ready).
@@ -27,12 +37,20 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      # start_period : laisse Postgres finir son init (build custom + config) sans
+      # être marqué "unhealthy" → `docker compose up` (Coolify) n'avorte plus le
+      # déploiement pendant le démarrage.
+      start_period: 90s
 
   # ClickHouse — entrepôt des données de crawl (pages/links/html + post-proc).
   # PostgreSQL garde la frontier + les métadonnées. Voir clickhouse.md.
   clickhouse:
     image: clickhouse/clickhouse-server:24-alpine
+    # ClickHouse 24 détecte le cgroup memory.max et borne automatiquement son
+    # max_server_memory_usage (~90%), donc ce mem_limit suffit à l'empêcher de
+    # grignoter toute la RAM via les merges/cache de requêtes sur la durée.
+    mem_limit: ${CLICKHOUSE_MEM_LIMIT:-4g}
     # Interactif (sert les rapports PHP). Le travail background du crawler dans CH
     # est déjà rendu "nice" au niveau threads (os_thread_priority, voir crawler-go),
     # donc le conteneur garde un poids élevé pour ne pas pénaliser les rapports.
@@ -48,22 +66,27 @@ services:
         hard: 262144
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      # Single source of truth with the crawler's embedded schema (EnsureSchema).
-      # Belt-and-suspenders: the crawler also applies this DDL at boot, so a stale
-      # or half-initialized CH volume (init runs only once, on a pristine volume)
-      # no longer leaves the tables missing.
-      - ./crawler-go/internal/db/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # NB : pas de mount init.sql ici. Le schéma est appliqué au boot par le
+      # crawler Go (CH.EnsureSchema, //go:embed schema.sql, DDL idempotent). Le
+      # bind-mount relatif ./crawler-go/...schema.sql cassait sur Coolify (le
+      # fichier absent du contexte → Docker crée un DOSSIER → l'entrypoint CH
+      # erreur "Is a directory" sur init.sql). EnsureSchema est la source unique.
     restart: unless-stopped
     healthcheck:
       # clickhouse-client is reliable inside the image (wget to localhost is refused).
       test: ["CMD", "clickhouse-client", "-q", "SELECT 1"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 15
+      # start_period : pendant ce délai les échecs ne comptent pas et le conteneur
+      # reste "starting" (pas "unhealthy"), donc `docker compose up` (Coolify) ne
+      # tue pas le déploiement pendant le démarrage normal de ClickHouse.
+      start_period: 120s
 
   # Application PHP principale (Le cerveau)
   scouter:
     build: .
+    mem_limit: ${SCOUTER_MEM_LIMIT:-1g}
     cpu_shares: 2048 # interactif (UI + API) — priorité face aux crawls sous charge
     expose:
       - 8080
@@ -114,6 +137,7 @@ services:
   # un simple passthrough du header Authorization: Bearer sctr_… vers l'API.
   mcp:
     build: ./mcp
+    mem_limit: ${MCP_MEM_LIMIT:-256m}
     cpu_shares: 512 # léger adaptateur, background
     expose:
       - 3000
@@ -127,6 +151,8 @@ services:
   # Service Worker 1 (Base & Anchor)
   worker-1: &worker-base
     build: .
+    # Limites héritées par worker-2..4 via l'ancre YAML : défaut 384m × 4 = 1,5 Go.
+    mem_limit: ${WORKER_MEM_LIMIT:-384m}
     cpu_shares: 512 # jobs background (delete / batch-categorize / bulk-ai) — hérité par worker-2..4
     entrypoint: ["php", "app/bin/worker.php"]
     restart: unless-stopped
@@ -175,6 +201,10 @@ services:
   # command='crawl' jobs; cohabits with the PHP workers above.
   crawler-go:
     build: ./crawler-go
+    # mem_limit pose le cgroup memory.max lu par applyMemoryLimit → GOMEMLIMIT ≈
+    # 90% = ~1,8 Go : le GC Go réclame avant de déborder, ce qui empêche le creep
+    # mémoire des longs crawls (very_slow) de finir en OOM hôte.
+    mem_limit: ${CRAWLER_MEM_LIMIT:-2g}
     cpu_shares: 512 # background : sous contention il cède le CPU à l'interactif (couplé au gouverneur PSI interne)
     restart: unless-stopped
     stop_grace_period: 30s
@@ -254,6 +284,9 @@ services:
   # Service de rendu JavaScript (Puppeteer) - Multiple instances pour parallélisme
   renderer-1: &renderer-base
     build: ./renderer
+    # Borne Chrome (gros consommateur). Hérité par renderer-2/3 : défaut 1 Go × 3 = 3 Go.
+    # Si Chrome dépasse, ce conteneur est OOM-killé + redémarré sans toucher l'hôte.
+    mem_limit: ${RENDERER_MEM_LIMIT:-1g}
     cpu_shares: 512 # Chrome = gros consommateur ; background, hérité par renderer-2/3
     init: true
     expose:

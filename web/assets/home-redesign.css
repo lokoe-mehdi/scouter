@@ -82,7 +82,9 @@ body { background: #F4F6FA; margin: 0; overflow: hidden; }
 }
 #projectListContainer > .projects-pane:hover::-webkit-scrollbar-thumb,
 #projectListContainer > .projects-section:hover::-webkit-scrollbar-thumb { background: #C2CBD6; background-clip: content-box; }
-#projectsPane-my { max-height: 730px; }
+#projectsPane-my,
+#projectsPane-all,
+#projectsPane-shared { max-height: 730px; }
 /* the shared strip never scrolls away — always visible at the bottom */
 .pc-shared-section { flex-shrink: 0; }
 
