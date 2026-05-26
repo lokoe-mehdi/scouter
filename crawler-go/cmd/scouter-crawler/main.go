@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,6 +40,8 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	applyMemoryLimit(workerID)
 
 	pool, err := db.NewPool(ctx, dsn, int32(maxCrawls*int(envInt("POOL_CONNS_PER_CRAWL", 6))))
 	if err != nil {
@@ -206,7 +209,45 @@ func main() {
 
 // runJob executes one crawl + post-processing, mirroring scouter.php crawl +
 // Crawler::depthStarter finalization, with panic isolation.
+// applyMemoryLimit gives the Go runtime a soft heap ceiling (GOMEMLIMIT) so the
+// GC reclaims aggressively before the heap overruns the container. Without it a
+// large crawl can balloon RSS and, once the box is under memory pressure, drive
+// the GC into a CPU-burning loop that lingers even when no crawl is active.
+//
+// If GOMEMLIMIT is already set in the environment the runtime has honoured it and
+// we leave it alone. Otherwise we derive ~90% of the cgroup v2 memory limit (the
+// 10% headroom is for off-heap memory: goroutine stacks, the ClickHouse HTTP
+// client buffers, cgo). When neither applies (cgroup v1 / not containerised /
+// unlimited) we leave the GC at its default.
+func applyMemoryLimit(workerID string) {
+	if os.Getenv("GOMEMLIMIT") != "" {
+		return // runtime already applied the env-provided limit
+	}
+	b, err := os.ReadFile("/sys/fs/cgroup/memory.max")
+	if err != nil {
+		return
+	}
+	s := strings.TrimSpace(string(b))
+	if s == "max" {
+		return // no limit on the cgroup
+	}
+	max, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || max <= 0 {
+		return
+	}
+	limit := max / 10 * 9
+	debug.SetMemoryLimit(limit)
+	log.Printf("[%s] Go soft memory limit set to %d MiB (90%% of cgroup %d MiB)", workerID, limit>>20, max>>20)
+}
+
 func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j jobs.Job, rendererURLs []string, gov *governor.Governor) {
+	// A crawl + its post-processing build large transient structures (the dedup
+	// set, batch buffers, parsed DOMs). Go keeps that freed heap mapped for reuse,
+	// so RSS stays high after a crawl ends even though nothing is running. Hand it
+	// back to the OS once the job is fully done so an idle worker stops looking
+	// like a leak.
+	defer debug.FreeOSMemory()
+
 	// Per-crawl log file: the UI's live console reads logs/<projectDir>.log
 	// (JobController::parseLogFile). The engine emits "Depth N : X URLs/sec
 	// (done/total)" lines there; post-processing emits its step lines. Volume
