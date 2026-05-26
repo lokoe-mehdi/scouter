@@ -37,7 +37,11 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      # start_period : laisse Postgres finir son init (build custom + config) sans
+      # être marqué "unhealthy" → `docker compose up` (Coolify) n'avorte plus le
+      # déploiement pendant le démarrage.
+      start_period: 90s
 
   # ClickHouse — entrepôt des données de crawl (pages/links/html + post-proc).
   # PostgreSQL garde la frontier + les métadonnées. Voir clickhouse.md.
@@ -62,18 +66,22 @@ services:
         hard: 262144
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      # Single source of truth with the crawler's embedded schema (EnsureSchema).
-      # Belt-and-suspenders: the crawler also applies this DDL at boot, so a stale
-      # or half-initialized CH volume (init runs only once, on a pristine volume)
-      # no longer leaves the tables missing.
-      - ./crawler-go/internal/db/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # NB : pas de mount init.sql ici. Le schéma est appliqué au boot par le
+      # crawler Go (CH.EnsureSchema, //go:embed schema.sql, DDL idempotent). Le
+      # bind-mount relatif ./crawler-go/...schema.sql cassait sur Coolify (le
+      # fichier absent du contexte → Docker crée un DOSSIER → l'entrypoint CH
+      # erreur "Is a directory" sur init.sql). EnsureSchema est la source unique.
     restart: unless-stopped
     healthcheck:
       # clickhouse-client is reliable inside the image (wget to localhost is refused).
       test: ["CMD", "clickhouse-client", "-q", "SELECT 1"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 15
+      # start_period : pendant ce délai les échecs ne comptent pas et le conteneur
+      # reste "starting" (pas "unhealthy"), donc `docker compose up` (Coolify) ne
+      # tue pas le déploiement pendant le démarrage normal de ClickHouse.
+      start_period: 120s
 
   # Application PHP principale (Le cerveau)
   scouter:
