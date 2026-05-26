@@ -34,7 +34,10 @@ services:
         hard: 262144
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      - ./docker/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # Source unique partagée avec le schéma embarqué du crawler (EnsureSchema),
+      # comme en prod (docker-compose.yml). L'ancien chemin ./docker/clickhouse/init.sql
+      # n'existe pas et faisait échouer/diverger l'install locale à neuf.
+      - ./crawler-go/internal/db/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
     restart: unless-stopped
     networks:
       - scouter-net
