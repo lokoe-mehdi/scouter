@@ -143,7 +143,7 @@ func NewEngine(cdb *db.CrawlDB, cfg *config.Config, opts Options) *Engine {
 		stopCheck:          stop,
 		// Single HTTP client, fetching over uTLS (Chrome TLS fingerprint). Never
 		// follows redirects (PHP RollingCurl behaviour); the page parser handles them.
-		client: newUTLSClient(concurrency, 5*time.Second),
+		client: newUTLSClient(concurrency, 20*time.Second),
 	}
 }
 

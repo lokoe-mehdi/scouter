@@ -45,7 +45,7 @@ type utlsTransport struct {
 
 func newUTLSTransport(concurrency int) *utlsTransport {
 	st := &utlsTransport{
-		dialer:  &net.Dialer{Timeout: 3 * time.Second},
+		dialer:  &net.Dialer{Timeout: 10 * time.Second},
 		helloID: utls.HelloChrome_Auto,
 		// A crawler fetches whatever is served, regardless of certificate
 		// validity (matches the old PHP CURLOPT_SSL_VERIFYPEER=false).
