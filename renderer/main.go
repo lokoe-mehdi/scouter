@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -190,49 +191,64 @@ func stableTimeout() time.Duration {
 	return 5 * time.Second
 }
 
-func getPage() *rod.Page {
+func getPage() (*rod.Page, error) {
 	// Acquérir un slot
 	semaphore <- struct{}{}
 
 	// Essayer de récupérer une page du pool
 	select {
 	case page := <-pagePool:
-		return page
+		return page, nil
 	default:
-		// Créer une nouvelle page
-		page := browser.MustPage("")
-		return page
+		// Créer une nouvelle page. MustPage panique si le navigateur est mort :
+		// on récupère le panic (rod.Try) pour NE PAS fuiter le slot du sémaphore
+		// déjà acquis (l'ancien code laissait le slot bloqué à jamais → renderer
+		// qui se fige peu à peu).
+		var page *rod.Page
+		if err := rod.Try(func() { page = browser.MustPage("") }); err != nil {
+			<-semaphore // rendre le slot avant de remonter l'erreur
+			return nil, err
+		}
+		return page, nil
 	}
 }
 
 func releasePage(page *rod.Page) {
-	// Nettoyer la page
-	page.MustNavigate("about:blank")
+	// Le slot est TOUJOURS rendu, même si le nettoyage de la page panique (onglet
+	// Chrome mort) — sinon le slot fuit et le pool finit par se bloquer entièrement.
+	defer func() { <-semaphore }()
 
-	// Remettre dans le pool si possible
-	select {
-	case pagePool <- page:
-		// OK
-	default:
-		// Pool plein, fermer la page
-		page.Close()
+	// Reset pour réutilisation ; si la page est morte (panic), on la jette au lieu
+	// de la remettre dans le pool (une page cassée empoisonnerait les rendus suivants).
+	if err := rod.Try(func() { page.MustNavigate("about:blank") }); err != nil {
+		_ = rod.Try(func() { page.Close() })
+		return
 	}
 
-	// Libérer le slot
-	<-semaphore
+	select {
+	case pagePool <- page:
+		// remise au pool OK
+	default:
+		// Pool plein : fermer la page (close protégé contre un panic de tab mort).
+		_ = rod.Try(func() { page.Close() })
+	}
 }
 
 func renderURL(urlStr string, headers map[string]string) RenderResponse {
-	page := getPage()
+	page, err := getPage()
+	if err != nil {
+		return RenderResponse{Success: false, Error: "renderer page unavailable: " + err.Error(), URL: urlStr, FinalURL: urlStr}
+	}
 	defer releasePage(page)
 
-	// Configurer les headers (Rod prend des paires key, value)
+	// Configurer les headers (Rod prend des paires key, value). Protégé : un
+	// MustSetExtraHeaders qui panique ne doit pas court-circuiter releasePage.
 	if len(headers) > 0 {
 		args := make([]string, 0, len(headers)*2)
 		for k, v := range headers {
 			args = append(args, k, v)
 		}
-		page.MustSetExtraHeaders(args...)
+		_ = rod.Try(func() { page.MustSetExtraHeaders(args...) })
 	}
 
 	// Variables pour capturer le code HTTP et le TTFB
@@ -247,7 +263,14 @@ func renderURL(urlStr string, headers map[string]string) RenderResponse {
 	navStart := time.Now()
 
 	// Écouter les réponses pour capturer le code HTTP et le VRAI TTFB du document.
-	go page.EachEvent(func(e *proto.NetworkResponseReceived) {
+	// Le listener est scopé à CE rendu via un contexte annulable : sans ça, comme
+	// les pages sont RÉUTILISÉES depuis le pool, chaque rendu empilait une goroutine
+	// EachEvent qui ne s'arrêtait jamais → fuite de goroutines/RAM proportionnelle
+	// au nombre de pages rendues (mortel sur un long crawl). cancelListener (defer)
+	// garantit l'arrêt de la goroutine au retour de renderURL.
+	listenerCtx, cancelListener := context.WithCancel(context.Background())
+	defer cancelListener()
+	go page.Context(listenerCtx).EachEvent(func(e *proto.NetworkResponseReceived) {
 		if e.Type == proto.NetworkResourceTypeDocument {
 			timingMu.Lock()
 			if !ttfbCaptured {
@@ -274,9 +297,8 @@ func renderURL(urlStr string, headers map[string]string) RenderResponse {
 	})()
 
 	// Navigation avec timeout
-	err := page.Timeout(NavigationTimeout).Navigate(urlStr)
-	if err != nil {
-		responseErr = err
+	if navErr := page.Timeout(NavigationTimeout).Navigate(urlStr); navErr != nil {
+		responseErr = navErr
 	}
 
 	// Attendre que le DOM soit stable (50ms sans changement). Plafonné par un

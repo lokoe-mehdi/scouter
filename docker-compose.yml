@@ -2,6 +2,14 @@ services:
   # Base de données PostgreSQL (avec init.sql intégré)
   postgres:
     build: ./docker/postgres
+    # Plafonds DURS (cgroup), dimensionnés pour 16 Go / 8 cœurs et tunables via .env.
+    # La SOMME des mem_limit reste < RAM dispo (~13,75 Go sur 16) : un conteneur qui
+    # dérape est OOM-killé + redémarré (restart: unless-stopped) AU LIEU de tuer
+    # l'hôte. Côté crawler, poser ce cgroup memory.max ACTIVE enfin le GOMEMLIMIT
+    # auto (cmd/scouter-crawler applyMemoryLimit) — sans ça il restait inerte.
+    # cpus = plafond de quota CPU ; le cpu_shares reste le poids relatif.
+    mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
+    cpus: ${POSTGRES_CPUS:-3}
     # cpu_shares = poids CPU RELATIF (défaut 1024), pas un plafond : ne mord que
     # SOUS contention, et n'empêche jamais un conteneur de burster à 100% quand
     # l'hôte est libre. Aucun nombre de cœurs en dur → reste adaptatif (cloud-ready).
@@ -33,6 +41,11 @@ services:
   # PostgreSQL garde la frontier + les métadonnées. Voir clickhouse.md.
   clickhouse:
     image: clickhouse/clickhouse-server:24-alpine
+    # ClickHouse 24 détecte le cgroup memory.max et borne automatiquement son
+    # max_server_memory_usage (~90%), donc ce mem_limit suffit à l'empêcher de
+    # grignoter toute la RAM via les merges/cache de requêtes sur la durée.
+    mem_limit: ${CLICKHOUSE_MEM_LIMIT:-4g}
+    cpus: ${CLICKHOUSE_CPUS:-4}
     # Interactif (sert les rapports PHP). Le travail background du crawler dans CH
     # est déjà rendu "nice" au niveau threads (os_thread_priority, voir crawler-go),
     # donc le conteneur garde un poids élevé pour ne pas pénaliser les rapports.
@@ -64,6 +77,8 @@ services:
   # Application PHP principale (Le cerveau)
   scouter:
     build: .
+    mem_limit: ${SCOUTER_MEM_LIMIT:-1g}
+    cpus: ${SCOUTER_CPUS:-2}
     cpu_shares: 2048 # interactif (UI + API) — priorité face aux crawls sous charge
     expose:
       - 8080
@@ -114,6 +129,8 @@ services:
   # un simple passthrough du header Authorization: Bearer sctr_… vers l'API.
   mcp:
     build: ./mcp
+    mem_limit: ${MCP_MEM_LIMIT:-256m}
+    cpus: ${MCP_CPUS:-0.5}
     cpu_shares: 512 # léger adaptateur, background
     expose:
       - 3000
@@ -127,6 +144,9 @@ services:
   # Service Worker 1 (Base & Anchor)
   worker-1: &worker-base
     build: .
+    # Limites héritées par worker-2..4 via l'ancre YAML : défaut 384m × 4 = 1,5 Go.
+    mem_limit: ${WORKER_MEM_LIMIT:-384m}
+    cpus: ${WORKER_CPUS:-1}
     cpu_shares: 512 # jobs background (delete / batch-categorize / bulk-ai) — hérité par worker-2..4
     entrypoint: ["php", "app/bin/worker.php"]
     restart: unless-stopped
@@ -175,6 +195,11 @@ services:
   # command='crawl' jobs; cohabits with the PHP workers above.
   crawler-go:
     build: ./crawler-go
+    # mem_limit pose le cgroup memory.max lu par applyMemoryLimit → GOMEMLIMIT ≈
+    # 90% = ~1,8 Go : le GC Go réclame avant de déborder, ce qui empêche le creep
+    # mémoire des longs crawls (very_slow) de finir en OOM hôte.
+    mem_limit: ${CRAWLER_MEM_LIMIT:-2g}
+    cpus: ${CRAWLER_CPUS:-4}
     cpu_shares: 512 # background : sous contention il cède le CPU à l'interactif (couplé au gouverneur PSI interne)
     restart: unless-stopped
     stop_grace_period: 30s
@@ -254,6 +279,10 @@ services:
   # Service de rendu JavaScript (Puppeteer) - Multiple instances pour parallélisme
   renderer-1: &renderer-base
     build: ./renderer
+    # Borne Chrome (gros consommateur). Hérité par renderer-2/3 : défaut 1 Go × 3 = 3 Go.
+    # Si Chrome dépasse, ce conteneur est OOM-killé + redémarré sans toucher l'hôte.
+    mem_limit: ${RENDERER_MEM_LIMIT:-1g}
+    cpus: ${RENDERER_CPUS:-2}
     cpu_shares: 512 # Chrome = gros consommateur ; background, hérité par renderer-2/3
     init: true
     expose:

@@ -2,6 +2,10 @@ services:
   # Base de données PostgreSQL
   postgres:
     image: postgres:16-alpine
+    # Plafonds DURS (cgroup) pour 16 Go / 8 cœurs, tunables via .env. Somme des
+    # mem_limit < RAM dispo → un conteneur qui dérape redémarre au lieu de tuer l'hôte.
+    mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
+    cpus: ${POSTGRES_CPUS:-3}
     ports:
       - "5432:5432"
     command: postgres -c max_locks_per_transaction=256
@@ -20,6 +24,9 @@ services:
   # PostgreSQL garde la frontier + les métadonnées. Voir clickhouse.md.
   clickhouse:
     image: clickhouse/clickhouse-server:24-alpine
+    # CH 24 borne son max_server_memory_usage sur ce cgroup → pas de creep RAM.
+    mem_limit: ${CLICKHOUSE_MEM_LIMIT:-4g}
+    cpus: ${CLICKHOUSE_CPUS:-4}
     ports:
       - "8123:8123"  # HTTP interface (lectures rapports + writes crawler)
       - "9000:9000"  # native (debug local via clickhouse-client)
@@ -52,6 +59,8 @@ services:
   # Application PHP principale
   scouter:
     build: .
+    mem_limit: ${SCOUTER_MEM_LIMIT:-1g}
+    cpus: ${SCOUTER_CPUS:-2}
     ports:
       - "8080:8080"
     volumes:
@@ -82,6 +91,8 @@ services:
   # Serveur MCP (Model Context Protocol) — adaptateur au-dessus de /api/v1.
   mcp:
     build: ./mcp
+    mem_limit: ${MCP_MEM_LIMIT:-256m}
+    cpus: ${MCP_CPUS:-0.5}
     expose:
       - 3000
     environment:
@@ -95,6 +106,9 @@ services:
   # Service Worker (Crawl)
   worker:
     build: .
+    # Appliqué à CHACUN des 4 réplicas : défaut 384m × 4 = 1,5 Go.
+    mem_limit: ${WORKER_MEM_LIMIT:-384m}
+    cpus: ${WORKER_CPUS:-1}
     entrypoint: ["php", "app/bin/worker.php"]
     restart: unless-stopped
     deploy:
@@ -140,6 +154,9 @@ services:
     image: golang:1.25-alpine
     working_dir: /src
     command: go run ./cmd/scouter-crawler
+    # Pose le cgroup memory.max → active GOMEMLIMIT auto dans le crawler (~1,8 Go).
+    mem_limit: ${CRAWLER_MEM_LIMIT:-2g}
+    cpus: ${CRAWLER_CPUS:-4}
     restart: unless-stopped
     stop_grace_period: 30s
     environment:
@@ -191,6 +208,9 @@ services:
   # Tune RAM/débit par renderer via MAX_CONCURRENT_PAGES / PAGE_POOL_SIZE.
   renderer-1: &renderer-base
     build: ./renderer
+    # Borne Chrome. Hérité par renderer-2/3 : défaut 1 Go × 3 = 3 Go.
+    mem_limit: ${RENDERER_MEM_LIMIT:-1g}
+    cpus: ${RENDERER_CPUS:-2}
     init: true
     expose:
       - 3000
