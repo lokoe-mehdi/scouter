@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -19,17 +20,86 @@ import (
 // Configuration. MaxConcurrentPages / PagePoolSize are env-tunable so you can
 // trade RAM (each pooled Chrome tab ≈ 30-80 MB) for throughput without a rebuild:
 //
-//	MAX_CONCURRENT_PAGES (default 50) — hard cap on simultaneous renders
-//	PAGE_POOL_SIZE       (default 50) — tabs kept warm for reuse (avoids churn)
+//	MAX_CONCURRENT_PAGES (default 16) — hard cap on simultaneous renders
+//	PAGE_POOL_SIZE       (default 8)  — tabs kept warm for reuse (avoids churn)
+//
+// Defaults are deliberately modest: a full pool of warm tabs is pure idle RAM
+// (poolSize × ~100 MB) that lingers long after a crawl ends, so on a shared box
+// it can be what tips the host into swap. The pool reaper (RENDER_POOL_IDLE_SEC)
+// closes those warm tabs once no render has happened for a while, so an idle
+// renderer drops back to ~zero tabs instead of holding poolSize forever.
 const (
 	NavigationTimeout = 15 * time.Second
 	Port              = 3000
 )
 
 var (
-	maxConcurrentPages = envIntDefault("MAX_CONCURRENT_PAGES", 50)
-	pagePoolSize       = envIntDefault("PAGE_POOL_SIZE", 50)
+	maxConcurrentPages = envIntDefault("MAX_CONCURRENT_PAGES", 16)
+	pagePoolSize       = envIntDefault("PAGE_POOL_SIZE", 8)
 )
+
+// lastActivityNano holds the UnixNano of the most recent render. The pool reaper
+// reads it to decide when the renderer has been idle long enough to close its
+// warm tabs. Atomic because it's written from many render goroutines.
+var lastActivityNano atomic.Int64
+
+func markActivity() { lastActivityNano.Store(time.Now().UnixNano()) }
+
+// poolIdleTimeout is how long the renderer must go without a render before the
+// reaper closes the warm tabs sitting in the pool. Tunable via
+// RENDER_POOL_IDLE_SEC; 0 or negative disables the reaper.
+func poolIdleTimeout() time.Duration {
+	if v, err := strconv.Atoi(os.Getenv("RENDER_POOL_IDLE_SEC")); err == nil {
+		return time.Duration(v) * time.Second
+	}
+	return 120 * time.Second
+}
+
+// drainPool closes every page currently parked in the pool and returns how many
+// it closed. Pages in the pool are not in use (getPage took them out before a
+// render, releasePage puts them back after), so closing them is safe: the next
+// render just creates fresh tabs. This is what lets an idle renderer hand its
+// RAM back instead of holding poolSize tabs forever.
+func drainPool() int {
+	closed := 0
+	for {
+		select {
+		case p := <-pagePool:
+			p.Close()
+			closed++
+		default:
+			return closed
+		}
+	}
+}
+
+// poolReaper periodically closes the pool's warm tabs once the renderer has been
+// idle for idle. It only ever touches parked (unused) pages, so it never
+// interrupts an in-flight render.
+func poolReaper(idle time.Duration) {
+	if idle <= 0 {
+		log.Printf("[Rod-Renderer] pool reaper disabled (RENDER_POOL_IDLE_SEC<=0)")
+		return
+	}
+	tick := idle / 2
+	if tick < time.Second {
+		tick = time.Second
+	}
+	t := time.NewTicker(tick)
+	defer t.Stop()
+	for range t.C {
+		last := lastActivityNano.Load()
+		if last == 0 {
+			continue // nothing rendered yet → nothing parked
+		}
+		if time.Since(time.Unix(0, last)) < idle {
+			continue
+		}
+		if n := drainPool(); n > 0 {
+			log.Printf("[Rod-Renderer] pool reaper: closed %d idle tab(s) after %s without activity", n, idle)
+		}
+	}
+}
 
 func envIntDefault(key string, def int) int {
 	if v, err := strconv.Atoi(os.Getenv(key)); err == nil && v > 0 {
@@ -191,6 +261,8 @@ func stableTimeout() time.Duration {
 }
 
 func getPage() *rod.Page {
+	markActivity() // keeps the pool reaper from closing tabs mid-crawl
+
 	// Acquérir un slot
 	semaphore <- struct{}{}
 
@@ -429,6 +501,10 @@ func main() {
 	if err := initBrowser(); err != nil {
 		log.Fatalf("Failed to init browser: %v", err)
 	}
+
+	idle := poolIdleTimeout()
+	log.Printf("[Rod-Renderer] pool reaper: closing warm tabs after %s idle", idle)
+	go poolReaper(idle)
 
 	http.HandleFunc("/render", handleRender)
 	http.HandleFunc("/render-batch", handleBatchRender)
