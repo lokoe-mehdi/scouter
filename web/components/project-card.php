@@ -23,8 +23,22 @@ $firstCategory = !empty($projectCategories) ? $projectCategories[0] : null;
 $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
 
 // --- Métriques du dernier crawl + variations vs crawl précédent --------------
+// Les KPIs (santé, indexables, erreurs, tendance) doivent refléter le dernier
+// crawl TERMINÉ : un crawl en cours n'a pas encore de data → afficher ses 0
+// fausserait la carte. On exclut donc les crawls en cours pour le calcul des
+// KPIs. Le tableau détaillé plus bas continue, lui, de lister TOUS les crawls
+// (y compris celui en cours, affiché avec "—").
+$pcInProgressStatuses = ['running', 'queued', 'pending', 'processing', 'stopping'];
+$reportableCrawls = array_values(array_filter($crawls, function ($c) use ($pcInProgressStatuses) {
+    return !in_array($c->job_status ?? 'finished', $pcInProgressStatuses, true);
+}));
+// Repli : si AUCUN crawl terminé (le tout premier crawl du projet tourne encore),
+// on garde le plus récent pour au moins afficher la carte (KPIs à 0 légitimes).
+$kpiCrawls = !empty($reportableCrawls) ? $reportableCrawls : $crawls;
+$latestCrawl = $kpiCrawls[0] ?? $latestCrawl;
+
 $latestStats = $latestCrawl ? (array)$latestCrawl->stats : [];
-$prevCrawl   = (count($crawls) > 1) ? $crawls[1] : null;
+$prevCrawl   = (count($kpiCrawls) > 1) ? $kpiCrawls[1] : null;
 $prevStats   = $prevCrawl ? (array)$prevCrawl->stats : [];
 
 // Score CH (5 piliers) si dispo (crawl migré), sinon repli pur-PHP pcHealthScore.
@@ -43,9 +57,9 @@ foreach ($crawls as $c) {
     if ($t > $lastTs) $lastTs = $t;
 }
 
-// Série de tendance (santé par crawl, du plus ancien au plus récent, max 12)
+// Série de tendance (santé par crawl TERMINÉ, du plus ancien au plus récent, max 12)
 $trend = [];
-foreach (array_reverse(array_slice($crawls, 0, 12)) as $c) {
+foreach (array_reverse(array_slice($kpiCrawls, 0, 12)) as $c) {
     $cStats = (array)$c->stats;
     $trend[] = (int)($cStats['health_score'] ?? pcHealthScore($cStats));
 }
