@@ -3,6 +3,7 @@ module scouter-crawler
 go 1.25.0
 
 require (
+	github.com/andybalholm/brotli v1.2.0
 	github.com/antchfx/htmlquery v1.3.3
 	github.com/antchfx/xpath v1.3.2
 	github.com/go-shiori/go-readability v0.0.0-20241012063810-92284fa8a71f
@@ -13,7 +14,6 @@ require (
 )
 
 require (
-	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/andybalholm/cascadia v1.3.2 // indirect
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de // indirect
 	github.com/go-shiori/dom v0.0.0-20230515143342-73569d674e1c // indirect

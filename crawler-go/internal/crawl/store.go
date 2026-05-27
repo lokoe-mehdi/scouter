@@ -81,6 +81,8 @@ func (e *Engine) storePage(ctx context.Context, p model.Page, depth int) error {
 	if err := e.cdb.UpdatePage(ctx, p.ID, sets); err != nil {
 		return err
 	}
+	// Page is now crawled=true: bump the live counters the background writer persists.
+	e.recordStored(depth, p.HTTPCode, compliant)
 	// Dual-write the crawled page to ClickHouse (append-only; observed signals only).
 	e.chStore.AddPage(chPageRow{
 		CrawlID: e.cdb.CrawlID, ID: p.ID, Domain: p.Domain, URL: p.URL, Depth: depth,

@@ -256,20 +256,34 @@ func (c *CrawlDB) UpdatePage(ctx context.Context, pageID string, sets map[string
 	})
 }
 
-// GetUrlsToCrawl mirrors CrawlDatabase::getUrlsToCrawl.
-func (c *CrawlDB) GetUrlsToCrawl(ctx context.Context, respectRobots bool, limit, maxDepth int) ([]string, error) {
-	sql := "SELECT url FROM pages WHERE crawl_id=$1 AND crawled=false AND external=false AND in_crawl=TRUE"
+// ClaimUrlsToCrawl atomically leases a batch of frontier URLs and returns them.
+//
+// Instead of re-reading the same WHERE crawled=false slice every batch (which got
+// slower as crawled rows piled up in the partition), it stamps claimed_at on the
+// rows it hands out, so the next claim skips them via the idx_pages_frontier
+// partial index — the cost stays O(batch), not O(table). FOR UPDATE SKIP LOCKED
+// lets several drivers pull disjoint batches from the same frontier without
+// double-crawling. A claim older than the lease is reclaimable, so a crawl that
+// died mid-batch (or a quick resume after ResetClaims) never strands URLs.
+func (c *CrawlDB) ClaimUrlsToCrawl(ctx context.Context, respectRobots bool, limit, maxDepth int) ([]string, error) {
+	var sb strings.Builder
+	sb.WriteString(`UPDATE pages SET claimed_at = now() WHERE (crawl_id, id) IN (
+		SELECT crawl_id, id FROM pages
+		WHERE crawl_id=$1 AND crawled=false AND external=false AND in_crawl=TRUE`)
 	if respectRobots {
-		sql += " AND blocked = false"
+		sb.WriteString(" AND blocked = false")
 	}
 	if maxDepth >= 0 {
-		sql += " AND depth = " + strconv.Itoa(maxDepth)
+		sb.WriteString(" AND depth = " + strconv.Itoa(maxDepth))
 	}
-	sql += " ORDER BY id"
+	sb.WriteString(" AND (claimed_at IS NULL OR claimed_at < now() - interval '10 minutes')")
+	sb.WriteString(" ORDER BY id")
 	if limit > 0 {
-		sql += " LIMIT " + strconv.Itoa(limit)
+		sb.WriteString(" LIMIT " + strconv.Itoa(limit))
 	}
-	rows, err := c.pool.Query(ctx, sql, c.CrawlID)
+	sb.WriteString(" FOR UPDATE SKIP LOCKED) RETURNING url")
+
+	rows, err := c.pool.Query(ctx, sb.String(), c.CrawlID)
 	if err != nil {
 		return nil, err
 	}
@@ -283,6 +297,19 @@ func (c *CrawlDB) GetUrlsToCrawl(ctx context.Context, respectRobots bool, limit,
 		urls = append(urls, u)
 	}
 	return urls, rows.Err()
+}
+
+// ResetClaims clears the claim marker on every still-uncrawled frontier row.
+// Called once when resuming a crawl: a fresh worker must be able to re-lease URLs
+// the previous process had claimed but not yet crawled, without waiting out the
+// 10-minute lease (a worker restart is usually near-instant).
+func (c *CrawlDB) ResetClaims(ctx context.Context) error {
+	return withRetry(ctx, func() error {
+		_, err := c.pool.Exec(ctx,
+			"UPDATE pages SET claimed_at = NULL WHERE crawl_id=$1 AND crawled=false AND claimed_at IS NOT NULL",
+			c.CrawlID)
+		return err
+	})
 }
 
 func (c *CrawlDB) CountUrlsToCrawl(ctx context.Context, respectRobots bool, maxDepth int) (int, error) {
@@ -308,14 +335,40 @@ func (c *CrawlDB) GetCrawledCount(ctx context.Context) int {
 
 func (c *CrawlDB) GetCurrentDepth(ctx context.Context) (int, error) {
 	var depth int
+	// Resume must continue from the LOWEST unfinished depth so the walk stays
+	// breadth-first. Without ORDER BY, PG returns an arbitrary uncrawled row, so
+	// a resume could jump to depth N+1 while depth N still had pending URLs.
 	err := c.pool.QueryRow(ctx, `
 		SELECT depth FROM pages
 		WHERE crawl_id=$1 AND crawled=false AND external=false AND blocked=false AND in_crawl=TRUE
+		ORDER BY depth ASC
 		LIMIT 1`, c.CrawlID).Scan(&depth)
 	if err == pgx.ErrNoRows {
 		return 0, nil
 	}
 	return depth, err
+}
+
+// GetStatsSnapshot reads the persisted live counters so the engine can seed its
+// in-memory tallies from the authoritative values (continues correctly on resume
+// and after each end-of-depth UpdateCrawlStats recompute).
+func (c *CrawlDB) GetStatsSnapshot(ctx context.Context) (crawled, compliant, critical, depthMax int64, err error) {
+	err = c.pool.QueryRow(ctx, `
+		SELECT COALESCE(crawled,0), COALESCE(compliant,0), COALESCE(critical_errors,0), COALESCE(depth_max,0)
+		FROM crawls WHERE id=$1`, c.CrawlID).Scan(&crawled, &compliant, &critical, &depthMax)
+	return
+}
+
+// WriteLiveStats writes the engine's running counters to the crawls row with a
+// single cheap UPDATE — no per-call full-partition COUNT(*) scans. This is what
+// keeps the dashboard "URLs crawled" climbing during the walk; the exact
+// aggregates (urls/duplicates/in_progress/response_time) are reconciled by the
+// authoritative UpdateCrawlStats at each end-of-depth and at finish.
+func (c *CrawlDB) WriteLiveStats(ctx context.Context, crawled, compliant, critical, depthMax int64) error {
+	_, err := c.pool.Exec(ctx,
+		"UPDATE crawls SET crawled=$2, compliant=$3, critical_errors=$4, depth_max=$5 WHERE id=$1",
+		c.CrawlID, crawled, compliant, critical, depthMax)
+	return err
 }
 
 // UpdateCrawlStats recomputes the aggregate stats on the crawls row.

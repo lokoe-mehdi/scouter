@@ -27,57 +27,11 @@ if (!function_exists('pcHealthScore')) {
     }
 }
 
-if (!function_exists('chHealthScores')) {
-    /**
-     * Score de santé SEO 0-100 PAR crawl, calculé en direct dans ClickHouse —
-     * 5 piliers équipondérés : (1) indexabilité, (2) on-page (title+h1 uniques),
-     * (3) contenu non-thin (>500 mots), (4) distribution du PageRank interne vers
-     * les pages conformes, (5) profondeur ≤ seuil géométrique (arbre en base 5).
-     * UNE seule requête batchée pour tous les crawls passés. Retourne
-     * [crawl_id => int]. Vide si ClickHouse est désactivé OU pour un crawl pas
-     * encore migré (absent de CH) → l'appelant retombe alors sur pcHealthScore.
-     * (Le seul calcul de score qui touche CH au rendu ; le reste reste pur-PHP.)
-     */
-    function chHealthScores(array $crawlIds): array {
-        $crawlIds = array_values(array_unique(array_filter(array_map('intval', $crawlIds))));
-        if (empty($crawlIds) || !\App\Database\ClickHouseDatabase::enabled()) return [];
-        $idList = implode(',', $crawlIds);
-        // pages est ReplacingMergeTree → on déduplique (LIMIT 1 BY crawl_id,id) avant
-        // d'agréger ; title_status/h1_status/pri vivent dans page_metrics (dérivé).
-        $sql = "
-WITH per AS (
-  SELECT crawl_id, countIf(compliant=1 AND is_html=1) AS idx
-  FROM (SELECT crawl_id, id, compliant, is_html FROM pages WHERE crawl_id IN ($idList)
-        ORDER BY date DESC LIMIT 1 BY crawl_id, id)
-  GROUP BY crawl_id
-),
-thr AS (SELECT crawl_id, greatest(ceil(log((idx + 24) / 25.0) / log(5.0)), 1) AS max_depth FROM per)
-SELECT p.crawl_id AS crawl_id,
-  round((
-      countIf(p.compliant=1 AND p.is_html=1)*100.0 / nullIf(countIf(p.crawled=1 AND p.is_html=1),0)
-    + countIf(m.title_status='unique' AND m.h1_status='unique' AND p.compliant=1 AND p.is_html=1)*100.0 / nullIf(countIf(p.crawled=1 AND p.is_html=1),0)
-    + countIf(p.compliant=1 AND p.is_html=1 AND p.word_count>500)*100.0 / nullIf(countIf(p.compliant=1 AND p.is_html=1),0)
-    + sumIf(m.pri, p.compliant=1 AND p.is_html=1)*100.0 / nullIf(sum(m.pri),0)
-    + countIf(p.compliant=1 AND p.is_html=1 AND p.depth <= t.max_depth)*100.0 / nullIf(countIf(p.compliant=1 AND p.is_html=1),0)
-  ) / 5) AS score
-FROM (SELECT crawl_id, id, compliant, is_html, crawled, word_count, depth FROM pages WHERE crawl_id IN ($idList)
-      ORDER BY date DESC LIMIT 1 BY crawl_id, id) p
-LEFT JOIN page_metrics m ON m.crawl_id = p.crawl_id AND m.id = p.id
-JOIN thr t ON t.crawl_id = p.crawl_id
-GROUP BY p.crawl_id, t.max_depth";
-        $out = [];
-        try {
-            foreach (\App\Database\ClickHouseDatabase::getInstance()->select($sql) as $r) {
-                if (($r['score'] ?? null) !== null && $r['score'] !== '') {
-                    $out[(int)$r['crawl_id']] = (int)round(max(0, min(100, (float)$r['score'])));
-                }
-            }
-        } catch (\Throwable $e) {
-            error_log('chHealthScores CH query failed: ' . $e->getMessage());
-        }
-        return $out;
-    }
-}
+// NB : le calcul du score santé 5 piliers (et compliant/critical_errors) en
+// ClickHouse vit désormais dans App\Analysis\CrawlStats::ensureFromClickHouse()
+// — calculé UNE fois puis persisté dans la ligne crawls (write-through). La home
+// et la page projet lisent stats['health_score'] (repli pcHealthScore ci-dessous
+// si jamais absent). Plus de calcul live à chaque rendu.
 
 if (!function_exists('pcScoreColor')) {
     function pcScoreColor(int $score): string {

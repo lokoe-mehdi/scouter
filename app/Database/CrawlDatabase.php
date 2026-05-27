@@ -507,14 +507,18 @@ class CrawlDatabase
      */
     public function getCurrentDepth(): int
     {
+        // Resume from the LOWEST unfinished depth so the walk stays breadth-first;
+        // without ORDER BY, PG returns an arbitrary uncrawled row and a resume could
+        // jump to a deeper level while a shallower one still had pending URLs.
         $stmt = $this->db->prepare("
             SELECT depth FROM pages
             WHERE crawl_id = :crawl_id AND crawled = false AND external = false AND blocked = false AND in_crawl = TRUE
+            ORDER BY depth ASC
             LIMIT 1
         ");
         $stmt->execute([':crawl_id' => $this->crawlId]);
         $result = $stmt->fetch(PDO::FETCH_OBJ);
-        
+
         return $result ? (int)$result->depth : 0;
     }
 

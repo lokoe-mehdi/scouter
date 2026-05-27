@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"io"
 	"sync"
+	"time"
 
 	"scouter-crawler/internal/db"
 )
@@ -21,8 +22,14 @@ const chBatch = 1000
 // (CLICKHOUSE_URL set). Append-only — never updates. Thread-safe: storePage runs
 // from many fetch goroutines at once.
 //
-// A CH failure never aborts the crawl: errors are logged and the buffer dropped,
-// because PostgreSQL remains the source of truth during the transition.
+// Durability: under slim-PG (CLICKHOUSE_DROP_PG, the default) ClickHouse is the
+// ONLY store for links/html/page_schemas — PG keeps just the frontier — so a
+// dropped CH insert is permanent data loss (missing edges ⇒ wrong inlinks /
+// PageRank / orphan reports). Therefore a failed flush is NOT discarded: it is
+// retried with backoff (which also back-pressures the calling fetch goroutine),
+// and if it still fails the batch is put back in the buffer for the next flush /
+// the final Flush to retry. Transient server-memory rejections — the actual
+// failure mode here — heal within seconds once merges free memory.
 type CHStore struct {
 	ch      *db.CH
 	crawlID int
@@ -213,15 +220,72 @@ func (s *CHStore) AddHTMLZipped(id, domZip string) {
 	}
 }
 
-// Flush drains all buffers. Called at crawl/sitemap-pass end before post-processing.
+// Flush drains all buffers, retrying until empty or the context is done. Called
+// at crawl/sitemap-pass end before post-processing — the last chance to land
+// rows that earlier flushes re-buffered after a transient CH rejection.
 func (s *CHStore) Flush(ctx context.Context) {
 	if s == nil {
 		return
 	}
-	s.flushPages(ctx)
-	s.flushLinks(ctx)
-	s.flushSchemas(ctx)
-	s.flushHTML(ctx)
+	for attempt := 0; attempt < 10; attempt++ {
+		s.flushPages(ctx)
+		s.flushLinks(ctx)
+		s.flushSchemas(ctx)
+		s.flushHTML(ctx)
+		s.mu.Lock()
+		remaining := len(s.pages) + len(s.links) + len(s.schemas) + len(s.htmls)
+		s.mu.Unlock()
+		if remaining == 0 {
+			return
+		}
+		// A flush re-buffered its batch (CH still under pressure). Pause and retry
+		// the whole drain rather than leave rows unwritten.
+		select {
+		case <-ctx.Done():
+			s.logf("clickhouse flush aborted with %d rows still buffered: %v", remaining, ctx.Err())
+			return
+		case <-time.After(2 * time.Second):
+		}
+	}
+	s.mu.Lock()
+	remaining := len(s.pages) + len(s.links) + len(s.schemas) + len(s.htmls)
+	s.mu.Unlock()
+	if remaining > 0 {
+		s.logf("clickhouse flush gave up with %d rows still buffered after retries", remaining)
+	}
+}
+
+// insertWithRetry inserts a batch, retrying with exponential backoff. It returns
+// false only after exhausting its attempts — the caller then re-buffers the batch
+// rather than dropping it. The retry loop blocks the calling fetch goroutine,
+// which is the back-pressure: under CH memory pressure the crawl slows instead of
+// losing rows. The actual failure (server-wide memory limit) is transient and
+// clears within a few seconds as background merges free memory.
+func (s *CHStore) insertWithRetry(ctx context.Context, table, label string, batch []any) bool {
+	const maxAttempts = 6
+	backoff := 250 * time.Millisecond
+	for attempt := 1; ; attempt++ {
+		if err := s.ch.InsertJSONEachRow(ctx, table, batch); err == nil {
+			if attempt > 1 {
+				s.logf("clickhouse %s insert recovered after %d attempts (%d rows)", label, attempt, len(batch))
+			}
+			return true
+		} else if attempt >= maxAttempts {
+			s.logf("clickhouse %s insert failed after %d attempts (%d rows), re-buffering for next flush: %v", label, attempt, len(batch), err)
+			return false
+		} else {
+			s.logf("clickhouse %s insert attempt %d/%d failed (%d rows), retrying in %s: %v", label, attempt, maxAttempts, len(batch), backoff, err)
+		}
+		select {
+		case <-ctx.Done():
+			s.logf("clickhouse %s insert aborted (%d rows) by context: %v", label, len(batch), ctx.Err())
+			return false
+		case <-time.After(backoff):
+		}
+		if backoff < 8*time.Second {
+			backoff *= 2
+		}
+	}
 }
 
 func (s *CHStore) flushPages(ctx context.Context) {
@@ -232,8 +296,10 @@ func (s *CHStore) flushPages(ctx context.Context) {
 	if len(batch) == 0 {
 		return
 	}
-	if err := s.ch.InsertJSONEachRow(ctx, s.ch.DB()+".pages", batch); err != nil {
-		s.logf("clickhouse pages insert failed (%d rows): %v", len(batch), err)
+	if !s.insertWithRetry(ctx, s.ch.DB()+".pages", "pages", batch) {
+		s.mu.Lock()
+		s.pages = append(batch, s.pages...)
+		s.mu.Unlock()
 	}
 }
 
@@ -245,8 +311,10 @@ func (s *CHStore) flushLinks(ctx context.Context) {
 	if len(batch) == 0 {
 		return
 	}
-	if err := s.ch.InsertJSONEachRow(ctx, s.ch.DB()+".links", batch); err != nil {
-		s.logf("clickhouse links insert failed (%d rows): %v", len(batch), err)
+	if !s.insertWithRetry(ctx, s.ch.DB()+".links", "links", batch) {
+		s.mu.Lock()
+		s.links = append(batch, s.links...)
+		s.mu.Unlock()
 	}
 }
 
@@ -258,8 +326,10 @@ func (s *CHStore) flushSchemas(ctx context.Context) {
 	if len(batch) == 0 {
 		return
 	}
-	if err := s.ch.InsertJSONEachRow(ctx, s.ch.DB()+".page_schemas", batch); err != nil {
-		s.logf("clickhouse page_schemas insert failed (%d rows): %v", len(batch), err)
+	if !s.insertWithRetry(ctx, s.ch.DB()+".page_schemas", "page_schemas", batch) {
+		s.mu.Lock()
+		s.schemas = append(batch, s.schemas...)
+		s.mu.Unlock()
 	}
 }
 
@@ -271,8 +341,10 @@ func (s *CHStore) flushHTML(ctx context.Context) {
 	if len(batch) == 0 {
 		return
 	}
-	if err := s.ch.InsertJSONEachRow(ctx, s.ch.DB()+".html", batch); err != nil {
-		s.logf("clickhouse html insert failed (%d rows): %v", len(batch), err)
+	if !s.insertWithRetry(ctx, s.ch.DB()+".html", "html", batch) {
+		s.mu.Lock()
+		s.htmls = append(batch, s.htmls...)
+		s.mu.Unlock()
 	}
 }
 

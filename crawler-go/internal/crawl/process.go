@@ -42,7 +42,7 @@ func (e *Engine) processClassic(ctx context.Context, urls []string, depth int) [
 	}
 
 	for _, u := range urls {
-		if e.stopCheck(ctx) || ctx.Err() != nil {
+		if e.stopped(ctx) {
 			break
 		}
 		if tick != nil {
@@ -81,7 +81,7 @@ func (e *Engine) processClassic(ctx context.Context, urls []string, depth int) [
 // (2/4/8/16s ±20% jitter), storing on success or on the final attempt.
 func (e *Engine) retryFailed(ctx context.Context, failed []string, depth int) {
 	for attempt := 1; attempt <= maxRetries && len(failed) > 0; attempt++ {
-		if e.stopCheck(ctx) || ctx.Err() != nil {
+		if e.stopped(ctx) {
 			return
 		}
 		delay := time.Duration(int64(baseDelay) << uint(attempt-1)) // 2,4,8,16s

@@ -45,6 +45,8 @@ foreach ($projectCrawls as $crawl) {
             'urls' => $crawl->urls ?? 0, 'crawled' => $crawl->crawled ?? 0, 'compliant' => $crawl->compliant ?? 0,
             'duplicates' => $crawl->duplicates ?? 0, 'critical_errors' => $crawl->critical_errors ?? 0,
             'response_time' => $crawl->response_time ?? 0, 'depth_max' => $crawl->depth_max ?? 0,
+            // null = pas encore calculé (sentinelle write-through CrawlStats)
+            'health_score' => isset($crawl->health_score) ? (int)$crawl->health_score : null,
         ],
         'job_status' => $jobStatus, 'in_progress' => $crawl->in_progress ?? 0,
         'config' => json_decode($crawl->config ?? '{}', true), 'crawl_type' => $crawl->crawl_type ?? 'spider',
@@ -53,32 +55,33 @@ foreach ($projectCrawls as $crawl) {
 }
 usort($crawls, fn($a, $b) => $b->crawl_id - $a->crawl_id);
 
-// Erreurs critiques (4xx/5xx) : une requête ClickHouse pour tous les crawls.
-if (!empty($crawls) && \App\Database\ClickHouseDatabase::enabled()) {
-    try {
-        $idList = implode(',', array_map(fn($c) => (int)$c->crawl_id, $crawls));
-        $critRows = \App\Database\ClickHouseDatabase::getInstance()->select(
-            "SELECT crawl_id, countDistinct(id) AS n FROM pages
-             WHERE crawl_id IN ($idList) AND code >= 400 AND crawled = 1 GROUP BY crawl_id"
-        );
-        $critMap = [];
-        foreach ($critRows as $cr) { $critMap[(int)$cr['crawl_id']] = (int)$cr['n']; }
-        foreach ($crawls as $c) {
-            $s = $c->stats; $s['critical_errors'] = $critMap[(int)$c->crawl_id] ?? 0; $c->stats = $s;
-        }
-    } catch (\Throwable $e) { error_log("project critical_errors CH: " . $e->getMessage()); }
-}
-
 require_once(__DIR__ . '/components/project-metrics.php');
 
-// Score de santé SEO (5 piliers) calculé dans ClickHouse pour tous les crawls,
-// injecté par crawl. Repli sur pcHealthScore (pur PHP) si crawl absent de CH.
-$healthMap = chHealthScores(array_map(fn($c) => (int)$c->crawl_id, $crawls));
-if (!empty($healthMap)) {
+// Stats dérivées (pages indexables + erreurs critiques + score santé) : write-through.
+// On NE calcule en live QUE les crawls dont health_score n'est pas encore stocké
+// (sentinelle NULL) ; les autres sont lus directement de la ligne crawls → zéro
+// requête ClickHouse. La passe CH calcule les 3 d'un coup ET les persiste.
+$needIds = [];
+foreach ($crawls as $c) {
+    if (($c->stats['health_score'] ?? null) === null) { $needIds[(int)$c->crawl_id] = true; }
+}
+if (!empty($needIds)) {
+    $computed = \App\Analysis\CrawlStats::ensureFromClickHouse(array_keys($needIds));
     foreach ($crawls as $c) {
-        if (isset($healthMap[(int)$c->crawl_id])) {
-            $s = $c->stats; $s['health_score'] = $healthMap[(int)$c->crawl_id]; $c->stats = $s;
+        if (($c->stats['health_score'] ?? null) !== null) { continue; }
+        $id = (int)$c->crawl_id;
+        $s = $c->stats;
+        if (isset($computed[$id])) {
+            $s['compliant'] = $computed[$id]['compliant'];
+            $s['critical_errors'] = $computed[$id]['critical_errors'];
+            $s['health_score'] = $computed[$id]['health_score'];
+        } else {
+            // crawl absent de ClickHouse → repli pcHealthScore (gratuit) + fige la sentinelle.
+            $fallback = pcHealthScore($s);
+            $s['health_score'] = $fallback;
+            \App\Analysis\CrawlStats::persistHealthScore($id, $fallback);
         }
+        $c->stats = $s;
     }
 }
 

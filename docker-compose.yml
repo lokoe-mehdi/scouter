@@ -50,7 +50,9 @@ services:
     # ClickHouse 24 détecte le cgroup memory.max et borne automatiquement son
     # max_server_memory_usage (~90%), donc ce mem_limit suffit à l'empêcher de
     # grignoter toute la RAM via les merges/cache de requêtes sur la durée.
-    mem_limit: ${CLICKHOUSE_MEM_LIMIT:-4g}
+    # Fallback à 6g (CH = service le plus lourd, source de vérité des données) ;
+    # autosize.sh le remplace par ~30% de la RAM hôte quand start.sh est utilisé.
+    mem_limit: ${CLICKHOUSE_MEM_LIMIT:-6g}
     # Interactif (sert les rapports PHP). Le travail background du crawler dans CH
     # est déjà rendu "nice" au niveau threads (os_thread_priority, voir crawler-go),
     # donc le conteneur garde un poids élevé pour ne pas pénaliser les rapports.

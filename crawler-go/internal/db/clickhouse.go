@@ -44,6 +44,14 @@ type CH struct {
 	// report queries and the rest of the host, without ever capping cores (stays
 	// adaptive: no machine-specific core count). See buildCHSettings.
 	settings url.Values
+	// insertSettings is a `SETTINGS …` clause appended to every INSERT (only —
+	// not to SELECTs/DDL). It enables server-side async inserts so the crawler's
+	// many small concurrent batches (1000 rows from N fetch goroutines) are
+	// coalesced by ClickHouse into few large parts instead of one part per batch.
+	// Fewer parts ⇒ far fewer/smaller background merges ⇒ much lower memory
+	// pressure — which is what was tripping the server-wide memory limit and
+	// killing inserts. See buildInsertSettings.
+	insertSettings string
 }
 
 // NewCHFromEnv builds a CH from CLICKHOUSE_URL / CLICKHOUSE_DB / CLICKHOUSE_USER /
@@ -61,7 +69,8 @@ func NewCHFromEnv(ctx context.Context) (*CH, error) {
 		client: &http.Client{
 			Timeout: 5 * time.Minute, // post-processing queries can be long
 		},
-		settings: buildCHSettings(),
+		settings:       buildCHSettings(),
+		insertSettings: buildInsertSettings(),
 	}
 	// Retry the ping for ~30s: the worker may boot before ClickHouse is ready
 	// (local compose waits only for "started", not "healthy").
@@ -158,6 +167,24 @@ func buildCHSettings() url.Values {
 	return v
 }
 
+// buildInsertSettings returns the `SETTINGS …` clause embedded in every INSERT.
+//
+// async_insert=1 + wait_for_async_insert=1 tells ClickHouse to buffer incoming
+// rows server-side and flush them as a few large parts, instead of materializing
+// one part per HTTP batch. Under a crawl that fires thousands of small 1000-row
+// inserts from many goroutines at once, this collapses the part count (and the
+// merge/memory pressure that comes with it) by orders of magnitude. wait=1 keeps
+// the call synchronous — we still get a real success/error back, so the caller's
+// retry logic (CHStore) still works and we never "succeed" while dropping data.
+//
+// Disable with CH_ASYNC_INSERT=0 (e.g. to debug or on a CH build without it).
+func buildInsertSettings() string {
+	if os.Getenv("CH_ASYNC_INSERT") == "0" {
+		return ""
+	}
+	return " SETTINGS async_insert=1, wait_for_async_insert=1"
+}
+
 func (c *CH) post(ctx context.Context, query string, body io.Reader) (*http.Response, error) {
 	params := url.Values{"database": {c.db}}
 	for k, vs := range c.settings {
@@ -210,7 +237,7 @@ func (c *CH) InsertJSONEachRow(ctx context.Context, table string, rows []any) er
 			return err
 		}
 	}
-	query := "INSERT INTO " + table + " FORMAT JSONEachRow"
+	query := "INSERT INTO " + table + c.insertSettings + " FORMAT JSONEachRow"
 	resp, err := c.post(ctx, query, &buf)
 	if err != nil {
 		return err
