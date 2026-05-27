@@ -148,7 +148,7 @@ $userInitials = getUserInitials($currentUserEmail);
         <!-- Cloche de notifications -->
         <div class="notif-bell" id="notifBell">
             <button class="notif-bell-btn" id="notifBellBtn" type="button"
-                    title="<?= __('notifications.title') ?>" aria-label="<?= __('notifications.title') ?>">
+                    aria-label="<?= __('notifications.title') ?>">
                 <span class="material-symbols-outlined">notifications</span>
                 <span class="notif-bell-badge" id="notifBellBadge" hidden>0</span>
             </button>
