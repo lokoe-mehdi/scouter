@@ -424,6 +424,17 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 	total := time.Since(crawlStart)
 	totalLine := fmt.Sprintf("Total time %s (crawl %s + post-process %s)", fmtDur(total), fmtDur(crawlDur), fmtDur(ppDur))
 
+	// Worker en cours d'arrêt (SIGINT/SIGTERM a annulé ctx, typiquement un
+	// redéploiement) : NE PAS finaliser. On laisse le job en 'running' pour que
+	// la reprise d'orphelins au démarrage (cf. jobs.Manager) le re-queue et le
+	// REPRENNE là où il en était — au lieu de le déclarer faussement "completed"
+	// (ce qui, en mode CLICKHOUSE_DROP_PG, droppait en plus les partitions PG et
+	// faisait perdre toutes les URLs restant à crawler).
+	if ctx.Err() != nil {
+		milestone("Crawl interrompu (arrêt du worker) — laissé en cours, reprise au redémarrage — " + totalLine)
+		return
+	}
+
 	// Finalize, mirroring Crawler::depthStarter's status logic.
 	status, _ := cdb.GetCrawlStatus(ctx)
 	switch {
