@@ -34,3 +34,35 @@ func TestBuildCHSettings(t *testing.T) {
 		t.Fatalf("max_threads = %q, want 4", got)
 	}
 }
+
+func TestBuildCHSettingsSpill(t *testing.T) {
+	// Défaut : le post-processing peut déborder sur disque (anti-OOM PageRank).
+	t.Setenv("CH_JOIN_ALGORITHM", "")
+	t.Setenv("CH_MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY", "")
+	t.Setenv("CH_MAX_BYTES_BEFORE_EXTERNAL_SORT", "")
+	v := buildCHSettings()
+	if got := v.Get("join_algorithm"); got != "grace_hash" {
+		t.Fatalf("default join_algorithm = %q, want grace_hash", got)
+	}
+	if got := v.Get("max_bytes_before_external_group_by"); got != "2000000000" {
+		t.Fatalf("default max_bytes_before_external_group_by = %q, want 2000000000", got)
+	}
+	if got := v.Get("max_bytes_before_external_sort"); got != "2000000000" {
+		t.Fatalf("default max_bytes_before_external_sort = %q, want 2000000000", got)
+	}
+
+	// Override + désactivation (0 / vide).
+	t.Setenv("CH_JOIN_ALGORITHM", "partial_merge")
+	t.Setenv("CH_MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY", "0")
+	t.Setenv("CH_MAX_BYTES_BEFORE_EXTERNAL_SORT", "1000000000")
+	v = buildCHSettings()
+	if got := v.Get("join_algorithm"); got != "partial_merge" {
+		t.Fatalf("join_algorithm = %q, want partial_merge", got)
+	}
+	if v.Has("max_bytes_before_external_group_by") {
+		t.Fatalf("max_bytes_before_external_group_by should be disabled at 0, got %q", v.Get("max_bytes_before_external_group_by"))
+	}
+	if got := v.Get("max_bytes_before_external_sort"); got != "1000000000" {
+		t.Fatalf("max_bytes_before_external_sort = %q, want 1000000000", got)
+	}
+}

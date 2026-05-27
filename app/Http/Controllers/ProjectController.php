@@ -9,6 +9,7 @@ use App\Database\ProjectRepository;
 use App\Database\CrawlRepository;
 use App\Database\CrawlDatabase;
 use App\Job\JobManager;
+use App\Notification\NotificationManager;
 
 /**
  * Controller pour la gestion des projets
@@ -459,6 +460,7 @@ class ProjectController extends Controller
         
         $result = $this->projects->share($projectId, $targetUserId);
         if ($result) {
+            $this->notifyShare($projectId, $targetUserId);
             $this->success([], 'Projet partagé avec succès');
         } else {
             $this->error('Ce projet est déjà partagé avec cet utilisateur');
@@ -466,10 +468,30 @@ class ProjectController extends Controller
     }
 
     /**
+     * Notifie le destinataire qu'un projet vient d'être partagé avec lui.
+     * Best-effort : un échec ici ne doit pas faire échouer le partage.
+     */
+    private function notifyShare(int $projectId, int $targetUserId): void
+    {
+        try {
+            $project = $this->projects->getById($projectId);
+            $actor = $this->auth->getCurrentEmail() ?? '';
+            (new NotificationManager())->notifyProjectShared(
+                $targetUserId,
+                $projectId,
+                $project->name ?? '',
+                $actor
+            );
+        } catch (\Throwable $e) {
+            error_log('[ProjectController] notifyShare failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Retire le partage d'un projet avec un utilisateur
-     * 
+     *
      * @param Request $request Requête HTTP (id en route, user_id)
-     * 
+     *
      * @return void
      */
     public function unshare(Request $request): void
@@ -511,6 +533,7 @@ class ProjectController extends Controller
         
         $result = $this->projects->share($projectId, $targetUserId);
         if ($result) {
+            $this->notifyShare($projectId, $targetUserId);
             $this->success([], 'Projet partagé avec succès');
         } else {
             $this->error('Ce projet est déjà partagé avec cet utilisateur');

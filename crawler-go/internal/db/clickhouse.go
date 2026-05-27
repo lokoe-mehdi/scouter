@@ -164,6 +164,24 @@ func buildCHSettings() url.Values {
 	if mt := os.Getenv("CH_MAX_THREADS"); mt != "" {
 		v.Set("max_threads", mt)
 	}
+	// Post-processing sur de gros graphes (PageRank / page_metrics / duplicate) :
+	// laisser ClickHouse DÉBORDER SUR DISQUE plutôt que de se faire tuer par la
+	// limite mémoire (OvercommitTracker) quand le graphe de liens est dense.
+	//   - join_algorithm=grace_hash : la table de hachage du JOIN spille sur disque
+	//     par buckets au lieu d'être entièrement en RAM (cf. OOM "FillingRightJoinSide").
+	//   - max_bytes_before_external_group_by / _sort : GROUP BY et ORDER BY spillent
+	//     sur disque au-delà du seuil.
+	// N'impacte QUE les jointures/agrégations → aucun effet sur les inserts du crawl.
+	// Tunable par env ; "" ou "0" désactive le réglage.
+	if ja := getenvDef("CH_JOIN_ALGORITHM", "grace_hash"); ja != "" && ja != "0" {
+		v.Set("join_algorithm", ja)
+	}
+	if g := getenvDef("CH_MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY", "2000000000"); g != "" && g != "0" {
+		v.Set("max_bytes_before_external_group_by", g)
+	}
+	if s := getenvDef("CH_MAX_BYTES_BEFORE_EXTERNAL_SORT", "2000000000"); s != "" && s != "0" {
+		v.Set("max_bytes_before_external_sort", s)
+	}
 	return v
 }
 

@@ -272,10 +272,15 @@ try {
     // ET les persiste, donc au fil des visites tout se remplit et la home devient
     // instantanée. Les nouveaux crawls sont déjà pré-remplis au post-crawl (scouter.php).
     require_once(__DIR__ . '/components/project-metrics.php');
+    // Ne JAMAIS réchauffer un crawl en cours : il n'a pas encore de data finale,
+    // calculer/persister un health_score maintenant figerait une valeur fausse
+    // (souvent 0). On attend qu'il soit terminé (post-crawl ou prochaine visite).
+    $inProgressStatuses = ['running', 'queued', 'pending', 'processing', 'stopping'];
     $needIds = [];
     foreach ([$myProjects, $sharedProjects, $otherProjects] as $list) {
         foreach ($list as $p) {
             foreach (($p->crawls ?? []) as $c) {
+                if (in_array($c->job_status ?? 'finished', $inProgressStatuses, true)) { continue; }
                 if (($c->stats['health_score'] ?? null) === null) { $needIds[(int)$c->crawl_id] = true; }
             }
         }
