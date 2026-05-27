@@ -115,7 +115,10 @@ CREATE TABLE crawls (
     -- le crawler Go au démarrage du crawl quand ClickHouse est actif ; route les lectures.
     data_store VARCHAR(16) DEFAULT 'pg' CHECK (data_store IN ('pg', 'clickhouse')),
     -- Nombre d'erreurs critiques (timeouts/erreurs réseau) rencontrées pendant le crawl.
-    critical_errors INTEGER DEFAULT 0
+    critical_errors INTEGER DEFAULT 0,
+    -- Score santé SEO 0-100 calculé depuis ClickHouse et persisté (App\Analysis\CrawlStats).
+    -- NULL = pas encore calculé (sentinelle du write-through home/page projet).
+    health_score SMALLINT
 );
 
 CREATE INDEX idx_crawls_path ON crawls(path);
@@ -588,5 +591,6 @@ INSERT INTO migrations (name) VALUES
     ('2026-05-24-09-00-crawl-data-store'),
     ('2026-05-24-16-00-crawl-critical-errors'),
     ('2026-05-25-10-00-report-precompute-cache'),
-    ('2026-05-25-12-00-report-cache-query-columns')
+    ('2026-05-25-12-00-report-cache-query-columns'),
+    ('2026-05-27-12-00-crawl-health-score')
 ON CONFLICT (name) DO NOTHING;

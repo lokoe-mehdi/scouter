@@ -105,6 +105,11 @@ switch($module){
                 \App\Analysis\ReportPrecompute::recomputeProject($id);
             } else {
                 \App\Analysis\ReportPrecompute::recompute($id);
+                // Stats de crawl persistées (compliant + critical_errors + health_score)
+                // calculées depuis ClickHouse, une fois, à la fin du crawl → la home et
+                // la page projet n'ont plus à les calculer en live. Le score n'étant pas
+                // dépendant des catégories, on ne le refait PAS au precompute-reports-project.
+                \App\Analysis\CrawlStats::ensureFromClickHouse([$id]);
             }
         }
         $jobId = getenv('JOB_ID');
