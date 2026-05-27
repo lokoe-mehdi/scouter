@@ -27,7 +27,8 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:24-alpine
     # CH 24 borne son max_server_memory_usage sur ce cgroup → pas de creep RAM.
-    mem_limit: ${CLICKHOUSE_MEM_LIMIT:-4g}
+    # Fallback 6g (autosize.sh le surcharge à ~30% de la RAM hôte via start.sh).
+    mem_limit: ${CLICKHOUSE_MEM_LIMIT:-6g}
     cpu_shares: 2048 # interactif (sert les rapports)
     ports:
       - "8123:8123"  # HTTP interface (lectures rapports + writes crawler)
