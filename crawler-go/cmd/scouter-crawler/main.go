@@ -183,18 +183,34 @@ func main() {
 		if ctx.Err() != nil {
 			break
 		}
+		// Acquire a concurrency slot BEFORE claiming. ClaimNext marks the job
+		// 'running' in the DB at claim time, so claiming one job ahead of an
+		// available slot would leave it flagged "running" while it actually
+		// just blocks here waiting for a slot — the dashboard then shows
+		// MAX_CONCURRENT_CRAWLS+1 "running" (a queued crawl displayed as
+		// running). Taking the slot first means a job is only claimed/marked
+		// running when a slot is genuinely free → the count is exact.
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
+			break
+		}
+
 		job, err := mgr.ClaimNext(ctx)
 		if err != nil {
+			<-sem // release the reserved slot
 			log.Printf("[%s] claim error: %v", workerID, err)
 			sleepCtx(ctx, 4*time.Second)
 			continue
 		}
 		if job == nil {
-			sleepCtx(ctx, 2*time.Second) // idle poll
+			<-sem // nothing to run; release the slot and idle-poll
+			sleepCtx(ctx, 2*time.Second)
 			continue
 		}
 
-		sem <- struct{}{}
 		wg.Add(1)
 		go func(j jobs.Job) {
 			defer wg.Done()
