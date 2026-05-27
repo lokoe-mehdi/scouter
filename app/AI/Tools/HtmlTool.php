@@ -3,6 +3,7 @@
 namespace App\AI\Tools;
 
 use App\Database\PostgresDatabase;
+use App\Storage\HtmlStore;
 use PDO;
 
 /**
@@ -215,24 +216,11 @@ class HtmlTool
             $pageIds[] = $r['id'];
         }
 
-        // 2. Fetch HTML for those ids.
-        $htmlById = [];
-        if (!empty($pageIds)) {
-            $hPlaceholders = [];
-            $hParams = [':cid' => $crawlId];
-            foreach ($pageIds as $i => $pid) {
-                $key = ':p' . $i;
-                $hPlaceholders[] = $key;
-                $hParams[$key] = $pid;
-            }
-            $stmt = $db->prepare(
-                "SELECT id, html FROM html WHERE crawl_id = :cid AND id IN (" . implode(',', $hPlaceholders) . ")"
-            );
-            $stmt->execute($hParams);
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
-                $htmlById[$r['id']] = $r['html'];
-            }
-        }
+        // 2. Fetch HTML for those ids from the blob store (S3/local) — returns
+        //    id => already-decompressed raw HTML; old crawls fall back to the DB.
+        $htmlById = !empty($pageIds)
+            ? HtmlStore::fetchMany($crawlId, $pageIds, $useCh, $db)
+            : [];
 
         // 3. For each requested URL (in input order), decode + clean + cap.
         $out = [];
@@ -252,7 +240,7 @@ class HtmlTool
                 continue;
             }
 
-            $raw = $useCh ? (string)$stored : self::decodeStoredHtml($stored);
+            $raw = (string)$stored; // HtmlStore already decompressed it
             if ($raw === null || $raw === '') {
                 $out[] = [
                     'url'          => $u,

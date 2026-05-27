@@ -27,6 +27,7 @@ import (
 	"scouter-crawler/internal/governor"
 	"scouter-crawler/internal/jobs"
 	"scouter-crawler/internal/postprocess"
+	"scouter-crawler/internal/storage"
 )
 
 func main() {
@@ -112,6 +113,16 @@ func main() {
 		log.Printf("[%s] purge-pg finished", workerID)
 		return
 	}
+
+	// Per-page HTML blob store: S3 when S3 credentials are set, else a local
+	// directory (STORAGE_PATH, default ./storage). Built once and shared by every
+	// crawl — the object key embeds the crawl id. Raw HTML lives here, never in
+	// the database, so crawls can stay queryable months later without bloating CH.
+	htmlStore, err := storage.New(func(f string, a ...any) { log.Printf("[%s] "+f, append([]any{workerID}, a...)...) })
+	if err != nil {
+		log.Fatalf("[%s] HTML storage init: %v", workerID, err)
+	}
+	log.Printf("[%s] HTML storage backend: %s", workerID, htmlStore.Kind())
 
 	mgr := jobs.New(pool, workerID)
 	if err := mgr.RecoverOrphans(ctx); err != nil {
@@ -215,7 +226,7 @@ func main() {
 		go func(j jobs.Job) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			runJob(ctx, pool, ch, mgr, j, rendererURLs, gov)
+			runJob(ctx, pool, ch, mgr, j, rendererURLs, gov, htmlStore)
 		}(*job)
 	}
 
@@ -256,7 +267,7 @@ func applyMemoryLimit(workerID string) {
 	log.Printf("[%s] Go soft memory limit set to %d MiB (90%% of cgroup %d MiB)", workerID, limit>>20, max>>20)
 }
 
-func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j jobs.Job, rendererURLs []string, gov *governor.Governor) {
+func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j jobs.Job, rendererURLs []string, gov *governor.Governor, htmlStore storage.Store) {
 	// A crawl + its post-processing build large transient structures (the dedup
 	// set, batch buffers, parsed DOMs). Go keeps that freed heap mapped for reuse,
 	// so RSS stays high after a crawl ends even though nothing is running. Hand it
@@ -343,6 +354,7 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 		RendererURLs: rendererURLs,
 		Governor:     gov,
 		CHStore:      chStore,
+		HTMLStore:    htmlStore,
 		SlimPG:       dropPG,
 		Logf:         logf,
 		StopCheck:    stopCheck,
@@ -389,6 +401,7 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 			SkipLinkExtraction: true,
 			Governor:           gov,
 			CHStore:            chStore,
+			HTMLStore:          htmlStore,
 			SlimPG:             dropPG,
 			Logf:               logf,
 			StopCheck:          func(context.Context) bool { return false }, // ignore stop during PP

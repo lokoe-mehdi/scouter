@@ -101,46 +101,54 @@ foreach ($availableExtractors as $extr) {
 // besoin de sampler les valeurs pour deviner le type, JSONB nous le dit.
 // La majorité dominante du type gagne ; si > 5% des values ont un type
 // "inattendu" (bug d'IA), on tombe en `text` par sécurité pour l'UI.
+// ClickHouse-backed crawls keep generation in page_generation (Map(String,String)),
+// not in pages.generation (JSONB) — and the PG pages table is purged once migrated.
+// The jsonb_each() probe below only works on PG, so route CH crawls through the
+// shared CH discovery (same key+type contract) or generated columns never appear.
 $availableGenerations = [];
-try {
-    $stmt = $pdo->prepare("
-        WITH samples AS (
-            SELECT generation FROM pages
-            WHERE crawl_id = :crawl_id AND generation IS NOT NULL
-              AND jsonb_typeof(generation) = 'object'
-            LIMIT 500
-        )
-        SELECT j.key, jsonb_typeof(j.value) AS jtype, COUNT(*) AS n
-        FROM samples s, jsonb_each(s.generation) j
-        GROUP BY j.key, jsonb_typeof(j.value)
-    ");
-    $stmt->execute([':crawl_id' => $crawlId]);
-    // Group by key, pick dominant type if > 95% of samples.
-    $byKey = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $k = $row['key'];
-        if (!isset($byKey[$k])) $byKey[$k] = [];
-        $byKey[$k][$row['jtype']] = (int)$row['n'];
-    }
-    foreach ($byKey as $key => $typeCounts) {
-        $total = array_sum($typeCounts);
-        arsort($typeCounts);
-        $dominantType = (string)array_key_first($typeCounts);
-        $dominantPct  = $total > 0 ? $typeCounts[$dominantType] / $total : 0;
-        // Map JSONB type to our UI type vocabulary (same as extracts : 'number' | 'text').
-        if ($dominantType === 'number' && $dominantPct >= 0.95) {
-            $uiType = 'number';
-        } elseif ($dominantType === 'boolean' && $dominantPct >= 0.95) {
-            $uiType = 'boolean';
-        } else {
-            $uiType = 'text';
+if (\App\Database\CrawlStore::usesClickHouse((int)$crawlId)) {
+    $availableGenerations = \App\Http\Controllers\AIUrlFiltersController::fetchGenerationsCH((int)$crawlId, '[UrlExplorer]');
+} else {
+    try {
+        $stmt = $pdo->prepare("
+            WITH samples AS (
+                SELECT generation FROM pages
+                WHERE crawl_id = :crawl_id AND generation IS NOT NULL
+                  AND jsonb_typeof(generation) = 'object'
+                LIMIT 500
+            )
+            SELECT j.key, jsonb_typeof(j.value) AS jtype, COUNT(*) AS n
+            FROM samples s, jsonb_each(s.generation) j
+            GROUP BY j.key, jsonb_typeof(j.value)
+        ");
+        $stmt->execute([':crawl_id' => $crawlId]);
+        // Group by key, pick dominant type if > 95% of samples.
+        $byKey = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $k = $row['key'];
+            if (!isset($byKey[$k])) $byKey[$k] = [];
+            $byKey[$k][$row['jtype']] = (int)$row['n'];
         }
-        $availableGenerations[] = ['key' => $key, 'type' => $uiType];
+        foreach ($byKey as $key => $typeCounts) {
+            $total = array_sum($typeCounts);
+            arsort($typeCounts);
+            $dominantType = (string)array_key_first($typeCounts);
+            $dominantPct  = $total > 0 ? $typeCounts[$dominantType] / $total : 0;
+            // Map JSONB type to our UI type vocabulary (same as extracts : 'number' | 'text').
+            if ($dominantType === 'number' && $dominantPct >= 0.95) {
+                $uiType = 'number';
+            } elseif ($dominantType === 'boolean' && $dominantPct >= 0.95) {
+                $uiType = 'boolean';
+            } else {
+                $uiType = 'text';
+            }
+            $availableGenerations[] = ['key' => $key, 'type' => $uiType];
+        }
+        // Stable order.
+        usort($availableGenerations, fn($a, $b) => strcmp($a['key'], $b['key']));
+    } catch (Exception $e) {
+        // Generation column absent or no data — silent.
     }
-    // Stable order.
-    usort($availableGenerations, fn($a, $b) => strcmp($a['key'], $b['key']));
-} catch (Exception $e) {
-    // Generation column absent or no data — silent.
 }
 
 // Map key => type pour utilisation dans url-table.php (filtres + tri).
@@ -522,6 +530,19 @@ if (isset($_GET['add_cols']) && $_GET['add_cols'] !== '') {
     // otherwise pick the stale URL value (without our added columns). We
     // reflect the merged list back into $_GET so the table picks our version.
     $_GET['columns'] = implode(',', $selectedColumns);
+}
+
+// ?show_ai=1 — focused "what did I just generate?" view, used by the
+// "Génération IA terminée" notification. Collapse to URL + every generated
+// column so the user sees the AI output immediately, no manual column picking.
+// Only when columns aren't explicitly set (an explicit ?columns wins) and at
+// least one generated key exists (else keep the normal default columns).
+if (isset($_GET['show_ai']) && $_GET['show_ai'] !== '' && !isset($_GET['columns'])) {
+    $genCols = array_map(fn($g) => 'generation_' . $g['key'], $availableGenerations);
+    if ($genCols) {
+        $selectedColumns = array_merge(['url'], $genCols);
+        $_GET['columns'] = implode(',', $selectedColumns);
+    }
 }
 ?>
 

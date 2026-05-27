@@ -71,17 +71,28 @@ if (!$skipExtractDiscovery) {
 // $GLOBALS['generationTypes'] préparé par url-explorer.php pour les filtres.
 $customGenerationColumns = [];
 if (!$skipExtractDiscovery) {
-    try {
-        $stmt = $pdo->prepare("
-            SELECT DISTINCT jsonb_object_keys(generation) as key_name
-            FROM pages
-            WHERE crawl_id = :crawl_id AND generation IS NOT NULL
-              AND jsonb_typeof(generation) = 'object'
-        ");
-        $stmt->execute([':crawl_id' => $crawlId]);
-        $customGenerationColumns = $stmt->fetchAll(PDO::FETCH_COLUMN);
-    } catch (Exception $e) {
-        // Colonne pages.generation absente ou rien dedans — silencieux.
+    // CH-backed crawls store generation in page_generation (Map), not in
+    // pages.generation (JSONB), and PG pages is purged after migration — so the
+    // jsonb_object_keys probe finds nothing. Route CH crawls to the shared CH
+    // discovery (keys only here) or the generated columns never get listed.
+    if (\App\Database\CrawlStore::usesClickHouse((int)$crawlId)) {
+        $customGenerationColumns = array_map(
+            fn($g) => $g['key'],
+            \App\Http\Controllers\AIUrlFiltersController::fetchGenerationsCH((int)$crawlId, '[UrlTable]')
+        );
+    } else {
+        try {
+            $stmt = $pdo->prepare("
+                SELECT DISTINCT jsonb_object_keys(generation) as key_name
+                FROM pages
+                WHERE crawl_id = :crawl_id AND generation IS NOT NULL
+                  AND jsonb_typeof(generation) = 'object'
+            ");
+            $stmt->execute([':crawl_id' => $crawlId]);
+            $customGenerationColumns = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        } catch (Exception $e) {
+            // Colonne pages.generation absente ou rien dedans — silencieux.
+        }
     }
 }
 

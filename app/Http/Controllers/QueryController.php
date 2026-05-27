@@ -9,6 +9,7 @@ use App\Database\PostgresDatabase;
 use App\Database\CrawlDatabase;
 use App\Database\CrawlStore;
 use App\AI\ClickHouseSqlExecutor;
+use App\Storage\HtmlStore;
 use PDO;
 
 /**
@@ -613,37 +614,26 @@ class QueryController extends Controller
     {
         $ctx = $this->resolvePageContext($request);
 
-        // Get HTML. ClickHouse stores RAW html (ZSTD column codec, decoded by the
-        // shim); legacy PG stores it base64 + gzdeflate and needs decoding.
-        $stmt = $this->reportDb($ctx['crawlId'])->prepare("SELECT html FROM html WHERE crawl_id = :crawl_id AND id = :id");
-        $stmt->execute([':crawl_id' => $ctx['crawlId'], ':id' => $ctx['pageId']]);
-        $htmlRow = $stmt->fetch(PDO::FETCH_ASSOC);
+        // Raw HTML now lives in the blob store (S3/local); HtmlStore returns it
+        // already decompressed, falling back to the DB for pre-migration crawls.
+        $htmlContent = HtmlStore::fetch(
+            (int)$ctx['crawlId'],
+            (string)$ctx['pageId'],
+            !empty($ctx['useCh']),
+            $this->reportDb($ctx['crawlId'])
+        );
 
-        $htmlContent = null;
         $headings = [];
-        if ($htmlRow && $htmlRow['html']) {
-            if (!empty($ctx['useCh'])) {
-                $htmlContent = $htmlRow['html']; // already raw HTML
-            } else {
-                $decoded = base64_decode($htmlRow['html']);
-                if ($decoded !== false) {
-                    $decompressed = @gzinflate($decoded);
-                    $htmlContent = $decompressed !== false ? $decompressed : $decoded;
-                }
-            }
-
-            // Extract headings from HTML
-            if (!empty($htmlContent)) {
-                $dom = new \DOMDocument();
-                @$dom->loadHTML('<?xml encoding="UTF-8">' . $htmlContent);
-                $xpath = new \DOMXPath($dom);
-                $headingNodes = $xpath->query('//h1 | //h2 | //h3 | //h4 | //h5 | //h6');
-                foreach ($headingNodes as $node) {
-                    $headings[] = [
-                        'level' => (int)substr($node->nodeName, 1),
-                        'text' => trim($node->textContent)
-                    ];
-                }
+        if (!empty($htmlContent)) {
+            $dom = new \DOMDocument();
+            @$dom->loadHTML('<?xml encoding="UTF-8">' . $htmlContent);
+            $xpath = new \DOMXPath($dom);
+            $headingNodes = $xpath->query('//h1 | //h2 | //h3 | //h4 | //h5 | //h6');
+            foreach ($headingNodes as $node) {
+                $headings[] = [
+                    'level' => (int)substr($node->nodeName, 1),
+                    'text' => trim($node->textContent)
+                ];
             }
         }
 

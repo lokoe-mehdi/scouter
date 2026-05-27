@@ -144,7 +144,7 @@ body { background: #F4F6FA; }
 .pjx-num .pc-delta { margin-left: 0.3rem; font-size: 0.72rem; }
 .pjx-table td, .pjx-table th { overflow: hidden; }
 .pjx-date { display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
-.pjx-type-ic { font-size: 16px; color: var(--text-tertiary, #95A5A6); }
+.pjx-date .pjx-type-ic { font-size: 16px; color: var(--text-tertiary, #95A5A6); opacity: 0.7; }
 .pjx-score { display: inline-flex; align-items: center; gap: 0.4rem; }
 .pjx-score svg { width: 26px; height: 26px; }
 .pjx-score b { font-size: 0.85rem; font-weight: 700; }

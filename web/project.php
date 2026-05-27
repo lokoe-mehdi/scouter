@@ -150,7 +150,9 @@ function pjxCrawlRow($crawl, $prev, $canManage, $domainName, $dataIndex, $hidden
     $rowUrl = "dashboard.php?crawl=$cid";
     $click = $finished ? ' onclick="window.location.href=\'' . $rowUrl . '\'"' : '';
     $h = $hidden ? ' style="display:none;"' : '';
-    $score = $finished ? pcHealthScore($s) : null;
+    // Cohérent avec l'aperçu KPI (ligne ~98) : on privilégie le score CH 5 piliers
+    // stocké ; pcHealthScore n'est qu'un repli quand health_score n'est pas dispo.
+    $score = $finished ? (int)($s['health_score'] ?? pcHealthScore($s)) : null;
     $idxRate = ($s['crawled'] > 0) ? round($s['compliant'] / $s['crawled'] * 100) : 0;
     $prevIdx = ($ps && $ps['crawled'] > 0) ? round($ps['compliant'] / $ps['crawled'] * 100) : null;
 
@@ -166,6 +168,11 @@ function pjxCrawlRow($crawl, $prev, $canManage, $domainName, $dataIndex, $hidden
     $scoreCell = ($score !== null)
         ? '<span class="pjx-score">' . pcDonutSvg($score) . '<b>' . $score . '</b></span>'
         : '<span class="pjx-num">—</span>';
+
+    $isList = ($crawl->crawl_type ?? 'spider') === 'list';
+    $typeIcon = $isList ? 'list' : 'bug_report';
+    $typeLabel = $isList ? __('config.type_list') : __('config.type_spider');
+    $typeBadge = '<span class="material-symbols-outlined pjx-type-ic" title="' . $typeLabel . '">' . $typeIcon . '</span>';
     $dur = $inProgress ? '—' : pcDuration($crawl->started_at ?? null, $crawl->finished_at ?? null);
 
     $actions = '';
@@ -182,7 +189,7 @@ function pjxCrawlRow($crawl, $prev, $canManage, $domainName, $dataIndex, $hidden
     }
 
     return '<tr class="pjx-row' . ($finished ? ' pjx-row--clickable' : '') . '" data-index="' . $dataIndex . '"' . $h . $click . '>'
-        . '<td><span class="pjx-date">' . htmlspecialchars($crawl->date) . '</span></td>'
+        . '<td><span class="pjx-date">' . $typeBadge . htmlspecialchars($crawl->date) . '</span></td>'
         . '<td><span class="pc-badge ' . $badge . '">' . $txt . '</span></td>'
         . '<td>' . $scoreCell . '</td>'
         . $cells
@@ -505,7 +512,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                     $lastErr = (int)$lastFinished->stats['critical_errors'];
                     $prevIdxRate = ($prevFinished && $prevFinished->stats['crawled'] > 0)
                         ? round($prevFinished->stats['compliant'] / $prevFinished->stats['crawled'] * 100, 1) : null;
-                    $healthPrev = $prevFinished ? pcHealthScore($prevFinished->stats) : null;
+                    $healthPrev = $prevFinished ? (int)($prevFinished->stats['health_score'] ?? pcHealthScore($prevFinished->stats)) : null;
                     $scoreCls = pcScoreClass($kpiHealth);
                     $scoreLabel = $kpiHealth >= 75 ? __('project.score_excellent') : ($kpiHealth >= 50 ? __('project.score_watch') : __('project.score_critical'));
                 ?>

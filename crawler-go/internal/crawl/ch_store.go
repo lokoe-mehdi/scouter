@@ -16,14 +16,15 @@ import (
 // Crawling is network-bound on fetching, so even 1000-row HTTP inserts are cheap.
 const chBatch = 1000
 
-// CHStore mirrors the crawl-data writes (pages/links/html/page_schemas) into
+// CHStore mirrors the crawl-data writes (pages/links/page_schemas) into
 // ClickHouse, in addition to the PostgreSQL frontier/data writes. It is the
 // dual-write half of the PG->CH migration: enabled only when a *db.CH is wired
 // (CLICKHOUSE_URL set). Append-only — never updates. Thread-safe: storePage runs
-// from many fetch goroutines at once.
+// from many fetch goroutines at once. (Raw page HTML no longer lives here — it is
+// written to the blob store; see internal/storage and Engine.storeRaw.)
 //
 // Durability: under slim-PG (CLICKHOUSE_DROP_PG, the default) ClickHouse is the
-// ONLY store for links/html/page_schemas — PG keeps just the frontier — so a
+// ONLY store for links/page_schemas — PG keeps just the frontier — so a
 // dropped CH insert is permanent data loss (missing edges ⇒ wrong inlinks /
 // PageRank / orphan reports). Therefore a failed flush is NOT discarded: it is
 // retried with backoff (which also back-pressures the calling fetch goroutine),
@@ -39,7 +40,6 @@ type CHStore struct {
 	pages   []any
 	links   []any
 	schemas []any
-	htmls   []any
 	seenExt map[string]struct{} // external page ids already appended (dedup)
 }
 
@@ -101,12 +101,6 @@ type chSchemaRow struct {
 	CrawlID    int    `json:"crawl_id"`
 	PageID     string `json:"page_id"`
 	SchemaType string `json:"schema_type"`
-}
-
-type chHTMLRow struct {
-	CrawlID int    `json:"crawl_id"`
-	ID      string `json:"id"`
-	HTML    string `json:"html"`
 }
 
 func b2i(b bool) int {
@@ -201,25 +195,6 @@ func (s *CHStore) AddSchemas(pageID string, types []string) {
 	}
 }
 
-// AddHTMLZipped enqueues a page's HTML, decoding the base64+flate DomZip into the
-// raw HTML stored (ZSTD-compressed) in ClickHouse.
-func (s *CHStore) AddHTMLZipped(id, domZip string) {
-	if s == nil || domZip == "" {
-		return
-	}
-	raw := unzipDom(domZip)
-	if raw == "" {
-		return
-	}
-	s.mu.Lock()
-	s.htmls = append(s.htmls, chHTMLRow{CrawlID: s.crawlID, ID: id, HTML: raw})
-	flush := len(s.htmls) >= chBatch/4 // HTML rows are large; flush sooner
-	s.mu.Unlock()
-	if flush {
-		s.flushHTML(context.Background())
-	}
-}
-
 // Flush drains all buffers, retrying until empty or the context is done. Called
 // at crawl/sitemap-pass end before post-processing — the last chance to land
 // rows that earlier flushes re-buffered after a transient CH rejection.
@@ -231,9 +206,8 @@ func (s *CHStore) Flush(ctx context.Context) {
 		s.flushPages(ctx)
 		s.flushLinks(ctx)
 		s.flushSchemas(ctx)
-		s.flushHTML(ctx)
 		s.mu.Lock()
-		remaining := len(s.pages) + len(s.links) + len(s.schemas) + len(s.htmls)
+		remaining := len(s.pages) + len(s.links) + len(s.schemas)
 		s.mu.Unlock()
 		if remaining == 0 {
 			return
@@ -248,7 +222,7 @@ func (s *CHStore) Flush(ctx context.Context) {
 		}
 	}
 	s.mu.Lock()
-	remaining := len(s.pages) + len(s.links) + len(s.schemas) + len(s.htmls)
+	remaining := len(s.pages) + len(s.links) + len(s.schemas)
 	s.mu.Unlock()
 	if remaining > 0 {
 		s.logf("clickhouse flush gave up with %d rows still buffered after retries", remaining)
@@ -329,21 +303,6 @@ func (s *CHStore) flushSchemas(ctx context.Context) {
 	if !s.insertWithRetry(ctx, s.ch.DB()+".page_schemas", "page_schemas", batch) {
 		s.mu.Lock()
 		s.schemas = append(batch, s.schemas...)
-		s.mu.Unlock()
-	}
-}
-
-func (s *CHStore) flushHTML(ctx context.Context) {
-	s.mu.Lock()
-	batch := s.htmls
-	s.htmls = nil
-	s.mu.Unlock()
-	if len(batch) == 0 {
-		return
-	}
-	if !s.insertWithRetry(ctx, s.ch.DB()+".html", "html", batch) {
-		s.mu.Lock()
-		s.htmls = append(batch, s.htmls...)
 		s.mu.Unlock()
 	}
 }

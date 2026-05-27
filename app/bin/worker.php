@@ -322,18 +322,29 @@ while ($running) {
             } elseif ($isBulkAiGenerate) {
                 // Bulk AI generation job
                 echo "[Worker $workerId] Executing bulk AI generation: $command\n";
-                $env = [
-                    'DATABASE_URL' => getenv('DATABASE_URL'),
-                    'PATH' => getenv('PATH'),
-                    'JOB_ID' => $job->id,
-                    // CRITICAL : forward the encryption key to the sub-process,
-                    // otherwise AppSettings::get('ai.openrouter.api_key') returns
-                    // null in the worker child even when the container itself
-                    // has the env var. proc_open with an explicit $env array
-                    // does NOT inherit the parent's environment — anything not
-                    // listed here disappears.
+                // CRITICAL : proc_open with an explicit $env array does NOT inherit
+                // the parent's environment — anything not listed here disappears in
+                // the child. We must forward:
+                //   - SCOUTER_ENCRYPTION_KEY → else the OpenRouter API key can't be
+                //     decrypted (AppSettings::get returns null).
+                //   - CLICKHOUSE_* → else ClickHouseDatabase::enabled() is false in
+                //     the child, CrawlStore::usesClickHouse() returns false, and
+                //     BulkGenerator writes results via the Postgres path. For a
+                //     CH-backed crawl the pages live in ClickHouse, so that UPDATE
+                //     hits 0 rows: the job completes "done" with 0 failures yet
+                //     nothing is persisted anywhere (and context is built from an
+                //     empty PG read). Same forwarding the precompute branch does.
+                $env = array_filter([
+                    'DATABASE_URL'           => getenv('DATABASE_URL'),
+                    'PATH'                   => getenv('PATH'),
+                    'JOB_ID'                 => $job->id,
                     'SCOUTER_ENCRYPTION_KEY' => getenv('SCOUTER_ENCRYPTION_KEY'),
-                ];
+                    'CLICKHOUSE_URL'         => getenv('CLICKHOUSE_URL'),
+                    'CLICKHOUSE_DB'          => getenv('CLICKHOUSE_DB'),
+                    'CLICKHOUSE_USER'        => getenv('CLICKHOUSE_USER'),
+                    'CLICKHOUSE_PASSWORD'    => getenv('CLICKHOUSE_PASSWORD'),
+                    'CLICKHOUSE_QUERY_CACHE' => getenv('CLICKHOUSE_QUERY_CACHE'),
+                ], fn($v) => $v !== false);
                 $process = proc_open(
                     [$phpBin, $scouterScript, 'bulk-ai-generate', $command],
                     $descriptors,

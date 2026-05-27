@@ -1,6 +1,7 @@
 /vendor/
 logs/
 crawls/
+storage/
 composer.lock
 .env
 .claude

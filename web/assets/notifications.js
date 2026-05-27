@@ -9,6 +9,7 @@
  *     'logs'      → ouvre le volet de logs (openCrawlPanel) si présent,
  *                   sinon repli sur la page projet.
  *     'dashboard' → dashboard.php?crawl=<id>
+ *     'explorer'  → dashboard.php?crawl=<id>&page=url-explorer&show_ai=1 (génération IA)
  *     'project'   → project.php?id=<id>
  *
  * Le texte est rendu ici via i18n (clés notifications.*) → suit la langue.
@@ -139,7 +140,7 @@
             const meta = document.createElement('div');
             meta.className = 'notif-item-meta';
             let metaHtml = '';
-            if (n.crawl_id && (cfg.field === 'domain')) {
+            if (n.crawl_id) {
                 metaHtml += `<span class="notif-item-id">#${parseInt(n.crawl_id, 10)}</span>`;
             }
             metaHtml += `<span>${this.relativeTime(n.created_at)}</span>`;
@@ -191,6 +192,12 @@
 
         handleClick(n) {
             this.close();
+            if (n.action === 'explorer' && n.crawl_id) {
+                // show_ai=1 → URL Explorer opens on a focused URL + generated-columns
+                // view so the user immediately sees what the AI generation produced.
+                window.location.href = `${basePath}dashboard.php?crawl=${parseInt(n.crawl_id, 10)}&page=url-explorer&show_ai=1`;
+                return;
+            }
             if (n.action === 'dashboard' && n.crawl_id) {
                 window.location.href = `${basePath}dashboard.php?crawl=${parseInt(n.crawl_id, 10)}`;
                 return;

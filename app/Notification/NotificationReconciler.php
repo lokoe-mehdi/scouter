@@ -142,14 +142,16 @@ class NotificationReconciler
 
     /**
      * 'bulk-ai-generate:<bulkJobId>' — l'id de la commande n'est PAS un projet,
-     * on résout donc le projet via le répertoire du crawl.
+     * on résout donc le projet (et le crawl) via le répertoire du crawl. On
+     * renseigne crawl_id pour pouvoir renvoyer vers l'URL Explorer du crawl
+     * concerné (action 'explorer') et afficher le #id dans le message.
      */
     private function bulkAiFinished(): void
     {
         $this->exec("
             INSERT INTO notifications
                 (user_id, type, action, project_id, crawl_id, job_id, domain, project_name, project_dir, event_key)
-            SELECT p.user_id, 'bulk_ai_finished', 'project', c.project_id, NULL, j.id, c.domain, p.name, j.project_dir,
+            SELECT p.user_id, 'bulk_ai_finished', 'explorer', c.project_id, c.id, j.id, c.domain, p.name, j.project_dir,
                    'bulk_ai_finished:' || j.id
             FROM jobs j
             JOIN crawls c   ON c.path = j.project_dir
