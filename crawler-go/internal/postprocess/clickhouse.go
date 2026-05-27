@@ -55,9 +55,13 @@ func (r *CHRunner) pd() string {
 }
 
 // Run executes the CH post-processing steps, isolating failures per step.
-func (r *CHRunner) Run(ctx context.Context) {
+// Returns the names of the steps that FAILED (nil/empty = tout OK) pour que
+// l'appelant ne déclare pas un crawl à l'analytique dégradée comme un succès
+// propre, et ne droppe pas PostgreSQL alors que les tables dérivées sont
+// incomplètes.
+func (r *CHRunner) Run(ctx context.Context) []string {
 	if r == nil {
-		return
+		return nil
 	}
 	steps := []struct {
 		name string
@@ -71,13 +75,16 @@ func (r *CHRunner) Run(ctx context.Context) {
 		// of paying the LIMIT 1 BY dedup over many small parts on every query.
 		{"ch-optimize", r.optimizeFinal},
 	}
+	var failed []string
 	for _, s := range steps {
 		if err := s.fn(ctx); err != nil {
 			r.logf("clickhouse post-processing error in %s: %v", s.name, err)
+			failed = append(failed, s.name)
 		} else {
 			r.logf("clickhouse post-processing %s done", s.name)
 		}
 	}
+	return failed
 }
 
 // buildMetrics computes PageRank into a Memory table, then assembles page_metrics

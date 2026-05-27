@@ -400,17 +400,23 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 	// crawl-data partitions at finish (below). Default OFF: PG post-processing
 	// still runs so the comparison reports (still on PG) work.
 	ppStart := time.Now()
+	// On collecte les étapes de post-processing qui ÉCHOUENT : si l'analytique est
+	// incomplète (typiquement un OOM ClickHouse sur un gros PageRank), on refuse de
+	// dropper PostgreSQL et on ne déclare pas un faux "completed successfully".
+	var ppFailures []string
 	if dropPG {
 		milestone("ClickHouse is the sole store (CLICKHOUSE_DROP_PG=1) — skipping PostgreSQL post-processing")
 	} else {
-		_ = pp.Run(ctx)
+		if err := pp.Run(ctx); err != nil {
+			ppFailures = append(ppFailures, "pg-postprocess")
+		}
 	}
 
 	// Post-processing in ClickHouse (PageRank/inlinks/semantic/duplicate/redirect)
 	// → derived tables. Runs in addition to PG during the dual-write transition.
 	if ch != nil {
 		chpp := postprocess.NewCHRunner(ch, rec.ID, postprocess.RespectNofollowFromConfig(rec.Config), logf)
-		chpp.Run(ctx)
+		ppFailures = append(ppFailures, chpp.Run(ctx)...)
 		// In full-CH mode the PG post-processor is skipped, so write the
 		// duplicate/redirect scorecard stats back to crawls.* from ClickHouse.
 		if dropPG {
@@ -463,12 +469,23 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 			milestone("Report precompute enqueue skipped: " + err.Error())
 		}
 		// Full cutover: drop the heavy PG crawl-data partitions to free disk —
-		// only for a finished crawl (stopped crawls keep PG for resume) and only
-		// after confirming ClickHouse holds the data.
+		// only for a finished crawl (stopped crawls keep PG for resume), seulement
+		// après avoir confirmé que ClickHouse détient les données, ET seulement si
+		// le post-processing a réussi : sinon on garde PostgreSQL pour pouvoir
+		// recalculer l'analytique au lieu de perdre la donnée derrière un rapport
+		// dégradé.
 		if dropPG {
-			dropPGData(ctx, pool, ch, cdb, rec.ID, milestone)
+			if len(ppFailures) == 0 {
+				dropPGData(ctx, pool, ch, cdb, rec.ID, milestone)
+			} else {
+				milestone("PG drop SKIPPED — post-processing incomplete (" + strings.Join(ppFailures, ", ") + "); PostgreSQL kept for recovery")
+			}
 		}
-		milestone("Crawl completed successfully — " + totalLine)
+		if len(ppFailures) == 0 {
+			milestone("Crawl completed successfully — " + totalLine)
+		} else {
+			milestone("Crawl completed with INCOMPLETE analytics (failed: " + strings.Join(ppFailures, ", ") + ") — report may be degraded, PostgreSQL kept — " + totalLine)
+		}
 	}
 }
 
