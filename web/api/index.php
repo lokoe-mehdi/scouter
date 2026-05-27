@@ -38,6 +38,7 @@ use App\Http\Controllers\DrBriefController;
 use App\Http\Controllers\BulkGenerateController;
 use App\Http\Controllers\ApiV1Controller;
 use App\Http\Controllers\ApiKeyController;
+use App\Http\Controllers\NotificationController;
 
 $request = new Request();
 
@@ -99,6 +100,12 @@ try {
     $router->get('/jobs/status', [JobController::class, 'status'], ['auth' => true]);
     $router->get('/jobs/logs', [JobController::class, 'logs'], ['auth' => true]);
     $router->get('/jobs/{id}', [JobController::class, 'show'], ['auth' => true]);
+
+    // =============================================================================
+    // NOTIFICATIONS (centre de notifications / cloche header, scopé à l'user)
+    // =============================================================================
+    $router->get('/notifications', [NotificationController::class, 'index'], ['auth' => true]);
+    $router->post('/notifications/read', [NotificationController::class, 'markRead'], ['auth' => true]);
 
     // =============================================================================
     // QUERIES

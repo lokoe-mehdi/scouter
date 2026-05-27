@@ -164,7 +164,19 @@ while ($running) {
                 continue;
             }
         }
-        
+
+        // Émission des notifications utilisateur (cloche header) : réconcilie
+        // l'état des jobs vers la table notifications. Isolé dans son propre
+        // try/catch — une erreur ici ne doit jamais bloquer le traitement des jobs.
+        try {
+            (new \App\Notification\NotificationReconciler($db))->run();
+            if ($pollCount % 50 === 0) {
+                (new \App\Notification\NotificationManager($db))->prune();
+            }
+        } catch (\Throwable $e) {
+            error_log('[Worker] notification reconcile failed: ' . $e->getMessage());
+        }
+
         // Configuration timeout pour le polling :
         // - statement_timeout = 0 (pas de limite, car les checkpoints peuvent bloquer)
         // - lock_timeout = 60s (permissif pour plusieurs crawls simultanés)

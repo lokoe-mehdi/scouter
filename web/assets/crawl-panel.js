@@ -478,7 +478,7 @@ const CrawlPanel = {
                     }
                 } else {
                     // Plus rien à afficher
-                    this.elements.minimized.classList.remove('is-visible');
+                    this.elements.minimized?.classList.remove('is-visible');
                 }
                 
                 // Vérifier si le crawl actuellement affiché est toujours en cours
@@ -834,7 +834,7 @@ const CrawlPanel = {
         
         this.elements.panel.classList.add('is-open');
         this.elements.overlay.classList.add('is-visible');
-        this.elements.minimized.classList.remove('is-visible');
+        this.elements.minimized?.classList.remove('is-visible');
         
         // Marquer TOUS les crawls terminés non vus comme vus d'un coup
         // Mais les garder dans sessionFinishedCrawls pour le switch
@@ -923,33 +923,26 @@ const CrawlPanel = {
         if (this.state.runningCrawls.length > 0 || this.state.finishedUnseenCrawls.length > 0) {
             this.showMinimized();
         } else {
-            this.elements.minimized.classList.remove('is-visible');
+            this.elements.minimized?.classList.remove('is-visible');
         }
     },
 
     /**
-     * Affiche la notification minimisée (sauf si masquée par l'utilisateur)
+     * Badge flottant retiré : le volet ne pop plus jamais tout seul. Les fins
+     * de crawl sont désormais signalées par la cloche de notifications (header).
+     * Conservé en no-op pour ne pas casser les appelants existants.
      */
     showMinimized() {
-        // Ne pas afficher si l'utilisateur a masqué la notification
-        if (this.isNotificationHidden()) {
-            return;
-        }
-        this.updateMinimizedBadge();
-        this.elements.minimized.classList.add('is-visible');
+        return;
     },
 
     /**
      * Masque la notification pour la session (sans annuler les crawls)
      */
     hideNotification(event) {
-        event.stopPropagation();
-        
-        // Marquer comme masqué pour cette session
+        if (event) event.stopPropagation();
         sessionStorage.setItem('crawlPanel_hidden', 'true');
-        
-        // Cacher la notification
-        this.elements.minimized.classList.remove('is-visible');
+        this.elements.minimized?.classList.remove('is-visible');
     },
     
     /**
@@ -1635,7 +1628,7 @@ const CrawlPanel = {
         this.state.trackedCrawlIds = [];
         this.state.sessionFinishedCrawls = [];
         this.updateMinimizedBadge();
-        this.elements.minimized.classList.remove('is-visible', 'is-finished', 'has-finished');
+        this.elements.minimized?.classList.remove('is-visible', 'is-finished', 'has-finished');
         console.log('CrawlPanel: Storage cleared');
     },
     
