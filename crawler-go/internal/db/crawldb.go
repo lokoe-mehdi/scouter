@@ -308,9 +308,13 @@ func (c *CrawlDB) GetCrawledCount(ctx context.Context) int {
 
 func (c *CrawlDB) GetCurrentDepth(ctx context.Context) (int, error) {
 	var depth int
+	// Resume must continue from the LOWEST unfinished depth so the walk stays
+	// breadth-first. Without ORDER BY, PG returns an arbitrary uncrawled row, so
+	// a resume could jump to depth N+1 while depth N still had pending URLs.
 	err := c.pool.QueryRow(ctx, `
 		SELECT depth FROM pages
 		WHERE crawl_id=$1 AND crawled=false AND external=false AND blocked=false AND in_crawl=TRUE
+		ORDER BY depth ASC
 		LIMIT 1`, c.CrawlID).Scan(&depth)
 	if err == pgx.ErrNoRows {
 		return 0, nil
