@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/andybalholm/brotli"
@@ -66,27 +67,95 @@ type Engine struct {
 	retryPauseMu sync.Mutex
 	retryPause   time.Duration
 
-	// throttle for UpdateCrawlStats (each call scans the whole partition; on a
-	// million-page crawl, calling it per 5000-batch would mean thousands of full
-	// scans). Updated at most every statsInterval.
-	statsMu   sync.Mutex
-	lastStats time.Time
+	// stopFlag is set by the background stop-poller so the hot path can test for a
+	// user/worker stop without a per-URL DB round-trip.
+	stopFlag atomic.Bool
+
+	// live stats counters: incremented as pages are stored and written to crawls.*
+	// by the background stats-writer with a cheap UPDATE — no full-partition scans.
+	// Seeded from the authoritative crawls row at start and after each depth-end
+	// recompute, so they stay absolute and self-heal any drift.
+	liveCrawled   atomic.Int64
+	liveCompliant atomic.Int64
+	liveCritical  atomic.Int64
+	liveDepthMax  atomic.Int64
 }
 
 const statsInterval = 10 * time.Second
 
-// maybeUpdateStats refreshes crawls.* stats at most once per statsInterval, to
-// keep the UI progress live without hammering PG with full-partition COUNTs on
-// huge crawls.
-func (e *Engine) maybeUpdateStats(ctx context.Context) {
-	e.statsMu.Lock()
-	if time.Since(e.lastStats) < statsInterval {
-		e.statsMu.Unlock()
+// stopped reports a user/worker stop without touching the DB: the background
+// poller refreshes stopFlag every couple of seconds. Also true once ctx is done.
+func (e *Engine) stopped(ctx context.Context) bool {
+	return e.stopFlag.Load() || ctx.Err() != nil
+}
+
+// seedLiveStats loads the persisted counters into the in-memory tallies so the
+// engine continues from the authoritative values (resume / post-recompute).
+func (e *Engine) seedLiveStats(ctx context.Context) {
+	crawled, compliant, critical, depthMax, err := e.cdb.GetStatsSnapshot(ctx)
+	if err != nil {
 		return
 	}
-	e.lastStats = time.Now()
-	e.statsMu.Unlock()
-	_ = e.cdb.UpdateCrawlStats(ctx)
+	e.liveCrawled.Store(crawled)
+	e.liveCompliant.Store(compliant)
+	e.liveCritical.Store(critical)
+	e.liveDepthMax.Store(depthMax)
+}
+
+// recordStored bumps the live counters for one freshly-crawled page.
+func (e *Engine) recordStored(depth, code int, compliant bool) {
+	e.liveCrawled.Add(1)
+	if compliant {
+		e.liveCompliant.Add(1)
+	}
+	if code >= 400 {
+		e.liveCritical.Add(1)
+	}
+	for {
+		cur := e.liveDepthMax.Load()
+		if int64(depth) <= cur || e.liveDepthMax.CompareAndSwap(cur, int64(depth)) {
+			break
+		}
+	}
+}
+
+// writeLiveStats persists the current counters with one cheap UPDATE.
+func (e *Engine) writeLiveStats(ctx context.Context) {
+	_ = e.cdb.WriteLiveStats(ctx, e.liveCrawled.Load(), e.liveCompliant.Load(),
+		e.liveCritical.Load(), e.liveDepthMax.Load())
+}
+
+// runStopPoller refreshes stopFlag off the hot path: one status query every 2s
+// instead of one per URL. Exits as soon as a stop is observed (flag stays set).
+func (e *Engine) runStopPoller(ctx context.Context) {
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if e.stopCheck(ctx) {
+				e.stopFlag.Store(true)
+				return
+			}
+		}
+	}
+}
+
+// runStatsWriter persists the live counters every statsInterval, off the crawl
+// driver goroutine so a slow stats write never stalls fetch dispatch.
+func (e *Engine) runStatsWriter(ctx context.Context) {
+	t := time.NewTicker(statsInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			e.writeLiveStats(ctx)
+		}
+	}
 }
 
 // RetryPause returns the cumulative time spent sleeping in retry backoff, so the

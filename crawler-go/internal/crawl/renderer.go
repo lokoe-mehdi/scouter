@@ -71,11 +71,10 @@ func (e *Engine) processJavascript(ctx context.Context, urls []string, depth int
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var failed []string
-	var rr uint64      // round-robin renderer selector
-	var batchSeq int64 // completed batches (for periodic stats refresh)
+	var rr uint64 // round-robin renderer selector
 
 	for b := 0; b < len(urls); b += batchPerRenderer {
-		if e.stopCheck(ctx) || ctx.Err() != nil {
+		if e.stopped(ctx) {
 			break
 		}
 		be := b + batchPerRenderer
@@ -124,17 +123,13 @@ func (e *Engine) processJavascript(ctx context.Context, urls []string, depth int
 					e.tickProgress(depth)
 				}
 			}
-			// Live feedback: progress line is throttled internally (250ms); refresh
-			// the crawls.crawled stat every few batches so the UI count climbs.
+			// Live feedback: progress line is throttled internally (250ms). The crawls.*
+			// counters are persisted off this path by the background stats-writer.
 			e.emitProgress(depth, false)
-			if atomic.AddInt64(&batchSeq, 1)%int64(maxConcurrent) == 0 {
-				_ = e.cdb.UpdateCrawlStats(ctx)
-			}
 		}(batch)
 	}
 	wg.Wait()
 	e.emitProgress(depth, true)
-	_ = e.cdb.UpdateCrawlStats(ctx)
 	return failed
 }
 

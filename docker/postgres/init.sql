@@ -368,6 +368,7 @@ CREATE TABLE pages (
     word_count INTEGER DEFAULT 0,
     in_crawl BOOLEAN DEFAULT TRUE,
     in_sitemap BOOLEAN DEFAULT FALSE,
+    claimed_at TIMESTAMP, -- frontier lease marker (ClaimUrlsToCrawl); NULL = unclaimed
     generation JSONB,
     PRIMARY KEY (crawl_id, id)
 ) PARTITION BY LIST (crawl_id);
@@ -376,6 +377,12 @@ CREATE TABLE pages (
 CREATE INDEX idx_pages_in_sitemap ON pages (crawl_id, in_sitemap) WHERE in_sitemap = TRUE;
 CREATE INDEX idx_pages_not_in_crawl ON pages (crawl_id, in_crawl) WHERE in_crawl = FALSE;
 CREATE INDEX idx_pages_generation_gin ON pages USING GIN (generation);
+-- Frontier queue index: keeps the uncrawled-URL lease (ClaimUrlsToCrawl) and the
+-- end-of-depth count O(remaining frontier) instead of O(whole partition). The
+-- partial predicate means crawled rows leave the index, so it shrinks as the crawl
+-- advances — the fix for the freeze on multi-million-URL crawls.
+CREATE INDEX idx_pages_frontier ON pages (crawl_id, depth, claimed_at, id)
+    WHERE crawled = false AND external = false AND in_crawl = true;
 
 -- Table links partitionnée par crawl_id
 -- Pas de PRIMARY KEY volontairement : on stocke TOUS les <a> tels qu'ils
