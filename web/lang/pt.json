@@ -2122,5 +2122,7 @@
   "notifications.report_finished_title": "Relatório recalculado",
   "notifications.report_finished_body": "O relatório de :project foi recalculado.",
   "notifications.bulk_ai_finished_title": "Geração IA concluída",
-  "notifications.bulk_ai_finished_body": "Geração IA em massa concluída para :project."
+  "notifications.bulk_ai_finished_body": "Geração IA em massa concluída para :project.",
+  "notifications.project_shared_title": "Projeto partilhado",
+  "notifications.project_shared_body": ":actor partilhou o projeto :project consigo."
 }

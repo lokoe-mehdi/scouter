@@ -420,6 +420,7 @@ $userInitials = getUserInitials($currentUserEmail);
 .notif-icon-finished { background: rgba(46, 204, 113, 0.13); color: var(--success, #2ECC71); }
 .notif-icon-failed   { background: rgba(231, 76, 60, 0.12);  color: var(--danger, #E74C3C); }
 .notif-icon-job      { background: rgba(78, 205, 196, 0.14); color: var(--primary-color, #4ECDC4); }
+.notif-icon-shared   { background: rgba(155, 89, 182, 0.13); color: #9B59B6; }
 
 .notif-item-body { min-width: 0; flex: 1; }
 

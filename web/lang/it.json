@@ -2122,5 +2122,7 @@
   "notifications.report_finished_title": "Report ricalcolato",
   "notifications.report_finished_body": "Il report di :project è stato ricalcolato.",
   "notifications.bulk_ai_finished_title": "Generazione IA completata",
-  "notifications.bulk_ai_finished_body": "Generazione IA di massa completata per :project."
+  "notifications.bulk_ai_finished_body": "Generazione IA di massa completata per :project.",
+  "notifications.project_shared_title": "Progetto condiviso",
+  "notifications.project_shared_body": ":actor ha condiviso il progetto :project con te."
 }

@@ -39,9 +39,9 @@ class NotificationManager
     {
         $stmt = $this->db->prepare("
             INSERT INTO notifications
-                (user_id, type, action, project_id, crawl_id, job_id, domain, project_name, project_dir, event_key)
+                (user_id, type, action, project_id, crawl_id, job_id, domain, project_name, project_dir, actor, event_key)
             VALUES
-                (:user_id, :type, :action, :project_id, :crawl_id, :job_id, :domain, :project_name, :project_dir, :event_key)
+                (:user_id, :type, :action, :project_id, :crawl_id, :job_id, :domain, :project_name, :project_dir, :actor, :event_key)
             ON CONFLICT (event_key) DO NOTHING
         ");
         $stmt->execute([
@@ -54,9 +54,32 @@ class NotificationManager
             ':domain'       => $data['domain'] ?? null,
             ':project_name' => $data['project_name'] ?? null,
             ':project_dir'  => $data['project_dir'] ?? null,
+            ':actor'        => $data['actor'] ?? null,
             ':event_key'    => $data['event_key'],
         ]);
         return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Notifie un utilisateur qu'un projet vient d'être partagé avec lui.
+     * Le destinataire est l'utilisateur ciblé par le partage (pas le propriétaire).
+     *
+     * @param int    $recipientId utilisateur avec qui le projet est partagé
+     * @param int    $projectId   projet partagé (lien vers la page projet)
+     * @param string $projectName nom/domaine du projet
+     * @param string $actor       identité (email) de l'utilisateur qui partage
+     */
+    public function notifyProjectShared(int $recipientId, int $projectId, string $projectName, string $actor): bool
+    {
+        return $this->createIfAbsent([
+            'user_id'      => $recipientId,
+            'type'         => 'project_shared',
+            'action'       => 'project',
+            'project_id'   => $projectId,
+            'project_name' => $projectName,
+            'actor'        => $actor,
+            'event_key'    => "project_shared:{$projectId}:{$recipientId}",
+        ]);
     }
 
     /**
@@ -69,7 +92,7 @@ class NotificationManager
     {
         $stmt = $this->db->prepare("
             SELECT id, type, action, project_id, crawl_id, job_id,
-                   domain, project_name, project_dir,
+                   domain, project_name, project_dir, actor,
                    read_at, created_at,
                    (read_at IS NULL) AS unread
             FROM notifications

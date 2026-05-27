@@ -2122,5 +2122,7 @@
   "notifications.report_finished_title": "Report recomputed",
   "notifications.report_finished_body": "The report for :project has been recomputed.",
   "notifications.bulk_ai_finished_title": "AI generation done",
-  "notifications.bulk_ai_finished_body": "Bulk AI generation completed for :project."
+  "notifications.bulk_ai_finished_body": "Bulk AI generation completed for :project.",
+  "notifications.project_shared_title": "Project shared",
+  "notifications.project_shared_body": ":actor shared the project :project with you."
 }

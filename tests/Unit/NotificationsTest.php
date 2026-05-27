@@ -276,3 +276,41 @@ test('reconciler ignore un crawl démarré il y a trop longtemps (anti-stale)', 
     $count = (int) $this->db->query("SELECT COUNT(*) FROM notifications WHERE event_key = 'crawl_started:90020'")->fetchColumn();
     expect($count)->toBe(0);
 });
+
+// ============================================================
+// Partage de projet (notifyProjectShared)
+// ============================================================
+
+test('notifyProjectShared notifie le destinataire avec l acteur et le lien projet', function () {
+    // U1 partage le projet 1 avec U2 → U2 reçoit la notif (pas U1).
+    $created = $this->manager->notifyProjectShared(NOTIF_U2, NOTIF_P1, 'notif1.com', 'notif-u1@test.com');
+    expect($created)->toBeTrue();
+
+    $row = $this->db->query("SELECT * FROM notifications WHERE event_key = 'project_shared:" . NOTIF_P1 . ":" . NOTIF_U2 . "'")->fetch(PDO::FETCH_OBJ);
+    expect($row)->not->toBeFalse();
+    expect((int) $row->user_id)->toBe(NOTIF_U2);
+    expect($row->type)->toBe('project_shared');
+    expect($row->action)->toBe('project');
+    expect((int) $row->project_id)->toBe(NOTIF_P1);
+    expect($row->project_name)->toBe('notif1.com');
+    expect($row->actor)->toBe('notif-u1@test.com');
+
+    // Le partageur (U1) ne reçoit rien.
+    expect($this->manager->unreadCount(NOTIF_U1))->toBe(0);
+});
+
+test('notifyProjectShared est idempotent pour un même couple projet/destinataire', function () {
+    expect($this->manager->notifyProjectShared(NOTIF_U2, NOTIF_P1, 'notif1.com', 'notif-u1@test.com'))->toBeTrue();
+    expect($this->manager->notifyProjectShared(NOTIF_U2, NOTIF_P1, 'notif1.com', 'notif-u1@test.com'))->toBeFalse();
+
+    $count = (int) $this->db->query("SELECT COUNT(*) FROM notifications WHERE event_key = 'project_shared:" . NOTIF_P1 . ":" . NOTIF_U2 . "'")->fetchColumn();
+    expect($count)->toBe(1);
+});
+
+test('listForUser renvoie actor pour les notifications de partage', function () {
+    $this->manager->notifyProjectShared(NOTIF_U2, NOTIF_P1, 'notif1.com', 'notif-u1@test.com');
+    $list = $this->manager->listForUser(NOTIF_U2);
+    expect($list)->toHaveCount(1);
+    expect($list[0]->actor)->toBe('notif-u1@test.com');
+    expect($list[0]->type)->toBe('project_shared');
+});

@@ -2122,5 +2122,7 @@
   "notifications.report_finished_title": "Bericht neu berechnet",
   "notifications.report_finished_body": "Der Bericht für :project wurde neu berechnet.",
   "notifications.bulk_ai_finished_title": "KI-Generierung abgeschlossen",
-  "notifications.bulk_ai_finished_body": "Massen-KI-Generierung für :project abgeschlossen."
+  "notifications.bulk_ai_finished_body": "Massen-KI-Generierung für :project abgeschlossen.",
+  "notifications.project_shared_title": "Projekt geteilt",
+  "notifications.project_shared_body": ":actor hat das Projekt :project mit dir geteilt."
 }

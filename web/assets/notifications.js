@@ -33,6 +33,7 @@
         categorization_finished: { icon: 'sell',          cls: 'notif-icon-job',      field: 'project' },
         report_finished:         { icon: 'analytics',     cls: 'notif-icon-job',      field: 'project' },
         bulk_ai_finished:        { icon: 'auto_awesome',  cls: 'notif-icon-job',      field: 'project' },
+        project_shared:          { icon: 'group_add',     cls: 'notif-icon-shared',   field: 'project' },
     };
 
     const NotifCenter = {
@@ -133,7 +134,7 @@
             const text = document.createElement('div');
             text.className = 'notif-item-text';
             const value = (cfg.field === 'project') ? (n.project_name || n.domain || '') : (n.domain || n.project_name || '');
-            text.innerHTML = this.fillTemplate(t('notifications.' + n.type + '_body'), cfg.field, value);
+            text.innerHTML = this.fillTemplate(t('notifications.' + n.type + '_body'), cfg.field, value, n.actor);
 
             const meta = document.createElement('div');
             meta.className = 'notif-item-meta';
@@ -154,13 +155,16 @@
             return item;
         },
 
-        // Remplit un gabarit i18n (":domain"/":project") avec la valeur dynamique
-        // MISE EN GRAS et échappée (anti-XSS). Le gabarit lui-même est de confiance.
-        fillTemplate(tpl, field, value) {
+        // Remplit un gabarit i18n (":domain"/":project"/":actor") avec les valeurs
+        // dynamiques échappées (anti-XSS). La valeur principale (domain/project)
+        // est mise en gras ; :actor (qui a déclenché) est échappé sans gras.
+        // Le gabarit lui-même est de confiance (i18n).
+        fillTemplate(tpl, field, value, actor) {
             const safe = '<strong>' + this.escape(value) + '</strong>';
-            const out = tpl.replace(':domain', field === 'domain' ? safe : this.escape(value))
-                           .replace(':project', field === 'project' ? safe : this.escape(value));
-            return out;
+            return tpl
+                .replace(':actor', this.escape(actor || ''))
+                .replace(':domain', field === 'domain' ? safe : this.escape(value))
+                .replace(':project', field === 'project' ? safe : this.escape(value));
         },
 
         escape(s) {
