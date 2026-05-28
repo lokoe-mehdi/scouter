@@ -17,19 +17,20 @@ class Storage
             return self::$instance;
         }
 
-        $accessKey = getenv('AWS_ACCESS_KEY_ID') ?: getenv('S3_ACCESS_KEY') ?: '';
-        if ($accessKey !== '') {
+        $driver = getenv('STORAGE_DRIVER') ?: 'local';
+
+        if ($driver === 's3') {
             self::$instance = new S3Storage(
-                getenv('S3_BUCKET') ?: 'scouter',
-                $accessKey,
-                getenv('AWS_SECRET_ACCESS_KEY') ?: getenv('S3_SECRET_KEY') ?: '',
-                getenv('S3_ENDPOINT') ?: '',
-                getenv('S3_REGION') ?: getenv('AWS_REGION') ?: 'us-east-1',
-                (bool)(getenv('S3_PATH_STYLE') ?: false),
-                getenv('S3_CDN_URL') ?: ''
+                (string)getenv('S3_BUCKET'),
+                (string)getenv('S3_ACCESS_KEY'),
+                (string)getenv('S3_SECRET_KEY'),
+                (string)getenv('S3_ENDPOINT'),
+                (string)(getenv('S3_REGION') ?: 'us-east-1'),
+                (bool)getenv('S3_PATH_STYLE'),
+                (string)getenv('S3_PREFIX')
             );
         } else {
-            $root = getenv('STORAGE_PATH') ?: (__DIR__ . '/../../storage');
+            $root = (string)(getenv('STORAGE_LOCAL_ROOT') ?: sys_get_temp_dir() . '/scouter-storage');
             self::$instance = new LocalStorage($root);
         }
 

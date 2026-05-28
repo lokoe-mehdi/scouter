@@ -10,7 +10,7 @@ class S3Storage implements StorageInterface
     private string $endpoint;
     private string $region;
     private bool $pathStyle;
-    private string $cdnUrl;
+    private string $prefix;
 
     public function __construct(
         string $bucket,
@@ -19,7 +19,7 @@ class S3Storage implements StorageInterface
         string $endpoint = '',
         string $region = 'us-east-1',
         bool $pathStyle = false,
-        string $cdnUrl = ''
+        string $prefix = ''
     ) {
         $this->bucket = $bucket;
         $this->accessKey = $accessKey;
@@ -27,7 +27,7 @@ class S3Storage implements StorageInterface
         $this->endpoint = rtrim($endpoint, '/');
         $this->region = $region;
         $this->pathStyle = $pathStyle;
-        $this->cdnUrl = rtrim($cdnUrl, '/');
+        $this->prefix = $prefix !== '' ? rtrim($prefix, '/') . '/' : '';
     }
 
     public function kind(): string
@@ -35,101 +35,92 @@ class S3Storage implements StorageInterface
         return 's3';
     }
 
-    private function getHost(): string
+    private function fullKey(string $key): string
     {
-        if ($this->endpoint) {
-            $parsed = parse_url($this->endpoint);
-            return $parsed['host'] . (isset($parsed['port']) ? ':' . $parsed['port'] : '');
-        }
-        if ($this->pathStyle) {
-            return "s3.{$this->region}.amazonaws.com";
-        }
-        return "{$this->bucket}.s3.{$this->region}.amazonaws.com";
+        return $this->prefix . ltrim($key, '/');
     }
 
-    private function getBaseUrl(): string
+    private function baseUrl(): string
     {
-        if ($this->endpoint) {
-            return $this->pathStyle
-                ? "{$this->endpoint}/{$this->bucket}"
-                : "{$this->endpoint}";
+        if ($this->endpoint !== '') {
+            if ($this->pathStyle) {
+                return $this->endpoint . '/' . $this->bucket;
+            }
+            $parsed = parse_url($this->endpoint);
+            return ($parsed['scheme'] ?? 'https') . '://' . $this->bucket . '.' . $parsed['host'] . (isset($parsed['port']) ? ':' . $parsed['port'] : '');
         }
-        return $this->pathStyle
-            ? "https://s3.{$this->region}.amazonaws.com/{$this->bucket}"
-            : "https://{$this->bucket}.s3.{$this->region}.amazonaws.com";
+        return 'https://' . $this->bucket . '.s3.' . $this->region . '.amazonaws.com';
     }
 
     public function get(string $key): ?string
     {
-        $url = $this->getBaseUrl() . '/' . $key;
-        $date = gmdate('Ymd\THis\Z');
-        $dateShort = gmdate('Ymd');
-
-        $headers = $this->signRequest('GET', $key, '', $date, $dateShort);
+        $url = $this->baseUrl() . '/' . $this->fullKey($key);
+        $headers = $this->signRequest('GET', $this->fullKey($key));
         $ctx = stream_context_create(['http' => [
             'method' => 'GET',
-            'header' => $this->headersToString($headers),
+            'header' => $this->buildHeaderString($headers),
             'ignore_errors' => true,
         ]]);
-
-        $result = @file_get_contents($url, false, $ctx);
-        if ($result === false) {
+        $content = @file_get_contents($url, false, $ctx);
+        if ($content === false) {
             return null;
         }
-        return $result;
+        foreach ($http_response_header ?? [] as $h) {
+            if (preg_match('/^HTTP\/\d+\.\d+\s+(\d+)/', $h, $m) && (int)$m[1] >= 400) {
+                return null;
+            }
+        }
+        return $content;
     }
 
     public function put(string $key, string $data): bool
     {
-        return $this->putWithContent($key, $data, 'application/octet-stream');
+        $url = $this->baseUrl() . '/' . $this->fullKey($key);
+        $headers = $this->signRequest('PUT', $this->fullKey($key), $data);
+        $ctx = stream_context_create(['http' => [
+            'method' => 'PUT',
+            'header' => $this->buildHeaderString($headers),
+            'content' => $data,
+            'ignore_errors' => true,
+        ]]);
+        $result = @file_get_contents($url, false, $ctx);
+        foreach ($http_response_header ?? [] as $h) {
+            if (preg_match('/^HTTP\/\d+\.\d+\s+(\d+)/', $h, $m)) {
+                return (int)$m[1] < 400;
+            }
+        }
+        return false;
     }
 
-    public function putFile(string $key, string $localPath, string $contentType = ''): bool
+    public function putFile(string $key, string $localPath, string $contentType = 'application/octet-stream'): bool
     {
         $data = file_get_contents($localPath);
         if ($data === false) {
             return false;
         }
-        $result = $this->putWithContent($key, $data, $contentType ?: 'application/octet-stream');
+        $result = $this->put($key, $data);
         if ($result) {
             @unlink($localPath);
         }
         return $result;
     }
 
-    private function putWithContent(string $key, string $data, string $contentType): bool
-    {
-        $url = $this->getBaseUrl() . '/' . $key;
-        $date = gmdate('Ymd\THis\Z');
-        $dateShort = gmdate('Ymd');
-
-        $headers = $this->signRequest('PUT', $key, $data, $date, $dateShort, $contentType);
-        $ctx = stream_context_create(['http' => [
-            'method' => 'PUT',
-            'header' => $this->headersToString($headers),
-            'content' => $data,
-            'ignore_errors' => true,
-        ]]);
-
-        $result = @file_get_contents($url, false, $ctx);
-        return $result !== false;
-    }
-
     public function delete(string $key): bool
     {
-        $url = $this->getBaseUrl() . '/' . $key;
-        $date = gmdate('Ymd\THis\Z');
-        $dateShort = gmdate('Ymd');
-
-        $headers = $this->signRequest('DELETE', $key, '', $date, $dateShort);
+        $url = $this->baseUrl() . '/' . $this->fullKey($key);
+        $headers = $this->signRequest('DELETE', $this->fullKey($key));
         $ctx = stream_context_create(['http' => [
             'method' => 'DELETE',
-            'header' => $this->headersToString($headers),
+            'header' => $this->buildHeaderString($headers),
             'ignore_errors' => true,
         ]]);
-
         @file_get_contents($url, false, $ctx);
-        return true;
+        foreach ($http_response_header ?? [] as $h) {
+            if (preg_match('/^HTTP\/\d+\.\d+\s+(\d+)/', $h, $m)) {
+                return (int)$m[1] < 400 || (int)$m[1] === 404;
+            }
+        }
+        return false;
     }
 
     public function deletePrefix(string $prefix): int
@@ -137,118 +128,105 @@ class S3Storage implements StorageInterface
         return 0;
     }
 
-    public function presignedGetUrl(string $key, int $ttl, array $params = []): ?string
+    public function presignedGetUrl(string $key, int $expireSeconds, array $queryParams = []): ?string
     {
-        $date = gmdate('Ymd\THis\Z');
-        $dateShort = gmdate('Ymd');
-        $host = $this->getHost();
-        $credential = "{$this->accessKey}/{$dateShort}/{$this->region}/s3/aws4_request";
+        $fullKey = $this->fullKey($key);
+        $now = time();
+        $date = gmdate('Ymd', $now);
+        $timestamp = gmdate('Ymd\THis\Z', $now);
+        $credential = $this->accessKey . '/' . $date . '/' . $this->region . '/s3/aws4_request';
 
-        $queryParams = [
+        $query = [
             'X-Amz-Algorithm' => 'AWS4-HMAC-SHA256',
             'X-Amz-Credential' => $credential,
-            'X-Amz-Date' => $date,
-            'X-Amz-Expires' => (string)$ttl,
+            'X-Amz-Date' => $timestamp,
+            'X-Amz-Expires' => (string)$expireSeconds,
             'X-Amz-SignedHeaders' => 'host',
         ];
-        foreach ($params as $k => $v) {
-            $queryParams[$k] = $v;
+        foreach ($queryParams as $k => $v) {
+            $query[$k] = $v;
         }
-        ksort($queryParams);
+        ksort($query);
 
-        $canonicalQueryString = http_build_query($queryParams, '', '&', PHP_QUERY_RFC3986);
-        $path = $this->pathStyle ? "/{$this->bucket}/{$key}" : "/{$key}";
-        $canonicalRequest = implode("\n", [
-            'GET',
-            $path,
-            $canonicalQueryString,
-            "host:{$host}",
-            '',
-            'host',
-            'UNSIGNED-PAYLOAD',
-        ]);
+        $host = $this->getHost();
+        $canonicalUri = '/' . $fullKey;
+        $canonicalQueryString = http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+        $canonicalHeaders = 'host:' . $host . "\n";
+        $signedHeaders = 'host';
+        $canonicalRequest = "GET\n{$canonicalUri}\n{$canonicalQueryString}\n{$canonicalHeaders}\n{$signedHeaders}\nUNSIGNED-PAYLOAD";
 
-        $stringToSign = implode("\n", [
-            'AWS4-HMAC-SHA256',
-            $date,
-            "{$dateShort}/{$this->region}/s3/aws4_request",
-            hash('sha256', $canonicalRequest),
-        ]);
+        $scope = $date . '/' . $this->region . '/s3/aws4_request';
+        $stringToSign = "AWS4-HMAC-SHA256\n{$timestamp}\n{$scope}\n" . hash('sha256', $canonicalRequest);
 
-        $signingKey = $this->getSigningKey($dateShort);
+        $signingKey = $this->getSignatureKey($date);
         $signature = hash_hmac('sha256', $stringToSign, $signingKey);
 
-        $baseUrl = $this->endpoint
-            ? ($this->pathStyle ? "{$this->endpoint}/{$this->bucket}" : $this->endpoint)
-            : ($this->pathStyle
-                ? "https://s3.{$this->region}.amazonaws.com/{$this->bucket}"
-                : "https://{$this->bucket}.s3.{$this->region}.amazonaws.com");
-
-        return "{$baseUrl}/{$key}?{$canonicalQueryString}&X-Amz-Signature={$signature}";
+        $query['X-Amz-Signature'] = $signature;
+        return $this->baseUrl() . '/' . $fullKey . '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
     }
 
-    private function signRequest(
-        string $method,
-        string $key,
-        string $payload,
-        string $date,
-        string $dateShort,
-        string $contentType = ''
-    ): array {
+    private function getHost(): string
+    {
+        if ($this->endpoint !== '') {
+            $parsed = parse_url($this->endpoint);
+            $host = $parsed['host'] ?? '';
+            if (isset($parsed['port'])) {
+                $host .= ':' . $parsed['port'];
+            }
+            if ($this->pathStyle) {
+                return $host;
+            }
+            return $this->bucket . '.' . $host;
+        }
+        return $this->bucket . '.s3.' . $this->region . '.amazonaws.com';
+    }
+
+    private function signRequest(string $method, string $key, string $payload = ''): array
+    {
+        $now = time();
+        $date = gmdate('Ymd', $now);
+        $timestamp = gmdate('Ymd\THis\Z', $now);
         $host = $this->getHost();
         $payloadHash = hash('sha256', $payload);
-        $path = $this->pathStyle ? "/{$this->bucket}/{$key}" : "/{$key}";
 
         $headers = [
             'Host' => $host,
+            'x-amz-date' => $timestamp,
             'x-amz-content-sha256' => $payloadHash,
-            'x-amz-date' => $date,
         ];
-        if ($contentType) {
-            $headers['Content-Type'] = $contentType;
-        }
 
-        ksort($headers);
-        $signedHeaders = implode(';', array_map('strtolower', array_keys($headers)));
+        $canonicalUri = '/' . $key;
         $canonicalHeaders = '';
+        $signedHeadersList = [];
+        ksort($headers);
         foreach ($headers as $k => $v) {
             $canonicalHeaders .= strtolower($k) . ':' . trim($v) . "\n";
+            $signedHeadersList[] = strtolower($k);
         }
+        $signedHeaders = implode(';', $signedHeadersList);
 
-        $canonicalRequest = implode("\n", [
-            $method,
-            $path,
-            '',
-            $canonicalHeaders,
-            $signedHeaders,
-            $payloadHash,
-        ]);
+        $canonicalRequest = "{$method}\n{$canonicalUri}\n\n{$canonicalHeaders}\n{$signedHeaders}\n{$payloadHash}";
+        $scope = $date . '/' . $this->region . '/s3/aws4_request';
+        $stringToSign = "AWS4-HMAC-SHA256\n{$timestamp}\n{$scope}\n" . hash('sha256', $canonicalRequest);
 
-        $stringToSign = implode("\n", [
-            'AWS4-HMAC-SHA256',
-            $date,
-            "{$dateShort}/{$this->region}/s3/aws4_request",
-            hash('sha256', $canonicalRequest),
-        ]);
-
-        $signingKey = $this->getSigningKey($dateShort);
+        $signingKey = $this->getSignatureKey($date);
         $signature = hash_hmac('sha256', $stringToSign, $signingKey);
 
-        $credential = "{$this->accessKey}/{$dateShort}/{$this->region}/s3/aws4_request";
-        $headers['Authorization'] = "AWS4-HMAC-SHA256 Credential={$credential}, SignedHeaders={$signedHeaders}, Signature={$signature}";
+        $headers['Authorization'] = 'AWS4-HMAC-SHA256 Credential=' . $this->accessKey . '/' . $scope
+            . ', SignedHeaders=' . $signedHeaders . ', Signature=' . $signature;
 
         return $headers;
     }
 
-    private function getSigningKey(string $dateShort): string
+    private function getSignatureKey(string $date): string
     {
-        $kDate = hash_hmac('sha256', $dateShort, 'AWS4' . $this->secretKey, true);
+        $kDate = hash_hmac('sha256', $date, 'AWS4' . $this->secretKey, true);
         $kRegion = hash_hmac('sha256', $this->region, $kDate, true);
         $kService = hash_hmac('sha256', 's3', $kRegion, true);
         return hash_hmac('sha256', 'aws4_request', $kService, true);
     }
 
-    private function headersToString(array $headers): string
+    private function buildHeaderString(array $headers): string
     {
         $lines = [];
         foreach ($headers as $k => $v) {

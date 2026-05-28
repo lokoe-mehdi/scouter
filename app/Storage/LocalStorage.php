@@ -9,9 +9,6 @@ class LocalStorage implements StorageInterface
     public function __construct(string $root)
     {
         $this->root = rtrim($root, '/');
-        if (!is_dir($this->root)) {
-            mkdir($this->root, 0755, true);
-        }
     }
 
     public function kind(): string
@@ -21,16 +18,17 @@ class LocalStorage implements StorageInterface
 
     public function get(string $key): ?string
     {
-        $path = $this->root . '/' . $key;
+        $path = $this->root . '/' . ltrim($key, '/');
         if (!file_exists($path)) {
             return null;
         }
-        return file_get_contents($path);
+        $content = file_get_contents($path);
+        return $content === false ? null : $content;
     }
 
     public function put(string $key, string $data): bool
     {
-        $path = $this->root . '/' . $key;
+        $path = $this->root . '/' . ltrim($key, '/');
         $dir = dirname($path);
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
@@ -38,23 +36,23 @@ class LocalStorage implements StorageInterface
         return file_put_contents($path, $data) !== false;
     }
 
-    public function putFile(string $key, string $localPath, string $contentType = ''): bool
+    public function putFile(string $key, string $localPath, string $contentType = 'application/octet-stream'): bool
     {
-        $path = $this->root . '/' . $key;
-        $dir = dirname($path);
+        $destPath = $this->root . '/' . ltrim($key, '/');
+        $dir = dirname($destPath);
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
         }
-        return rename($localPath, $path);
+        return rename($localPath, $destPath);
     }
 
     public function delete(string $key): bool
     {
-        $path = $this->root . '/' . $key;
-        if (!file_exists($path)) {
-            return true;
+        $path = $this->root . '/' . ltrim($key, '/');
+        if (file_exists($path)) {
+            return unlink($path);
         }
-        return unlink($path);
+        return true;
     }
 
     public function deletePrefix(string $prefix): int
@@ -65,16 +63,18 @@ class LocalStorage implements StorageInterface
         }
         $count = 0;
         $files = glob($dir . '/*');
-        foreach ($files as $file) {
-            if (is_file($file) && unlink($file)) {
-                $count++;
+        if ($files) {
+            foreach ($files as $file) {
+                if (is_file($file) && unlink($file)) {
+                    $count++;
+                }
             }
         }
         @rmdir($dir);
         return $count;
     }
 
-    public function presignedGetUrl(string $key, int $ttl, array $params = []): ?string
+    public function presignedGetUrl(string $key, int $expireSeconds, array $queryParams = []): ?string
     {
         return null;
     }
