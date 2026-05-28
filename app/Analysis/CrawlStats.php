@@ -94,9 +94,14 @@ GROUP BY p.crawl_id, t.max_depth";
                 if ($id <= 0) {
                     continue;
                 }
-                $score = (($r['score'] ?? null) !== null && $r['score'] !== '')
-                    ? (int) round(max(0, min(100, (float) $r['score'])))
-                    : 0;
+                // Score NON calculable en ClickHouse (un pilier sans dénominateur →
+                // NULL) : on NE fige PAS un 0 trompeur et on ne renvoie pas la ligne.
+                // L'appelant fera son repli pcHealthScore (toujours > 0 pour un crawl
+                // non vide), qui sera persisté → pas de 0 stale, pas de recalcul en boucle.
+                if (($r['score'] ?? null) === null || $r['score'] === '') {
+                    continue;
+                }
+                $score = (int) round(max(0, min(100, (float) $r['score'])));
                 $compliant = (int) ($r['compliant'] ?? 0);
                 $crit = (int) ($r['critical_errors'] ?? 0);
                 $upd->execute([':compliant' => $compliant, ':crit' => $crit, ':hs' => $score, ':id' => $id]);
@@ -111,7 +116,9 @@ GROUP BY p.crawl_id, t.max_depth";
     /**
      * Fige un health_score déjà calculé (ex. repli pcHealthScore pour un crawl
      * ABSENT de ClickHouse) afin de poser la sentinelle → plus de recalcul à
-     * chaque consultation. N'écrase pas une valeur déjà posée.
+     * chaque consultation. Met à jour si la valeur n'est pas encore posée (NULL)
+     * OU si elle vaut 0 (sentinelle "à recalculer" : score figé prématurément),
+     * mais n'écrase jamais un vrai score > 0 déjà calculé.
      */
     public static function persistHealthScore(int $crawlId, int $score): void
     {
@@ -120,7 +127,7 @@ GROUP BY p.crawl_id, t.max_depth";
         }
         try {
             $pdo = PostgresDatabase::getInstance()->getConnection();
-            $stmt = $pdo->prepare("UPDATE crawls SET health_score = :hs WHERE id = :id AND health_score IS NULL");
+            $stmt = $pdo->prepare("UPDATE crawls SET health_score = :hs WHERE id = :id AND (health_score IS NULL OR health_score = 0)");
             $stmt->execute([':hs' => (int) max(0, min(100, $score)), ':id' => $crawlId]);
         } catch (\Throwable $e) {
             error_log('[CrawlStats] persistHealthScore failed: ' . $e->getMessage());

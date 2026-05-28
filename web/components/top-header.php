@@ -145,6 +145,26 @@ $userInitials = getUserInitials($currentUserEmail);
         </a>
         <?php endif; ?>
         
+        <!-- Centre de téléchargements (exports CSV asynchrones) -->
+        <div class="notif-bell" id="dlBell">
+            <button class="notif-bell-btn" id="dlBellBtn" type="button"
+                    aria-label="<?= __('downloads.title') ?>">
+                <span class="material-symbols-outlined">download</span>
+                <span class="notif-bell-badge" id="dlBellBadge" hidden>0</span>
+            </button>
+            <div class="notif-dropdown" id="dlDropdown">
+                <div class="notif-dropdown-header">
+                    <span class="notif-dropdown-title"><?= __('downloads.title') ?></span>
+                </div>
+                <div class="notif-list" id="dlList">
+                    <div class="notif-empty" id="dlEmpty">
+                        <span class="material-symbols-outlined">cloud_download</span>
+                        <?= __('downloads.empty') ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Cloche de notifications -->
         <div class="notif-bell" id="notifBell">
             <button class="notif-bell-btn" id="notifBellBtn" type="button"
@@ -301,21 +321,26 @@ $userInitials = getUserInitials($currentUserEmail);
 
 .notif-bell-badge {
     position: absolute;
-    top: -3px;
-    right: -3px;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 9px;
+    top: -4px;
+    right: -4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: content-box;
+    min-width: 14px;
+    height: 14px;
+    padding: 2px 1px;
+    border-radius: 999px;
     background: var(--danger, #E74C3C);
     color: #fff;
     font-size: 0.68rem;
     font-weight: 700;
-    line-height: 18px;
+    line-height: 1;
     text-align: center;
     border: 2px solid var(--sidebar-bg, #2C3E50);
     box-shadow: 0 0 0 1px rgba(231, 76, 60, 0.4);
 }
+.notif-bell-badge[hidden] { display: none; }
 
 .notif-dropdown {
     position: absolute;
@@ -586,6 +611,26 @@ $userInitials = getUserInitials($currentUserEmail);
 .user-dropdown-item-danger:hover .material-symbols-outlined {
     color: #dc3545;
 }
+
+/* Centre de téléchargements — réutilise les styles .notif-* (dropdown/list/item).
+   Quelques variantes propres aux exports (états + bouton télécharger). */
+.notif-icon-export   { background: rgba(78, 205, 196, 0.15); color: #4ECDC4; }
+/* En cours : fond blanc + vrai spinner de chargement (progress_activity) en teal. */
+.notif-icon-pending  { background: #fff; color: var(--primary-color, #4ECDC4); }
+.notif-icon-failed   { background: rgba(220, 53, 69, 0.15);  color: #ff6b6b; }
+.dl-item .material-symbols-outlined.spinning { animation: dl-spin 1s linear infinite; }
+@keyframes dl-spin { to { transform: rotate(360deg); } }
+.dl-item-actions { margin-left: auto; display: flex; align-items: center; }
+.dl-download-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--primary-color); color: #fff; border: none; border-radius: 6px;
+    padding: 5px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+    text-decoration: none; white-space: nowrap;
+}
+.dl-download-btn:hover { background: var(--primary-dark); }
+.dl-download-btn .material-symbols-outlined { font-size: 16px; color: #fff; }
+.dl-item-status { font-size: 11px; opacity: 0.75; }
+.dl-item-status.is-failed { color: #ff6b6b; opacity: 1; }
 </style>
 
 <script>
@@ -624,3 +669,4 @@ document.addEventListener('click', function(e) {
 });
 </script>
 <script src="<?= $basePath ?>assets/notifications.js?v=<?= filemtime(__DIR__ . '/../assets/notifications.js') ?>"></script>
+<script src="<?= $basePath ?>assets/downloads.js?v=<?= filemtime(__DIR__ . '/../assets/downloads.js') ?>"></script>

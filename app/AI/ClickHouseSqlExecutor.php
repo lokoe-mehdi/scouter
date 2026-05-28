@@ -141,6 +141,29 @@ class ClickHouseSqlExecutor
     }
 
     /**
+     * Stream a validated, crawl-scoped SELECT straight to $fh as CSVWithNames
+     * (ClickHouse → disk, NO PHP row buffering). Used by the async CSV export so
+     * a multi-million-row SQL export never materialises its rows in PHP memory
+     * (that path OOM-killed the worker before writing a single line). Open bar:
+     * no row cap (the heavy `html` column is blocked → rows stay light), only a
+     * generous execution-time guard is kept.
+     *
+     * @throws \RuntimeException on validation failure or ClickHouse error
+     */
+    public function streamToFile(string $query, int $crawlId, $fh): void
+    {
+        $prep = $this->prepareSafeSql($query, $crawlId);
+        if (!$prep['ok']) {
+            throw new \RuntimeException($prep['error'] ?? 'Invalid SQL');
+        }
+        $sql = "SELECT * FROM (" . $prep['transformed'] . ") AS _scouter_q\nFORMAT CSVWithNames";
+        $this->ch->streamSelectToFile($sql, $fh, [
+            'format_csv_delimiter' => ';',
+            'max_execution_time'   => '600',
+        ]);
+    }
+
+    /**
      * Validate + rewrite into safe, crawl-scoped ClickHouse SQL.
      *
      * @return array{ok:true,transformed:string,deeplink_sql:string}|array{ok:false,error:string}

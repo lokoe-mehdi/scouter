@@ -65,6 +65,12 @@
                 if (e.key === 'Escape' && this.open) this.close();
             });
 
+            // Mutuellement exclusif avec le centre de téléchargements : si l'autre
+            // menu s'ouvre, on ferme celui-ci (jamais les deux ouverts à la fois).
+            document.addEventListener('scouter-dropdown-open', (e) => {
+                if (e.detail !== 'notif' && this.open) this.close();
+            });
+
             // Refresh quand l'utilisateur revient sur l'onglet.
             document.addEventListener('visibilitychange', () => {
                 if (!document.hidden) this.refresh();
@@ -222,6 +228,7 @@
         openDropdown() {
             this.open = true;
             this.el.dropdown.classList.add('show');
+            document.dispatchEvent(new CustomEvent('scouter-dropdown-open', { detail: 'notif' }));
             this.markAllRead();
         },
 

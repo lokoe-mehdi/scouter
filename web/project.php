@@ -41,6 +41,8 @@ foreach ($projectCrawls as $crawl) {
         'dir' => $dir, 'crawl_id' => $crawl->id, 'domain' => $crawl->domain,
         'date' => date('d/m/Y H:i', $timestamp), 'timestamp' => $timestamp,
         'started_at' => $crawl->started_at ?? null, 'finished_at' => $crawl->finished_at ?? null,
+        // Temps de traitement réel (hors pauses) ; null → repli mur d'horloge.
+        'processing_seconds' => $crawl->path ? $jobManager->getProcessingSeconds($crawl->path) : null,
         'stats' => [
             'urls' => $crawl->urls ?? 0, 'crawled' => $crawl->crawled ?? 0, 'compliant' => $crawl->compliant ?? 0,
             'duplicates' => $crawl->duplicates ?? 0, 'critical_errors' => $crawl->critical_errors ?? 0,
@@ -63,12 +65,12 @@ require_once(__DIR__ . '/components/project-metrics.php');
 // requête ClickHouse. La passe CH calcule les 3 d'un coup ET les persiste.
 $needIds = [];
 foreach ($crawls as $c) {
-    if (($c->stats['health_score'] ?? null) === null) { $needIds[(int)$c->crawl_id] = true; }
+    if (pcNeedsHealth($c->stats)) { $needIds[(int)$c->crawl_id] = true; }
 }
 if (!empty($needIds)) {
     $computed = \App\Analysis\CrawlStats::ensureFromClickHouse(array_keys($needIds));
     foreach ($crawls as $c) {
-        if (($c->stats['health_score'] ?? null) !== null) { continue; }
+        if (!pcNeedsHealth($c->stats)) { continue; }
         $id = (int)$c->crawl_id;
         $s = $c->stats;
         if (isset($computed[$id])) {
@@ -94,14 +96,13 @@ $prevFinished = $finishedList[1] ?? null;
 $kpiUrls = $lastFinished ? $lastFinished->stats['urls'] : 0;
 $kpiCrawled = $lastFinished ? $lastFinished->stats['crawled'] : 0;
 $kpiCompliant = $lastFinished ? $lastFinished->stats['compliant'] : 0;
-$kpiIndexableRate = $kpiCrawled > 0 ? round(($kpiCompliant / $kpiCrawled) * 100, 1) : 0;
 $kpiHealth = $lastFinished ? (int)($lastFinished->stats['health_score'] ?? pcHealthScore($lastFinished->stats)) : 0;
 
 // Séries de tendance (ancien→récent) pour les sparklines de l'aperçu.
 $trendFin = array_reverse(array_slice($finishedList, 0, 12));
 $trUrls = array_map(fn($c) => (int)$c->stats['urls'], $trendFin);
 $trCrawled = array_map(fn($c) => (int)$c->stats['crawled'], $trendFin);
-$trIdx = array_map(fn($c) => $c->stats['crawled'] > 0 ? round($c->stats['compliant'] / $c->stats['crawled'] * 100) : 0, $trendFin);
+$trCompliant = array_map(fn($c) => (int)$c->stats['compliant'], $trendFin);
 $trErr = array_map(fn($c) => (int)$c->stats['critical_errors'], $trendFin);
 
 // Map crawl_id → crawl terminé précédent (pour les variations en ligne).
@@ -152,6 +153,7 @@ function pjxCrawlRow($crawl, $prev, $canManage, $domainName, $dataIndex, $hidden
     $h = $hidden ? ' style="display:none;"' : '';
     // Cohérent avec l'aperçu KPI (ligne ~98) : on privilégie le score CH 5 piliers
     // stocké ; pcHealthScore n'est qu'un repli quand health_score n'est pas dispo.
+    // Un crawl arrêté est post-traité comme un terminé → il a un score valable.
     $score = $finished ? (int)($s['health_score'] ?? pcHealthScore($s)) : null;
     $idxRate = ($s['crawled'] > 0) ? round($s['compliant'] / $s['crawled'] * 100) : 0;
     $prevIdx = ($ps && $ps['crawled'] > 0) ? round($ps['compliant'] / $ps['crawled'] * 100) : null;
@@ -173,7 +175,7 @@ function pjxCrawlRow($crawl, $prev, $canManage, $domainName, $dataIndex, $hidden
     $typeIcon = $isList ? 'list' : 'bug_report';
     $typeLabel = $isList ? __('config.type_list') : __('config.type_spider');
     $typeBadge = '<span class="material-symbols-outlined pjx-type-ic" title="' . $typeLabel . '">' . $typeIcon . '</span>';
-    $dur = $inProgress ? '—' : pcDuration($crawl->started_at ?? null, $crawl->finished_at ?? null);
+    $dur = $inProgress ? '—' : pcDuration($crawl->started_at ?? null, $crawl->finished_at ?? null, $crawl->processing_seconds ?? null);
 
     $actions = '';
     // "Reprendre" uniquement si la frontier PG existe encore ($resumable) : un
@@ -506,12 +508,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                     if ($ovStatus === 'stopped') { $ovBadge = 'stopped'; $ovBadgeText = __('index.status_stopped'); }
                     elseif ($ovStatus === 'failed') { $ovBadge = 'failed'; $ovBadgeText = __('index.status_failed'); }
 
-                    $durSec = ($lastFinished->started_at && $lastFinished->finished_at)
-                        ? max(0, strtotime($lastFinished->finished_at) - strtotime($lastFinished->started_at)) : 0;
+                    // Temps de traitement réel (hors pauses) si dispo, sinon mur d'horloge.
+                    $procSec = $lastFinished->processing_seconds ?? null;
+                    $durSec = ($procSec !== null && $procSec > 0)
+                        ? $procSec
+                        : (($lastFinished->started_at && $lastFinished->finished_at)
+                            ? max(0, strtotime($lastFinished->finished_at) - strtotime($lastFinished->started_at)) : 0);
                     $pps = $durSec > 0 ? round($kpiCrawled / $durSec, 2) : 0;
                     $lastErr = (int)$lastFinished->stats['critical_errors'];
-                    $prevIdxRate = ($prevFinished && $prevFinished->stats['crawled'] > 0)
-                        ? round($prevFinished->stats['compliant'] / $prevFinished->stats['crawled'] * 100, 1) : null;
                     $healthPrev = $prevFinished ? (int)($prevFinished->stats['health_score'] ?? pcHealthScore($prevFinished->stats)) : null;
                     $scoreCls = pcScoreClass($kpiHealth);
                     $scoreLabel = $kpiHealth >= 75 ? __('project.score_excellent') : ($kpiHealth >= 50 ? __('project.score_watch') : __('project.score_critical'));
@@ -525,11 +529,12 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                 <?php
                     $pvU = $prevFinished ? (int)$prevFinished->stats['urls'] : null;
                     $pvC = $prevFinished ? (int)$prevFinished->stats['crawled'] : null;
+                    $pvCompliant = $prevFinished ? (int)$prevFinished->stats['compliant'] : null;
                     $pvE = $prevFinished ? (int)$prevFinished->stats['critical_errors'] : null;
                 ?>
                 <div class="pjx-kpis">
                     <div class="pjx-kpi-health">
-                        <span class="pjx-kpi-label"><?= __('project.health_score') ?></span>
+                        <span class="pjx-kpi-label"><button type="button" class="pjx-help-btn" onclick="openHealthInfo()" aria-label="<?= htmlspecialchars(__('project.health_help_title')) ?>"><span class="material-symbols-outlined">help</span></button><?= __('project.health_score') ?></span>
                         <div class="pjx-gauge-wrap">
                             <?= pjxGauge($kpiHealth, pcScoreColor($kpiHealth)) ?>
                             <div class="pjx-gauge-center">
@@ -555,10 +560,10 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                         <?= pcSparklineSvg($trCrawled, '#3B82F6') ?>
                     </div>
                     <div class="pjx-kpi">
-                        <span class="pjx-kpi-label"><?= __('columns.indexable') ?></span>
-                        <div class="pjx-kpi-val"><?= $kpiIndexableRate ?>%</div>
-                        <span class="pjx-kpi-sub"><?= $prevIdxRate !== null ? pjxAbsDelta((int)round($kpiIndexableRate), (int)round($prevIdxRate), true, '%') : '' ?> <?= __('project.vs_prev') ?></span>
-                        <?= pcSparklineSvg($trIdx, '#2ECC71', [0, 100]) ?>
+                        <span class="pjx-kpi-label"><?= __('index.kpi_indexable') ?></span>
+                        <div class="pjx-kpi-val"><?= number_format($kpiCompliant) ?></div>
+                        <span class="pjx-kpi-sub"><?= pcDelta($kpiCompliant, $pvCompliant ?? 0, true) ?> <?= __('project.vs_prev') ?></span>
+                        <?= pcSparklineSvg($trCompliant, '#2ECC71') ?>
                     </div>
                     <div class="pjx-kpi">
                         <span class="pjx-kpi-label"><?= __('project.errors') ?></span>
@@ -569,7 +574,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                 </div>
 
                 <div class="pjx-ministats">
-                    <div class="pjx-mini"><span class="material-symbols-outlined">schedule</span><div><span class="pjx-mini-label"><?= __('project.crawl_time') ?></span><span class="pjx-mini-val"><?= $durSec > 0 ? pcDuration($lastFinished->started_at, $lastFinished->finished_at) : '—' ?></span></div></div>
+                    <div class="pjx-mini"><span class="material-symbols-outlined">schedule</span><div><span class="pjx-mini-label"><?= __('project.crawl_time') ?></span><span class="pjx-mini-val"><?= $durSec > 0 ? pcFormatDuration((int)$durSec) : '—' ?></span></div></div>
                     <div class="pjx-mini"><span class="material-symbols-outlined">speed</span><div><span class="pjx-mini-label"><?= __('project.pages_per_sec') ?></span><span class="pjx-mini-val"><?= $pps ?: '—' ?></span></div></div>
                     <div class="pjx-mini"><span class="material-symbols-outlined">account_tree</span><div><span class="pjx-mini-label"><?= __('project.max_depth') ?></span><span class="pjx-mini-val"><?= (int)$lastFinished->stats['depth_max'] ?: '—' ?></span></div></div>
                     <div class="pjx-mini"><span class="material-symbols-outlined">database</span><div><span class="pjx-mini-label"><?= __('project.crawl_size') ?></span><span class="pjx-mini-val"><?= $lastCrawlSize ?></span></div></div>
@@ -735,6 +740,41 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     </div><!-- /pj -->
 
     <?php include 'components/crawl-modal.php'; ?>
+
+    <!-- Modale explicative du health score -->
+    <div id="healthInfoModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-title"><?= __('project.health_help_title') ?></span>
+                <button type="button" class="modal-close" onclick="closeHealthInfo()" aria-label="<?= htmlspecialchars(__('common.close')) ?>">&times;</button>
+            </div>
+            <p class="hsi-intro"><?= __('project.health_help_intro') ?></p>
+            <ul class="hsi-list">
+                <?php
+                $hsiPillars = [
+                    ['verified',     __('project.health_p1')],
+                    ['title',        __('project.health_p2')],
+                    ['article',      __('project.health_p3')],
+                    ['account_tree', __('project.health_p4')],
+                    ['linear_scale', __('project.health_p5')],
+                ];
+                foreach ($hsiPillars as [$hsiIc, $hsiTxt]):
+                    [$hsiName, $hsiDesc] = array_pad(explode('|', $hsiTxt, 2), 2, '');
+                ?>
+                <li class="hsi-item">
+                    <span class="material-symbols-outlined hsi-ic"><?= $hsiIc ?></span>
+                    <div>
+                        <div class="hsi-name"><?= htmlspecialchars($hsiName) ?></div>
+                        <div class="hsi-desc"><?= htmlspecialchars($hsiDesc) ?></div>
+                    </div>
+                </li>
+                <?php endforeach; ?>
+            </ul>
+            <div class="hsi-footer">
+                <button type="button" class="btn btn-primary" onclick="closeHealthInfo()"><?= __('common.close') ?></button>
+            </div>
+        </div>
+    </div>
 
     <script src="assets/global-status.js"></script>
     <script src="assets/crawl-panel.js?v=<?= time() ?>"></script>
@@ -1003,6 +1043,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         document.getElementById('newProjectForm').reset();
         document.getElementById('formMessage').innerHTML = '';
     }
+    function openHealthInfo() { document.getElementById('healthInfoModal').classList.add('active'); }
+    function closeHealthInfo() { document.getElementById('healthInfoModal').classList.remove('active'); }
     function switchCrawlTab(tabName) {
         document.querySelectorAll('.crawl-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
         document.querySelectorAll('.crawl-tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tabName));
@@ -1302,6 +1344,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     // Close modal on outside click
     document.addEventListener('click', function(e) {
         if (e.target.id === 'newProjectModal') closeNewProjectModal();
+        if (e.target.id === 'healthInfoModal') closeHealthInfo();
         const ss = document.getElementById('speedSelect');
         const sd = document.getElementById('speedDropdown');
         if (ss && sd && !ss.contains(e.target) && !sd.contains(e.target)) {
@@ -1310,6 +1353,11 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         }
         const us = document.getElementById('uaSelect');
         if (us && !us.contains(e.target)) us.classList.remove('open');
+    });
+
+    // Fermeture des modales à la touche Échap
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeHealthInfo();
     });
 
     // Pagination

@@ -27,7 +27,8 @@ $projectCategoryIds = array_map(fn($c) => $c->id, $projectCategories);
 // crawl TERMINÉ : un crawl en cours n'a pas encore de data → afficher ses 0
 // fausserait la carte. On exclut donc les crawls en cours pour le calcul des
 // KPIs. Le tableau détaillé plus bas continue, lui, de lister TOUS les crawls
-// (y compris celui en cours, affiché avec "—").
+// (y compris celui en cours, affiché avec "—"). Un crawl ARRÊTÉ est, lui, traité
+// comme terminé : même post-traitement → score santé valable.
 $pcInProgressStatuses = ['running', 'queued', 'pending', 'processing', 'stopping'];
 $reportableCrawls = array_values(array_filter($crawls, function ($c) use ($pcInProgressStatuses) {
     return !in_array($c->job_status ?? 'finished', $pcInProgressStatuses, true);
@@ -228,7 +229,7 @@ $trendColor = (count($trend) > 1 && $trend[count($trend)-1] < $trend[0] - 3) ? '
                         <td class="pc-num"><?= $isInProgress ? '—' : number_format($cs['crawled'] ?? 0) ?></td>
                         <td class="pc-num"><?= $isInProgress ? '—' : number_format($cs['compliant'] ?? 0) ?></td>
                         <td class="pc-num"><?= $isInProgress ? '—' : number_format($cs['critical_errors'] ?? 0) ?></td>
-                        <td class="pc-num"><?= $isInProgress ? '—' : pcDuration($crawl->started_at ?? null, $crawl->finished_at ?? null) ?></td>
+                        <td class="pc-num"><?= $isInProgress ? '—' : pcDuration($crawl->started_at ?? null, $crawl->finished_at ?? null, $crawl->processing_seconds ?? null) ?></td>
                         <?php if($canManage): ?>
                         <td onclick="event.stopPropagation();">
                             <div class="pc-table-actions">

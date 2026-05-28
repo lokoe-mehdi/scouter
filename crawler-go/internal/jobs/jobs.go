@@ -37,10 +37,23 @@ var crawlStatusMap = map[string]string{
 
 // RecoverOrphans re-queues crawl jobs left 'running' by a crashed worker, and
 // resets their crawls row to queued. Scoped to command='crawl'.
+//
+// CRITICAL: only re-queue jobs whose crawl is still genuinely in progress. A
+// finished crawl can be left with a stale 'running' job row (its job→terminal
+// sync didn't complete); without this guard a server restart would re-queue it
+// and clobber the crawls row back to 'queued', making a completed report vanish
+// (dashboard 302s any non-terminal crawl) — and could even trigger a re-crawl.
 func (m *Manager) RecoverOrphans(ctx context.Context) error {
 	rows, err := m.pool.Query(ctx, `
 		UPDATE jobs SET status='queued', started_at=NULL, pid=NULL
-		WHERE id IN (SELECT id FROM jobs WHERE status='running' AND command='crawl' FOR UPDATE SKIP LOCKED)
+		WHERE id IN (
+			SELECT j.id FROM jobs j
+			JOIN crawls c ON c.path = j.project_dir
+			WHERE j.status='running' AND j.command='crawl'
+			  AND c.status NOT IN ('finished','stopped','error')
+			  AND c.finished_at IS NULL
+			FOR UPDATE OF j SKIP LOCKED
+		)
 		RETURNING project_dir`)
 	if err != nil {
 		return err

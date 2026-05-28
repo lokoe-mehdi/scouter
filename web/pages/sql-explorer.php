@@ -3140,7 +3140,9 @@ function executeQuery() {
     
     // Pré-traiter la requête : convertir les doubles quotes en simples quotes
     query = convertDoubleQuotesToSingleQuotes(query);
-    
+    // Mémoriser la requête exécutée pour l'export CSV (rejouée côté serveur).
+    window.lastExecutedSql = query;
+
     // Afficher le loader
     document.getElementById('resultsContent').innerHTML = `
         <div class="loading">
@@ -3385,64 +3387,31 @@ function exportToCSV() {
         alert(__('sql_explorer.error_no_data'));
         return;
     }
-    
-    // Récupérer le bouton et sauvegarder son contenu
+    const sql = window.lastExecutedSql || '';
+    if (!sql.trim()) {
+        alert(__('sql_explorer.error_no_data'));
+        return;
+    }
+    if (typeof window.queueExport !== 'function') return;
+
+    // Export asynchrone : le CSV est régénéré côté serveur (résultat COMPLET, pas
+    // seulement les lignes affichées) et envoyé sur le blob store. L'icône
+    // « téléchargements » du header prévient quand c'est prêt.
     const exportBtn = document.getElementById('exportBtn');
     const originalContent = exportBtn.innerHTML;
-    
-    // Afficher l'animation de chargement
     exportBtn.disabled = true;
     exportBtn.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span> ' + __('sql_explorer.exporting');
-    
-    // Utiliser setTimeout pour permettre à l'UI de se mettre à jour
-    setTimeout(() => {
-        try {
-            // Créer le CSV
-            const columns = currentResultData.columns;
-            let csvContent = columns.join(',') + '\n';
-            
-            currentResultData.rows.forEach(row => {
-                const csvRow = columns.map(col => {
-                    const value = row[col];
-                    if (value === null) return '';
-                    // Échapper les guillemets et entourer de guillemets si nécessaire
-                    const stringValue = String(value);
-                    if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
-                        return '"' + stringValue.replace(/"/g, '""') + '"';
-                    }
-                    return stringValue;
-                }).join(',');
-                csvContent += csvRow + '\n';
-            });
-            
-            // Créer un blob et télécharger
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            
-            if (link.download !== undefined) {
-                const url = URL.createObjectURL(blob);
-                link.setAttribute('href', url);
-                link.setAttribute('download', 'sql_export_' + new Date().toISOString().slice(0,19).replace(/:/g, '-') + '.csv');
-                link.style.visibility = 'hidden';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                URL.revokeObjectURL(url);
-            }
-            
-            // Restaurer le bouton après un court délai
-            setTimeout(() => {
-                exportBtn.disabled = false;
-                exportBtn.innerHTML = originalContent;
-            }, 500);
-            
-        } catch (error) {
-            // En cas d'erreur, restaurer le bouton immédiatement
+
+    Promise.resolve(window.queueExport({
+        type: 'sql',
+        project: <?= json_encode((string)$projectDir) ?>,
+        sql: sql
+    })).finally(() => {
+        setTimeout(() => {
             exportBtn.disabled = false;
             exportBtn.innerHTML = originalContent;
-            alert(__('sql_explorer.error_export') + error.message);
-        }
-    }, 100);
+        }, 400);
+    });
 }
 
 // Échapper le HTML
