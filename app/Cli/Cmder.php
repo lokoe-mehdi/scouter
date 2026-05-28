@@ -218,6 +218,15 @@ class Cmder
           // Drop partitions first (instant, regardless of row count)
           self::info("Dropping partitions for crawl $crawlId...");
           $db->exec("SELECT drop_crawl_partitions($crawlId)");
+
+          // Purge the crawl's HTML blobs (S3/local) — the page-HTML moved out of
+          // the DB into the blob store, so its prefix must be cleaned up too.
+          try {
+              $removed = \App\Storage\Storage::instance()->deletePrefix("html/{$crawlId}/");
+              self::info("Removed $removed HTML blob(s) for crawl $crawlId");
+          } catch (\Throwable $e) {
+              self::alert("HTML blob purge failed for crawl $crawlId: " . $e->getMessage());
+          }
           if ($jobManager) $jobManager->updateJobProgress($jobId, 50);
 
           // Delete categorization config
@@ -277,6 +286,13 @@ class Cmder
           try {
               // Drop partitions (instant)
               $db->exec("SELECT drop_crawl_partitions({$crawl->id})");
+
+              // Purge the crawl's HTML blobs (S3/local) too.
+              try {
+                  \App\Storage\Storage::instance()->deletePrefix("html/{$crawl->id}/");
+              } catch (\Throwable $e) {
+                  self::alert("HTML blob purge failed for crawl {$crawl->id}: " . $e->getMessage());
+              }
 
               // Delete categorization config
               $stmt = $db->prepare("DELETE FROM categorization_config WHERE crawl_id = :id");

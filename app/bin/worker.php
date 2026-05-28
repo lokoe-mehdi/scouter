@@ -177,6 +177,16 @@ while ($running) {
             error_log('[Worker] notification reconcile failed: ' . $e->getMessage());
         }
 
+        // Sweep des exports périmés (>24h) : supprime l'objet du blob store + la
+        // ligne, pour que le CSV ne soit plus accessible. Throttlé, isolé.
+        try {
+            if ($pollCount % 50 === 0) {
+                (new \App\Export\ExportService())->pruneExpired();
+            }
+        } catch (\Throwable $e) {
+            error_log('[Worker] export prune failed: ' . $e->getMessage());
+        }
+
         // Configuration timeout pour le polling :
         // - statement_timeout = 0 (pas de limite, car les checkpoints peuvent bloquer)
         // - lock_timeout = 60s (permissif pour plusieurs crawls simultanés)
@@ -248,7 +258,22 @@ while ($running) {
             $isDeleteJob = strpos($command, 'delete-crawl:') === 0 || strpos($command, 'delete-project:') === 0;
             $isPrecomputeProject = strpos($command, 'precompute-reports-project:') === 0;
             $isPrecompute = !$isPrecomputeProject && strpos($command, 'precompute-reports:') === 0;
+            $isExport = strpos($command, 'export:') === 0;
             $isResume = ($command === 'resume');
+
+            // Blob-store env (S3/local) forwarded to children that touch storage:
+            // export jobs (write the CSV) and delete jobs (purge a crawl's HTML).
+            // proc_open with an explicit $env does NOT inherit the parent's env.
+            $storageEnv = array_filter([
+                'STORAGE_PATH'         => getenv('STORAGE_PATH'),
+                'S3_BUCKET'            => getenv('S3_BUCKET'),
+                'S3_REGION'            => getenv('S3_REGION'),
+                'S3_ENDPOINT'          => getenv('S3_ENDPOINT'),
+                'S3_ACCESS_KEY_ID'     => getenv('S3_ACCESS_KEY_ID'),
+                'S3_SECRET_ACCESS_KEY' => getenv('S3_SECRET_ACCESS_KEY'),
+                'S3_PREFIX'            => getenv('S3_PREFIX'),
+                'S3_USE_PATH_STYLE'    => getenv('S3_USE_PATH_STYLE'),
+            ], fn($v) => $v !== false);
 
             if ($isResume) {
                 $jobManager->addLog($job->id, "Worker $workerId resuming crawl", 'info');
@@ -265,6 +290,9 @@ while ($running) {
             } elseif ($isPrecompute || $isPrecomputeProject) {
                 $jobManager->addLog($job->id, "Worker $workerId starting report precompute", 'info');
                 file_put_contents($logFile, "\n📊 Report precompute\n=== WORKER STARTED JOB ===\n", FILE_APPEND);
+            } elseif ($isExport) {
+                $jobManager->addLog($job->id, "Worker $workerId starting CSV export", 'info');
+                file_put_contents($logFile, "\n⬇️ CSV export\n=== WORKER STARTED JOB ===\n", FILE_APPEND);
             } else {
                 $jobManager->addLog($job->id, "Worker $workerId started processing", 'info');
                 file_put_contents($logFile, "\n=== WORKER STARTED CRAWL ===\n", FILE_APPEND);
@@ -288,14 +316,35 @@ while ($running) {
                 $deleteModule = strpos($command, 'delete-crawl:') === 0 ? 'delete-crawl' : 'delete-project';
                 echo "[Worker $workerId] Executing async deletion: $command\n";
 
-                $env = [
+                $env = array_merge([
                     'DATABASE_URL' => getenv('DATABASE_URL'),
                     'PATH' => getenv('PATH'),
                     'JOB_ID' => $job->id
-                ];
+                ], $storageEnv); // purges the crawl's HTML blobs → needs storage env
 
                 $process = proc_open(
                     [$phpBin, $scouterScript, $deleteModule, $command],
+                    $descriptors,
+                    $pipes,
+                    $basePath,
+                    $env
+                );
+            } elseif ($isExport) {
+                // CSV export job: regenerates the CSV (reads ClickHouse via ChPdo)
+                // and uploads it to the blob store → needs CLICKHOUSE_* + S3/local env.
+                echo "[Worker $workerId] Executing CSV export: $command\n";
+                $env = array_merge(array_filter([
+                    'DATABASE_URL'           => getenv('DATABASE_URL'),
+                    'PATH'                   => getenv('PATH'),
+                    'JOB_ID'                 => $job->id,
+                    'CLICKHOUSE_URL'         => getenv('CLICKHOUSE_URL'),
+                    'CLICKHOUSE_DB'          => getenv('CLICKHOUSE_DB'),
+                    'CLICKHOUSE_USER'        => getenv('CLICKHOUSE_USER'),
+                    'CLICKHOUSE_PASSWORD'    => getenv('CLICKHOUSE_PASSWORD'),
+                    'CLICKHOUSE_QUERY_CACHE' => getenv('CLICKHOUSE_QUERY_CACHE'),
+                ], fn($v) => $v !== false), $storageEnv);
+                $process = proc_open(
+                    [$phpBin, $scouterScript, 'export', $command],
                     $descriptors,
                     $pipes,
                     $basePath,
@@ -322,18 +371,29 @@ while ($running) {
             } elseif ($isBulkAiGenerate) {
                 // Bulk AI generation job
                 echo "[Worker $workerId] Executing bulk AI generation: $command\n";
-                $env = [
-                    'DATABASE_URL' => getenv('DATABASE_URL'),
-                    'PATH' => getenv('PATH'),
-                    'JOB_ID' => $job->id,
-                    // CRITICAL : forward the encryption key to the sub-process,
-                    // otherwise AppSettings::get('ai.openrouter.api_key') returns
-                    // null in the worker child even when the container itself
-                    // has the env var. proc_open with an explicit $env array
-                    // does NOT inherit the parent's environment — anything not
-                    // listed here disappears.
+                // CRITICAL : proc_open with an explicit $env array does NOT inherit
+                // the parent's environment — anything not listed here disappears in
+                // the child. We must forward:
+                //   - SCOUTER_ENCRYPTION_KEY → else the OpenRouter API key can't be
+                //     decrypted (AppSettings::get returns null).
+                //   - CLICKHOUSE_* → else ClickHouseDatabase::enabled() is false in
+                //     the child, CrawlStore::usesClickHouse() returns false, and
+                //     BulkGenerator writes results via the Postgres path. For a
+                //     CH-backed crawl the pages live in ClickHouse, so that UPDATE
+                //     hits 0 rows: the job completes "done" with 0 failures yet
+                //     nothing is persisted anywhere (and context is built from an
+                //     empty PG read). Same forwarding the precompute branch does.
+                $env = array_filter([
+                    'DATABASE_URL'           => getenv('DATABASE_URL'),
+                    'PATH'                   => getenv('PATH'),
+                    'JOB_ID'                 => $job->id,
                     'SCOUTER_ENCRYPTION_KEY' => getenv('SCOUTER_ENCRYPTION_KEY'),
-                ];
+                    'CLICKHOUSE_URL'         => getenv('CLICKHOUSE_URL'),
+                    'CLICKHOUSE_DB'          => getenv('CLICKHOUSE_DB'),
+                    'CLICKHOUSE_USER'        => getenv('CLICKHOUSE_USER'),
+                    'CLICKHOUSE_PASSWORD'    => getenv('CLICKHOUSE_PASSWORD'),
+                    'CLICKHOUSE_QUERY_CACHE' => getenv('CLICKHOUSE_QUERY_CACHE'),
+                ], fn($v) => $v !== false);
                 $process = proc_open(
                     [$phpBin, $scouterScript, 'bulk-ai-generate', $command],
                     $descriptors,
@@ -495,6 +555,20 @@ while ($running) {
                     $jobManager->setJobError($job->id, $errorMsg);
                     $jobManager->addLog($job->id, $errorMsg, 'error');
                     echo "[Worker $workerId] Error: $errorMsg\n";
+
+                    // An OOM-killed export subprocess (exit 137 / SIGKILL) never runs
+                    // its own catch, so the export row stays 'running' and spins
+                    // forever in the UI. Reconcile it here from the parent worker.
+                    if ($isExport) {
+                        try {
+                            $flipped = (new \App\Export\ExportService())->failByJob((int)$job->id, $errorMsg);
+                            if ($flipped > 0) {
+                                echo "[Worker $workerId] Marked $flipped stuck export(s) for job #{$job->id} as failed\n";
+                            }
+                        } catch (\Throwable $e) {
+                            echo "[Worker $workerId] Warning: could not reconcile export for job #{$job->id}: " . $e->getMessage() . "\n";
+                        }
+                    }
                 }
             }
 

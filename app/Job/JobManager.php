@@ -133,7 +133,8 @@ class JobManager
         if ($jobRow && $jobRow->project_dir
             && strpos($jobRow->command, 'batch-') !== 0
             && strpos($jobRow->command, 'delete-') !== 0
-            && strpos($jobRow->command, 'precompute-') !== 0) {
+            && strpos($jobRow->command, 'precompute-') !== 0
+            && strpos($jobRow->command, 'export:') !== 0) {
             $crawlStatusMap = [
                 'queued' => 'queued',
                 'running' => 'running',
@@ -206,6 +207,38 @@ class JobManager
         ");
         $stmt->execute([':project_dir' => $projectDir]);
         return $stmt->fetch(PDO::FETCH_OBJ);
+    }
+
+    /**
+     * Temps de traitement RÉEL d'un crawl = somme des durées de chaque session de
+     * travail (chaque reprise crée une nouvelle ligne `jobs`). Comme on additionne
+     * des intervalles started_at→finished_at par session, le temps écoulé ENTRE
+     * deux sessions (= pause / crawl arrêté puis repris) est naturellement exclu.
+     *
+     * Retourne null si aucune session exploitable (jobs purgés, vieux crawl) →
+     * l'appelant doit alors retomber sur le mur d'horloge crawls.started/finished.
+     */
+    public function getProcessingSeconds(string $projectDir): ?int
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (finished_at - started_at))), 0) AS secs,
+                       COUNT(*) AS sessions
+                FROM jobs
+                WHERE project_dir = :pd
+                  AND command = 'crawl'
+                  AND started_at IS NOT NULL
+                  AND finished_at IS NOT NULL
+                  AND finished_at >= started_at
+            ");
+            $stmt->execute([':pd' => $projectDir]);
+            $row = $stmt->fetch(PDO::FETCH_OBJ);
+            if (!$row || (int)$row->sessions === 0) return null;
+            $secs = (int)round((float)$row->secs);
+            return $secs > 0 ? $secs : null;
+        } catch (\Throwable $e) {
+            return null; // table absente / erreur SQL → repli mur d'horloge
+        }
     }
 
     public function getJobLogs($jobId, $limit = 100, $offset = 0)

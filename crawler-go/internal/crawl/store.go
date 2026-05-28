@@ -1,6 +1,8 @@
 package crawl
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"regexp"
 	"strings"
@@ -8,6 +10,7 @@ import (
 	"scouter-crawler/internal/analysis"
 	"scouter-crawler/internal/db"
 	"scouter-crawler/internal/model"
+	"scouter-crawler/internal/storage"
 )
 
 var targetDomainRe = regexp.MustCompile(`(?i)https?://([^/?]+)`)
@@ -236,15 +239,51 @@ func (e *Engine) storeLinks(ctx context.Context, p model.Page, depth int) error 
 	return nil
 }
 
+// htmlMaxSize caps the stored HTML at 1 MB (matches the former PG path). A page
+// heavier than 1 MB is abnormal and not worth keeping whole — truncate with a
+// marker rather than balloon the store.
+const htmlMaxSize = 1 << 20
+
+// storeRaw persists a page's HTML to the blob store (S3 or local), gzip-
+// compressed and keyed by (crawl_id, page_id). HTML no longer goes to the
+// database — the column there grew the footprint too much. Old crawls keep their
+// HTML in ClickHouse/PG and the readers fall back there when no blob exists.
 func (e *Engine) storeRaw(ctx context.Context, p model.Page) error {
-	if !e.cfg.StoreHTML || p.DomZip == "" {
+	if !e.cfg.StoreHTML || p.DomZip == "" || e.htmlStore == nil {
 		return nil
 	}
-	e.chStore.AddHTMLZipped(p.ID, p.DomZip)
-	if e.slimPG {
+	raw := unzipDom(p.DomZip)
+	if raw == "" {
 		return nil
 	}
-	return e.cdb.InsertHTML(ctx, p.ID, p.DomZip)
+	if len(raw) > htmlMaxSize {
+		raw = raw[:htmlMaxSize] + "\n<!-- TRUNCATED -->"
+	}
+	gz, err := gzipBytes([]byte(raw))
+	if err != nil {
+		e.logf("storage: gzip html %s failed: %v", p.ID, err)
+		return nil
+	}
+	if err := e.htmlStore.Put(ctx, storage.HTMLKey(e.cdb.CrawlID, p.ID), gz); err != nil {
+		// A blob-store hiccup must not drop the page: the pages row and links
+		// still land. Log so a persistent storage outage stays visible.
+		e.logf("storage: put html %s failed: %v", p.ID, err)
+	}
+	return nil
+}
+
+// gzipBytes returns the gzip-compressed form of b.
+func gzipBytes(b []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(b); err != nil {
+		_ = zw.Close()
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func targetDomain(url string) string {

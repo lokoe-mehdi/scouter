@@ -3,6 +3,7 @@
 namespace App\AI;
 
 use App\Database\PostgresDatabase;
+use App\Storage\HtmlStore;
 use PDO;
 
 /**
@@ -244,31 +245,23 @@ class ContextBuilder
     private function fetchVisibleContent(int $crawlId, array $pageIds, bool $useCh = false): array
     {
         if (empty($pageIds)) return [];
-        $placeholders = [];
-        $params = [':cid' => $crawlId];
-        foreach ($pageIds as $i => $pid) {
-            $key = ':p' . $i;
-            $placeholders[] = $key;
-            $params[$key] = $pid;
-        }
         $db = $useCh ? new \App\Database\ChPdo($crawlId) : $this->db;
-        $sql = 'SELECT id, html FROM html WHERE crawl_id = :cid AND id IN (' . implode(',', $placeholders) . ')';
-        $stmt = $db->prepare($sql);
-        $stmt->execute($params);
+
+        // HTML now lives in the blob store (S3/local), returned decompressed;
+        // older crawls fall back to the DB inside HtmlStore.
+        $htmlById = HtmlStore::fetchMany($crawlId, $pageIds, $useCh, $db);
 
         $out = [];
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            // CH stores raw HTML; legacy PG stores base64+gzdeflate.
-            $raw = $useCh ? (string)$r['html'] : self::decodeStoredHtml($r['html']);
+        foreach ($htmlById as $id => $raw) {
             if ($raw === null || $raw === '') {
-                $out[$r['id']] = '';
+                $out[$id] = '';
                 continue;
             }
             $text = self::stripHtmlToText($raw);
             if (mb_strlen($text) > self::VISIBLE_CONTENT_CHAR_CAP) {
                 $text = mb_substr($text, 0, self::VISIBLE_CONTENT_CHAR_CAP) . '…';
             }
-            $out[$r['id']] = $text;
+            $out[$id] = $text;
         }
         return $out;
     }

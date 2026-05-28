@@ -128,6 +128,38 @@ switch($module){
     }
   break;
 
+  // Export CSV asynchrone (SQL / URL / Link / Redirect explorer) : génère le CSV
+  // côté serveur et l'envoie sur le blob store (S3/local). Lancé par le worker
+  // PHP ("export:<exportId>").
+  case "export":
+    $arg = (isset($argv[2])) ? $argv[2] : "none";
+    $jobManager = new \App\Job\JobManager();
+    $exportId = (int) (explode(':', $arg)[1] ?? 0);
+    try {
+        if ($exportId <= 0) {
+            throw new \RuntimeException("Invalid export id: {$arg}");
+        }
+        (new \App\Export\ExportService())->run($exportId);
+
+        $jobId = getenv('JOB_ID');
+        if ($jobId) {
+            $jobManager->updateJobStatus($jobId, 'completed');
+            $jobManager->addLog($jobId, "Export #{$exportId} ready", 'success');
+        }
+    } catch (\Throwable $e) {
+        if ($exportId > 0) {
+            try { (new \App\Export\ExportService())->fail($exportId, $e->getMessage()); } catch (\Throwable $ignore) {}
+        }
+        $jobId = getenv('JOB_ID');
+        if ($jobId) {
+            $jobManager->updateJobStatus($jobId, 'failed');
+            $jobManager->setJobError($jobId, $e->getMessage());
+            $jobManager->addLog($jobId, "Export failed: " . $e->getMessage(), 'error');
+        }
+        echo "\n\nERROR: " . $e->getMessage() . "\n";
+    }
+  break;
+
   case "dashboard":
     Cmder::dashboard();
   break;

@@ -43,6 +43,7 @@ body { background: #F4F6FA; }
 }
 .pjx-kpi { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
 .pjx-kpi-label {
+    display: inline-flex; align-items: center;
     font-size: 0.72rem; letter-spacing: 0.03em; text-transform: uppercase;
     color: var(--text-secondary); font-weight: 600;
 }
@@ -89,8 +90,11 @@ body { background: #F4F6FA; }
 /* mini stats row — intégrée, sans bloc ni bordure */
 .pjx-ministats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; padding: 1.25rem 0; }
 .pjx-mini { display: flex; align-items: center; gap: 0.55rem; }
-.pjx-mini .material-symbols-outlined { font-size: 20px; color: var(--text-secondary); }
-.pjx-mini > div { display: flex; flex-direction: column; }
+/* L'icône ancre tout le bloc (label + valeur) : taille proche de la hauteur des
+   deux lignes + line-height 1 pour qu'elle se centre proprement sur le texte et
+   ne "flotte" plus au-dessus de la valeur. */
+.pjx-mini .material-symbols-outlined { font-size: 26px; line-height: 1; color: var(--text-secondary); flex-shrink: 0; }
+.pjx-mini > div { display: flex; flex-direction: column; justify-content: center; line-height: 1.25; }
 .pjx-mini-label { font-size: 0.72rem; color: var(--text-secondary); }
 .pjx-mini-val { font-size: 0.95rem; font-weight: 700; color: var(--text-primary); }
 
@@ -144,7 +148,32 @@ body { background: #F4F6FA; }
 .pjx-num .pc-delta { margin-left: 0.3rem; font-size: 0.72rem; }
 .pjx-table td, .pjx-table th { overflow: hidden; }
 .pjx-date { display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
-.pjx-type-ic { font-size: 16px; color: var(--text-tertiary, #95A5A6); }
+.pjx-date .pjx-type-ic { font-size: 16px; color: var(--text-tertiary, #95A5A6); opacity: 0.7; }
+/* Bouton "?" qui ouvre la modale explicative du health score. */
+.pjx-help-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; margin-right: 0.35rem; padding: 0;
+    border: none; border-radius: 50%; background: transparent;
+    color: var(--text-tertiary, #95A5A6); cursor: pointer; vertical-align: middle;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.pjx-help-btn .material-symbols-outlined { font-size: 16px; }
+.pjx-help-btn:hover { background: rgba(0,0,0,0.06); color: var(--text-primary, #2C3E50); }
+
+/* Modale explicative : liste aérée des 5 piliers du score. */
+.hsi-intro { margin: 0 0 1.25rem; color: var(--text-secondary, #5a6a7a); line-height: 1.55; font-size: 0.92rem; }
+.hsi-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1rem; }
+.hsi-item { display: flex; align-items: flex-start; gap: 0.85rem; }
+/* selecteur a 2 classes pour battre .material-symbols-outlined (display/font-size). */
+.hsi-item .hsi-ic {
+    flex: 0 0 auto; width: 34px; height: 34px; border-radius: 9px;
+    display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+    background: rgba(78, 205, 196, 0.14); color: #1ba89c; font-size: 20px;
+}
+.hsi-name { font-weight: 700; color: var(--text-primary, #2C3E50); margin-bottom: 0.15rem; }
+.hsi-desc { color: var(--text-secondary, #5a6a7a); line-height: 1.5; font-size: 0.88rem; }
+.hsi-footer { margin-top: 1.5rem; display: flex; justify-content: flex-end; }
+
 .pjx-score { display: inline-flex; align-items: center; gap: 0.4rem; }
 .pjx-score svg { width: 26px; height: 26px; }
 .pjx-score b { font-size: 0.85rem; font-weight: 700; }

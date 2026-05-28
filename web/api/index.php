@@ -118,11 +118,12 @@ try {
     $router->get('/query/html-source', [QueryController::class, 'htmlSource'], ['auth' => true]);
 
     // =============================================================================
-    // EXPORTS
+    // EXPORTS (asynchrones → blob store ; centre de téléchargements du header)
     // =============================================================================
-    $router->post('/export/csv', [ExportController::class, 'csv'], ['auth' => true]);
-    $router->post('/export/links-csv', [ExportController::class, 'linksCsv'], ['auth' => true]);
-    $router->post('/export/redirect-chains-csv', [ExportController::class, 'redirectChainsCsv'], ['auth' => true]);
+    $router->post('/exports', [ExportController::class, 'create'], ['auth' => true]);
+    $router->get('/exports', [ExportController::class, 'index'], ['auth' => true]);
+    $router->post('/exports/seen', [ExportController::class, 'seen'], ['auth' => true]);
+    $router->get('/exports/{id}/download', [ExportController::class, 'download'], ['auth' => true]);
 
     // =============================================================================
     // MONITOR

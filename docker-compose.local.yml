@@ -71,6 +71,8 @@ services:
       - ./app:/app/app
       - ./crawls:/var/www/crawls
       - ./logs:/app/logs
+      # Page-HTML blobs (local backend) shared with the worker + crawler-go.
+      - ./storage:/app/storage
     environment:
       - PHP_CLI_SERVER_WORKERS=8
       - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
@@ -83,6 +85,15 @@ services:
       # Master key used to encrypt secrets stored in app_settings (Gemini API key, etc.).
       # Read from .env (gitignored). Generate one with `openssl rand -hex 32`.
       - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY}
+      # Page-HTML blob storage: local dir by default; set S3_* to use a bucket.
+      - STORAGE_PATH=/app/storage
+      - S3_BUCKET=${S3_BUCKET:-}
+      - S3_REGION=${S3_REGION:-}
+      - S3_ENDPOINT=${S3_ENDPOINT:-}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-}
+      - S3_PREFIX=${S3_PREFIX:-}
+      - S3_USE_PATH_STYLE=${S3_USE_PATH_STYLE:-false}
     restart: unless-stopped
     networks:
       - scouter-net
@@ -134,10 +145,20 @@ services:
       # returns null and jobs fail with "API key not configured".
       # Read from .env (gitignored) — same key as the scouter service above.
       - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY}
+      # Page-HTML blob storage — the worker purges a crawl's HTML on deletion.
+      - STORAGE_PATH=/app/storage
+      - S3_BUCKET=${S3_BUCKET:-}
+      - S3_REGION=${S3_REGION:-}
+      - S3_ENDPOINT=${S3_ENDPOINT:-}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-}
+      - S3_PREFIX=${S3_PREFIX:-}
+      - S3_USE_PATH_STYLE=${S3_USE_PATH_STYLE:-false}
     volumes:
       - ./web:/app/web
       - ./app:/app/app
       - ./logs:/app/logs
+      - ./storage:/app/storage
     networks:
       - scouter-net
     depends_on:
@@ -191,12 +212,23 @@ services:
       - MAX_CONCURRENT_CURL=${MAX_CONCURRENT_CURL:-12}
       - POOL_CONNS_PER_CRAWL=${POOL_CONNS_PER_CRAWL:-8}
       - LOG_DIR=/app/logs
+      # Page-HTML blob storage — local dir by default; set S3_* to use a bucket.
+      - STORAGE_PATH=/app/storage
+      - S3_BUCKET=${S3_BUCKET:-}
+      - S3_REGION=${S3_REGION:-}
+      - S3_ENDPOINT=${S3_ENDPOINT:-}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-}
+      - S3_PREFIX=${S3_PREFIX:-}
+      - S3_USE_PATH_STYLE=${S3_USE_PATH_STYLE:-false}
     volumes:
       - ./crawler-go:/src
       - go-build-cache:/root/.cache/go-build
       - go-mod-cache:/go/pkg/mod
       # Shared with the scouter container so the UI live console can tail logs.
       - ./logs:/app/logs
+      # Page-HTML blobs (local backend) — shared with scouter so it can read them.
+      - ./storage:/app/storage
     networks:
       - scouter-net
     depends_on:

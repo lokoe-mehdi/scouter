@@ -217,20 +217,29 @@ test('reconciler émet crawl_finished à la fin du précalcul, clé sur le crawl
     expect((int) $row->crawl_id)->toBe(NOTIF_C1);
 });
 
-test('reconciler émet les jobs projet (catégorisation / rapport / bulk IA) vers la page projet', function () {
+test('reconciler émet la catégorisation et le rapport vers la page projet', function () {
     ($this->insertJob)(90013, 'batch-categorize-project:' . NOTIF_P1, 'completed', NOTIF_DIR1, ['finished_at' => date('Y-m-d H:i:s')]);
     ($this->insertJob)(90014, 'precompute-reports-project:' . NOTIF_P1, 'completed', NOTIF_DIR1, ['finished_at' => date('Y-m-d H:i:s')]);
-    ($this->insertJob)(90015, 'bulk-ai-generate:777', 'completed', NOTIF_DIR1, ['finished_at' => date('Y-m-d H:i:s')]);
 
     (new NotificationReconciler($this->db))->run();
 
     $types = notifTypesFor($this->db, NOTIF_U1);
     expect($types)->toContain('categorization_finished');
     expect($types)->toContain('report_finished');
-    expect($types)->toContain('bulk_ai_finished');
 
     $action = $this->db->query("SELECT action FROM notifications WHERE event_key = 'categorization_finished:90013'")->fetchColumn();
     expect($action)->toBe('project');
+});
+
+test('reconciler renvoie la génération IA en masse vers l\'URL Explorer du crawl', function () {
+    ($this->insertJob)(90015, 'bulk-ai-generate:777', 'completed', NOTIF_DIR1, ['finished_at' => date('Y-m-d H:i:s')]);
+
+    (new NotificationReconciler($this->db))->run();
+
+    $row = $this->db->query("SELECT action, crawl_id FROM notifications WHERE event_key = 'bulk_ai_finished:90015'")->fetch(PDO::FETCH_OBJ);
+    expect($row)->not->toBeFalse();
+    expect($row->action)->toBe('explorer');
+    expect((int) $row->crawl_id)->toBe(NOTIF_C1);
 });
 
 test('reconciler ne notifie pas les jobs de suppression', function () {

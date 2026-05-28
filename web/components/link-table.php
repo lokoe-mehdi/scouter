@@ -1625,22 +1625,19 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
         });
     };
 
-    // Export CSV
+    // Export CSV — asynchrone (job → blob store), récupéré via l'icône « téléchargements ».
     window['exportToCSV_' + componentId] = function() {
         const selectedCols = [];
         document.querySelectorAll('.column-checkbox-' + componentId + ':checked').forEach(cb => {
             selectedCols.push(cb.value);
         });
-        
-        // Récupérer les filtres et recherche depuis l'URL
-        const params = new URLSearchParams(window.location.search);
-        const filters = params.get('filters') || '';
-        const search = params.get('search') || '';
-        
-        document.getElementById('exportForm_' + componentId).querySelector('[name="filters"]').value = filters;
-        document.getElementById('exportForm_' + componentId).querySelector('[name="search"]').value = search;
-        document.getElementById('exportColumns_' + componentId).value = JSON.stringify(selectedCols);
-        document.getElementById('exportForm_' + componentId).submit();
+
+        if (typeof window.queueExport !== 'function') return;
+        window.queueExport({
+            type: 'links',
+            project: <?= json_encode((string)($crawlId ?? $projectDir)) ?>,
+            columns: JSON.stringify(selectedCols)
+        });
     };
 
     // Stocker les références aux handlers pour pouvoir les retirer

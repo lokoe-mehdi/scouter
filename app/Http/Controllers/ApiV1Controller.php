@@ -13,6 +13,7 @@ use App\AI\ClickHouseSqlExecutor;
 use App\Database\CrawlStore;
 use App\Analysis\CategorizationService;
 use App\Api\PageContent;
+use App\Storage\HtmlStore;
 use App\Job\JobManager;
 use PDO;
 
@@ -355,19 +356,11 @@ class ApiV1Controller extends Controller
 
         $base = ['url' => $page['url'], 'title' => $page['title'], 'has_html' => false, 'headings' => [], 'text' => '', 'word_count' => 0];
 
-        // Fetch the stored HTML blob (may be absent if the crawl didn't keep HTML).
-        $stmt = $dataDb->prepare("SELECT html FROM html WHERE crawl_id = :cid AND id = :id LIMIT 1");
-        $stmt->execute([':cid' => $cid, ':id' => $page['id']]);
-        $stored = $stmt->fetchColumn();
-        if (!$stored) {
-            $base['note'] = 'No HTML stored for this URL (the crawl did not keep raw HTML).';
-            Response::json(['data' => $base, 'meta' => ['crawl_id' => $cid]]);
-            return;
-        }
-
-        $raw = $useCh ? (string)$stored : PageContent::decode($stored);
+        // Raw HTML now lives in the blob store (S3/local); older crawls fall back
+        // to the DB. HtmlStore returns it already decompressed.
+        $raw = HtmlStore::fetch($cid, (string)$page['id'], $useCh, $dataDb);
         if ($raw === null || $raw === '') {
-            $base['note'] = 'Stored HTML could not be decoded.';
+            $base['note'] = 'No HTML stored for this URL (the crawl did not keep raw HTML).';
             Response::json(['data' => $base, 'meta' => ['crawl_id' => $cid]]);
             return;
         }
@@ -414,18 +407,10 @@ class ApiV1Controller extends Controller
 
         $base = ['url' => $page['url'], 'has_html' => false, 'html' => '', 'length' => 0, 'truncated' => false];
 
-        $stmt = $dataDb->prepare("SELECT html FROM html WHERE crawl_id = :cid AND id = :id LIMIT 1");
-        $stmt->execute([':cid' => $cid, ':id' => $page['id']]);
-        $stored = $stmt->fetchColumn();
-        if (!$stored) {
-            $base['note'] = 'No HTML stored for this URL (the crawl did not keep raw HTML).';
-            Response::json(['data' => $base, 'meta' => ['crawl_id' => $cid]]);
-            return;
-        }
-
-        $raw = $useCh ? (string)$stored : PageContent::decode($stored);
+        // Blob store first (new crawls), DB fallback for older ones — decompressed.
+        $raw = HtmlStore::fetch($cid, (string)$page['id'], $useCh, $dataDb);
         if ($raw === null || $raw === '') {
-            $base['note'] = 'Stored HTML could not be decoded.';
+            $base['note'] = 'No HTML stored for this URL (the crawl did not keep raw HTML).';
             Response::json(['data' => $base, 'meta' => ['crawl_id' => $cid]]);
             return;
         }

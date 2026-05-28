@@ -24,6 +24,7 @@ import (
 	"scouter-crawler/internal/governor"
 	"scouter-crawler/internal/model"
 	"scouter-crawler/internal/page"
+	"scouter-crawler/internal/storage"
 )
 
 var retryableCodes = map[int]bool{429: true, 500: true, 502: true, 503: true, 504: true}
@@ -45,6 +46,7 @@ type Engine struct {
 	skipLinkExtraction bool
 	gov                *governor.Governor // process-wide CPU-pressure gate (nil = no-op)
 	chStore            *CHStore           // dual-write to ClickHouse (nil when CH disabled)
+	htmlStore          storage.Store      // per-page raw HTML blob store (S3/local)
 	// slimPG: when ClickHouse is the sole store (CLICKHOUSE_DROP_PG), PostgreSQL
 	// only keeps the frontier (the uncrawled-URL queue + the few columns the BFS
 	// and crawls.* stats read). The heavy crawl data — links, raw HTML, page
@@ -178,6 +180,7 @@ type Options struct {
 	SkipLinkExtraction bool
 	Governor           *governor.Governor // shared CPU-pressure gate (nil = no-op)
 	CHStore            *CHStore           // dual-write to ClickHouse (nil when CH disabled)
+	HTMLStore          storage.Store      // per-page raw HTML blob store (S3/local)
 	SlimPG             bool               // write only the frontier to PG (see Engine.slimPG)
 	Logf               func(string, ...any)
 	StopCheck          func(context.Context) bool
@@ -207,6 +210,7 @@ func NewEngine(cdb *db.CrawlDB, cfg *config.Config, opts Options) *Engine {
 		skipLinkExtraction: opts.SkipLinkExtraction,
 		gov:                opts.Governor,
 		chStore:            opts.CHStore,
+		htmlStore:          opts.HTMLStore,
 		slimPG:             opts.SlimPG,
 		logf:               logf,
 		stopCheck:          stop,

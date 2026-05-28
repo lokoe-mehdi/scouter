@@ -7,6 +7,7 @@ use App\Http\Request;
 use App\Http\Response;
 use App\Database\PostgresDatabase;
 use App\Database\CrawlDatabase;
+use App\Storage\HtmlStore;
 use PDO;
 
 /**
@@ -100,21 +101,12 @@ class MonitorController extends Controller
             $baseUrl .= ':' . $parsedUrl['port'];
         }
 
-        // Récupérer le HTML
-        $stmt = $dataDb->prepare("SELECT html FROM html WHERE crawl_id = :crawl_id AND id = :id");
-        $stmt->execute([':crawl_id' => $crawlId, ':id' => $id]);
-        $result = $stmt->fetch(PDO::FETCH_OBJ);
+        // Raw HTML from the blob store (S3/local), already decompressed; older
+        // crawls fall back to the DB inside HtmlStore.
+        $html = HtmlStore::fetch((int)$crawlId, (string)$id, $useCh, $dataDb);
 
-        if (!$result) {
+        if ($html === null || $html === '') {
             Response::html('HTML non trouvé pour cette URL', 404);
-        }
-
-        // ClickHouse stores raw HTML (ZSTD codec); legacy PG stores base64+gzdeflate.
-        if ($useCh) {
-            $html = (string)$result->html;
-        } else {
-            $decoded = base64_decode($result->html);
-            $html = @gzinflate($decoded) ?: $decoded;
         }
         
         $html = $this->convertRelativeToAbsolute($html, $baseUrl, $pageUrl);

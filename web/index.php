@@ -59,6 +59,8 @@ function processCrawlsForProject($project, $crawls, $jobManager) {
             "timestamp" => $timestamp,
             "started_at" => $crawl->started_at ?? null,
             "finished_at" => $crawl->finished_at ?? null,
+            // Temps de traitement réel (hors pauses) ; null → repli mur d'horloge.
+            "processing_seconds" => $crawl->path ? $jobManager->getProcessingSeconds($crawl->path) : null,
             "stats" => [
                 'urls' => $crawl->urls,
                 'crawled' => $crawl->crawled,
@@ -281,7 +283,7 @@ try {
         foreach ($list as $p) {
             foreach (($p->crawls ?? []) as $c) {
                 if (in_array($c->job_status ?? 'finished', $inProgressStatuses, true)) { continue; }
-                if (($c->stats['health_score'] ?? null) === null) { $needIds[(int)$c->crawl_id] = true; }
+                if (pcNeedsHealth($c->stats)) { $needIds[(int)$c->crawl_id] = true; }
             }
         }
     }
@@ -290,7 +292,7 @@ try {
         foreach ([$myProjects, $sharedProjects, $otherProjects] as $list) {
             foreach ($list as $p) {
                 foreach (($p->crawls ?? []) as $c) {
-                    if (($c->stats['health_score'] ?? null) !== null) { continue; }
+                    if (!pcNeedsHealth($c->stats)) { continue; }
                     $id = (int)$c->crawl_id;
                     $stats = $c->stats;
                     if (isset($computed[$id])) {

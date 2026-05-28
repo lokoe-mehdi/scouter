@@ -71,17 +71,28 @@ if (!$skipExtractDiscovery) {
 // $GLOBALS['generationTypes'] préparé par url-explorer.php pour les filtres.
 $customGenerationColumns = [];
 if (!$skipExtractDiscovery) {
-    try {
-        $stmt = $pdo->prepare("
-            SELECT DISTINCT jsonb_object_keys(generation) as key_name
-            FROM pages
-            WHERE crawl_id = :crawl_id AND generation IS NOT NULL
-              AND jsonb_typeof(generation) = 'object'
-        ");
-        $stmt->execute([':crawl_id' => $crawlId]);
-        $customGenerationColumns = $stmt->fetchAll(PDO::FETCH_COLUMN);
-    } catch (Exception $e) {
-        // Colonne pages.generation absente ou rien dedans — silencieux.
+    // CH-backed crawls store generation in page_generation (Map), not in
+    // pages.generation (JSONB), and PG pages is purged after migration — so the
+    // jsonb_object_keys probe finds nothing. Route CH crawls to the shared CH
+    // discovery (keys only here) or the generated columns never get listed.
+    if (\App\Database\CrawlStore::usesClickHouse((int)$crawlId)) {
+        $customGenerationColumns = array_map(
+            fn($g) => $g['key'],
+            \App\Http\Controllers\AIUrlFiltersController::fetchGenerationsCH((int)$crawlId, '[UrlTable]')
+        );
+    } else {
+        try {
+            $stmt = $pdo->prepare("
+                SELECT DISTINCT jsonb_object_keys(generation) as key_name
+                FROM pages
+                WHERE crawl_id = :crawl_id AND generation IS NOT NULL
+                  AND jsonb_typeof(generation) = 'object'
+            ");
+            $stmt->execute([':crawl_id' => $crawlId]);
+            $customGenerationColumns = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        } catch (Exception $e) {
+            // Colonne pages.generation absente ou rien dedans — silencieux.
+        }
     }
 }
 
@@ -1497,21 +1508,27 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
     };
 
     // Export CSV
+    // Export CSV — asynchrone : crée un job qui génère le CSV et l'envoie sur le
+    // blob store. L'icône « téléchargements » du header prévient quand c'est prêt.
     window['exportToCSV_' + componentId] = function() {
         const selectedCols = [];
         document.querySelectorAll('.column-checkbox-' + componentId + ':checked').forEach(cb => {
             selectedCols.push(cb.value);
         });
-        
-        // Récupérer les filtres et recherche depuis l'URL
+
         const params = new URLSearchParams(window.location.search);
-        const filters = params.get('filters') || '';
-        const search = params.get('search') || '';
-        
-        document.getElementById('exportForm_' + componentId).querySelector('[name="filters"]').value = filters;
-        document.getElementById('exportForm_' + componentId).querySelector('[name="search"]').value = search;
-        document.getElementById('exportColumns_' + componentId).value = JSON.stringify(selectedCols);
-        document.getElementById('exportForm_' + componentId).submit();
+        const form = document.getElementById('exportForm_' + componentId);
+        const reportWhere = form ? ((form.querySelector('[name="report_where"]') || {}).value || '') : '';
+
+        if (typeof window.queueExport !== 'function') return;
+        window.queueExport({
+            type: 'urls',
+            project: <?= json_encode((string)($crawlId ?? $projectDir)) ?>,
+            filters: params.get('filters') || '',
+            search: params.get('search') || '',
+            columns: JSON.stringify(selectedCols),
+            report_where: reportWhere
+        });
     };
 
     // Stocker les références aux handlers pour pouvoir les retirer

@@ -7,32 +7,29 @@ use App\Http\Request;
 use App\Http\Response;
 use App\Database\PostgresDatabase;
 use App\Database\CrawlDatabase;
+use App\Export\ExportService;
+use App\Storage\Storage;
+use App\Storage\S3Storage;
 use PDO;
 
 /**
- * Controller pour les exports CSV
- * 
- * Gère l'export des pages et des liens au format CSV.
- * 
+ * Exports CSV asynchrones + centre de téléchargements.
+ *
+ * Un export (SQL / URL / Link / Redirect explorer) ne se télécharge plus
+ * directement : il crée un job qui génère le CSV côté serveur et l'envoie sur le
+ * blob store (S3/local). L'icône « téléchargements » du header (downloads.js)
+ * poll `/api/exports`, puis le lien `/api/exports/{id}/download` redirige vers
+ * une URL S3 présignée (24h) ou streame le fichier en stockage local.
+ *
  * @package    Scouter
  * @subpackage Http\Controllers
- * @author     Mehdi Colin
- * @version    1.0.0
  */
 class ExportController extends Controller
 {
-    /**
-     * Connexion PDO à la base de données
-     * 
-     * @var PDO
-     */
+    private const TYPES = ['urls', 'links', 'redirects', 'sql'];
+
     private PDO $db;
 
-    /**
-     * Constructeur
-     * 
-     * @param \App\Auth\Auth $auth Instance d'authentification
-     */
     public function __construct($auth)
     {
         parent::__construct($auth);
@@ -40,305 +37,185 @@ class ExportController extends Controller
     }
 
     /**
-     * Exporte les pages crawlées au format CSV
-     * 
-     * Applique les filtres et colonnes sélectionnées.
-     * 
-     * @param Request $request Requête HTTP (project, filters, search, columns)
-     * 
-     * @return void
+     * POST /api/exports — crée un export asynchrone et enfile son job.
+     * Body: type (urls|links|redirects|sql), project, + params selon le type.
      */
-    public function csv(Request $request): void
+    public function create(Request $request): void
     {
-        $projectDir = $request->get('project');
-        
-        if (empty($projectDir)) {
-            $this->error('Projet non spécifié');
+        $type = (string)$request->get('type', '');
+        if (!in_array($type, self::TYPES, true)) {
+            $this->error('Type d\'export invalide');
         }
-        
-        if (is_numeric($projectDir)) {
-            $this->auth->requireCrawlAccessById((int)$projectDir, false);
-            $crawlRecord = CrawlDatabase::getCrawlById((int)$projectDir);
-        } else {
-            $this->auth->requireCrawlAccess($projectDir, false);
-            $crawlRecord = CrawlDatabase::getCrawlByPath($projectDir);
-        }
-        
-        if (!$crawlRecord) {
-            Response::notFound('Projet non trouvé');
-        }
-        
-        $crawlId = $crawlRecord->id;
-        $filters = $request->get('filters') ? json_decode($request->get('filters'), true) : [];
-        $search = $request->get('search', '');
-        $selectedColumns = $request->get('columns') ? json_decode($request->get('columns'), true) : ['url'];
-        
-        // Charger les catégories (project-level)
-        $categoriesMap = [];
-        $stmt = $this->db->prepare("SELECT id, cat FROM crawl_categories WHERE project_id = :project_id");
-        $stmt->execute([':project_id' => $crawlRecord->project_id]);
-        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            $categoriesMap[$row['id']] = $row['cat'];
-        }
-        
-        // Construction de la requête
-        $whereConditions = ["c.crawl_id = " . intval($crawlId), "c.crawled = true", "c.in_crawl = TRUE"];
+
+        $crawl = $this->resolveCrawl($request);
+
+        // Params spécifiques au type (stockés en JSON, rejoués par le worker).
         $params = [];
-        
-        if (!empty($search)) {
-            $whereConditions[] = "c.url LIKE :search";
-            $params[':search'] = '%' . $search . '%';
-        }
-        
-        if (!empty($filters) && isset($filters['items'])) {
-            $filterConditions = $this->buildFilterConditions($filters['items'], $params);
-            if (!empty($filterConditions)) {
-                $logic = strtoupper($filters['logic'] ?? 'AND');
-                if (!in_array($logic, ['AND', 'OR'])) $logic = 'AND';
-                $whereConditions[] = '(' . implode(' ' . $logic . ' ', $filterConditions) . ')';
-            }
-        }
-
-        // The report's OWN scope (e.g. seo-tags table = only h1_multiple/headings
-        // problems) so the export matches the on-screen table, not the whole crawl.
-        // SELECT-safe guard: it's rendered server-side but client-submittable, so we
-        // only allow boolean conditions on the (crawl-scoped) `pages c` — no
-        // subqueries / DML / comments / cross-table access. Worst case a tampered
-        // value can only broaden within the user's OWN crawl (crawl_id is forced).
-        $reportWhere = preg_replace('/^\s*WHERE\s+/i', '', trim((string)$request->get('report_where', '')));
-        if ($reportWhere !== ''
-            && !preg_match('/[;]|--|\/\*|\*\/|\b(union|select|insert|update|delete|drop|alter|create|grant|truncate|into|information_schema|pg_catalog|system)\b/i', $reportWhere)) {
-            $whereConditions[] = '(' . $reportWhere . ')';
-        }
-
-        $whereClause = implode(' AND ', $whereConditions);
-
-        // Migrated crawl → read via ChPdo (PG purged). On CH there's no stored
-        // cat_id: expose the LIVE `category` (name) explicitly and use it directly.
-        $useCh = \App\Database\CrawlStore::usesClickHouse((int)$crawlId);
-        $db = $useCh ? new \App\Database\ChPdo((int)$crawlId) : $this->db;
-        $catSelect = $useCh ? ", c.category AS _category" : "";
-        $query = "SELECT c.*{$catSelect} FROM pages c WHERE " . $whereClause . " ORDER BY c.pri DESC";
-        $stmt = $db->prepare($query);
-        $stmt->execute($params);
-
-        $filename = $crawlRecord->domain . '_export_' . date('Y-m-d') . '.csv';
-
-        Response::csv($filename, function($output) use ($stmt, $selectedColumns, $categoriesMap, $useCh) {
-            fputcsv($output, $selectedColumns, ';');
-
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $line = [];
-                foreach ($selectedColumns as $col) {
-                    if ($col === 'category') {
-                        $line[] = $useCh
-                            ? (($row['_category'] ?? '') !== '' ? $row['_category'] : 'Non catégorisé')
-                            : ($categoriesMap[$row['cat_id']] ?? 'Non catégorisé');
-                    } else {
-                        $line[] = $row[$col] ?? '';
-                    }
+        switch ($type) {
+            case 'urls':
+                $params = [
+                    'filters'      => $request->get('filters', ''),
+                    'search'       => $request->get('search', ''),
+                    'columns'      => $request->get('columns', ''),
+                    'report_where' => $request->get('report_where', ''),
+                ];
+                break;
+            case 'links':
+                $params = ['columns' => $request->get('columns', '')];
+                break;
+            case 'redirects':
+                $params = [];
+                break;
+            case 'sql':
+                $sql = trim((string)$request->get('sql', ''));
+                if ($sql === '') {
+                    $this->error('Requête SQL manquante');
                 }
-                fputcsv($output, $line, ';');
-            }
-        });
+                $params = ['sql' => $sql];
+                break;
+        }
+
+        $export = (new ExportService())->create((int)$this->userId, $crawl, $type, $params);
+
+        $this->success([
+            'export_id' => (int)$export['id'],
+            'status'    => $export['status'],
+            'label'     => $export['label'],
+        ]);
     }
 
     /**
-     * Exporte les liens entre pages au format CSV
-     * 
-     * Inclut source, target, anchor, type et nofollow.
-     * 
-     * @param Request $request Requête HTTP (project, columns)
-     * 
-     * @return void
+     * GET /api/exports — liste des exports de l'utilisateur (récents/non périmés)
+     * + nombre de téléchargements prêts non encore vus (pour la pastille).
      */
-    public function linksCsv(Request $request): void
+    public function index(Request $request): void
     {
-        $projectDir = $request->get('project');
-        
-        if (empty($projectDir)) {
+        if (!$this->userId) {
+            $this->error('Not authenticated', 401);
+        }
+
+        $stmt = $this->db->prepare("
+            SELECT id, crawl_id, type, label, status, filename, row_count, size_bytes,
+                   error, seen_at, created_at, ready_at, expires_at
+            FROM exports
+            WHERE user_id = :uid AND (expires_at IS NULL OR expires_at > NOW())
+            ORDER BY created_at DESC
+            LIMIT 30
+        ");
+        $stmt->execute([':uid' => $this->userId]);
+        $exports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $unseen = 0;
+        foreach ($exports as &$e) {
+            $e['id'] = (int)$e['id'];
+            $e['row_count'] = $e['row_count'] !== null ? (int)$e['row_count'] : null;
+            $e['size_bytes'] = $e['size_bytes'] !== null ? (int)$e['size_bytes'] : null;
+            if ($e['status'] === 'ready' && $e['seen_at'] === null) {
+                $unseen++;
+            }
+        }
+        unset($e);
+
+        $this->success(['exports' => $exports, 'unseen' => $unseen]);
+    }
+
+    /**
+     * POST /api/exports/seen — marque tous les exports prêts comme vus (éteint
+     * la pastille), comme /api/notifications/read pour la cloche.
+     */
+    public function seen(Request $request): void
+    {
+        if (!$this->userId) {
+            $this->error('Not authenticated', 401);
+        }
+        $stmt = $this->db->prepare("UPDATE exports SET seen_at = NOW() WHERE user_id = :uid AND seen_at IS NULL");
+        $stmt->execute([':uid' => $this->userId]);
+        $this->success(['ok' => true]);
+    }
+
+    /**
+     * GET /api/exports/{id}/download — vérifie propriété + fenêtre 24h, puis
+     * redirige vers une URL S3 présignée (téléchargement direct depuis S3) ou
+     * streame le fichier depuis le stockage local.
+     */
+    public function download(Request $request): void
+    {
+        $id = (int)$request->param('id');
+        if ($id <= 0) {
+            Response::notFound('Export introuvable');
+        }
+
+        $stmt = $this->db->prepare("SELECT * FROM exports WHERE id = :id");
+        $stmt->execute([':id' => $id]);
+        $export = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$export || (int)$export['user_id'] !== (int)$this->userId) {
+            Response::notFound('Export introuvable');
+        }
+        if ($export['status'] !== 'ready' || !$export['object_key']) {
+            Response::error('Export pas encore prêt', 409);
+        }
+
+        $expiresTs = $export['expires_at'] ? strtotime($export['expires_at'] . ' UTC') : 0;
+        if ($expiresTs && $expiresTs <= time()) {
+            Response::error('Ce lien de téléchargement a expiré (24h).', 410);
+        }
+
+        $key = $export['object_key'];
+        $filename = $export['filename'] ?: ('export_' . $id . '.csv');
+        $store = Storage::instance();
+
+        if ($store instanceof S3Storage) {
+            // Direct-from-S3 download via a fresh presigned URL valid for the
+            // export's remaining lifetime, named as an attachment.
+            $remaining = $expiresTs ? max(60, $expiresTs - time()) : 3600;
+            $url = $store->presignedGetUrl($key, $remaining, [
+                'response-content-disposition' => 'attachment; filename="' . $filename . '"',
+                'response-content-type'        => 'text/csv; charset=utf-8',
+            ]);
+            if ($url) {
+                header('Location: ' . $url, true, 302);
+                exit;
+            }
+        }
+
+        // Local backend (or presign unavailable): stream the bytes through the app.
+        $data = $store->get($key);
+        if ($data === null) {
+            Response::notFound('Fichier d\'export introuvable');
+        }
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($data));
+        header('Pragma: no-cache');
+        header('Expires: 0');
+        echo $data;
+        exit;
+    }
+
+    /**
+     * Résout le crawl ciblé (par id numérique ou par chemin) en vérifiant l'accès
+     * en lecture. Retourne l'enregistrement de crawl.
+     */
+    private function resolveCrawl(Request $request): object
+    {
+        $project = $request->get('project');
+        if (empty($project)) {
             $this->error('Projet non spécifié');
         }
-        
-        if (is_numeric($projectDir)) {
-            $this->auth->requireCrawlAccessById((int)$projectDir, false);
-            $crawlRecord = CrawlDatabase::getCrawlById((int)$projectDir);
+        if (is_numeric($project)) {
+            $this->auth->requireCrawlAccessById((int)$project, false);
+            $crawl = CrawlDatabase::getCrawlById((int)$project);
         } else {
-            $this->auth->requireCrawlAccess($projectDir, false);
-            $crawlRecord = CrawlDatabase::getCrawlByPath($projectDir);
+            $this->auth->requireCrawlAccess($project, false);
+            $crawl = CrawlDatabase::getCrawlByPath($project);
         }
-        
-        if (!$crawlRecord) {
+        if (!$crawl) {
             Response::notFound('Projet non trouvé');
         }
-        
-        $crawlId = $crawlRecord->id;
-        $selectedColumns = $request->get('columns') ? json_decode($request->get('columns'), true) : ['source_url', 'target_url'];
-        
-        $query = "
-            SELECT 
-                cs.url as source_url,
-                ct.url as target_url,
-                l.anchor,
-                l.type,
-                l.nofollow
-            FROM links l
-            JOIN pages cs ON l.src = cs.id AND cs.crawl_id = :crawl_id AND cs.in_crawl = TRUE
-            JOIN pages ct ON l.target = ct.id AND ct.crawl_id = :crawl_id2 AND ct.in_crawl = TRUE
-            WHERE l.crawl_id = :crawl_id3
-            ORDER BY cs.url
-        ";
-
-        $db = \App\Database\CrawlStore::usesClickHouse((int)$crawlId) ? new \App\Database\ChPdo((int)$crawlId) : $this->db;
-        $stmt = $db->prepare($query);
-        $stmt->execute([':crawl_id' => $crawlId, ':crawl_id2' => $crawlId, ':crawl_id3' => $crawlId]);
-        
-        $filename = $crawlRecord->domain . '_links_' . date('Y-m-d') . '.csv';
-        
-        Response::csv($filename, function($output) use ($stmt, $selectedColumns) {
-            fputcsv($output, $selectedColumns, ';');
-            
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $line = [];
-                foreach ($selectedColumns as $col) {
-                    $line[] = $row[$col] ?? '';
-                }
-                fputcsv($output, $line, ';');
-            }
-        });
-    }
-
-    /**
-     * Exporte les chaînes de redirection au format CSV
-     *
-     * @param Request $request Requête HTTP (project, crawl_id, columns)
-     *
-     * @return void
-     */
-    public function redirectChainsCsv(Request $request): void
-    {
-        $projectDir = $request->get('project');
-
-        if (empty($projectDir)) {
-            $this->error('Projet non spécifié');
-        }
-
-        if (is_numeric($projectDir)) {
-            $this->auth->requireCrawlAccessById((int)$projectDir, false);
-            $crawlRecord = CrawlDatabase::getCrawlById((int)$projectDir);
-        } else {
-            $this->auth->requireCrawlAccess($projectDir, false);
-            $crawlRecord = CrawlDatabase::getCrawlByPath($projectDir);
-        }
-
-        if (!$crawlRecord) {
-            Response::notFound('Projet non trouvé');
-        }
-
-        $crawlId = $crawlRecord->id;
-
-        $query = "
-            SELECT source_url, hops, is_loop, final_url, final_code, final_compliant
-            FROM redirect_chains
-            WHERE crawl_id = :crawl_id
-            ORDER BY is_loop DESC, hops DESC
-        ";
-
-        $db = \App\Database\CrawlStore::usesClickHouse((int)$crawlId) ? new \App\Database\ChPdo((int)$crawlId) : $this->db;
-        $stmt = $db->prepare($query);
-        $stmt->execute([':crawl_id' => $crawlId]);
-
-        $filename = $crawlRecord->domain . '_redirect_chains_' . date('Y-m-d') . '.csv';
-
-        Response::csv($filename, function($output) use ($stmt) {
-            fputcsv($output, ['source_url', 'hops', 'is_loop', 'final_url', 'final_code', 'indexable'], ';');
-
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                fputcsv($output, [
-                    $row['source_url'] ?? '',
-                    $row['is_loop'] ? 'loop' : (int)$row['hops'],
-                    $row['is_loop'] ? 'yes' : 'no',
-                    $row['is_loop'] ? '' : ($row['final_url'] ?? ''),
-                    $row['is_loop'] ? '' : ($row['final_code'] ?? ''),
-                    $row['is_loop'] ? 'no' : ($row['final_compliant'] ? 'yes' : 'no')
-                ], ';');
-            }
-        });
-    }
-
-    /**
-     * Construit les conditions SQL à partir des filtres
-     * 
-     * Supporte les opérateurs: contains, not_contains, starts_with, ends_with,
-     * is_empty, is_not_empty, =, !=, >, <, >=, <=
-     * 
-     * @param array<int, array> $items  Liste des filtres
-     * @param array             $params Paramètres SQL (par référence)
-     * 
-     * @return array<int, string> Conditions SQL
-     */
-    private function buildFilterConditions(array $items, array &$params): array
-    {
-        static $counter = 0;
-        $conditions = [];
-        
-        foreach ($items as $item) {
-            if (isset($item['type']) && $item['type'] === 'group') {
-                $subConditions = $this->buildFilterConditions($item['items'], $params);
-                if (!empty($subConditions)) {
-                    $groupLogic = strtoupper($item['logic'] ?? 'AND');
-                    if (!in_array($groupLogic, ['AND', 'OR'])) $groupLogic = 'AND';
-                    $conditions[] = '(' . implode(' ' . $groupLogic . ' ', $subConditions) . ')';
-                }
-            } else {
-                $field = $item['field'] ?? '';
-                $operator = $item['operator'] ?? '=';
-                $value = $item['value'] ?? '';
-
-                if (empty($field)) continue;
-
-                // Whitelist column names to prevent SQL injection
-                if (!preg_match('/^[a-z_][a-z0-9_]*$/i', $field)) continue;
-                
-                $counter++;
-                $paramName = ':p' . $counter;
-                
-                switch ($operator) {
-                    case 'contains':
-                        $conditions[] = "c.$field LIKE $paramName";
-                        $params[$paramName] = '%' . $value . '%';
-                        break;
-                    case 'not_contains':
-                        $conditions[] = "c.$field NOT LIKE $paramName";
-                        $params[$paramName] = '%' . $value . '%';
-                        break;
-                    case 'starts_with':
-                        $conditions[] = "c.$field LIKE $paramName";
-                        $params[$paramName] = $value . '%';
-                        break;
-                    case 'ends_with':
-                        $conditions[] = "c.$field LIKE $paramName";
-                        $params[$paramName] = '%' . $value;
-                        break;
-                    case 'is_empty':
-                        $conditions[] = "(c.$field IS NULL OR c.$field = '')";
-                        break;
-                    case 'is_not_empty':
-                        $conditions[] = "(c.$field IS NOT NULL AND c.$field != '')";
-                        break;
-                    case '>':
-                    case '<':
-                    case '>=':
-                    case '<=':
-                    case '=':
-                    case '!=':
-                        $conditions[] = "c.$field $operator $paramName";
-                        $params[$paramName] = $value;
-                        break;
-                }
-            }
-        }
-        
-        return $conditions;
+        return $crawl;
     }
 }

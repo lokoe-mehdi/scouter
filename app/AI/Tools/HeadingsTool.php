@@ -3,6 +3,7 @@
 namespace App\AI\Tools;
 
 use App\Database\PostgresDatabase;
+use App\Storage\HtmlStore;
 use PDO;
 
 /**
@@ -174,23 +175,11 @@ class HeadingsTool
             $pageIds[] = $p['id'];
         }
 
-        // 2. Fetch HTML for those page IDs (also one round-trip).
-        $htmlByPageId = [];
-        if (!empty($pageIds)) {
-            $hPlaceholders = [];
-            $hParams = [':cid' => $crawlId];
-            foreach ($pageIds as $i => $pid) {
-                $key = ':p' . $i;
-                $hPlaceholders[] = $key;
-                $hParams[$key] = $pid;
-            }
-            $sqlHtml = "SELECT id, html FROM html WHERE crawl_id = :cid AND id IN (" . implode(',', $hPlaceholders) . ")";
-            $stmt = $db->prepare($sqlHtml);
-            $stmt->execute($hParams);
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
-                $htmlByPageId[$r['id']] = $r['html'];
-            }
-        }
+        // 2. Fetch HTML for those page IDs from the blob store (S3/local) — returns
+        //    id => already-decompressed raw HTML; old crawls fall back to the DB.
+        $htmlByPageId = !empty($pageIds)
+            ? HtmlStore::fetchMany($crawlId, $pageIds, $useCh, $db)
+            : [];
 
         // 3. For each requested URL (in input order), decode HTML and extract
         //    headings via DOMDocument — same logic as QueryController::htmlSource.
@@ -201,7 +190,7 @@ class HeadingsTool
                 $out[] = ['url' => $u, 'headings' => []];
                 continue;
             }
-            $htmlContent = $useCh ? (string)$htmlByPageId[$pageId] : self::decodeStoredHtml($htmlByPageId[$pageId]);
+            $htmlContent = (string)$htmlByPageId[$pageId]; // HtmlStore already decompressed it
             $headings = ($htmlContent !== null && $htmlContent !== '') ? self::extractHeadings($htmlContent) : [];
             $out[] = ['url' => $u, 'headings' => $headings];
         }

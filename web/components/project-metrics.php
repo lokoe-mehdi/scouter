@@ -27,6 +27,24 @@ if (!function_exists('pcHealthScore')) {
     }
 }
 
+if (!function_exists('pcNeedsHealth')) {
+    /**
+     * Faut-il (re)calculer le score santé de ce crawl ? Oui si jamais calculé
+     * (sentinelle NULL) OU s'il est stocké à 0 alors que des pages ont été crawlées.
+     * Un 0 sur un crawl non vide n'est jamais un vrai score : soit il a été figé
+     * prématurément (warming juste après l'arrêt, avant que ClickHouse n'ait posé
+     * les flags), soit ClickHouse ne savait pas le calculer — dans les deux cas le
+     * recalcul (CH puis repli pcHealthScore, toujours > 0 pour crawled > 0) pose une
+     * vraie valeur, après quoi ce crawl n'est plus éligible (plus de boucle). Un
+     * crawl arrêté est post-traité comme un terminé : il DOIT avoir un vrai score.
+     */
+    function pcNeedsHealth(array $stats): bool {
+        $hs = $stats['health_score'] ?? null;
+        if ($hs === null) return true;
+        return (int)$hs === 0 && (int)($stats['crawled'] ?? 0) > 0;
+    }
+}
+
 // NB : le calcul du score santé 5 piliers (et compliant/critical_errors) en
 // ClickHouse vit désormais dans App\Analysis\CrawlStats::ensureFromClickHouse()
 // — calculé UNE fois puis persisté dans la ligne crawls (write-through). La home
@@ -148,13 +166,36 @@ if (!function_exists('pcDelta')) {
     }
 }
 
+if (!function_exists('pcFormatDuration')) {
+    /**
+     * Formate un nombre de secondes en durée humaine adaptative, jamais de ms.
+     * ≥ 1 h → "2h13min" · ≥ 1 min → "1min15s" · sinon "15s".
+     */
+    function pcFormatDuration(int $seconds): string {
+        if ($seconds < 0) $seconds = 0;
+        $h = intdiv($seconds, 3600);
+        $m = intdiv($seconds % 3600, 60);
+        $sec = $seconds % 60;
+        if ($h > 0) return $h . 'h' . sprintf('%02d', $m) . 'min';
+        if ($m > 0) return $m . 'min' . sprintf('%02d', $sec) . 's';
+        return $sec . 's';
+    }
+}
+
 if (!function_exists('pcDuration')) {
-    /** Durée HH:MM:SS entre deux timestamps SQL, ou '—'. */
-    function pcDuration($startedAt, $finishedAt): string {
+    /**
+     * Durée d'un crawl, ou '—'. Si $processingSeconds est fourni (somme des sessions
+     * de travail, donc HORS pauses — voir JobManager::getProcessingSeconds) on l'utilise
+     * en priorité ; sinon repli sur le mur d'horloge started→finished (qui, lui, inclut
+     * les pauses d'un crawl arrêté puis repris).
+     */
+    function pcDuration($startedAt, $finishedAt, ?int $processingSeconds = null): string {
+        if ($processingSeconds !== null && $processingSeconds > 0) {
+            return pcFormatDuration($processingSeconds);
+        }
         if (empty($startedAt) || empty($finishedAt)) return '—';
         $s = strtotime($startedAt); $f = strtotime($finishedAt);
         if (!$s || !$f || $f < $s) return '—';
-        $d = $f - $s;
-        return sprintf('%02d:%02d:%02d', intdiv($d, 3600), intdiv($d % 3600, 60), $d % 60);
+        return pcFormatDuration($f - $s);
     }
 }
