@@ -2,14 +2,21 @@
 
 namespace App\Storage;
 
+/**
+ * Resolves and caches the process-wide blob {@see StorageInterface} from the
+ * environment: an {@see S3Storage} when S3_BUCKET + S3_ACCESS_KEY_ID +
+ * S3_SECRET_ACCESS_KEY are all set, otherwise a {@see LocalStorage} rooted at
+ * STORAGE_PATH (default: <repo>/storage).
+ *
+ * Mirrors the crawler-go `internal/storage.New` selection so writer and readers
+ * agree on where the HTML lives.
+ *
+ * @package    Scouter
+ * @subpackage Storage
+ */
 class Storage
 {
     private static ?StorageInterface $instance = null;
-
-    public static function set(?StorageInterface $storage): void
-    {
-        self::$instance = $storage;
-    }
 
     public static function instance(): StorageInterface
     {
@@ -17,23 +24,39 @@ class Storage
             return self::$instance;
         }
 
-        $driver = getenv('STORAGE_DRIVER') ?: 'local';
+        $bucket = trim((string)getenv('S3_BUCKET'));
+        $accessKey = trim((string)getenv('S3_ACCESS_KEY_ID'));
+        $secretKey = trim((string)getenv('S3_SECRET_ACCESS_KEY'));
 
-        if ($driver === 's3') {
+        if ($bucket !== '' && $accessKey !== '' && $secretKey !== '') {
             self::$instance = new S3Storage(
-                (string)getenv('S3_BUCKET'),
-                (string)getenv('S3_ACCESS_KEY'),
-                (string)getenv('S3_SECRET_KEY'),
-                (string)getenv('S3_ENDPOINT'),
-                (string)(getenv('S3_REGION') ?: 'us-east-1'),
-                (bool)getenv('S3_PATH_STYLE'),
-                (string)getenv('S3_PREFIX')
+                $bucket,
+                $accessKey,
+                $secretKey,
+                trim((string)getenv('S3_ENDPOINT')),
+                trim((string)getenv('S3_REGION')),
+                self::envBool('S3_USE_PATH_STYLE'),
+                trim((string)getenv('S3_PREFIX'))
             );
         } else {
-            $root = (string)(getenv('STORAGE_LOCAL_ROOT') ?: sys_get_temp_dir() . '/scouter-storage');
-            self::$instance = new LocalStorage($root);
+            $path = trim((string)getenv('STORAGE_PATH'));
+            if ($path === '') {
+                $path = dirname(__DIR__, 2) . '/storage';
+            }
+            self::$instance = new LocalStorage($path);
         }
 
         return self::$instance;
+    }
+
+    /** Override the backend — used by tests. */
+    public static function set(?StorageInterface $store): void
+    {
+        self::$instance = $store;
+    }
+
+    private static function envBool(string $key): bool
+    {
+        return in_array(strtolower(trim((string)getenv($key))), ['1', 'true', 'yes', 'on'], true);
     }
 }

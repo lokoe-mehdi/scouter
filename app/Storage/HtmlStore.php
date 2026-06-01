@@ -2,90 +2,103 @@
 
 namespace App\Storage;
 
-use PDO;
+use App\Api\PageContent;
 
+/**
+ * Single source of truth for reading a crawled page's raw HTML.
+ *
+ * New crawls store gzip-compressed HTML in the blob store (S3/local) under
+ * {@see HtmlStore::key()}. Older crawls still have their HTML in the database
+ * (ClickHouse stores it raw; legacy PostgreSQL stores it base64 + gzdeflate).
+ * Every reader — public API, URL Explorer, preview, MCP and the Dr. Brief
+ * chatbot tools — goes through here so the "blob first, DB fallback" logic lives
+ * in one place.
+ *
+ * @package    Scouter
+ * @subpackage Storage
+ */
 class HtmlStore
 {
+    /** Object key for one page's HTML: html/<crawl_id>/<page_id>.gz. */
     public static function key(int $crawlId, string $pageId): string
     {
-        return 'html/' . $crawlId . '/' . $pageId;
+        return "html/{$crawlId}/{$pageId}.gz";
     }
 
-    public static function fetch(int $crawlId, string $pageId, bool $useCh, $db): ?string
+    /**
+     * Return the raw (decompressed) HTML of one page, or null when none is
+     * stored. $dataDb is the crawl's DATA handle (ChPdo for migrated crawls, the
+     * PG connection otherwise); $useCh tells how the DB fallback blob is encoded.
+     *
+     * @param \PDO|\App\Database\ChPdo $dataDb
+     */
+    public static function fetch(int $crawlId, string $pageId, bool $useCh, $dataDb): ?string
     {
-        $key = self::key($crawlId, $pageId);
-        $blob = Storage::instance()->get($key);
-
-        if ($blob !== null) {
-            $decompressed = @gzdecode($blob);
-            return $decompressed !== false ? $decompressed : $blob;
+        $blob = Storage::instance()->get(self::key($crawlId, $pageId));
+        if ($blob !== null && $blob !== '') {
+            $raw = @gzdecode($blob);
+            // Tolerate an already-raw blob (e.g. a hand-placed uncompressed file).
+            return $raw !== false ? $raw : $blob;
         }
 
-        if ($db === null) {
-            return null;
-        }
-
-        $stmt = $db->prepare('SELECT html FROM html WHERE crawl_id = :cid AND page_id = :pid LIMIT 1');
-        $stmt->execute([':cid' => $crawlId, ':pid' => $pageId]);
+        // Fallback: crawls created before HTML moved to the blob store.
+        $stmt = $dataDb->prepare("SELECT html FROM html WHERE crawl_id = :cid AND id = :id LIMIT 1");
+        $stmt->execute([':cid' => $crawlId, ':id' => $pageId]);
         $stored = $stmt->fetchColumn();
-
-        if ($stored === false || $stored === null) {
+        if ($stored === false || $stored === null || $stored === '') {
             return null;
         }
-
-        return self::decodeStoredHtml($stored);
+        return $useCh ? (string)$stored : PageContent::decode($stored);
     }
 
-    public static function fetchMany(int $crawlId, array $pageIds, bool $useCh, $db): array
+    /**
+     * Batch read for tools that fetch several pages at once. Returns a map
+     * pageId => rawHtml (only entries that have HTML). Blob reads are per-key;
+     * any page missing from the store falls back to a single batched DB query.
+     *
+     * @param string[] $pageIds
+     * @param \PDO|\App\Database\ChPdo $dataDb
+     * @return array<string,string>
+     */
+    public static function fetchMany(int $crawlId, array $pageIds, bool $useCh, $dataDb): array
     {
-        if (empty($pageIds)) {
-            return [];
-        }
-
-        $result = [];
-        $missingIds = [];
+        $out = [];
+        $missing = [];
         $store = Storage::instance();
-
         foreach ($pageIds as $pid) {
-            $key = self::key($crawlId, $pid);
-            $blob = $store->get($key);
-            if ($blob !== null) {
-                $decompressed = @gzdecode($blob);
-                $result[$pid] = $decompressed !== false ? $decompressed : $blob;
+            $blob = $store->get(self::key($crawlId, (string)$pid));
+            if ($blob !== null && $blob !== '') {
+                $raw = @gzdecode($blob);
+                $out[$pid] = $raw !== false ? $raw : $blob;
             } else {
-                $missingIds[] = $pid;
+                $missing[] = $pid;
             }
         }
 
-        if (!empty($missingIds) && $db !== null) {
+        if (!empty($missing)) {
             $placeholders = [];
             $params = [':cid' => $crawlId];
-            foreach ($missingIds as $i => $pid) {
-                $key = ':p' . $i;
-                $placeholders[] = $key;
-                $params[$key] = $pid;
+            foreach (array_values($missing) as $i => $pid) {
+                $k = ':p' . $i;
+                $placeholders[] = $k;
+                $params[$k] = $pid;
             }
-            $sql = 'SELECT page_id, html FROM html WHERE crawl_id = :cid AND page_id IN (' . implode(',', $placeholders) . ')';
-            $stmt = $db->prepare($sql);
+            $stmt = $dataDb->prepare(
+                "SELECT id, html FROM html WHERE crawl_id = :cid AND id IN (" . implode(',', $placeholders) . ")"
+            );
             $stmt->execute($params);
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $result[$row['page_id']] = self::decodeStoredHtml($row['html']);
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $stored = $row['html'];
+                if ($stored === null || $stored === '') {
+                    continue;
+                }
+                $raw = $useCh ? (string)$stored : PageContent::decode($stored);
+                if ($raw !== null && $raw !== '') {
+                    $out[$row['id']] = $raw;
+                }
             }
         }
 
-        return $result;
-    }
-
-    private static function decodeStoredHtml(?string $stored): ?string
-    {
-        if (!$stored) {
-            return null;
-        }
-        $decoded = base64_decode($stored, true);
-        if ($decoded === false) {
-            return $stored;
-        }
-        $decompressed = @gzinflate($decoded);
-        return $decompressed !== false ? $decompressed : $decoded;
+        return $out;
     }
 }

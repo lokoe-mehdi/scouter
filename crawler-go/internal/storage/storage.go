@@ -1,117 +1,88 @@
-// Package storage provides blob storage for raw HTML pages (S3 or local filesystem).
+// Package storage persists per-page raw HTML OUTSIDE the database. Storing the
+// HTML blobs in ClickHouse blew up the on-disk footprint; instead each page's
+// HTML is gzip-compressed and written to an object store.
+//
+// Two interchangeable backends, selected from the environment at startup:
+//   - S3-compatible object store, when S3 credentials are present (AWS S3,
+//     Cloudflare R2, MinIO, Backblaze B2…). The data persists long-term so a URL
+//     can be re-fetched months after the crawl.
+//   - a local directory (the default fallback) when no S3 credentials are set —
+//     handy for dev and single-host deploys. Must be a persistent, shared volume
+//     so both the crawler (writer) and the web app (reader) see the same files.
+//
+// Keys are backend-agnostic slash-separated paths, e.g. "html/123/a1b2c3d4.gz".
 package storage
 
 import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
+	"strings"
 )
 
-// Store is the interface for blob storage backends (S3, local filesystem).
+// Store is the minimal blob API the crawler and purge paths need.
 type Store interface {
-	// Put writes data to the given key, overwriting if it exists.
+	// Put writes data at key, overwriting any existing object (idempotent).
 	Put(ctx context.Context, key string, data []byte) error
-	// Get retrieves data for the given key. Returns nil, nil if not found.
-	Get(ctx context.Context, key string) ([]byte, error)
-	// Delete removes the blob at key. No error if it doesn't exist.
-	Delete(ctx context.Context, key string) error
-	// Kind returns the backend type ("s3" or "local").
+	// Get returns the object at key. found=false (nil error) when it is absent.
+	Get(ctx context.Context, key string) (data []byte, found bool, err error)
+	// DeletePrefix removes every object whose key starts with prefix.
+	DeletePrefix(ctx context.Context, prefix string) error
+	// Kind reports the backend ("s3" or "local"), for logging.
 	Kind() string
 }
 
-// HTMLKey returns the storage key for a page's HTML blob.
+// HTMLKey is the object key for a page's HTML: html/<crawl_id>/<page_id>.gz.
+// page_id is the crc32-bzip2 hash of the URL (analysis.PageID), the same id used
+// everywhere else — so any reader can rebuild the key from (crawl_id, page_id).
+// Sharding by crawl_id lets a whole crawl be purged by deleting one prefix.
 func HTMLKey(crawlID int, pageID string) string {
-	return fmt.Sprintf("html/%d/%s.html.gz", crawlID, pageID)
+	return fmt.Sprintf("html/%d/%s.gz", crawlID, pageID)
 }
 
-// New returns a Store backed by S3 (if AWS_ACCESS_KEY_ID is set) or local
-// filesystem (STORAGE_PATH, default ./storage).
+// HTMLPrefix is the key prefix that holds one crawl's HTML (used to purge it).
+func HTMLPrefix(crawlID int) string {
+	return fmt.Sprintf("html/%d/", crawlID)
+}
+
+// New builds the Store from the environment: an S3 backend when S3_BUCKET plus
+// credentials are set, otherwise a local directory (STORAGE_PATH, default
+// ./storage). Returns an error only on misconfiguration (e.g. an unwritable
+// local directory); transient S3 failures surface later, at Put/Get time.
+//
+// Le choix est explicite : les TROIS variables S3 (bucket + access key + secret)
+// doivent être définies pour basculer en S3 ; sinon on garde le backend local.
+// Si seulement UNE OU DEUX sont définies, on prévient (config probablement
+// incomplète) mais on reste en local pour que le crawl continue à enregistrer
+// le HTML — pas de perte de données silencieuse.
 func New(logf func(string, ...any)) (Store, error) {
-	if os.Getenv("AWS_ACCESS_KEY_ID") != "" {
-		return newS3Store(logf)
+	if logf == nil {
+		logf = func(string, ...any) {}
 	}
-	path := os.Getenv("STORAGE_PATH")
+	bucket := strings.TrimSpace(os.Getenv("S3_BUCKET"))
+	accessKey := strings.TrimSpace(os.Getenv("S3_ACCESS_KEY_ID"))
+	secretKey := strings.TrimSpace(os.Getenv("S3_SECRET_ACCESS_KEY"))
+	allSet := bucket != "" && accessKey != "" && secretKey != ""
+	anySet := bucket != "" || accessKey != "" || secretKey != ""
+	if allSet {
+		return newS3(bucket, accessKey, secretKey, logf)
+	}
+	if anySet {
+		logf("storage: S3 config incomplète (bucket=%t access_key=%t secret=%t) → backend LOCAL ; définis les trois pour activer S3, ou supprime-les pour rester en local sans warning.",
+			bucket != "", accessKey != "", secretKey != "")
+	}
+	path := strings.TrimSpace(os.Getenv("STORAGE_PATH"))
 	if path == "" {
 		path = "./storage"
 	}
-	return newLocalStore(path, logf)
+	return newLocal(path, logf)
 }
 
-// localStore writes blobs to the local filesystem.
-type localStore struct {
-	root string
-	logf func(string, ...any)
-}
-
-func newLocalStore(root string, logf func(string, ...any)) (*localStore, error) {
-	if err := os.MkdirAll(root, 0755); err != nil {
-		return nil, fmt.Errorf("create storage dir: %w", err)
+// envBool reports whether an env var is a truthy flag (1/true/yes/on).
+func envBool(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
 	}
-	if logf == nil {
-		logf = func(string, ...any) {}
-	}
-	return &localStore{root: root, logf: logf}, nil
-}
-
-func (s *localStore) Kind() string { return "local" }
-
-func (s *localStore) Put(ctx context.Context, key string, data []byte) error {
-	path := filepath.Join(s.root, key)
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0644)
-}
-
-func (s *localStore) Get(ctx context.Context, key string) ([]byte, error) {
-	path := filepath.Join(s.root, key)
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	return data, err
-}
-
-func (s *localStore) Delete(ctx context.Context, key string) error {
-	path := filepath.Join(s.root, key)
-	err := os.Remove(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	return err
-}
-
-// s3Store writes blobs to S3-compatible storage.
-type s3Store struct {
-	bucket string
-	logf   func(string, ...any)
-}
-
-func newS3Store(logf func(string, ...any)) (*s3Store, error) {
-	bucket := os.Getenv("S3_BUCKET")
-	if bucket == "" {
-		bucket = "scouter-html"
-	}
-	if logf == nil {
-		logf = func(string, ...any) {}
-	}
-	return &s3Store{bucket: bucket, logf: logf}, nil
-}
-
-func (s *s3Store) Kind() string { return "s3" }
-
-func (s *s3Store) Put(ctx context.Context, key string, data []byte) error {
-	s.logf("s3: put %s (%d bytes) - stub", key, len(data))
-	return nil
-}
-
-func (s *s3Store) Get(ctx context.Context, key string) ([]byte, error) {
-	s.logf("s3: get %s - stub", key)
-	return nil, nil
-}
-
-func (s *s3Store) Delete(ctx context.Context, key string) error {
-	s.logf("s3: delete %s - stub", key)
-	return nil
+	return false
 }
