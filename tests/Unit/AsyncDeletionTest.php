@@ -137,3 +137,39 @@ test('deleting status is a valid crawl status', function () {
     $stmt->execute([':id' => 88888]);
     expect($stmt->fetchColumn())->toBe('deleting');
 });
+
+// ============================================
+// HTML blob purge when a crawl is deleted
+// ============================================
+
+test('deleting a crawl purges its HTML blobs and leaves other crawls untouched', function () {
+    // Route the Storage singleton at a temp directory so we can assert on real
+    // files. Same factory backs S3 in prod; here we exercise LocalStorage so the
+    // test is hermetic. Cmder::deleteCrawl must call deletePrefix("html/<id>/")
+    // — otherwise crawl deletion leaks orphan blobs in S3/local.
+    $root = sys_get_temp_dir() . '/scouter-delete-html-' . getmypid() . '-' . uniqid();
+    \App\Storage\Storage::set(new \App\Storage\LocalStorage($root));
+
+    try {
+        // Seed one blob for each test crawl (88888 doomed, 88889 must survive).
+        \App\Storage\Storage::instance()->put('html/88888/page-a', '<html>doomed</html>');
+        \App\Storage\Storage::instance()->put('html/88889/page-b', '<html>kept</html>');
+
+        // Cmder::deleteCrawl is the worker entry point (scouter.php delete-crawl).
+        // arg format = "delete-crawl:<id>". It also drops partitions + DB row.
+        \App\Cli\Cmder::deleteCrawl('delete-crawl:88888');
+
+        // Doomed crawl: row + blob both gone.
+        $exists = $this->db->query("SELECT COUNT(*) FROM crawls WHERE id = 88888")->fetchColumn();
+        expect((int)$exists)->toBe(0);
+        expect(\App\Storage\Storage::instance()->get('html/88888/page-a'))->toBeNull();
+
+        // Sibling crawl: row + blob untouched (no collateral damage).
+        $exists2 = $this->db->query("SELECT COUNT(*) FROM crawls WHERE id = 88889")->fetchColumn();
+        expect((int)$exists2)->toBe(1);
+        expect(\App\Storage\Storage::instance()->get('html/88889/page-b'))->toContain('kept');
+    } finally {
+        // Reset singleton so other tests don't see the temp backend.
+        \App\Storage\Storage::set(null);
+    }
+});

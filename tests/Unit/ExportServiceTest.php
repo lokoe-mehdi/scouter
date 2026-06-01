@@ -73,6 +73,37 @@ it('creates a pending export and enqueues an export job', function () {
     // No crawl row exists for /test/exp, so nothing to assert beyond no exception.
 });
 
+it('reconciles a stuck running export via failByJob when the subprocess died without self-reporting', function () {
+    // A subprocess OOM-killed by SIGKILL never runs its own catch → without the
+    // parent worker calling failByJob, the export row would stay 'running' and
+    // spin forever in the UI. failByJob is the safety net.
+    $crawl = (object) ['id' => 991234, 'project_id' => 880099, 'domain' => 'example.com', 'path' => '/test/exp'];
+    $svc = new ExportService();
+
+    // 1) running export → failByJob flips it to failed and stores the error.
+    $row = $svc->create(778899, $crawl, 'urls', ['columns' => '["url"]']);
+    $this->createdExportIds[] = $row['id'];
+    $this->db->exec("UPDATE exports SET status = 'running' WHERE id = " . (int)$row['id']);
+
+    $flipped = $svc->failByJob((int)$row['job_id'], 'worker subprocess died (OOM)');
+    expect($flipped)->toBe(1);
+
+    $now = $this->db->query("SELECT status, error FROM exports WHERE id = " . (int)$row['id'])->fetch(PDO::FETCH_ASSOC);
+    expect($now['status'])->toBe('failed');
+    expect($now['error'])->toContain('worker subprocess died');
+
+    // 2) idempotent: a second call on the same job does NOT touch a terminal row.
+    expect($svc->failByJob((int)$row['job_id'], 'should be ignored'))->toBe(0);
+
+    // 3) a 'ready' export is NEVER flipped (subprocess self-reported success).
+    $row2 = $svc->create(778899, $crawl, 'urls', ['columns' => '["url"]']);
+    $this->createdExportIds[] = $row2['id'];
+    $this->db->exec("UPDATE exports SET status = 'ready' WHERE id = " . (int)$row2['id']);
+    expect($svc->failByJob((int)$row2['job_id'], 'should not flip ready'))->toBe(0);
+    $still = $this->db->query("SELECT status FROM exports WHERE id = " . (int)$row2['id'])->fetchColumn();
+    expect($still)->toBe('ready');
+});
+
 it('prunes expired exports and removes their blob', function () {
     // Seed a ready export already past its TTL. object_key follows the prune
     // convention export/<id>/<file>, so insert first to learn the id.
