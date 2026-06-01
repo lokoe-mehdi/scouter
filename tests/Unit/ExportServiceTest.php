@@ -4,12 +4,17 @@ use App\Storage\LocalStorage;
 use App\Storage\S3Storage;
 use App\Storage\Storage;
 use App\Export\ExportService;
+use App\Job\JobManager;
 use App\Database\PostgresDatabase;
 
 beforeEach(function () {
     $this->root = sys_get_temp_dir() . '/scouter-export-test-' . getmypid() . '-' . uniqid();
     Storage::set(new LocalStorage($this->root));
     $this->db = PostgresDatabase::getInstance()->getConnection();
+    // The storage-only tests below never touch JobManager, so the lazily-created
+    // `jobs` table would not exist yet when afterEach cleans it up. Instantiating
+    // JobManager runs its CREATE TABLE IF NOT EXISTS, making the suite order-independent.
+    new JobManager();
 });
 
 afterEach(function () {
