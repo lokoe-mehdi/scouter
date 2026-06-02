@@ -86,3 +86,31 @@ it('stamps last_used_at on first use (null → set)', function () {
     $after = $this->db->query("SELECT last_used_at FROM api_keys WHERE id = " . (int)$g['id'])->fetchColumn();
     expect($after)->not->toBeNull();
 });
+
+// Non-admin users can mint keys too — the issued key carries the OWNER's role,
+// so downstream /api/v1 role checks keep a viewer strictly read-only and a user
+// scoped to their own + shared projects. This proves key creation is not
+// admin-gated at the service level and never escalates privileges.
+it('lets non-admin roles generate keys that carry the owner role unchanged', function () {
+    foreach (['user', 'viewer'] as $role) {
+        $email = 'apikey-' . $role . '-' . uniqid() . '@example.test';
+        $this->db->prepare("INSERT INTO users (email, password_hash, role) VALUES (:e, 'x', :r)")
+            ->execute([':e' => $email, ':r' => $role]);
+        $rid = (int)$this->db->query("SELECT id FROM users WHERE email = " . $this->db->quote($email))->fetchColumn();
+
+        try {
+            $g = ApiKeyService::generate($rid, $role . ' key');
+            expect($g['token'])->toStartWith('sctr_');
+
+            $v = ApiKeyService::verify($g['token']);
+            expect($v)->not->toBeNull();
+            expect((int)$v['user']->id)->toBe($rid);
+            // The role embedded in the verified context is the owner's — never
+            // promoted to admin just because a key exists.
+            expect($v['user']->role)->toBe($role);
+        } finally {
+            $this->db->exec("DELETE FROM api_keys WHERE user_id = " . $rid);
+            $this->db->prepare("DELETE FROM users WHERE id = :id")->execute([':id' => $rid]);
+        }
+    }
+});

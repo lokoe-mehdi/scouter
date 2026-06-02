@@ -14,11 +14,19 @@
  */
 
 require_once(__DIR__ . '/init.php');
-$auth->requireAdmin(false);
+// API & MCP key management is open to EVERY authenticated user: each user only
+// ever sees and manages their OWN keys, and any key acts strictly within its
+// owner's role/permissions. The AI provider, budget and team-management
+// sections stay admin-only and are rendered conditionally on $isAdmin below.
+$auth->requireLoginOrRedirect();
+$isAdmin = $auth->isAdmin();
 
 use App\Settings\AppSettings;
 use App\AI\BudgetService;
 
+// Everything below feeds the admin-only AI / budget / team sections. Skip it
+// entirely for non-admins so other users' data is never computed or exposed.
+if ($isAdmin) {
 $hasEncryption  = AppSettings::hasEncryptionKey();
 $apiKey         = AppSettings::get('ai.openrouter.api_key');
 $hasStoredKey   = $apiKey !== null && $apiKey !== '';
@@ -61,6 +69,7 @@ try {
     ");
     $teamMembers = $_tm->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 } catch (\Throwable $e) { $teamMembers = []; }
+} // end if ($isAdmin)
 ?>
 <!DOCTYPE html>
 <html lang="<?= I18n::getInstance()->getLang() ?>">
@@ -707,7 +716,7 @@ try {
             </div>
         </div>
 
-        <?php if (!$hasEncryption): ?>
+        <?php if ($isAdmin && !$hasEncryption): ?>
         <div class="settings-warning">
             <?= __('settings.encryption_missing') ?>
             <code>SCOUTER_ENCRYPTION_KEY</code>
@@ -715,17 +724,20 @@ try {
         <?php endif; ?>
 
         <nav class="settings-tabs-nav" id="settingsTabsNav">
+            <?php if ($isAdmin): ?>
             <button type="button" class="settings-tab-btn active" data-tab="ai">
                 <span class="material-symbols-outlined">smart_toy</span> <?= __('settings.tab_ai') ?>
             </button>
             <button type="button" class="settings-tab-btn" data-tab="team">
                 <span class="material-symbols-outlined">group</span> <?= __('settings.tab_team') ?>
             </button>
-            <button type="button" class="settings-tab-btn" data-tab="api">
+            <?php endif; ?>
+            <button type="button" class="settings-tab-btn<?= $isAdmin ? '' : ' active' ?>" data-tab="api">
                 <span class="material-symbols-outlined">vpn_key</span> <?= __('settings.tab_api') ?>
             </button>
         </nav>
 
+        <?php if ($isAdmin): ?>
         <section class="settings-tab active" data-tab="ai">
 
         <!-- ================== AI Provider (OpenRouter) ================== -->
@@ -908,7 +920,9 @@ try {
             </button>
         </div>
         </section><!-- /tab ai -->
+        <?php endif; ?>
 
+        <?php if ($isAdmin): ?>
         <section class="settings-tab" data-tab="team">
         <!-- ============ AI BUDGET ============ -->
         <div class="settings-card" style="grid-column: 1 / -1;">
@@ -1017,8 +1031,9 @@ try {
             </button>
         </div>
         </section><!-- /tab team -->
+        <?php endif; ?>
 
-        <section class="settings-tab" data-tab="api">
+        <section class="settings-tab<?= $isAdmin ? '' : ' active' ?>" data-tab="api">
         <!-- ============ API & ACCESS KEYS ============ -->
         <div class="settings-card" style="grid-column: 1 / -1;">
             <h2><span class="material-symbols-outlined">key</span> <?= __('settings.api_title') ?></h2>
@@ -1252,7 +1267,8 @@ try {
         </section><!-- /tab api -->
     </div><!-- /.container -->
 
-    <!-- User add/edit modal (Team & Budgets tab) -->
+    <!-- User add/edit modal (Team & Budgets tab) — admin-only -->
+    <?php if ($isAdmin): ?>
     <div id="userModal" style="display:none; position:fixed; inset:0; z-index:1000; background:rgba(15,23,42,0.5); align-items:center; justify-content:center;">
         <div style="background:#fff; border-radius:14px; width:95vw; max-width:460px; padding:1.5rem;">
             <h3 id="userModalTitle" style="margin:0 0 1.2rem; font-size:1.1rem;"></h3>
@@ -1275,6 +1291,7 @@ try {
             </div>
         </div>
     </div>
+    <?php endif; ?>
 
     <script src="../assets/i18n.js"></script>
     <script>ScouterI18n.init(<?= I18n::getInstance()->getJsTranslations() ?>, <?= json_encode(I18n::getInstance()->getLang()) ?>);</script>
@@ -2119,6 +2136,7 @@ try {
     })();
     </script>
 
+    <?php if ($isAdmin): /* AI provider + Dr. Brief prompt editor — admin-only */ ?>
     <script>
     (function () {
         const apiKeyInput   = document.getElementById('api-key');
@@ -2717,6 +2735,7 @@ try {
         })();
     })();
     </script>
+    <?php endif; ?>
 
     <script>
     // Single sticky Save per tab (spec §4). Each tab with a footer tracks its
