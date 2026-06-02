@@ -588,6 +588,36 @@ class ApiV1Controller extends Controller
             }
         }
 
+        // Refresh the precomputed report fragments that depend on categories
+        // (category distribution, Sankey flow, external links by category…). These
+        // live in crawl_report_cache and are NOT recomputed by the categorization
+        // apply itself — without this step the reports keep showing the OLD
+        // categories after a save via the API/MCP, exactly as they do from the UI
+        // save flow (CategorizationController::save). Mirror that routine here:
+        //   - synchronous recompute of THIS crawl so the reports the caller looks
+        //     at right after are fresh (reads the live category we just persisted),
+        //   - an async project-wide job for the other crawls. It is queued AFTER
+        //     the batch-categorize job above so that, by the time it runs, every
+        //     crawl's per-crawl YAML snapshot has been refreshed (the CH live
+        //     `category` reads that snapshot) — otherwise the others would be
+        //     recomputed against their stale categories.
+        $reportPrecomputeJobId = null;
+        try {
+            \App\Analysis\ReportPrecompute::recompute($cid, true); // category-dependent fragments only
+        } catch (\Throwable $e) {
+            error_log('[API categorization] report precompute on crawl ' . $cid . ' failed: ' . $e->getMessage());
+        }
+        if ($deployToProject && $otherCrawls > 0) {
+            try {
+                $pjm = new JobManager();
+                $reportPrecomputeJobId = $pjm->createJob((string)($crawl->path ?? ''), 'Report Precompute', "precompute-reports-project:{$projectId}");
+                $pjm->updateJobStatus($reportPrecomputeJobId, 'queued');
+                $pjm->addLog($reportPrecomputeJobId, "Queued report recompute for the project after categorization via API (crawl #{$cid} recomputed synchronously).", 'info');
+            } catch (\Throwable $e) {
+                error_log('[API categorization] queue project report precompute failed: ' . $e->getMessage());
+            }
+        }
+
         $payload = [
             'crawl_id'          => $cid,
             'project_id'        => $projectId,
@@ -598,6 +628,12 @@ class ApiV1Controller extends Controller
                 'job_id'       => $jobId !== null ? (int)$jobId : null,
                 'progress'     => $jobId !== null ? 0 : 100,
                 'other_crawls' => $otherCrawls,
+            ],
+            // Report fragments are refreshed so the reports immediately reflect the
+            // new categories (this crawl synchronously, the rest in the background).
+            'report_precompute' => [
+                'current_crawl'  => 'completed',
+                'project_job_id' => $reportPrecomputeJobId !== null ? (int)$reportPrecomputeJobId : null,
             ],
         ];
         // Config is persisted regardless; surface a sync-apply failure so the

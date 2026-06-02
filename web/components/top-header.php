@@ -216,6 +216,12 @@ $userInitials = getUserInitials($currentUserEmail);
                     <span class="material-symbols-outlined">settings</span>
                     <?= __('header.settings') ?>
                 </a>
+                <?php else: ?>
+                <!-- Non-admins get self-service access to their own API keys & MCP setup. -->
+                <a href="<?= $basePath ?>pages/settings.php?tab=api" class="user-dropdown-item">
+                    <span class="material-symbols-outlined">vpn_key</span>
+                    <?= __('header.api_mcp') ?>
+                </a>
                 <?php endif; ?>
                 <div class="user-dropdown-divider"></div>
                 <div style="display: flex; gap: 0.5rem; padding: 0.5rem 1rem;">

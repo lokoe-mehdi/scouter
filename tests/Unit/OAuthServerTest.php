@@ -94,6 +94,39 @@ it('exchanges an auth code for a working sctr_ access token', function () {
     expect((int) $verified['user']->id)->toBe($this->uid);
 });
 
+it('issues a token that preserves a read-only viewer role (no privilege escalation)', function () {
+    // A viewer must be able to connect the MCP connector, but the resulting key
+    // must keep acting as a viewer downstream — never gain write access.
+    $email = 'oauth-viewer-' . uniqid() . '@example.test';
+    $this->db->prepare("INSERT INTO users (email, password_hash, role) VALUES (:e, 'x', 'viewer')")
+        ->execute([':e' => $email]);
+    $vid = (int) $this->db->query("SELECT id FROM users WHERE email = " . $this->db->quote($email))->fetchColumn();
+
+    try {
+        $reg = registerPestClient();
+        $redirect = 'https://claude.ai/api/mcp/auth_callback';
+        $code = OAuthServer::issueCode($reg['client_id'], $vid, $redirect, $this->challenge, 'mcp');
+
+        $res = OAuthServer::exchangeCode([
+            'grant_type'    => 'authorization_code',
+            'code'          => $code,
+            'redirect_uri'  => $redirect,
+            'client_id'     => $reg['client_id'],
+            'code_verifier' => $this->verifier,
+        ]);
+        expect($res['access_token'])->toStartWith('sctr_');
+
+        $verified = ApiKeyService::verify($res['access_token']);
+        expect($verified)->not->toBeNull();
+        expect((int) $verified['user']->id)->toBe($vid);
+        expect($verified['user']->role)->toBe('viewer');
+    } finally {
+        $this->db->exec("DELETE FROM oauth_auth_codes WHERE user_id = " . $vid);
+        $this->db->exec("DELETE FROM api_keys WHERE user_id = " . $vid);
+        $this->db->prepare("DELETE FROM users WHERE id = :id")->execute([':id' => $vid]);
+    }
+});
+
 it('rejects a code exchange with a bad PKCE verifier', function () {
     $reg = registerPestClient();
     $redirect = 'https://claude.ai/api/mcp/auth_callback';

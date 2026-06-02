@@ -7,8 +7,13 @@ use App\Http\Request;
 use App\Api\ApiKeyService;
 
 /**
- * Admin-only management of personal API keys (session-authenticated, called by
- * the Settings page). Distinct from the public token API (/api/v1/*).
+ * Self-service management of personal API keys (session-authenticated, called
+ * by the Settings page). Available to EVERY logged-in user regardless of role.
+ * Distinct from the public token API (/api/v1/*).
+ *
+ * Every operation is scoped to the caller via $this->userId, so a user can only
+ * ever see, create or revoke their OWN keys — never another user's. The issued
+ * token then acts strictly within its owner's role/permissions on /api/v1.
  *
  * The plaintext token is returned ONLY by create(); afterwards only metadata
  * (name, prefix, dates) is ever exposed.
@@ -18,13 +23,13 @@ use App\Api\ApiKeyService;
  */
 class ApiKeyController extends Controller
 {
-    /** GET /api/keys — list the current admin's active keys (metadata only). */
+    /** GET /api/keys — list the current user's active keys (metadata only). */
     public function index(Request $request): void
     {
         $this->success(['keys' => ApiKeyService::listForUser((int)$this->userId)]);
     }
 
-    /** POST /api/keys — create a key; returns the plaintext token ONCE. */
+    /** POST /api/keys — create a key for the current user; returns the plaintext token ONCE. */
     public function create(Request $request): void
     {
         $name = trim((string)$request->get('name', ''));
@@ -38,7 +43,7 @@ class ApiKeyController extends Controller
         ], 'API key created — copy it now, it will not be shown again.');
     }
 
-    /** DELETE /api/keys/{id} — revoke one of the admin's keys. */
+    /** DELETE /api/keys/{id} — revoke one of the current user's own keys. */
     public function revoke(Request $request): void
     {
         $id = (int)$request->param('id', 0);

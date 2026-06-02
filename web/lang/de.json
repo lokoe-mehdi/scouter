@@ -739,6 +739,7 @@
   "header.project": "Projekt",
   "header.projects": "Projekte",
   "header.settings": "Einstellungen",
+  "header.api_mcp": "API- & MCP-Schlüssel",
   "header.system_monitor": "Systemüberwachung",
   "header.user_role": "Benutzer",
   "headings.card_analyzed": "Analysierte Seiten",

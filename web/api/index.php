@@ -177,11 +177,14 @@ try {
     $router->post('/bulk-generate/stop',           [BulkGenerateController::class, 'stop'],          ['auth' => true]);
 
     // =============================================================================
-    // API KEYS (session + admin) — managed from the Settings page
+    // API KEYS (session-authenticated) — managed from the Settings page by ANY
+    // logged-in user. Every operation is scoped to the caller (ApiKeyController
+    // uses $this->userId), so a user can only ever list/create/revoke their OWN
+    // keys. A key acts strictly within its owner's role/permissions on /api/v1.
     // =============================================================================
-    $router->get(   '/keys',      [ApiKeyController::class, 'index'],  ['auth' => true, 'admin' => true]);
-    $router->post(  '/keys',      [ApiKeyController::class, 'create'], ['auth' => true, 'admin' => true]);
-    $router->delete('/keys/{id}', [ApiKeyController::class, 'revoke'], ['auth' => true, 'admin' => true]);
+    $router->get(   '/keys',      [ApiKeyController::class, 'index'],  ['auth' => true]);
+    $router->post(  '/keys',      [ApiKeyController::class, 'create'], ['auth' => true]);
+    $router->delete('/keys/{id}', [ApiKeyController::class, 'revoke'], ['auth' => true]);
 
     // =============================================================================
     // PUBLIC API v1 — Bearer token auth (acts as the key's owner)
