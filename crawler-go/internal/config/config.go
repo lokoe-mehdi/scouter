@@ -9,7 +9,7 @@ import (
 	"strconv"
 )
 
-const defaultUserAgent = "Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)"
+const defaultUserAgent = "Scouter/0.7 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)"
 
 // HTTPAuth mirrors the runtime httpAuth structure.
 type HTTPAuth struct {

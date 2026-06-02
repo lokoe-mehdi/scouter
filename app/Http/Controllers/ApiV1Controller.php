@@ -1185,7 +1185,7 @@ class ApiV1Controller extends Controller
             'crawl_speed' => 'fast',
             'crawl_mode'  => 'classic',
             'crawl_type'  => $crawlType,
-            'user-agent'  => 'Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)',
+            'user-agent'  => 'Scouter/0.7 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)',
         ], $general);
         // Enforce the computed/validated values (caller can't override these).
         $generalOut['start']      = $start;

@@ -867,7 +867,7 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
             // Reset user-agent
             document.querySelectorAll('.user-agent-option').forEach(opt => opt.classList.remove('active'));
             document.querySelector('.user-agent-option[data-ua="scouter"]')?.classList.add('active');
-            document.getElementById('user_agent').value = 'Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)';
+            document.getElementById('user_agent').value = 'Scouter/0.7 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)';
             document.getElementById('custom_ua_input').value = '';
 
             // Reset follow_redirects
@@ -1085,7 +1085,7 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
         
         // Custom UA Dropdown
         const uaPresets = {
-            'scouter': 'Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)',
+            'scouter': 'Scouter/0.7 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)',
             'googlebot-mobile': 'Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2272.96 Mobile Safari/537.36 (compatible; Googlebot/2.1; +https://www.google.com/bot.html)',
             'googlebot-desktop': 'Mozilla/5.0 (compatible; Googlebot/2.1; +https://www.google.com/bot.html)',
             'chrome': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'
@@ -2874,6 +2874,6 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
             }
         })();
     </script>
-    <div style="text-align: center; padding: 2rem 0 1rem; font-size: 0.9rem; color: #c0c4cc; letter-spacing: 0.3px;">Scouter v0.6</div>
+    <div style="text-align: center; padding: 2rem 0 1rem; font-size: 0.9rem; color: #c0c4cc; letter-spacing: 0.3px;">Scouter v0.7</div>
 </body>
 </html>

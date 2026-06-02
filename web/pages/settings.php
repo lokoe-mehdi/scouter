@@ -1552,7 +1552,7 @@ try {
             hintN8n:     <?= json_encode(__('settings.api_doc_hint_n8n')) ?>,
         };
 
-        const CREATE_UA = 'Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)';
+        const CREATE_UA = 'Scouter/0.7 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)';
         const CREATE_ADVANCED = {
             respect_robots: true,
             respect_nofollow: true,
