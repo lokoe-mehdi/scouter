@@ -109,13 +109,13 @@ $cleanedOrderBy = preg_replace('/\bcs\./i', 's.', $orderBy);
 $cleanedOrderBy = preg_replace('/\bct\./i', 't.', $cleanedOrderBy);
 
 // Requête SQL complète pour les liens
-$tableSqlQuery = "SELECT 
+$tableSqlQuery = "SELECT
     s.url AS source_url,
     t.url AS target_url,
     l.anchor,
     l.type,
-    l.external,
-    l.nofollow,
+    l.external AS external,
+    l.nofollow AS nofollow,
     l.position,
     l.xpath
 FROM links l
@@ -329,7 +329,7 @@ $columnMapping['source_metadesc_status'] = 'cs.metadesc_status';
 $columnMapping['source_h1_multiple'] = 'cs.h1_multiple';
 $columnMapping['source_headings_missing'] = 'cs.headings_missing';
 $columnMapping['source_word_count'] = 'cs.word_count';
-$columnMapping['source_category'] = 'cats.cat';
+$columnMapping['source_category'] = 'cs.category';
 $columnMapping['source_domain'] = 'cs.domain';
 $columnMapping['source_crawled'] = 'cs.crawled';
 $columnMapping['source_out_of_scope'] = '(cs.external = false AND cs.blocked = false AND cs.crawled = false)';
@@ -361,7 +361,7 @@ $columnMapping['target_metadesc_status'] = 'ct.metadesc_status';
 $columnMapping['target_h1_multiple'] = 'ct.h1_multiple';
 $columnMapping['target_headings_missing'] = 'ct.headings_missing';
 $columnMapping['target_word_count'] = 'ct.word_count';
-$columnMapping['target_category'] = 'catt.cat';
+$columnMapping['target_category'] = 'ct.category';
 $columnMapping['target_domain'] = 'ct.domain';
 $columnMapping['target_crawled'] = 'ct.crawled';
 $columnMapping['target_out_of_scope'] = '(ct.external = false AND ct.blocked = false AND ct.crawled = false)';
@@ -438,13 +438,13 @@ if ($needsSourceCatJoinForSort) {
     if (!$hasSourceFilter && !$needsSourceJoinForSort) {
         $joinClauses .= " LEFT JOIN pages cs ON l.src = cs.id AND cs.crawl_id = $crawlIdInt AND cs.in_crawl = TRUE";
     }
-    $joinClauses .= " LEFT JOIN crawl_categories cats ON cs.cat_id = cats.id";
+    // category is now a live column on the pages source (cs.category) — no join.
 }
 if ($needsTargetCatJoinForSort) {
     if (!$hasTargetFilter && !$needsTargetJoinForSort) {
         $joinClauses .= " LEFT JOIN pages ct ON l.target = ct.id AND ct.crawl_id = $crawlIdInt AND ct.in_crawl = TRUE";
     }
-    $joinClauses .= " LEFT JOIN crawl_categories catt ON ct.cat_id = catt.id";
+    // category is now a live column on the pages source (ct.category) — no join.
 }
 
 // Si on a besoin d'une jointure pour le tri, on doit passer en mode avec jointure
@@ -474,11 +474,14 @@ if ($hasSourceFilter || $hasTargetFilter) {
         $linksOrderBy = 'ORDER BY ' . $columnMapping[$sortColumn] . ' ' . $sortDirection;
     }
     
-    // Requête liens avec jointure(s) minimale(s)
-    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external, l.nofollow, l.type, l.position, l.xpath
+    // Requête liens avec jointure(s) minimale(s).
+    // `external`/`nofollow` existent AUSSI dans `pages` (jointe) : sur ClickHouse,
+    // une colonne ambiguë garde son qualificatif (`l.external`) comme nom de clé →
+    // on les alias explicitement pour que $link['external']/['nofollow'] existent.
+    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external AS external, l.nofollow AS nofollow, l.type, l.position, l.xpath
                    FROM links l $joinClauses
-                   $fullWhereClause 
-                   $linksOrderBy 
+                   $fullWhereClause
+                   $linksOrderBy
                    LIMIT $perPage OFFSET $offset";
     $stmt = $pdo->prepare($linksQuery);
     $stmt->execute($sqlParams);
@@ -517,11 +520,11 @@ if ($hasSourceFilter || $hasTargetFilter) {
         }
     }
     
-    // Requête liens simple
-    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external, l.nofollow, l.type, l.position, l.xpath
-                   FROM links l 
-                   $linksWhereClause 
-                   $linksOrderBy 
+    // Requête liens simple (alias external/nofollow pour cohérence CH, cf. ci-dessus)
+    $linksQuery = "SELECT l.src, l.target, l.anchor, l.external AS external, l.nofollow AS nofollow, l.type, l.position, l.xpath
+                   FROM links l
+                   $linksWhereClause
+                   $linksOrderBy
                    LIMIT $perPage OFFSET $offset";
     $stmt = $pdo->prepare($linksQuery);
     $stmt->execute($sqlParams);
@@ -540,7 +543,7 @@ $pageIds = array_keys($pageIds);
 $pagesMap = [];
 if (!empty($pageIds)) {
     $placeholders = implode(',', array_fill(0, count($pageIds), '?'));
-    $pagesQuery = "SELECT id, url, domain, depth, code, cat_id, inlinks, outlinks, response_time, schemas,
+    $pagesQuery = "SELECT id, url, domain, depth, code, category, inlinks, outlinks, response_time, schemas,
                           compliant, canonical, canonical_value, noindex, blocked, redirect_to, content_type,
                           pri, title, title_status, h1, h1_status, metadesc, metadesc_status,
                           h1_multiple, headings_missing, extracts, word_count,
@@ -602,10 +605,9 @@ foreach ($linksRaw as $link) {
         $row->source_in_sitemap = $srcPage['in_sitemap'];
         $row->source_is_html = $srcPage['is_html'];
 
-        // Catégorie source
-        $srcCatId = $srcPage['cat_id'];
-        $row->source_category = isset($categoriesMap[$srcCatId]) ? $categoriesMap[$srcCatId]['cat'] : __('common.uncategorized');
-        $row->source_category_color = isset($categoriesMap[$srcCatId]) ? $categoriesMap[$srcCatId]['color'] : null;
+        // Catégorie source (nom live, plus de cat_id)
+        $row->source_category = (($srcPage['category'] ?? '') !== '') ? $srcPage['category'] : __('common.uncategorized');
+        $row->source_category_color = function_exists('getCategoryColor') ? getCategoryColor($row->source_category) : null;
         
         // Extracteurs source (JSONB)
         if (!empty($srcPage['extracts'])) {
@@ -655,10 +657,9 @@ foreach ($linksRaw as $link) {
         $row->target_in_sitemap = $targetPage['in_sitemap'];
         $row->target_is_html = $targetPage['is_html'];
 
-        // Catégorie target
-        $targetCatId = $targetPage['cat_id'];
-        $row->target_category = isset($categoriesMap[$targetCatId]) ? $categoriesMap[$targetCatId]['cat'] : __('common.uncategorized');
-        $row->target_category_color = isset($categoriesMap[$targetCatId]) ? $categoriesMap[$targetCatId]['color'] : null;
+        // Catégorie target (nom live, plus de cat_id)
+        $row->target_category = (($targetPage['category'] ?? '') !== '') ? $targetPage['category'] : __('common.uncategorized');
+        $row->target_category_color = function_exists('getCategoryColor') ? getCategoryColor($row->target_category) : null;
         
         // Extracteurs target (JSONB)
         if (!empty($targetPage['extracts'])) {
@@ -963,12 +964,14 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                         <?php elseif(strpos($col, 'title_status') !== false || strpos($col, 'h1_status') !== false || strpos($col, 'metadesc_status') !== false): ?>
                             <td class="col-<?= $col ?>" style="text-align: center;">
                                 <?php
-                                $status = $link->$col ?? '';
-                                if($status === 'Unique') {
+                                // Lowercase before compare — DB stores 'unique'/'duplicate'/'empty'
+                                // in lowercase. Same logic as url-table.php.
+                                $status = strtolower($link->$col ?? '');
+                                if($status === 'unique') {
                                     echo '<span class="badge badge-success">Unique</span>';
-                                } elseif($status === 'Duplicate') {
+                                } elseif($status === 'duplicate') {
                                     echo '<span class="badge badge-warning">Duplicate</span>';
-                                } elseif($status === 'Empty') {
+                                } elseif($status === 'empty') {
                                     echo '<span class="badge badge-danger">Empty</span>';
                                 } else {
                                     echo '<span style="color: #95a5a6;">—</span>';
@@ -1162,13 +1165,18 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
             if(newTableCard) {
                 const currentTableCard = document.getElementById('tableCard_' + componentId);
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-init scrollbar sync after DOM replacement.
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Réinitialiser currentPage à 1
                 currentPage = 1;
-                
+
                 // Mettre à jour le perPage actuel
                 currentPerPage = newPerPage;
-                
+
                 // Recalculer totalPages avec le nouveau perPage
                 currentTotalPages = Math.ceil(totalResults / newPerPage);
                 
@@ -1476,12 +1484,16 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
     document.addEventListener('click', function(e) {
         const dropdown = document.getElementById('perPageDropdown_' + componentId);
         const button = document.getElementById('perPageBtn_' + componentId);
-        
-        if(!button.contains(e.target) && dropdown && !dropdown.contains(e.target)) {
+        // Bail out cleanly if either element is missing on the current page
+        // (e.g. after navigating to a page without this link-table instance) —
+        // otherwise calling .contains on null throws and pollutes every click.
+        if (!button || !dropdown) return;
+
+        if(!button.contains(e.target) && !dropdown.contains(e.target)) {
             dropdown.style.display = 'none';
             dropdown.classList.remove('show');
             const icon = button.querySelector('.material-symbols-outlined');
-            icon.style.transform = 'rotate(0deg)';
+            if (icon) icon.style.transform = 'rotate(0deg)';
         }
     });
 
@@ -1529,7 +1541,12 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
             if(newTableCard) {
                 const currentTableCard = document.getElementById('tableCard_' + componentId);
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-init scrollbar sync after DOM replacement.
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Rafraîchir les handlers de la modale
                 if(typeof refreshUrlModalHandlers === 'function') {
                     refreshUrlModalHandlers();
@@ -1576,7 +1593,12 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
                 
                 // Remplacer le contenu
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-init scrollbar sync after DOM replacement.
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Fermer le dropdown après remplacement
                 const newDropdown = document.getElementById('columnDropdown_' + componentId);
                 if(newDropdown) {
@@ -1603,22 +1625,19 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
         });
     };
 
-    // Export CSV
+    // Export CSV — asynchrone (job → blob store), récupéré via l'icône « téléchargements ».
     window['exportToCSV_' + componentId] = function() {
         const selectedCols = [];
         document.querySelectorAll('.column-checkbox-' + componentId + ':checked').forEach(cb => {
             selectedCols.push(cb.value);
         });
-        
-        // Récupérer les filtres et recherche depuis l'URL
-        const params = new URLSearchParams(window.location.search);
-        const filters = params.get('filters') || '';
-        const search = params.get('search') || '';
-        
-        document.getElementById('exportForm_' + componentId).querySelector('[name="filters"]').value = filters;
-        document.getElementById('exportForm_' + componentId).querySelector('[name="search"]').value = search;
-        document.getElementById('exportColumns_' + componentId).value = JSON.stringify(selectedCols);
-        document.getElementById('exportForm_' + componentId).submit();
+
+        if (typeof window.queueExport !== 'function') return;
+        window.queueExport({
+            type: 'links',
+            project: <?= json_encode((string)($crawlId ?? $projectDir)) ?>,
+            columns: JSON.stringify(selectedCols)
+        });
     };
 
     // Stocker les références aux handlers pour pouvoir les retirer

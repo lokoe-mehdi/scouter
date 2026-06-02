@@ -34,6 +34,14 @@ echo "================================"
 echo "   Scouter - Starting ($DOCKER_COMPOSE)"
 echo "================================"
 
+# [0] Auto-size container limits to THIS machine (CPU + RAM). No hand-tuning:
+# change the hardware, re-run start.sh, the limits recompute. The generated
+# file is sourced into the environment so compose interpolates the ${*_MEM_LIMIT}
+# and concurrency vars. See scripts/autosize.sh.
+echo "[0/3] Auto-sizing to host..."
+bash scripts/autosize.sh .env.autosize
+set -a; . ./.env.autosize; set +a
+
 # Using the $DOCKER_COMPOSE variable everywhere
 echo "[1/3] Stopping containers..."
 $DOCKER_COMPOSE -f docker-compose.local.yml down

@@ -126,19 +126,45 @@ if ($compareId) {
 // CHARGEMENT CENTRALISÉ DES CATÉGORIES
 // Évite les jointures sur la table categories partout
 // ============================================
+// Routing PG vs ClickHouse : un crawl `data_store=clickhouse` lit ses rapports
+// MONO-crawl dans ClickHouse (via le shim ChPdo). Les vues de COMPARAISON
+// (compareId présent) restent sur PostgreSQL — PG conserve les données pendant
+// la transition (dual-write), et la comparaison interroge deux crawls.
+$pdoPg = $pdo; // PostgreSQL handle (crawl-time data still present until backfill).
+// Objectif : tous les rapports sur ClickHouse. PENDANT la transition (backfill en
+// cours), un crawl pas encore migré (data_store != clickhouse) n'a pas ses données
+// dans CH → on lit alors PG, mais via PgReportPdo qui calcule `category` en LIVE
+// (jamais de cat_id), comme CH. Une fois le crawl migré, on bascule sur ChPdo.
+// La comparaison va sur CH seulement si les DEUX crawls y sont.
+$useCh = \App\Database\CrawlStore::usesClickHouse((int)$crawlId)
+    && (empty($compareId) || \App\Database\CrawlStore::usesClickHouse((int)$compareId));
+
 $categoriesMap = [];
 $categoryColors = [];
-$stmt = $pdo->prepare("SELECT id, cat, color FROM crawl_categories WHERE project_id = :project_id");
-$stmt->execute([':project_id' => $crawlRecord->project_id]);
-while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-    $categoriesMap[$row['id']] = [
-        'cat' => $row['cat'],
-        'color' => $row['color']
-    ];
-    $categoryColors[$row['cat']] = $row['color'];
+if ($useCh) {
+    $categoriesMap = \App\Database\ChPdo::categoriesMap((int)$crawlId);
+    foreach ($categoriesMap as $row) {
+        $categoryColors[$row['cat']] = $row['color'];
+    }
+    $pdo = new \App\Database\ChPdo((int)$crawlId, $compareId ? (int)$compareId : null);
+    $GLOBALS['chReportPdo'] = $pdo; // chart.php : icône SQL en dialecte ClickHouse
+} else {
+    // Crawl pas encore migré → PG (qui a encore les données), catégorie live.
+    $stmt = $pdo->prepare("SELECT id, cat, color FROM crawl_categories WHERE project_id = :project_id");
+    $stmt->execute([':project_id' => $crawlRecord->project_id]);
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $categoriesMap[$row['id']] = ['cat' => $row['cat'], 'color' => $row['color']];
+        $categoryColors[$row['cat']] = $row['color'];
+    }
+    $pdo = new \App\Database\PgReportPdo((int)$crawlId, $compareId ? (int)$compareId : null);
 }
 $GLOBALS['categoriesMap'] = $categoriesMap;
 $GLOBALS['categoryColors'] = $categoryColors;
+
+// NB : pas d'auto-warm en fond ici — le cache se remplit en lazy-warm au premier
+// affichage de chaque rapport (ReportPrecompute::cached). L'ancien ensureWarm
+// ré-enqueuait en boucle des jobs qui ne pouvaient rien précalculer (et flippait
+// le statut du crawl).
 
 // Charger les statistiques globales
 $crawlRepo = new CrawlRepository();
@@ -179,8 +205,11 @@ try {
         $cId = $crawl->id ?? $crawl->crawl_id ?? null;
         if (!$cId) continue;
         
-        // Ne pas afficher les crawls avec 0 URLs (en cours ou échoués)
-        if (empty($crawl->urls) || intval($crawl->urls) === 0) {
+        // Ne masquer que les crawls RÉELLEMENT vides (0 URL ET 0 page crawlée).
+        // En mode ClickHouse, le stat `urls` de la ligne PostgreSQL peut rester à 0
+        // (non resynchronisé depuis CH) alors que le crawl a des données — sans ce
+        // garde-fou, un crawl valide disparaissait du sélecteur (cf. bug #575/#625).
+        if (intval($crawl->urls ?? 0) === 0 && intval($crawl->crawled ?? 0) === 0) {
             continue;
         }
         
@@ -268,11 +297,14 @@ if ($compareId && in_array($page ?? '', $comparisonPages)) {
     $safeCompId = intval($compareId);
     $safeCrId = intval($crawlId);
 
-    // New URLs: dans current, pas dans compare (NOT EXISTS est O(n) vs NOT IN qui est O(n²))
+    // NB : NOT IN / IN (non corrélé) plutôt que NOT EXISTS corrélé — ClickHouse ne
+    // supporte pas les sous-requêtes corrélées, et PostgreSQL gère NOT IN(subquery)
+    // efficacement (set hashé). url n'est jamais NULL ici.
+    // New URLs: dans current, pas dans compare.
     $stmt = $pdo->prepare("
         SELECT COUNT(*) FROM pages a
         WHERE a.crawl_id = :current AND a.crawled = true AND a.in_crawl = TRUE
-        AND NOT EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :compare AND b.crawled = true AND b.in_crawl = TRUE AND b.url = a.url)
+        AND a.url NOT IN (SELECT url FROM pages WHERE crawl_id = :compare AND crawled = true AND in_crawl = TRUE)
     ");
     $stmt->execute([':current' => $safeCrId, ':compare' => $safeCompId]);
     $compNewCount = (int)$stmt->fetchColumn();
@@ -281,7 +313,7 @@ if ($compareId && in_array($page ?? '', $comparisonPages)) {
     $stmt = $pdo->prepare("
         SELECT COUNT(*) FROM pages a
         WHERE a.crawl_id = :compare AND a.crawled = true AND a.in_crawl = TRUE
-        AND NOT EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :current AND b.crawled = true AND b.in_crawl = TRUE AND b.url = a.url)
+        AND a.url NOT IN (SELECT url FROM pages WHERE crawl_id = :current AND crawled = true AND in_crawl = TRUE)
     ");
     $stmt->execute([':compare' => $safeCompId, ':current' => $safeCrId]);
     $compLostCount = (int)$stmt->fetchColumn();
@@ -290,7 +322,7 @@ if ($compareId && in_array($page ?? '', $comparisonPages)) {
     $stmt = $pdo->prepare("
         SELECT COUNT(*) FROM pages a
         WHERE a.crawl_id = :current AND a.crawled = true AND a.in_crawl = TRUE
-        AND EXISTS (SELECT 1 FROM pages b WHERE b.crawl_id = :compare AND b.crawled = true AND b.in_crawl = TRUE AND b.url = a.url)
+        AND a.url IN (SELECT url FROM pages WHERE crawl_id = :compare AND crawled = true AND in_crawl = TRUE)
     ");
     $stmt->execute([':current' => $safeCrId, ':compare' => $safeCompId]);
     $compCommonCount = (int)$stmt->fetchColumn();
@@ -544,5 +576,7 @@ function isSectionCollapsed($sectionName) {
     <?php include 'components/url-details-modal.php'; ?>
     <?php include 'components/quick-search.php'; ?>
     <?php include 'components/crawl-panel.php'; ?>
+    <?php /* Dr. Brief chat assistant. Renders nothing if AI is not configured. */ ?>
+    <?php include 'components/dr-brief-widget.php'; ?>
 </body>
 </html>

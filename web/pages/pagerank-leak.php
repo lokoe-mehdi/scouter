@@ -6,41 +6,46 @@
  */
 
 // Total PageRank distribué (somme des pri de toutes les pages crawlées)
-$stmt = $pdo->prepare("
-    SELECT 
+$sqlTotalPR = "
+    SELECT
         COALESCE(SUM(pri), 0) as total_pr
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
-");
-$stmt->execute([':crawl_id' => $crawlId]);
-$totalPR = (float)$stmt->fetch(PDO::FETCH_OBJ)->total_pr;
+";
+$totalPRRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'leak_total_pr', $pdo, $sqlTotalPR, [':crawl_id' => $crawlId], false
+);
+$totalPR = (float)($totalPRRows[0]->total_pr ?? 0);
 
 // PageRank sur URLs externes
 $sqlExternalPR = "
 SELECT COALESCE(SUM(pri), 0) as pr
 FROM pages
 WHERE crawl_id = :crawl_id AND external = true AND in_crawl = TRUE";
-$stmt = $pdo->prepare($sqlExternalPR);
-$stmt->execute([':crawl_id' => $crawlId]);
-$externalPR = (float)$stmt->fetch(PDO::FETCH_OBJ)->pr;
+$externalPRRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'leak_external_pr', $pdo, $sqlExternalPR, [':crawl_id' => $crawlId], false
+);
+$externalPR = (float)($externalPRRows[0]->pr ?? 0);
 
 // PageRank sur URLs internes non indexables
 $sqlNonIndexablePR = "
 SELECT COALESCE(SUM(pri), 0) as pr
 FROM pages
 WHERE crawl_id = :crawl_id AND crawled = true AND external = false AND compliant = false AND in_crawl = TRUE";
-$stmt = $pdo->prepare($sqlNonIndexablePR);
-$stmt->execute([':crawl_id' => $crawlId]);
-$nonIndexablePR = (float)$stmt->fetch(PDO::FETCH_OBJ)->pr;
+$nonIndexablePRRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'leak_non_indexable_pr', $pdo, $sqlNonIndexablePR, [':crawl_id' => $crawlId], false
+);
+$nonIndexablePR = (float)($nonIndexablePRRows[0]->pr ?? 0);
 
 // PageRank sur URLs indexables
 $sqlIndexablePR = "
 SELECT COALESCE(SUM(pri), 0) as pr
 FROM pages
 WHERE crawl_id = :crawl_id AND crawled = true AND external = false AND compliant = true AND in_crawl = TRUE";
-$stmt = $pdo->prepare($sqlIndexablePR);
-$stmt->execute([':crawl_id' => $crawlId]);
-$indexablePR = (float)$stmt->fetch(PDO::FETCH_OBJ)->pr;
+$indexablePRRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'leak_indexable_pr', $pdo, $sqlIndexablePR, [':crawl_id' => $crawlId], false
+);
+$indexablePR = (float)($indexablePRRows[0]->pr ?? 0);
 
 // Calcul des pourcentages
 $totalForPct = $externalPR + $nonIndexablePR + $indexablePR;
@@ -63,9 +68,9 @@ WHERE crawl_id = :crawl_id AND external = true AND in_crawl = TRUE
 GROUP BY COALESCE(SUBSTRING(url FROM '://([^/]+)'), SUBSTRING(url FROM '^([^/]+)'))
 ORDER BY total_pr DESC
 LIMIT 10";
-$stmt = $pdo->prepare($sqlTopDomains);
-$stmt->execute([':crawl_id' => $crawlId]);
-$topDomains = $stmt->fetchAll(PDO::FETCH_OBJ);
+$topDomains = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'leak_top_domains', $pdo, $sqlTopDomains, [':crawl_id' => $crawlId], false
+);
 
 // Préparer les données pour le graphe des domaines
 $domainNames = array_map(fn($d) => $d->domain ?? __('common.unknown'), $topDomains);

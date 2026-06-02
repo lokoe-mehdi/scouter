@@ -7,6 +7,9 @@ use App\Http\Request;
 use App\Http\Response;
 use App\Database\PostgresDatabase;
 use App\Database\CrawlDatabase;
+use App\Database\CrawlStore;
+use App\AI\ClickHouseSqlExecutor;
+use App\Storage\HtmlStore;
 use PDO;
 
 /**
@@ -72,13 +75,41 @@ class QueryController extends Controller
 
         $crawlId = $crawlRecord->id;
 
+        // ClickHouse-backed crawl → delegate to the CH executor (crawl_id-forced
+        // subqueries, live `category`, CH dialect). PG path below otherwise.
+        if (CrawlStore::usesClickHouse((int)$crawlId)) {
+            // rowLimit = 0 → open bar (pas de plafond de lignes) : la colonne lourde
+            // `html` est bloquée dans l'explorer, donc export CSV complet possible.
+            $res = (new ClickHouseSqlExecutor())->execute($query, (int)$crawlId, 0);
+            if (!$res['ok']) {
+                Response::forbidden($res['error'] ?? 'Query failed');
+                return;
+            }
+            $rows = array_map(function ($row) {
+                unset($row['crawl_id']);
+                return $row;
+            }, $res['rows']);
+            $columns = array_values(array_filter($res['columns'] ?? [], fn($c) => $c !== 'crawl_id'));
+            $this->json([
+                'type'    => 'select',
+                'columns' => $columns,
+                'rows'    => $rows,
+                'count'   => count($rows),
+            ]);
+            return;
+        }
+
         // SÉCURITÉ : Nettoyage et validation stricte
         $queryClean = preg_replace('/\/\*.*?\*\//s', ' ', $query); // strip block comments
         $queryClean = preg_replace('/--.*$/m', ' ', $queryClean);  // strip line comments
         $queryUpper = strtoupper(trim($queryClean));
 
-        if (strpos($queryUpper, 'SELECT') !== 0) {
-            Response::forbidden('Seules les requêtes SELECT sont autorisées.');
+        // Accept SELECT or WITH (CTE) at the start. WITH RECURSIVE stays
+        // blocked further down. Any write op inside a CTE (e.g. `WITH x AS
+        // (INSERT ...) ...`) is caught by the FORBIDDEN_KEYWORDS scan + the
+        // READ ONLY transaction.
+        if (strpos($queryUpper, 'SELECT') !== 0 && strpos($queryUpper, 'WITH') !== 0) {
+            Response::forbidden('Seules les requêtes SELECT ou WITH … SELECT sont autorisées.');
         }
 
         // Block multi-statement attacks
@@ -165,6 +196,23 @@ class QueryController extends Controller
             'pages', 'links',
             'duplicate_clusters', 'page_schemas', 'redirect_chains',
         ];
+        // Extract CTE names so the whitelist doesn't flag them. A query like
+        // `WITH ranked AS (SELECT ...) SELECT * FROM ranked` would otherwise
+        // fail on `ranked` because it appears after FROM. We collect all CTE
+        // identifiers and treat them as valid local table names for this
+        // query only. The `AS\s*\(` (parenthesis required) avoids matching
+        // column aliases like `AS rk`.
+        $cteNames = [];
+        if (preg_match_all(
+            '/(?:\bWITH\s+|,\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(/i',
+            $transformedQuery,
+            $cteMatches
+        )) {
+            foreach ($cteMatches[1] as $name) {
+                $cteNames[] = strtolower($name);
+            }
+        }
+
         // Extrait tous les noms de tables après FROM / JOIN, en gérant "schema.table",
         // les quoted identifiers, et en isolant le dernier segment (= nom de table).
         preg_match_all(
@@ -175,12 +223,57 @@ class QueryController extends Controller
         foreach (array_unique($tableMatches[1] ?? []) as $tableName) {
             $tableLower = strtolower($tableName);
             $isAllowed = in_array($tableLower, $allowedTables, true)
+                || in_array($tableLower, $cteNames, true)
                 || preg_match('/^(pages|links|duplicate_clusters|page_schemas|redirect_chains)_\d+$/i', $tableLower);
             if (!$isAllowed) {
                 Response::forbidden(
                     "Table « {$tableName} » non autorisée depuis le SQL Explorer. " .
                     "Tables accessibles : " . implode(', ', $allowedTables) . '.'
                 );
+            }
+        }
+
+        // === SÉCURITÉ : project-scope sur crawl_categories ===
+        //
+        // crawl_categories est une table partagée entre tous les projets (pas
+        // de partitionnement par crawl_id, contrairement à pages/links/...).
+        // Sans filtre supplémentaire, un `SELECT * FROM crawl_categories`
+        // dans le SQL Explorer renvoie les catégories de TOUS les projets de
+        // l'instance, ce qui est une fuite cross-tenant.
+        //
+        // Solution : on préfixe la requête avec une CTE du même nom qui
+        // pré-filtre sur le project_id courant. PostgreSQL résout alors
+        // toute référence à `crawl_categories` (FROM, JOIN, subquery) vers
+        // la CTE — l'utilisateur ne peut techniquement plus voir les rows
+        // des autres projets, peu importe la forme de sa requête.
+        //
+        // Coût : nul en pratique (PG inline la CTE en query plan ; si la
+        // table n'est pas référencée, c'est juste une CTE inutilisée).
+        // Garde : la requête ne doit pas définir sa propre CTE nommée
+        // `crawl_categories`. On en injecte une avec ce nom exact ci-dessous
+        // pour scoper la table partagée par projet ; une CTE utilisateur du
+        // même nom (a) entre en collision → erreur "WITH query name specified
+        // more than once", et (b) contournerait le filtre projet. On refuse
+        // avec un message clair.
+        if (in_array('crawl_categories', $cteNames, true)) {
+            Response::forbidden(
+                '« crawl_categories » est réservé et déjà filtré par projet — ' .
+                'référencez-la directement (ex. JOIN crawl_categories) sans ' .
+                'définir de CTE portant ce nom.'
+            );
+            return;
+        }
+
+        $pid = (int)$crawlRecord->project_id;
+        if ($pid > 0) {
+            $catScope = "crawl_categories AS (SELECT * FROM crawl_categories WHERE project_id = {$pid})";
+            if (preg_match('/^\s*WITH\s+/i', $transformedQuery)) {
+                // Fusion avec la CTE existante de l'utilisateur.
+                $transformedQuery = preg_replace(
+                    '/^\s*WITH\s+/i', "WITH {$catScope}, ", $transformedQuery, 1
+                );
+            } else {
+                $transformedQuery = "WITH {$catScope} " . ltrim($transformedQuery);
             }
         }
 
@@ -247,22 +340,30 @@ class QueryController extends Controller
         }
         
         $crawlId = $crawlRecord->id;
-        
-        // Charger les catégories (project-level)
-        $categoriesMap = [];
-        $categoryColors = [];
+
+        // On ClickHouse crawls the PG partitions are purged → read through the same
+        // shim the reports use (ChPdo), which exposes the LIVE `category` (name) and
+        // a synthetic cat_id. The legacy PG path (raw pages with stored cat_id) is
+        // kept for crawls not yet migrated. Category colours are project metadata
+        // (crawl_categories), always in PG, keyed by category NAME for both.
+        $useCh = CrawlStore::usesClickHouse((int)$crawlId);
+        $dataDb = $useCh ? new \App\Database\ChPdo((int)$crawlId) : $this->db;
+
+        $categoriesMap = [];   // PG cat_id → name (legacy path only)
+        $categoryColors = [];  // name → color (both paths)
         $stmt = $this->db->prepare("SELECT id, cat, color FROM crawl_categories WHERE project_id = :project_id");
         $stmt->execute([':project_id' => $crawlRecord->project_id]);
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $categoriesMap[$row['id']] = $row['cat'];
             $categoryColors[$row['cat']] = $row['color'];
         }
-        
-        // Récupérer les détails de l'URL (inclut inlinks/outlinks counts pré-calculés)
-        $stmt = $this->db->prepare("
+
+        // `category` (live name) on CH ; `cat_id` (stored) on legacy PG.
+        $catCol = $useCh ? 'category' : 'cat_id';
+        $stmt = $dataDb->prepare("
             SELECT id, url, domain, depth, code, crawled, content_type, inlinks, outlinks, date,
                    nofollow, compliant, noindex, canonical, canonical_value, redirect_to,
-                   response_time, blocked, external, title, h1, metadesc, extracts, cat_id,
+                   response_time, blocked, external, title, h1, metadesc, extracts, {$catCol},
                    h1_multiple, headings_missing, schemas, word_count
             FROM pages WHERE crawl_id = :crawl_id AND url = :url
         ");
@@ -273,7 +374,9 @@ class QueryController extends Controller
             Response::notFound('URL not found');
         }
 
-        $catName = $categoriesMap[$urlData['cat_id']] ?? 'Non catégorisé';
+        $catName = $useCh
+            ? (($urlData['category'] ?? '') !== '' ? $urlData['category'] : 'Non catégorisé')
+            : ($categoriesMap[$urlData['cat_id']] ?? 'Non catégorisé');
         $urlData['category'] = $catName;
         $urlData['category_color'] = $categoryColors[$catName] ?? '#95a5a6';
 
@@ -283,14 +386,20 @@ class QueryController extends Controller
             'metadesc' => $urlData['metadesc'] ?? ''
         ];
 
-        $customExtracts = $urlData['extracts'] ? json_decode($urlData['extracts'], true) : [];
+        // extracts: CH (Map) is already decoded to an array by the shim; legacy PG
+        // returns a JSONB string.
+        $rawExtracts = $urlData['extracts'] ?? null;
+        $customExtracts = is_array($rawExtracts) ? $rawExtracts : ($rawExtracts ? json_decode($rawExtracts, true) : []);
 
         $urlData['response_time'] = (int)($urlData['response_time'] ?? 0);
         $urlData['depth'] = (int)($urlData['depth'] ?? 0);
         $urlData['code'] = (int)($urlData['code'] ?? 0);
 
+        // schemas: both paths render the PG array literal '{A,B}' (the shim mirrors it).
         $schemas = $urlData['schemas'] ?? '{}';
-        if ($schemas && $schemas !== '{}') {
+        if (is_array($schemas)) {
+            $urlData['schemas'] = $schemas;
+        } elseif ($schemas && $schemas !== '{}') {
             $schemas = trim($schemas, '{}');
             $urlData['schemas'] = !empty($schemas)
                 ? array_map(fn($s) => trim($s, '"'), explode(',', $schemas))
@@ -300,7 +409,7 @@ class QueryController extends Controller
         }
 
         // Vrai count depuis la table links (pages.outlinks peut être faux pour les non-canoniques)
-        $stmtOut = $this->db->prepare("SELECT COUNT(*) FROM links WHERE crawl_id = :crawl_id AND src = :id");
+        $stmtOut = $dataDb->prepare("SELECT COUNT(*) FROM links WHERE crawl_id = :crawl_id AND src = :id");
         $stmtOut->execute([':crawl_id' => $crawlId, ':id' => $urlData['id']]);
         $realOutlinks = (int)$stmtOut->fetchColumn();
 
@@ -313,6 +422,19 @@ class QueryController extends Controller
             'inlinks_count' => (int)($urlData['inlinks'] ?? 0),
             'outlinks_count' => $realOutlinks
         ]);
+    }
+
+    /**
+     * The PDO-compatible handle for a crawl's DATA (pages/links/html): the ChPdo
+     * shim for migrated crawls (PG purged → read ClickHouse, live `category`), or
+     * the raw PG connection for crawls not yet migrated. Metadata (crawl_categories
+     * colours, etc.) always stays on the raw PG `$this->db`.
+     */
+    private function reportDb(int $crawlId)
+    {
+        return CrawlStore::usesClickHouse($crawlId)
+            ? new \App\Database\ChPdo($crawlId)
+            : $this->db;
     }
 
     /**
@@ -341,12 +463,14 @@ class QueryController extends Controller
         }
 
         $crawlId = $crawlRecord->id;
+        $useCh = CrawlStore::usesClickHouse((int)$crawlId);
+        $db = $useCh ? new \App\Database\ChPdo((int)$crawlId) : $this->db;
 
         if ($pageId) {
-            $stmt = $this->db->prepare("SELECT id FROM pages WHERE crawl_id = :crawl_id AND id = :id");
+            $stmt = $db->prepare("SELECT id FROM pages WHERE crawl_id = :crawl_id AND id = :id");
             $stmt->execute([':crawl_id' => $crawlId, ':id' => $pageId]);
         } else {
-            $stmt = $this->db->prepare("SELECT id FROM pages WHERE crawl_id = :crawl_id AND url = :url");
+            $stmt = $db->prepare("SELECT id FROM pages WHERE crawl_id = :crawl_id AND url = :url");
             $stmt->execute([':crawl_id' => $crawlId, ':url' => $url]);
         }
         $page = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -355,7 +479,7 @@ class QueryController extends Controller
             Response::notFound('Page not found');
         }
 
-        return ['crawlId' => $crawlId, 'pageId' => $page['id'], 'projectId' => $crawlRecord->project_id];
+        return ['crawlId' => $crawlId, 'pageId' => $page['id'], 'projectId' => $crawlRecord->project_id, 'useCh' => $useCh];
     }
 
     /**
@@ -375,8 +499,9 @@ class QueryController extends Controller
             $categoryColors[$row['cat']] = $row['color'];
         }
 
-        $stmt = $this->db->prepare("
-            SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.pri, c.cat_id
+        $catSel = $ctx['useCh'] ? 'c.category' : 'c.cat_id';
+        $stmt = $this->reportDb($ctx['crawlId'])->prepare("
+            SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.pri, {$catSel}
             FROM links l
             JOIN pages c ON l.src = c.id AND c.crawl_id = :crawl_id AND c.in_crawl = TRUE
             WHERE l.crawl_id = :crawl_id2 AND l.target = :id
@@ -386,7 +511,9 @@ class QueryController extends Controller
         $inlinks = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($inlinks as &$link) {
-            $catName = $categoriesMap[$link['cat_id']] ?? 'Non catégorisé';
+            $catName = $ctx['useCh']
+                ? (($link['category'] ?? '') !== '' ? $link['category'] : 'Non catégorisé')
+                : ($categoriesMap[$link['cat_id']] ?? 'Non catégorisé');
             $link['category'] = $catName;
             $link['category_color'] = $categoryColors[$catName] ?? '#95a5a6';
         }
@@ -411,8 +538,9 @@ class QueryController extends Controller
             $categoryColors[$row['cat']] = $row['color'];
         }
 
-        $stmt = $this->db->prepare("
-            SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.external, c.cat_id
+        $catSel = $ctx['useCh'] ? 'c.category' : 'c.cat_id';
+        $stmt = $this->reportDb($ctx['crawlId'])->prepare("
+            SELECT c.id, c.url, l.anchor, l.type, l.nofollow, c.external AS external, {$catSel}
             FROM links l
             JOIN pages c ON l.target = c.id AND c.crawl_id = :crawl_id AND c.in_crawl = TRUE
             WHERE l.crawl_id = :crawl_id2 AND l.src = :id
@@ -421,7 +549,9 @@ class QueryController extends Controller
         $outlinks = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($outlinks as &$link) {
-            $catName = $categoriesMap[$link['cat_id']] ?? 'Non catégorisé';
+            $catName = $ctx['useCh']
+                ? (($link['category'] ?? '') !== '' ? $link['category'] : 'Non catégorisé')
+                : ($categoriesMap[$link['cat_id']] ?? 'Non catégorisé');
             $link['category'] = $catName;
             $link['category_color'] = $categoryColors[$catName] ?? '#95a5a6';
         }
@@ -456,8 +586,8 @@ class QueryController extends Controller
         }
         
         $crawlId = $crawlRecord->id;
-        
-        $stmt = $this->db->prepare("
+
+        $stmt = $this->reportDb((int)$crawlId)->prepare("
             SELECT url, title, code FROM pages
             WHERE crawl_id = :crawl_id AND url LIKE :search AND in_crawl = TRUE
             ORDER BY pri DESC LIMIT :limit
@@ -484,32 +614,26 @@ class QueryController extends Controller
     {
         $ctx = $this->resolvePageContext($request);
 
-        // Get HTML
-        $stmt = $this->db->prepare("SELECT html FROM html WHERE crawl_id = :crawl_id AND id = :id");
-        $stmt->execute([':crawl_id' => $ctx['crawlId'], ':id' => $ctx['pageId']]);
-        $htmlRow = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        $htmlContent = null;
-        $headings = [];
-        if ($htmlRow && $htmlRow['html']) {
-            $decoded = base64_decode($htmlRow['html']);
-            if ($decoded !== false) {
-                $decompressed = @gzinflate($decoded);
-                $htmlContent = $decompressed !== false ? $decompressed : $decoded;
-            }
+        // Raw HTML now lives in the blob store (S3/local); HtmlStore returns it
+        // already decompressed, falling back to the DB for pre-migration crawls.
+        $htmlContent = HtmlStore::fetch(
+            (int)$ctx['crawlId'],
+            (string)$ctx['pageId'],
+            !empty($ctx['useCh']),
+            $this->reportDb($ctx['crawlId'])
+        );
 
-            // Extract headings from HTML
-            if (!empty($htmlContent)) {
-                $dom = new \DOMDocument();
-                @$dom->loadHTML('<?xml encoding="UTF-8">' . $htmlContent);
-                $xpath = new \DOMXPath($dom);
-                $headingNodes = $xpath->query('//h1 | //h2 | //h3 | //h4 | //h5 | //h6');
-                foreach ($headingNodes as $node) {
-                    $headings[] = [
-                        'level' => (int)substr($node->nodeName, 1),
-                        'text' => trim($node->textContent)
-                    ];
-                }
+        $headings = [];
+        if (!empty($htmlContent)) {
+            $dom = new \DOMDocument();
+            @$dom->loadHTML('<?xml encoding="UTF-8">' . $htmlContent);
+            $xpath = new \DOMXPath($dom);
+            $headingNodes = $xpath->query('//h1 | //h2 | //h3 | //h4 | //h5 | //h6');
+            foreach ($headingNodes as $node) {
+                $headings[] = [
+                    'level' => (int)substr($node->nodeName, 1),
+                    'text' => trim($node->textContent)
+                ];
             }
         }
 

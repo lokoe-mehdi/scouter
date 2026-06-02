@@ -112,15 +112,9 @@
     </div>
 </div>
 
-<!-- Notification minimisée (badge flottant) -->
-<div class="crawl-panel-minimized" id="crawlPanelMinimized">
-    <div class="crawl-panel-minimized-content" onclick="CrawlPanel.open()">
-        <div class="crawl-panel-minimized-dot"></div>
-        <span class="crawl-panel-minimized-count" id="crawlPanelMinimizedCount" style="display: none;">2</span>
-        <span class="crawl-panel-minimized-text" id="crawlPanelMinimizedText"><?= __('crawl_panel.minimized_text') ?></span>
-        <span class="crawl-panel-minimized-progress" id="crawlPanelMinimizedProgress">0%</span>
-    </div>
-    <button class="crawl-panel-minimized-close" onclick="CrawlPanel.hideNotification(event)" title="<?= __('crawl_panel.hide_notification') ?>">
-        <span class="material-symbols-outlined">close</span>
-    </button>
-</div>
+<!--
+    Le badge flottant en bas à droite a été retiré : le volet de logs ne
+    s'affiche plus jamais tout seul. On l'ouvre désormais en cliquant sur
+    l'icône de logs à côté d'un crawl, ou via les liens des notifications
+    (cloche du header). L'ouverture au lancement manuel d'un crawl est conservée.
+-->

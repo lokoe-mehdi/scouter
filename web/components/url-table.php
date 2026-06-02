@@ -29,6 +29,10 @@ $pdo = $urlTableConfig['pdo'] ?? null;
 $projectDir = $urlTableConfig['projectDir'] ?? '';
 $defaultColumns = $urlTableConfig['defaultColumns'] ?? ['url', 'depth', 'code', 'category'];
 $perPage = $urlTableConfig['perPage'] ?? 100;
+// Plafond optionnel du nombre total de résultats (0 = illimité). Utile pour un
+// "Top N" : la requête reste triée + paginée normalement, on borne juste le total
+// (donc le nombre de pages) — chaque page renvoie bien les bonnes lignes du tri.
+$maxResults = (int)($urlTableConfig['maxResults'] ?? 0);
 $crawlId = $urlTableConfig['crawlId'] ?? null;
 $compareCrawlId = $urlTableConfig['compareCrawlId'] ?? null;
 $compareColumnsExplicit = $urlTableConfig['compareColumns'] ?? null; // null = auto-detect
@@ -62,6 +66,36 @@ if (!$skipExtractDiscovery) {
     }
 }
 
+// Pareil pour les clés générées par le Bulk AI Generator (pages.generation).
+// Détection auto via jsonb_object_keys ; le mapping type est lu via le
+// $GLOBALS['generationTypes'] préparé par url-explorer.php pour les filtres.
+$customGenerationColumns = [];
+if (!$skipExtractDiscovery) {
+    // CH-backed crawls store generation in page_generation (Map), not in
+    // pages.generation (JSONB), and PG pages is purged after migration — so the
+    // jsonb_object_keys probe finds nothing. Route CH crawls to the shared CH
+    // discovery (keys only here) or the generated columns never get listed.
+    if (\App\Database\CrawlStore::usesClickHouse((int)$crawlId)) {
+        $customGenerationColumns = array_map(
+            fn($g) => $g['key'],
+            \App\Http\Controllers\AIUrlFiltersController::fetchGenerationsCH((int)$crawlId, '[UrlTable]')
+        );
+    } else {
+        try {
+            $stmt = $pdo->prepare("
+                SELECT DISTINCT jsonb_object_keys(generation) as key_name
+                FROM pages
+                WHERE crawl_id = :crawl_id AND generation IS NOT NULL
+                  AND jsonb_typeof(generation) = 'object'
+            ");
+            $stmt->execute([':crawl_id' => $crawlId]);
+            $customGenerationColumns = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        } catch (Exception $e) {
+            // Colonne pages.generation absente ou rien dedans — silencieux.
+        }
+    }
+}
+
 // Utiliser le tableau centralisé des catégories (chargé dans dashboard.php)
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 $categoryColors = $GLOBALS['categoryColors'] ?? [];
@@ -80,7 +114,7 @@ $scopeItems = extractScopeFromWhereClause($whereClause);
 // 1. Colonnes basées sur defaultColumns
 $sqlColumns = array_map(function($col) {
     // Mapper les noms de colonnes
-    if ($col === 'category') return 'cat_id';
+    if ($col === 'category') return 'category';
     return $col;
 }, $defaultColumns);
 $sqlColumnsStr = implode(', ', $sqlColumns);
@@ -102,7 +136,7 @@ if ($compareCrawlId && !empty($compareColumns)) {
     // Ajouter les colonnes de comparaison au SQL display
     $cmpCols = [];
     foreach ($compareColumns as $col) {
-        $sqlCol = ($col === 'category') ? 'cat_id' : $col;
+        $sqlCol = ($col === 'category') ? 'category' : $col;
         $cmpCols[] = "b." . $sqlCol . " AS base_" . $sqlCol;
     }
     $cmpColsStr = ", " . implode(", ", $cmpCols);
@@ -125,8 +159,8 @@ if (!empty($scopeItems) && !empty($sqlParams)) {
     }, $scopeItems);
 }
 
-// Remplacer "category" par "c.cat_id" dans ORDER BY (plus de jointure sur categories)
-$orderBy = preg_replace('/\bcategory\b/', 'c.cat_id', $orderBy);
+// "category" est désormais une colonne live (nom de catégorie) — pas de cat_id.
+$orderBy = preg_replace('/\bcategory\b/', 'c.category', $orderBy);
 
 // Colonnes disponibles
 $availableColumns = [
@@ -169,6 +203,13 @@ foreach($customExtractColumns as $columnName) {
     // Créer un label lisible
     $label = ucwords(str_replace('_', ' ', $columnName));
     $availableColumns['extract_' . $columnName] = 'Extracteur : ' . $label;
+}
+
+// Pareil pour les colonnes "generation_xxx" produites par le Bulk AI Generator.
+// Ajoute le préfixe "AI : " pour bien distinguer des extracts custom.
+foreach($customGenerationColumns as $columnName) {
+    $label = ucwords(str_replace('_', ' ', $columnName));
+    $availableColumns['generation_' . $columnName] = 'AI : ' . $label;
 }
 
 // Résoudre les colonnes de comparaison : si explicite on prend la liste, sinon toutes les defaultColumns sauf url/category
@@ -291,7 +332,7 @@ $columnMapping = [
     'h1_status' => 'c.h1_status',
     'metadesc' => 'c.metadesc',
     'metadesc_status' => 'c.metadesc_status',
-    'category' => 'c.cat_id',
+    'category' => 'c.category',
     'h1_multiple' => 'c.h1_multiple',
     'headings_missing' => 'c.headings_missing',
     'word_count' => 'c.word_count'
@@ -301,6 +342,16 @@ $columnMapping = [
 foreach($customExtractColumns as $col) {
     $colAlias = 'extract_' . preg_replace('/[^a-z0-9_]/i', '_', $col);
     $columnMapping[$colAlias] = "c.extracts->>'" . addslashes($col) . "'";
+}
+
+// Ajouter les colonnes generation_* au mapping pour le tri.
+// On utilise `->>'key'` (text) car le tri SQL natif fonctionne uniformément
+// peu importe le type JSONB sous-jacent (les strings se trient lexicographiquement,
+// les nombres aussi — Postgres trie "123" avant "9" mais c'est le compromis
+// accepté côté UX, l'utilisateur peut affiner via les filtres typés).
+foreach($customGenerationColumns as $col) {
+    $colAlias = 'generation_' . preg_replace('/[^a-z0-9_]/i', '_', $col);
+    $columnMapping[$colAlias] = "c.generation->>'" . addslashes($col) . "'";
 }
 
 // Ajouter les colonnes de comparaison au mapping pour le tri
@@ -322,8 +373,10 @@ if($useSimplifiedMode) {
     
     // Vérifier si WHERE existe déjà
     if(stripos($whereClause, 'WHERE') !== false) {
-        // Ajouter le crawl_id après WHERE
-        $whereClause = preg_replace('/WHERE\s+/i', 'WHERE ' . $crawlIdCondition . ' AND ', $whereClause);
+        // Ajouter le crawl_id après LE PREMIER WHERE seulement (limit 1) — sinon on
+        // l'injecte aussi dans les sous-requêtes (NOT IN (SELECT ... WHERE ...)), ce
+        // qui les rend corrélées (c.crawl_id du scope parent) → ClickHouse refuse.
+        $whereClause = preg_replace('/WHERE\s+/i', 'WHERE ' . $crawlIdCondition . ' AND ', $whereClause, 1);
     } else {
         $whereClause = 'WHERE ' . $crawlIdCondition;
     }
@@ -332,6 +385,12 @@ if($useSimplifiedMode) {
     $jsonbColumns = '';
     foreach($customExtractColumns as $colName) {
         $jsonbColumns .= ", c.extracts->>'" . addslashes($colName) . "' as extract_" . preg_replace('/[^a-z0-9_]/i', '_', $colName);
+    }
+    // Idem pour les clés du Bulk AI Generator. ->> garde tout en text pour
+    // l'affichage UI (numbers et booleans se castent côté JS si besoin de
+    // formatting spécial — le default str repr est lisible : "78", "true").
+    foreach($customGenerationColumns as $colName) {
+        $jsonbColumns .= ", c.generation->>'" . addslashes($colName) . "' as generation_" . preg_replace('/[^a-z0-9_]/i', '_', $colName);
     }
     
     // Colonnes de comparaison (LEFT JOIN sur le crawl de comparaison)
@@ -349,6 +408,7 @@ if($useSimplifiedMode) {
 
     // OPTIMISATION : Plus de jointure sur categories, on utilise le tableau PHP
     $sqlQuery = "SELECT
+        c.id,
         c.url,
         c.domain,
         c.depth,
@@ -377,7 +437,7 @@ if($useSimplifiedMode) {
         c.h1_status,
         c.metadesc,
         c.metadesc_status,
-        c.cat_id,
+        c.category,
         c.h1_multiple,
         c.headings_missing,
         c.word_count
@@ -414,7 +474,26 @@ $sqlCount = $pdo->prepare($countQuery);
 $sqlCount->execute($sqlParams);
 $result = $sqlCount->fetch(PDO::FETCH_OBJ);
 $totalResults = $result ? $result->total : 0;
+if ($maxResults > 0 && $totalResults > $maxResults) {
+    $totalResults = $maxResults; // borne le "Top N" : pagination limitée à ce total
+}
 $totalPages = ceil($totalResults / $perPage);
+
+// Expose EVERY matching page id (the whole filtered set, not just the displayed
+// page) so the Bulk AI modal generates over all results. Reuses the table's own
+// query as a subquery → guaranteed identical to what's shown, no LIMIT.
+if (!empty($urlTableConfig['exposeAllIds'])) {
+    $allFilteredPageIds = [];
+    try {
+        $idInner = preg_replace('/LIMIT\s+\d+\s*(OFFSET\s+\d+)?/i', '', $sqlQuery);
+        $idStmt = $pdo->prepare("SELECT sub.id FROM ( $idInner ) sub");
+        $idStmt->execute($sqlParams);
+        $allFilteredPageIds = $idStmt->fetchAll(PDO::FETCH_COLUMN);
+    } catch (\Throwable $e) {
+        $allFilteredPageIds = [];
+    }
+    echo '<script>window.__bulkAllFilteredPageIds = ' . json_encode($allFilteredPageIds) . ';</script>';
+}
 
 // Exécution de la requête principale avec pagination
 $paginatedQuery = $sqlQuery;
@@ -435,6 +514,10 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
     <input type="hidden" name="filters" value="">
     <input type="hidden" name="search" value="">
     <input type="hidden" name="columns" id="exportColumns_<?= $componentId ?>" value="">
+    <!-- The report's OWN scope (e.g. seo-tags = h1_multiple OR headings_missing) so
+         the export matches the table, not the whole crawl. Server-validated in
+         ExportController (SELECT-safe boolean conditions only). -->
+    <input type="hidden" name="report_where" value="<?= htmlspecialchars($urlTableConfig['whereClause'] ?? '', ENT_QUOTES) ?>">
 </form>
 
 <!-- Résultats -->
@@ -577,7 +660,7 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                 </tr>
                 <?php else: ?>
                 <?php foreach($urls as $url): ?>
-                <tr>
+                <tr data-page-id="<?= htmlspecialchars($url->id ?? '') ?>">
                     <?php foreach($selectedColumns as $col): ?>
                         <?php
                         // Pour les colonnes de comparaison (cmp_*), utiliser le même rendu que la colonne de base
@@ -623,10 +706,9 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                         <?php elseif($renderCol === 'category'): ?>
                             <td class="col-category">
                                 <?php
-                                $catId = $url->cat_id ?? null;
-                                $catInfo = $categoriesMap[$catId] ?? null;
-                                $category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
-                                $bgColor = $catInfo ? ($catInfo['color'] ?? '#aaaaaa') : '#aaaaaa';
+                                // `category` is now the live category NAME (no cat_id).
+                                $category = ($url->category ?? '') !== '' ? $url->category : __('common.uncategorized');
+                                $bgColor = function_exists('getCategoryColor') ? getCategoryColor($category) : '#aaaaaa';
                                 $textColor = function_exists('getTextColorForBackground') ? getTextColorForBackground($bgColor) : '#fff';
                                 ?>
                                 <span class="badge" style="background: <?= $bgColor ?>; color: <?= $textColor ?>;">
@@ -706,6 +788,22 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                         <?php elseif(strpos($col, 'cstm_') === 0 || strpos($col, 'extract_') === 0): ?>
                             <td class="col-<?= $col ?>" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->$dataField ?? '') ?>">
                                 <?= isset($url->$dataField) ? htmlspecialchars($url->$dataField) : '<span style="color: #95A5A6;">—</span>' ?>
+                            </td>
+                        <?php elseif(strpos($col, 'generation_') === 0): ?>
+                            <td class="col-<?= $col ?>" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?= htmlspecialchars($url->$dataField ?? '') ?>">
+                                <?php if (!isset($url->$dataField)): ?>
+                                    <span style="color: #95A5A6;">—</span>
+                                <?php else:
+                                    // Pretty-print booleans pour bien voir true/false ;
+                                    // les autres types restent en text natif.
+                                    $val = $url->$dataField;
+                                    if ($val === 'true' || $val === 'false') {
+                                        $cls = $val === 'true' ? 'badge-success' : 'badge-neutral';
+                                        echo '<span class="badge ' . $cls . '">' . $val . '</span>';
+                                    } else {
+                                        echo htmlspecialchars((string)$val);
+                                    }
+                                endif; ?>
                             </td>
                         <?php else: ?>
                             <td class="col-<?= $col ?>"><?= htmlspecialchars($url->$dataField ?? '') ?></td>
@@ -912,19 +1010,25 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
             if(newTableCard) {
                 const currentTableCard = document.getElementById('tableCard_' + componentId);
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-init scrollbar sync after DOM replacement (see explanation
+                // in sortByColumn handler).
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Réinitialiser currentPage à 1
                 currentPage = 1;
-                
+
                 // Mettre à jour le perPage actuel
                 currentPerPage = newPerPage;
-                
+
                 // Recalculer totalPages avec le nouveau perPage
                 currentTotalPages = Math.ceil(totalResults / newPerPage);
-                
+
                 // Mettre à jour les boutons de pagination avec les bonnes valeurs
                 attachPaginationHandlers();
-                
+
                 // Rafraîchir les handlers de la modale
                 if(typeof refreshUrlModalHandlers === 'function') {
                     refreshUrlModalHandlers();
@@ -1299,7 +1403,15 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
             if(newTableCard) {
                 const currentTableCard = document.getElementById('tableCard_' + componentId);
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-initialiser la sync des scrollbars : le innerHTML a recréé
+                // les nœuds DOM (topScrollbar, tableContainer) — les anciens
+                // handlers pointent dans le vide et la largeur du contenu
+                // de la barre du haut est repartie à 1px → barre invisible.
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Rafraîchir les handlers de la modale
                 if(typeof refreshUrlModalHandlers === 'function') {
                     refreshUrlModalHandlers();
@@ -1363,7 +1475,12 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                 
                 // Remplacer le contenu
                 currentTableCard.innerHTML = newTableCard.innerHTML;
-                
+
+                // Re-init scrollbar sync after DOM replacement.
+                if (typeof window['initScrollbarSync_' + componentId] === 'function') {
+                    window['initScrollbarSync_' + componentId]();
+                }
+
                 // Fermer le dropdown après remplacement
                 const newDropdown = document.getElementById('columnDropdown_' + componentId);
                 if(newDropdown) {
@@ -1391,21 +1508,27 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
     };
 
     // Export CSV
+    // Export CSV — asynchrone : crée un job qui génère le CSV et l'envoie sur le
+    // blob store. L'icône « téléchargements » du header prévient quand c'est prêt.
     window['exportToCSV_' + componentId] = function() {
         const selectedCols = [];
         document.querySelectorAll('.column-checkbox-' + componentId + ':checked').forEach(cb => {
             selectedCols.push(cb.value);
         });
-        
-        // Récupérer les filtres et recherche depuis l'URL
+
         const params = new URLSearchParams(window.location.search);
-        const filters = params.get('filters') || '';
-        const search = params.get('search') || '';
-        
-        document.getElementById('exportForm_' + componentId).querySelector('[name="filters"]').value = filters;
-        document.getElementById('exportForm_' + componentId).querySelector('[name="search"]').value = search;
-        document.getElementById('exportColumns_' + componentId).value = JSON.stringify(selectedCols);
-        document.getElementById('exportForm_' + componentId).submit();
+        const form = document.getElementById('exportForm_' + componentId);
+        const reportWhere = form ? ((form.querySelector('[name="report_where"]') || {}).value || '') : '';
+
+        if (typeof window.queueExport !== 'function') return;
+        window.queueExport({
+            type: 'urls',
+            project: <?= json_encode((string)($crawlId ?? $projectDir)) ?>,
+            filters: params.get('filters') || '',
+            search: params.get('search') || '',
+            columns: JSON.stringify(selectedCols),
+            report_where: reportWhere
+        });
     };
 
     // Stocker les références aux handlers pour pouvoir les retirer

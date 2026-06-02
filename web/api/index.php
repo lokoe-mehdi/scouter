@@ -29,6 +29,16 @@ use App\Http\Controllers\ExportController;
 use App\Http\Controllers\MonitorController;
 use App\Http\Controllers\CategorizationController;
 use App\Http\Controllers\SavedQueryController;
+use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\AICategorizationController;
+use App\Http\Controllers\AISqlController;
+use App\Http\Controllers\AIUrlFiltersController;
+use App\Http\Controllers\AILinkFiltersController;
+use App\Http\Controllers\DrBriefController;
+use App\Http\Controllers\BulkGenerateController;
+use App\Http\Controllers\ApiV1Controller;
+use App\Http\Controllers\ApiKeyController;
+use App\Http\Controllers\NotificationController;
 
 $request = new Request();
 
@@ -89,7 +99,13 @@ try {
     // =============================================================================
     $router->get('/jobs/status', [JobController::class, 'status'], ['auth' => true]);
     $router->get('/jobs/logs', [JobController::class, 'logs'], ['auth' => true]);
-    $router->get('/jobs/:id', [JobController::class, 'show'], ['auth' => true]);
+    $router->get('/jobs/{id}', [JobController::class, 'show'], ['auth' => true]);
+
+    // =============================================================================
+    // NOTIFICATIONS (centre de notifications / cloche header, scopé à l'user)
+    // =============================================================================
+    $router->get('/notifications', [NotificationController::class, 'index'], ['auth' => true]);
+    $router->post('/notifications/read', [NotificationController::class, 'markRead'], ['auth' => true]);
 
     // =============================================================================
     // QUERIES
@@ -102,11 +118,12 @@ try {
     $router->get('/query/html-source', [QueryController::class, 'htmlSource'], ['auth' => true]);
 
     // =============================================================================
-    // EXPORTS
+    // EXPORTS (asynchrones → blob store ; centre de téléchargements du header)
     // =============================================================================
-    $router->post('/export/csv', [ExportController::class, 'csv'], ['auth' => true]);
-    $router->post('/export/links-csv', [ExportController::class, 'linksCsv'], ['auth' => true]);
-    $router->post('/export/redirect-chains-csv', [ExportController::class, 'redirectChainsCsv'], ['auth' => true]);
+    $router->post('/exports', [ExportController::class, 'create'], ['auth' => true]);
+    $router->get('/exports', [ExportController::class, 'index'], ['auth' => true]);
+    $router->post('/exports/seen', [ExportController::class, 'seen'], ['auth' => true]);
+    $router->get('/exports/{id}/download', [ExportController::class, 'download'], ['auth' => true]);
 
     // =============================================================================
     // MONITOR
@@ -132,6 +149,65 @@ try {
     $router->delete('/saved-queries/category', [SavedQueryController::class, 'deleteCategory'], ['auth' => true]);
     $router->put('/saved-queries/{id}', [SavedQueryController::class, 'update'], ['auth' => true]);
     $router->delete('/saved-queries/{id}', [SavedQueryController::class, 'delete'], ['auth' => true]);
+
+    // =============================================================================
+    // SETTINGS (admin only) + AI categorization (all users with crawl mgmt rights)
+    // =============================================================================
+    $router->get('/settings', [SettingsController::class, 'show'], ['auth' => true, 'admin' => true]);
+    $router->post('/settings/ai/test', [SettingsController::class, 'testAi'], ['auth' => true, 'admin' => true]);
+    $router->post('/settings/ai/prompt', [SettingsController::class, 'saveDrBriefPrompt'], ['auth' => true, 'admin' => true]);
+    $router->post('/settings', [SettingsController::class, 'save'], ['auth' => true, 'admin' => true]);
+    $router->post('/settings/budget', [SettingsController::class, 'saveBudget'], ['auth' => true, 'admin' => true]);
+
+    $router->post('/categorization/ai-suggest', [AICategorizationController::class, 'suggest'], ['auth' => true]);
+    $router->post('/sql/ai-generate', [AISqlController::class, 'generate'], ['auth' => true]);
+    $router->post('/url-explorer/ai-filters', [AIUrlFiltersController::class, 'suggest'], ['auth' => true]);
+    $router->post('/link-explorer/ai-filters', [AILinkFiltersController::class, 'suggest'], ['auth' => true]);
+    $router->post('/dr-brief/chat', [DrBriefController::class, 'chat'], ['auth' => true]);
+    $router->post('/dr-brief/dismiss-greeting', [DrBriefController::class, 'dismissGreeting'], ['auth' => true]);
+
+    // Bulk AI Generator — multi-item, multi-context generation in a batch job.
+    $router->get( '/bulk-generate/models',         [BulkGenerateController::class, 'models'],         ['auth' => true]);
+    $router->get( '/bulk-generate/context-fields', [BulkGenerateController::class, 'contextFields'], ['auth' => true]);
+    $router->get( '/bulk-generate/existing-keys',  [BulkGenerateController::class, 'existingKeys'],  ['auth' => true]);
+    $router->post('/bulk-generate/estimate',       [BulkGenerateController::class, 'estimate'],      ['auth' => true]);
+    $router->post('/bulk-generate/preview',        [BulkGenerateController::class, 'preview'],       ['auth' => true]);
+    $router->post('/bulk-generate/start',          [BulkGenerateController::class, 'start'],         ['auth' => true]);
+    $router->get( '/bulk-generate/status',         [BulkGenerateController::class, 'status'],        ['auth' => true]);
+    $router->post('/bulk-generate/stop',           [BulkGenerateController::class, 'stop'],          ['auth' => true]);
+
+    // =============================================================================
+    // API KEYS (session-authenticated) — managed from the Settings page by ANY
+    // logged-in user. Every operation is scoped to the caller (ApiKeyController
+    // uses $this->userId), so a user can only ever list/create/revoke their OWN
+    // keys. A key acts strictly within its owner's role/permissions on /api/v1.
+    // =============================================================================
+    $router->get(   '/keys',      [ApiKeyController::class, 'index'],  ['auth' => true]);
+    $router->post(  '/keys',      [ApiKeyController::class, 'create'], ['auth' => true]);
+    $router->delete('/keys/{id}', [ApiKeyController::class, 'revoke'], ['auth' => true]);
+
+    // =============================================================================
+    // PUBLIC API v1 — Bearer token auth (acts as the key's owner)
+    // =============================================================================
+    $router->get( '/v1/projects',              [ApiV1Controller::class, 'projects'], ['token' => true]);
+    // Scheduling (recurring crawls)
+    $router->get(   '/v1/schedules',                  [ApiV1Controller::class, 'schedules'],            ['token' => true]);
+    $router->get(   '/v1/projects/{id}/schedule',     [ApiV1Controller::class, 'getProjectSchedule'],   ['token' => true]);
+    $router->put(   '/v1/projects/{id}/schedule',     [ApiV1Controller::class, 'saveProjectSchedule'],  ['token' => true]);
+    $router->patch( '/v1/projects/{id}/schedule',     [ApiV1Controller::class, 'toggleProjectSchedule'],['token' => true]);
+    $router->delete('/v1/projects/{id}/schedule',     [ApiV1Controller::class, 'deleteProjectSchedule'],['token' => true]);
+    $router->post('/v1/crawls',                [ApiV1Controller::class, 'createCrawl'],  ['token' => true]);
+    $router->get( '/v1/crawls/{id}/status',    [ApiV1Controller::class, 'crawlStatus'],  ['token' => true]);
+    $router->post('/v1/crawls/{id}/stop',      [ApiV1Controller::class, 'stopCrawl'],    ['token' => true]);
+    $router->post('/v1/crawls/{id}/start',     [ApiV1Controller::class, 'startCrawl'],   ['token' => true]);
+    $router->get( '/v1/projects/{id}/crawls',  [ApiV1Controller::class, 'crawls'],   ['token' => true]);
+    $router->get( '/v1/crawls/{id}',           [ApiV1Controller::class, 'crawl'],    ['token' => true]);
+    $router->get( '/v1/crawls/{id}/schema',    [ApiV1Controller::class, 'schema'],   ['token' => true]);
+    $router->get( '/v1/crawls/{id}/content',   [ApiV1Controller::class, 'content'],  ['token' => true]);
+    $router->get( '/v1/crawls/{id}/html',      [ApiV1Controller::class, 'html'],     ['token' => true]);
+    $router->post('/v1/crawls/{id}/query',     [ApiV1Controller::class, 'query'],    ['token' => true]);
+    $router->get( '/v1/crawls/{id}/categorization', [ApiV1Controller::class, 'getCategorization'], ['token' => true]);
+    $router->put( '/v1/crawls/{id}/categorization', [ApiV1Controller::class, 'setCategorization'], ['token' => true]);
 
     // =============================================================================
     // DISPATCH

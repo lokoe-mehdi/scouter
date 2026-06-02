@@ -59,13 +59,10 @@ $sqlSeoStats = "
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
 
-$stmtRef = $pdo->prepare($sqlSeoStats);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$seoRef = $stmtRef->fetch(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlSeoStats);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$seoBase = $stmtBase->fetch(PDO::FETCH_OBJ);
+$seoRefRows  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'seotagscmp_stats', $pdo, $sqlSeoStats, [':crawl_id' => $safeCrawlId],   false);
+$seoRef  = $seoRefRows[0] ?? null;
+$seoBaseRows = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'seotagscmp_stats', $pdo, $sqlSeoStats, [':crawl_id' => $safeCompareId], false);
+$seoBase = $seoBaseRows[0] ?? null;
 
 // =========================================
 // Chart 1: Three donut charts — Title, H1, Meta Description
@@ -142,7 +139,7 @@ FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_cra
 // =========================================
 $sqlSeoByCat = "
     SELECT
-        cat_id,
+        category,
         SUM(CASE WHEN title_status = 'unique' THEN 1 ELSE 0 END) as title_unique,
         SUM(CASE WHEN title_status = 'duplicate' THEN 1 ELSE 0 END) as title_duplicate,
         SUM(CASE WHEN title_status = 'empty' THEN 1 ELSE 0 END) as title_empty,
@@ -154,31 +151,24 @@ $sqlSeoByCat = "
         SUM(CASE WHEN metadesc_status = 'empty' THEN 1 ELSE 0 END) as meta_desc_empty
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
-    GROUP BY cat_id
-    ORDER BY cat_id
+    GROUP BY category
+    ORDER BY category
 ";
 
-$stmtCatRef = $pdo->prepare($sqlSeoByCat);
-$stmtCatRef->execute([':crawl_id' => $safeCrawlId]);
-$seoCatRef = $stmtCatRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtCatBase = $pdo->prepare($sqlSeoByCat);
-$stmtCatBase->execute([':crawl_id' => $safeCompareId]);
-$seoCatBase = $stmtCatBase->fetchAll(PDO::FETCH_OBJ);
+$seoCatRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'seotagscmp_by_category', $pdo, $sqlSeoByCat, [':crawl_id' => $safeCrawlId],   true);
+$seoCatBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'seotagscmp_by_category', $pdo, $sqlSeoByCat, [':crawl_id' => $safeCompareId], true);
 
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 
 // Build maps by category name
 $refCatData = [];
 foreach ($seoCatRef as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $refCatData[$catName] = $r;
 }
 $baseCatData = [];
 foreach ($seoCatBase as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $baseCatData[$catName] = $r;
 }
 
@@ -268,7 +258,7 @@ foreach ($statuses as $key => [$label, $color]) {
 
 // SQL display for category charts
 $sqlSeoByCatDisplay = "SELECT
-    COALESCE(r.cat_id, b.cat_id) AS cat_id,
+    COALESCE(r.category, b.category) AS category,
     COALESCE(r.title_unique, 0) AS ref_title_unique,
     COALESCE(r.title_duplicate, 0) AS ref_title_duplicate,
     COALESCE(r.title_empty, 0) AS ref_title_empty,
@@ -276,23 +266,23 @@ $sqlSeoByCatDisplay = "SELECT
     COALESCE(b.title_duplicate, 0) AS base_title_duplicate,
     COALESCE(b.title_empty, 0) AS base_title_empty
 FROM (
-    SELECT cat_id,
+    SELECT category,
         SUM(CASE WHEN title_status = 'unique' THEN 1 ELSE 0 END) AS title_unique,
         SUM(CASE WHEN title_status = 'duplicate' THEN 1 ELSE 0 END) AS title_duplicate,
         SUM(CASE WHEN title_status = 'empty' THEN 1 ELSE 0 END) AS title_empty
-    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
+    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY category
 ) r
 FULL OUTER JOIN (
-    SELECT cat_id,
+    SELECT category,
         SUM(CASE WHEN title_status = 'unique' THEN 1 ELSE 0 END) AS title_unique,
         SUM(CASE WHEN title_status = 'duplicate' THEN 1 ELSE 0 END) AS title_duplicate,
         SUM(CASE WHEN title_status = 'empty' THEN 1 ELSE 0 END) AS title_empty
-    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
-) b ON r.cat_id = b.cat_id
-ORDER BY cat_id";
+    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY category
+) b ON r.category = b.category
+ORDER BY category";
 
 $sqlH1ByCatDisplay = "SELECT
-    COALESCE(r.cat_id, b.cat_id) AS cat_id,
+    COALESCE(r.category, b.category) AS category,
     COALESCE(r.h1_unique, 0) AS ref_h1_unique,
     COALESCE(r.h1_duplicate, 0) AS ref_h1_duplicate,
     COALESCE(r.h1_empty, 0) AS ref_h1_empty,
@@ -300,23 +290,23 @@ $sqlH1ByCatDisplay = "SELECT
     COALESCE(b.h1_duplicate, 0) AS base_h1_duplicate,
     COALESCE(b.h1_empty, 0) AS base_h1_empty
 FROM (
-    SELECT cat_id,
+    SELECT category,
         SUM(CASE WHEN h1_status = 'unique' THEN 1 ELSE 0 END) AS h1_unique,
         SUM(CASE WHEN h1_status = 'duplicate' THEN 1 ELSE 0 END) AS h1_duplicate,
         SUM(CASE WHEN h1_status = 'empty' THEN 1 ELSE 0 END) AS h1_empty
-    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
+    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY category
 ) r
 FULL OUTER JOIN (
-    SELECT cat_id,
+    SELECT category,
         SUM(CASE WHEN h1_status = 'unique' THEN 1 ELSE 0 END) AS h1_unique,
         SUM(CASE WHEN h1_status = 'duplicate' THEN 1 ELSE 0 END) AS h1_duplicate,
         SUM(CASE WHEN h1_status = 'empty' THEN 1 ELSE 0 END) AS h1_empty
-    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
-) b ON r.cat_id = b.cat_id
-ORDER BY cat_id";
+    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY category
+) b ON r.category = b.category
+ORDER BY category";
 
 $sqlMetaByCatDisplay = "SELECT
-    COALESCE(r.cat_id, b.cat_id) AS cat_id,
+    COALESCE(r.category, b.category) AS category,
     COALESCE(r.meta_unique, 0) AS ref_meta_unique,
     COALESCE(r.meta_duplicate, 0) AS ref_meta_duplicate,
     COALESCE(r.meta_empty, 0) AS ref_meta_empty,
@@ -324,20 +314,20 @@ $sqlMetaByCatDisplay = "SELECT
     COALESCE(b.meta_duplicate, 0) AS base_meta_duplicate,
     COALESCE(b.meta_empty, 0) AS base_meta_empty
 FROM (
-    SELECT cat_id,
+    SELECT category,
         SUM(CASE WHEN metadesc_status = 'unique' THEN 1 ELSE 0 END) AS meta_unique,
         SUM(CASE WHEN metadesc_status = 'duplicate' THEN 1 ELSE 0 END) AS meta_duplicate,
         SUM(CASE WHEN metadesc_status = 'empty' THEN 1 ELSE 0 END) AS meta_empty
-    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
+    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY category
 ) r
 FULL OUTER JOIN (
-    SELECT cat_id,
+    SELECT category,
         SUM(CASE WHEN metadesc_status = 'unique' THEN 1 ELSE 0 END) AS meta_unique,
         SUM(CASE WHEN metadesc_status = 'duplicate' THEN 1 ELSE 0 END) AS meta_duplicate,
         SUM(CASE WHEN metadesc_status = 'empty' THEN 1 ELSE 0 END) AS meta_empty
-    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
-) b ON r.cat_id = b.cat_id
-ORDER BY cat_id";
+    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY category
+) b ON r.category = b.category
+ORDER BY category";
 
 ?>
 
@@ -458,9 +448,9 @@ ORDER BY cat_id";
     Component::urlTable([
         'title' => __('comparison.title_regressions_table'),
         'id' => 'title_regressions_table',
-        'whereClause' => "WHERE c.compliant = true AND c.title_status IN ('empty','duplicate') AND c.in_crawl = TRUE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE AND b.title_status = 'unique'
+        'whereClause' => "WHERE c.compliant = true AND c.title_status IN ('empty','duplicate') AND c.in_crawl = TRUE AND c.url IN (
+            SELECT url FROM pages_{$safeCompareId} b
+            WHERE b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE AND b.title_status = 'unique'
         )",
         'orderBy' => 'ORDER BY c.title_status ASC, c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'title_status', 'title'],
@@ -474,9 +464,9 @@ ORDER BY cat_id";
     Component::urlTable([
         'title' => __('comparison.h1_regressions_table'),
         'id' => 'h1_regressions_table',
-        'whereClause' => "WHERE c.compliant = true AND c.h1_status IN ('empty','duplicate') AND c.in_crawl = TRUE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE AND b.h1_status = 'unique'
+        'whereClause' => "WHERE c.compliant = true AND c.h1_status IN ('empty','duplicate') AND c.in_crawl = TRUE AND c.url IN (
+            SELECT url FROM pages_{$safeCompareId} b
+            WHERE b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE AND b.h1_status = 'unique'
         )",
         'orderBy' => 'ORDER BY c.h1_status ASC, c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'h1_status', 'h1'],
@@ -490,9 +480,9 @@ ORDER BY cat_id";
     Component::urlTable([
         'title' => __('comparison.metadesc_regressions_table'),
         'id' => 'metadesc_regressions_table',
-        'whereClause' => "WHERE c.compliant = true AND c.metadesc_status IN ('empty','duplicate') AND c.in_crawl = TRUE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE AND b.metadesc_status = 'unique'
+        'whereClause' => "WHERE c.compliant = true AND c.metadesc_status IN ('empty','duplicate') AND c.in_crawl = TRUE AND c.url IN (
+            SELECT url FROM pages_{$safeCompareId} b
+            WHERE b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE AND b.metadesc_status = 'unique'
         )",
         'orderBy' => 'ORDER BY c.metadesc_status ASC, c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'metadesc_status', 'metadesc'],

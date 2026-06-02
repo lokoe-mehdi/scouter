@@ -46,6 +46,11 @@ $xAxisMax = $chartConfig['xAxisMax'] ?? null;
 $tooltipFormat = $chartConfig['tooltipFormat'] ?? null; // Format personnalisé du tooltip
 $legendPosition = $chartConfig['legendPosition'] ?? 'right'; // Position de la légende: 'right', 'bottom', 'left', 'top'
 $sqlQueryRaw = $chartConfig['sqlQuery'] ?? null; // Requête SQL source
+// On ClickHouse crawls, show/deeplink the SQL in CH dialect (booleans, casts,
+// JSON->Map…) keeping the virtual table names, so it runs in the CH SQL Explorer.
+if ($sqlQueryRaw && isset($GLOBALS['chReportPdo'])) {
+    $sqlQueryRaw = $GLOBALS['chReportPdo']->translateDialectOnly($sqlQueryRaw);
+}
 $showActions = !isset($chartConfig['actions']) || $chartConfig['actions'] !== false; // Afficher les boutons d'actions
 
 // Fonction pour nettoyer la requête SQL (enlever crawl_id pour SQL Explorer)

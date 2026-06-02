@@ -55,15 +55,9 @@ $sqlOutlinksDistribution = "
     ORDER BY outlinks DESC
 ";
 
-// Reference crawl
-$stmtRef = $pdo->prepare($sqlOutlinksDistribution);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$outlinksDistRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-// Base crawl
-$stmtBase = $pdo->prepare($sqlOutlinksDistribution);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$outlinksDistBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+// Reference + base crawl (cached; warms both crawls)
+$outlinksDistRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'outlinkscmp_dist', $pdo, $sqlOutlinksDistribution, [':crawl_id' => $safeCrawlId],   false);
+$outlinksDistBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'outlinkscmp_dist', $pdo, $sqlOutlinksDistribution, [':crawl_id' => $safeCompareId], false);
 
 // Build cumulative data for reference
 $totalUrlsRef = array_sum(array_column($outlinksDistRef, 'url_count'));
@@ -127,34 +121,27 @@ ORDER BY COALESCE(r.outlinks, b.outlinks) DESC";
 // =========================================
 $sqlByCategory = "
     SELECT
-        cat_id,
+        category,
         COUNT(id) as url_count,
         ROUND(AVG(outlinks)::numeric, 2) as avg_outlinks
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
-    GROUP BY cat_id
+    GROUP BY category
     ORDER BY AVG(outlinks) DESC
 ";
 
-$stmtRef = $pdo->prepare($sqlByCategory);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$catRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlByCategory);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$catBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$catRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'outlinkscmp_by_category', $pdo, $sqlByCategory, [':crawl_id' => $safeCrawlId],   true);
+$catBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'outlinkscmp_by_category', $pdo, $sqlByCategory, [':crawl_id' => $safeCompareId], true);
 
 // Build maps by category name
 $refCatData = [];
 foreach ($catRef as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $refCatData[$catName] = (float)$r->avg_outlinks;
 }
 $baseCatData = [];
 foreach ($catBase as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $baseCatData[$catName] = (float)$r->avg_outlinks;
 }
 
@@ -169,21 +156,21 @@ foreach ($allCatNames as $catName) {
 
 // SQL display for category chart
 $sqlCatDisplay = "SELECT
-    COALESCE(r.cat_id, b.cat_id) AS cat_id,
+    COALESCE(r.category, b.category) AS category,
     COALESCE(r.avg_outlinks, 0) AS ref_avg_outlinks,
     COALESCE(b.avg_outlinks, 0) AS base_avg_outlinks
 FROM (
-    SELECT cat_id, ROUND(AVG(outlinks)::numeric, 2) AS avg_outlinks
+    SELECT category, ROUND(AVG(outlinks)::numeric, 2) AS avg_outlinks
     FROM pages@{$safeCrawlId}
     WHERE crawled = true AND compliant = true AND in_crawl = TRUE
-    GROUP BY cat_id
+    GROUP BY category
 ) r
 FULL OUTER JOIN (
-    SELECT cat_id, ROUND(AVG(outlinks)::numeric, 2) AS avg_outlinks
+    SELECT category, ROUND(AVG(outlinks)::numeric, 2) AS avg_outlinks
     FROM pages@{$safeCompareId}
     WHERE crawled = true AND compliant = true AND in_crawl = TRUE
-    GROUP BY cat_id
-) b ON r.cat_id = b.cat_id
+    GROUP BY category
+) b ON r.category = b.category
 ORDER BY COALESCE(r.avg_outlinks, 0) DESC";
 
 ?>
@@ -276,9 +263,9 @@ ORDER BY COALESCE(r.avg_outlinks, 0) DESC";
     Component::urlTable([
         'title' => __('comparison.outlinks_changes_table'),
         'id' => 'outlinks_changes_table',
-        'whereClause' => "WHERE c.crawled = true AND c.compliant = true AND c.in_crawl = TRUE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE AND b.outlinks < c.outlinks
+        'whereClause' => "WHERE c.crawled = true AND c.compliant = true AND c.in_crawl = TRUE AND c.url IN (
+            SELECT cur.url FROM pages_{$safeCrawlId} cur JOIN pages_{$safeCompareId} b ON cur.url = b.url
+            WHERE b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE AND b.outlinks < cur.outlinks
         )",
         'orderBy' => 'ORDER BY c.outlinks DESC',
         'defaultColumns' => ['url', 'category', 'outlinks', 'depth', 'pri'],

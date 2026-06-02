@@ -169,9 +169,9 @@ describe('API Routes - URI Parsing', function () {
         expect($request->uri())->toBe('/query/execute');
     });
 
-    it('parses /export/csv route', function () {
-        $request = createRequest('GET', '/export/csv');
-        expect($request->uri())->toBe('/export/csv');
+    it('parses /exports route', function () {
+        $request = createRequest('GET', '/exports');
+        expect($request->uri())->toBe('/exports');
     });
 
     it('parses /monitor/preview route', function () {
@@ -244,8 +244,8 @@ describe('API Routes - Query Parameters', function () {
         expect($request->get('url'))->toBe('https://example.com/page');
     });
 
-    it('/export/csv accepts project and columns parameters', function () {
-        $request = createRequest('GET', '/export/csv', [
+    it('/exports accepts project and columns parameters', function () {
+        $request = createRequest('GET', '/exports', [
             'project' => 'test',
             'columns' => '["url","title"]'
         ]);
@@ -491,12 +491,12 @@ describe('Protected Routes - Query', function () {
 
 describe('Protected Routes - Export', function () {
 
-    it('GET /export/csv requires auth', function () {
+    it('GET /exports requires auth', function () {
         $auth = new Auth(null, null, null, skipDb: true);
         expect($auth->isLoggedIn())->toBeFalse();
     });
 
-    it('GET /export/links-csv requires auth', function () {
+    it('POST /exports requires auth', function () {
         $auth = new Auth(null, null, null, skipDb: true);
         expect($auth->isLoggedIn())->toBeFalse();
     });

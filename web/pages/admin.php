@@ -6,6 +6,11 @@ require_once(__DIR__ . '/init.php');
 // SÉCURITÉ: Cette page est réservée aux administrateurs
 $auth->requireAdmin(false);
 
+// User management has been merged into the centralized Settings → "Team & Budgets"
+// tab (one place for members + their AI budgets). Redirect there.
+header('Location: settings.php?tab=team');
+exit;
+
 use App\Database\UserRepository;
 
 $userRepo = new UserRepository();

@@ -7,17 +7,19 @@
  */
 
 // Statistiques globales du PageRank
-$stmt = $pdo->prepare("
-    SELECT 
+$sqlPrStats = "
+    SELECT
         AVG(pri) as avg_pr,
         MAX(pri) as max_pr,
         MIN(pri) as min_pr,
         COUNT(CASE WHEN pri > 0 THEN 1 END) as pages_with_pr
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
-");
-$stmt->execute([':crawl_id' => $crawlId]);
-$prStats = $stmt->fetch(PDO::FETCH_OBJ);
+";
+$prStatsRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'pagerank_stats', $pdo, $sqlPrStats, [':crawl_id' => $crawlId], false
+);
+$prStats = $prStatsRows[0] ?? null;
 
 // Distribution PageRank par profondeur
 $sqlPrByDepth = "
@@ -30,32 +32,30 @@ $sqlPrByDepth = "
     GROUP BY depth
     ORDER BY depth
 ";
-$stmt = $pdo->prepare($sqlPrByDepth);
-$stmt->execute([':crawl_id' => $crawlId]);
-$prByDepth = $stmt->fetchAll(PDO::FETCH_OBJ);
+$prByDepth = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'pagerank_by_depth', $pdo, $sqlPrByDepth, [':crawl_id' => $crawlId], false
+);
 
 // Distribution PageRank par catégorie (sans jointure)
 $sqlPrByCategory = "
-    SELECT 
-        cat_id,
+    SELECT
+        category,
         SUM(pri) as total_pr,
         AVG(pri) as avg_pr,
         COUNT(*) as count
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND pri > 0 AND in_crawl = TRUE
-    GROUP BY cat_id
+    GROUP BY category
     ORDER BY AVG(pri) DESC
 ";
-$stmt = $pdo->prepare($sqlPrByCategory);
-$stmt->execute([':crawl_id' => $crawlId]);
-$prByCategoryRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
+$prByCategoryRaw = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'pagerank_by_category', $pdo, $sqlPrByCategory, [':crawl_id' => $crawlId], true
+);
 
-// Convertir cat_id en nom de catégorie
-$categoriesMap = $GLOBALS['categoriesMap'] ?? [];
+// category est déjà le nom de la catégorie
 $prByCategory = [];
 foreach ($prByCategoryRaw as $row) {
-    $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
     $prByCategory[] = $row;
 }
 
@@ -88,9 +88,10 @@ $sqlPrByLinkPosition = "
     GROUP BY l.position
     ORDER BY sum_pr DESC
 ";
-$stmt = $pdo->prepare($sqlPrByLinkPosition);
-$stmt->execute([':crawl_id' => $crawlId]);
-$prByLinkPosition = $stmt->fetchAll(PDO::FETCH_OBJ);
+// Précalculé dans crawl_report_cache ; lazy-warm au 1er affichage.
+$prByLinkPosition = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'pagerank_position', $pdo, $sqlPrByLinkPosition, [':crawl_id' => $crawlId], false
+);
 
 // Normalisation en pourcentage (somme = 100%)
 $totalPrPosition = array_sum(array_map(fn($r) => (float)$r->sum_pr, $prByLinkPosition));
@@ -106,9 +107,9 @@ $crawlIdInt = intval($crawlId);
 
 // Compter les liens internes dofollow entre catégories
 $sqlFluxCategories = "
-    SELECT 
-        ps.cat_id as source_cat_id,
-        pt.cat_id as target_cat_id,
+    SELECT
+        ps.category as source_cat,
+        pt.category as target_cat,
         COUNT(*) as link_count
     FROM links l
     INNER JOIN pages ps ON ps.crawl_id = l.crawl_id AND ps.id = l.src AND ps.in_crawl = TRUE
@@ -116,17 +117,17 @@ $sqlFluxCategories = "
     WHERE l.crawl_id = {$crawlIdInt}
       AND l.nofollow = false
       AND ps.external = false AND pt.external = false
-      AND ps.cat_id IS NOT NULL AND pt.cat_id IS NOT NULL
-    GROUP BY ps.cat_id, pt.cat_id
+      AND ps.category != '' AND pt.category != ''
+    GROUP BY ps.category, pt.category
 ";
-$stmt = $pdo->prepare($sqlFluxCategories);
-$stmt->execute();
-$linkCountsRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
+$linkCountsRaw = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'pagerank_flux', $pdo, $sqlFluxCategories, [], true
+);
 
 // Compter les liens vers l'externe par catégorie source
 $sqlExternalLinks = "
-    SELECT 
-        ps.cat_id as source_cat_id,
+    SELECT
+        ps.category as source_cat,
         COUNT(*) as link_count
     FROM links l
     INNER JOIN pages ps ON ps.crawl_id = l.crawl_id AND ps.id = l.src AND ps.in_crawl = TRUE
@@ -134,12 +135,12 @@ $sqlExternalLinks = "
     WHERE l.crawl_id = {$crawlIdInt}
       AND l.nofollow = false
       AND ps.external = false AND pt.external = true
-      AND ps.cat_id IS NOT NULL
-    GROUP BY ps.cat_id
+      AND ps.category != ''
+    GROUP BY ps.category
 ";
-$stmt = $pdo->prepare($sqlExternalLinks);
-$stmt->execute();
-$externalLinksRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
+$externalLinksRaw = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'pagerank_external', $pdo, $sqlExternalLinks, [], true
+);
 
 // Calculer le total de tous les liens
 $totalLinks = 0;
@@ -161,8 +162,8 @@ foreach ($linkCountsRaw as $row) {
 // Ajouter les liens externes (en %)
 foreach ($externalLinksRaw as $row) {
     $extRow = new stdClass();
-    $extRow->source_cat_id = $row->source_cat_id;
-    $extRow->target_cat_id = 'external';
+    $extRow->source_cat = $row->source_cat;
+    $extRow->target_cat = 'external';
     $extRow->link_count = $row->link_count;
     $extRow->flux_pr = $totalLinks > 0 ? round(((int)$row->link_count / $totalLinks) * 100, 2) : 0;
     $extRow->is_external = true;
@@ -178,16 +179,14 @@ $sourceNodes = [];
 $targetNodes = [];
 
 foreach ($fluxCategoriesRaw as $row) {
-    $sourceCatInfo = $categoriesMap[$row->source_cat_id] ?? null;
-    $sourceName = $sourceCatInfo ? $sourceCatInfo['cat'] : __('common.uncategorized');
-    
+    $sourceName = (($row->source_cat ?? '') !== '') ? $row->source_cat : __('common.uncategorized');
+
     // Gérer le cas externe
-    if ($row->target_cat_id === 'external') {
+    if ($row->target_cat === 'external') {
         $targetName = __('pagerank_leak.series_external');
         $targetColor = '#e74c3c'; // Rouge pour externe
     } else {
-        $targetCatInfo = $categoriesMap[$row->target_cat_id] ?? null;
-        $targetName = $targetCatInfo ? $targetCatInfo['cat'] : __('common.uncategorized');
+        $targetName = (($row->target_cat ?? '') !== '') ? $row->target_cat : __('common.uncategorized');
         $targetColor = getCategoryColor($targetName);
     }
     
@@ -395,7 +394,7 @@ usort($sankeyNodes, function($a, $b) use ($linksByCategory) {
     ?>
 
     <!-- ========================================
-         SECTION 3 : Tableau d'URLs
+         SECTION 3 : Tableau d'URLs (Top 100 PageRank)
          ======================================== -->
     <?php
     Component::urlTable([
@@ -407,6 +406,7 @@ usort($sankeyNodes, function($a, $b) use ($linksByCategory) {
         'pdo' => $pdo,
         'crawlId' => $crawlId,
         'perPage' => 10,
+        'maxResults' => 100, // plafonne à 100 résultats (top PageRank), pagination 10/page
         'projectDir' => $_GET['project'] ?? ''
     ]);
     ?>

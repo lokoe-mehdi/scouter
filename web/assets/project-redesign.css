@@ -1,0 +1,222 @@
+/* ============================================================================
+   Project page redesign — "Aperçu du dernier crawl" hero + history table.
+   Loaded by project.php only. Self-contained (re-declares the small pc-* helper
+   styles emitted by components/project-metrics.php, since home-redesign.css is
+   not loaded here).
+   ============================================================================ */
+
+/* même fond que la page d'index */
+body { background: #F4F6FA; }
+
+/* ---- helper styles (donut / delta / badge / sparkline) -------------------- */
+.pc-delta { font-size: 0.78rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.1rem; }
+.pc-delta.up { color: #2ECC71; }
+.pc-delta.down { color: #E74C3C; }
+.pc-delta.flat { color: #95A5A6; }
+
+.pc-badge { display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 20px; white-space: nowrap; }
+.pc-badge.done { background: rgba(46,204,113,0.14); color: #1E8E4E; }
+.pc-badge.stopped { background: rgba(243,156,18,0.16); color: #B9770E; }
+.pc-badge.running { background: rgba(52,152,219,0.14); color: #2176B6; }
+.pc-badge.failed { background: rgba(231,76,60,0.14); color: #C0392B; }
+
+.pc-health-track { fill: none; stroke: #EEF1F5; stroke-width: 4.5; }
+.pc-health-arc { fill: none; stroke-width: 4.5; stroke-linecap: round; transition: stroke-dashoffset 0.6s ease; }
+.pc-spark { display: block; width: 100%; height: 34px; }
+.pc-spark-line { fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.pc-spark-fill { opacity: 0.10; stroke: none; }
+
+/* ---- Overview hero -------------------------------------------------------- */
+.pjx-overview { padding: 1.5rem 1.75rem; }
+.pjx-ov-head { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+.pjx-ov-title {
+    font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-secondary); font-weight: 700; margin: 0;
+}
+.pjx-ov-date { font-size: 0.85rem; color: var(--text-secondary); margin-left: auto; }
+
+.pjx-kpis {
+    display: grid;
+    grid-template-columns: 1.3fr repeat(4, 1fr);
+    gap: 1.5rem; align-items: start;
+    padding-bottom: 1.5rem; border-bottom: 1px solid #EEF1F5;
+}
+.pjx-kpi { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+.pjx-kpi-label {
+    display: inline-flex; align-items: center;
+    font-size: 0.72rem; letter-spacing: 0.03em; text-transform: uppercase;
+    color: var(--text-secondary); font-weight: 600;
+}
+.pjx-kpi-val { font-size: 1.7rem; font-weight: 800; color: var(--text-primary); line-height: 1; }
+.pjx-kpi-sub { font-size: 0.76rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.3rem; }
+.pjx-kpi-sub .pc-delta { font-size: 0.76rem; }
+.pjx-kpi .pc-spark { max-width: 160px; height: 30px; opacity: 0.95; margin-top: 0.15rem; }
+
+/* health gauge (thick ring, rounded caps, score centred) */
+.pjx-kpi-health { display: flex; flex-direction: column; align-items: center; text-align: center; border-right: 1px solid #EEF1F5; padding-right: 1.25rem; }
+.pjx-kpi-health .pjx-kpi-label { align-self: flex-start; }
+.pjx-gauge-wrap { position: relative; width: 118px; height: 118px; }
+.pjx-gauge-svg { width: 118px; height: 118px; transform: rotate(-90deg); }
+.pjx-gauge-track { fill: none; stroke: #EEF1F5; stroke-width: 10; }
+.pjx-gauge-arc { fill: none; stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 0.7s ease; }
+.pjx-gauge-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.1rem; }
+.pjx-gauge-num { font-size: 2.2rem; font-weight: 800; color: var(--text-primary); line-height: 1; }
+.pjx-gauge-state { font-size: 0.72rem; font-weight: 700; }
+.pjx-score-good { color: #2ECC71; }
+.pjx-score-mid { color: #F39C12; }
+.pjx-score-bad { color: #E74C3C; }
+.pjx-score svg { transform: rotate(-90deg); }
+
+/* ---- Left column: accordions + project size ------------------------------- */
+.pjx-accordion { background: #fff; border: 1px solid var(--pc-row-border, #ECEFF3); border-radius: 12px; margin-bottom: 0.6rem; overflow: hidden; }
+.pjx-acc-head {
+    display: flex; align-items: center; justify-content: space-between; width: 100%;
+    padding: 0.9rem 1rem; background: none; border: none; cursor: pointer;
+    font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase;
+    font-weight: 700; color: var(--text-primary);
+}
+.pjx-acc-chevron { font-size: 20px; color: var(--text-secondary); transition: transform 0.2s ease; }
+.pjx-accordion.open .pjx-acc-chevron { transform: rotate(180deg); }
+.pjx-acc-body { display: none; padding: 0 1rem 0.9rem; }
+.pjx-accordion.open .pjx-acc-body { display: block; }
+.pjx-acc-row { display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0; font-size: 0.85rem; color: var(--text-secondary); border-top: 1px solid #F4F6F9; }
+.pjx-acc-row:first-child { border-top: none; }
+.pjx-acc-row b { color: var(--text-primary); font-weight: 600; }
+
+.pjx-projsize { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.6rem; padding: 0.8rem 1rem; background: #EEF1F5; border-radius: 10px; font-size: 0.82rem; color: var(--text-secondary); }
+.pjx-projsize .material-symbols-outlined { font-size: 18px; }
+.pjx-projsize strong { margin-left: auto; color: var(--text-primary); font-size: 0.9rem; }
+
+/* mini stats row — intégrée, sans bloc ni bordure */
+.pjx-ministats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; padding: 1.25rem 0; }
+.pjx-mini { display: flex; align-items: center; gap: 0.55rem; }
+/* L'icône ancre tout le bloc (label + valeur) : taille proche de la hauteur des
+   deux lignes + line-height 1 pour qu'elle se centre proprement sur le texte et
+   ne "flotte" plus au-dessus de la valeur. */
+.pjx-mini .material-symbols-outlined { font-size: 26px; line-height: 1; color: var(--text-secondary); flex-shrink: 0; }
+.pjx-mini > div { display: flex; flex-direction: column; justify-content: center; line-height: 1.25; }
+.pjx-mini-label { font-size: 0.72rem; color: var(--text-secondary); }
+.pjx-mini-val { font-size: 0.95rem; font-weight: 700; color: var(--text-primary); }
+
+/* CTAs */
+.pjx-cta { display: flex; justify-content: center; gap: 0.75rem; padding-top: 0.5rem; }
+.pjx-cta-primary, .pjx-cta-secondary {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.7rem 1.4rem; border-radius: 10px; font-weight: 600; font-size: 0.92rem;
+    text-decoration: none; cursor: pointer; border: 1px solid transparent;
+}
+.pjx-cta-primary { background: var(--primary-color); color: #fff; box-shadow: 0 4px 12px rgba(78,205,196,0.35); }
+.pjx-cta-primary:hover { background: var(--primary-dark, #3DB8AF); }
+.pjx-cta-secondary { background: #fff; color: var(--text-primary); border-color: var(--border-color); }
+.pjx-cta-secondary:hover { border-color: var(--primary-color); color: var(--primary-dark, #3DB8AF); }
+.pjx-cta .material-symbols-outlined { font-size: 18px; }
+
+/* ---- History table -------------------------------------------------------- */
+.pjx-history { padding: 1.25rem 1.5rem; }
+.pjx-hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+.pjx-hist-title { font-size: 0.85rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-primary); font-weight: 700; margin: 0; display: flex; align-items: center; gap: 0.5rem; }
+.pjx-hist-title .pj-card-count { font-size: 0.72rem; background: #EEF1F5; color: var(--text-secondary); border-radius: 10px; padding: 0.05rem 0.5rem; font-weight: 700; }
+.pjx-hist-compare { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; color: var(--primary-dark, #3DB8AF); font-weight: 600; text-decoration: none; }
+.pjx-hist-compare .material-symbols-outlined { font-size: 16px; }
+
+/* fixed layout @100% + overflow caché → jamais de scroll horizontal */
+.pjx-table-wrap { overflow-x: hidden; }
+.pjx-table { width: 100%; max-width: 100%; border-collapse: collapse; table-layout: fixed; }
+.pjx-table thead th {
+    text-align: left; font-size: 0.66rem; letter-spacing: 0.03em; text-transform: uppercase;
+    color: var(--text-secondary); font-weight: 700; padding: 0.5rem 0.5rem;
+    border-bottom: 1px solid #EEF1F5; white-space: nowrap;
+}
+/* largeurs de colonnes fixes (8 col) → entêtes alignées avec les données */
+.pjx-table th:nth-child(1), .pjx-table td:nth-child(1) { width: 17%; }
+.pjx-table th:nth-child(2), .pjx-table td:nth-child(2) { width: 12%; }
+.pjx-table th:nth-child(3), .pjx-table td:nth-child(3) { width: 11%; }
+.pjx-table th:nth-child(4), .pjx-table td:nth-child(4),
+.pjx-table th:nth-child(5), .pjx-table td:nth-child(5),
+.pjx-table th:nth-child(6), .pjx-table td:nth-child(6) { width: 14%; }
+.pjx-table th:nth-child(7), .pjx-table td:nth-child(7) { width: 10%; }
+.pjx-table th:nth-child(8), .pjx-table td:nth-child(8) { width: 8%; }
+.pjx-table tbody td { padding: 0.6rem 0.5rem; font-size: 0.82rem; color: var(--text-primary); border-bottom: 1px solid #F4F6F9; vertical-align: middle; }
+.pjx-table tbody tr:last-child td { border-bottom: none; }
+.pjx-table tbody tr.pjx-row--clickable { cursor: pointer; transition: background 0.12s ease; }
+.pjx-table tbody tr.pjx-row--clickable:hover { background: #F2FBFA; }
+/* garde-fou : aucune règle héritée ne doit changer le display des lignes/cellules */
+.pjx-table tr { display: table-row; }
+.pjx-table td, .pjx-table th { display: table-cell; }
+/* autorise le passage à la ligne pour ne jamais élargir la table */
+.pjx-num { font-variant-numeric: tabular-nums; white-space: normal; overflow-wrap: anywhere; }
+.pjx-num .pc-delta { margin-left: 0.3rem; font-size: 0.72rem; }
+.pjx-table td, .pjx-table th { overflow: hidden; }
+.pjx-date { display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
+.pjx-date .pjx-type-ic { font-size: 16px; color: var(--text-tertiary, #95A5A6); opacity: 0.7; }
+/* Bouton "?" qui ouvre la modale explicative du health score. */
+.pjx-help-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; margin-right: 0.35rem; padding: 0;
+    border: none; border-radius: 50%; background: transparent;
+    color: var(--text-tertiary, #95A5A6); cursor: pointer; vertical-align: middle;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.pjx-help-btn .material-symbols-outlined { font-size: 16px; }
+.pjx-help-btn:hover { background: rgba(0,0,0,0.06); color: var(--text-primary, #2C3E50); }
+
+/* Modale explicative : liste aérée des 5 piliers du score. */
+.hsi-intro { margin: 0 0 1.25rem; color: var(--text-secondary, #5a6a7a); line-height: 1.55; font-size: 0.92rem; }
+.hsi-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1rem; }
+.hsi-item { display: flex; align-items: flex-start; gap: 0.85rem; }
+/* selecteur a 2 classes pour battre .material-symbols-outlined (display/font-size). */
+.hsi-item .hsi-ic {
+    flex: 0 0 auto; width: 34px; height: 34px; border-radius: 9px;
+    display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+    background: rgba(78, 205, 196, 0.14); color: #1ba89c; font-size: 20px;
+}
+.hsi-name { font-weight: 700; color: var(--text-primary, #2C3E50); margin-bottom: 0.15rem; }
+.hsi-desc { color: var(--text-secondary, #5a6a7a); line-height: 1.5; font-size: 0.88rem; }
+.hsi-footer { margin-top: 1.5rem; display: flex; justify-content: flex-end; }
+
+.pjx-score { display: inline-flex; align-items: center; gap: 0.4rem; }
+.pjx-score svg { width: 26px; height: 26px; }
+.pjx-score b { font-size: 0.85rem; font-weight: 700; }
+.pjx-acts { white-space: nowrap; text-align: right; }
+.pjx-act { background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 0.3rem; border-radius: 6px; display: inline-flex; text-decoration: none; }
+.pjx-act:hover { background: #EAF7F5; color: var(--primary-dark, #3DB8AF); }
+.pjx-act .material-symbols-outlined { font-size: 18px; }
+.pjx-empty-cell { text-align: center; color: var(--text-secondary); padding: 2rem; }
+
+/* "Voir tous les crawls" — même style que le lien "Comparer des crawls" */
+.pjx-see-all {
+    display: flex; align-items: center; justify-content: center; gap: 0.3rem;
+    width: 100%; margin-top: 0.5rem; padding: 0.6rem; background: none; border: none;
+    cursor: pointer; color: var(--primary-dark, #3DB8AF); font-weight: 600; font-size: 0.82rem;
+}
+.pjx-see-all:hover { text-decoration: underline; }
+.pjx-see-all .material-symbols-outlined { font-size: 16px; }
+
+/* ACTIONS RAPIDES (colonne droite) */
+.pjx-quick-card { padding: 1.25rem 1.25rem 0.75rem; }
+.pjx-quick-title { font-size: 0.78rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; margin: 0 0 0.5rem; }
+.pjx-quick-item {
+    display: flex; align-items: center; gap: 0.65rem; width: 100%;
+    padding: 0.65rem 0.5rem; background: none; border: none; border-radius: 8px;
+    color: var(--text-primary); font-size: 0.88rem; font-weight: 500; cursor: pointer;
+    text-decoration: none; text-align: left;
+}
+.pjx-quick-item:hover { background: #F2FBFA; }
+.pjx-quick-item .material-symbols-outlined { font-size: 20px; color: var(--text-secondary); }
+.pjx-quick-danger { color: #E74C3C; margin-top: 0.25rem; border-top: 1px solid #F4F6F9; border-radius: 0; }
+.pjx-quick-danger .material-symbols-outlined { color: #E74C3C; }
+.pjx-quick-danger:hover { background: rgba(231,76,60,0.07); }
+
+/* bouton "Ajouter un utilisateur" épuré (override du style pointillé) */
+.pj-share-picker-btn {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    border: 1px solid var(--border-color) !important; background: #fff !important;
+    border-radius: 8px; padding: 0.55rem 0.9rem; color: var(--text-primary);
+    font-size: 0.85rem; font-weight: 600; cursor: pointer;
+}
+.pj-share-picker-btn:hover { border-color: var(--primary-color) !important; color: var(--primary-dark, #3DB8AF); }
+
+@media (max-width: 1200px) {
+    .pjx-kpis { grid-template-columns: 1fr 1fr 1fr; }
+    .pjx-kpi-health { grid-column: 1 / -1; border-right: none; border-bottom: 1px solid #EEF1F5; padding-right: 0; padding-bottom: 1rem; }
+}

@@ -3,27 +3,26 @@
 namespace App\Cli;
 
 use Spyc;
-use App\Core\Crawler;
 use App\Database\CrawlDatabase;
 use PDO;
 
 /**
  * Interface en ligne de commande (CLI) pour Scouter
  * 
- * Cette classe gère toutes les commandes CLI disponibles :
- * - `crawl <path>` : Lance un crawl
- * - `dashboard` : Démarre le serveur web local
- * - Affichage du header ASCII art
- * - Messages colorés (alert, info)
- * 
+ * Dispatcher des jobs CLI non-crawl (le crawl est assuré par crawler-go) :
+ * - `batch-categorize-project:<id>` : re-catégorise tous les crawls d'un projet
+ * - `bulk-ai-generate:<id>`         : génération IA en masse
+ * - `delete-crawl:<id>` / `delete-project:<id>` : suppression asynchrone
+ * - `dashboard`                     : serveur web local (dev)
+ *
  * @package    Scouter
  * @subpackage CLI
  * @author     Mehdi Colin
- * @version    1.0.0
- * 
+ * @version    2.0.0
+ *
  * @example
  * ```bash
- * php scouter.php crawl lokoe-fr-20241201
+ * php scouter.php batch-categorize-project:42
  * php scouter.php dashboard
  * ```
  */
@@ -66,82 +65,6 @@ class Cmder
     echo "\r\n";
   }
 
-  static function setup($startUrl)
-  {
-    self::alert("The 'setup' command is deprecated. Use the web interface to create crawls.");
-    die();
-  }
-
-  static function crawl($arg)
-  {
-    if ($arg == 'none') {
-        self::alert("Missing directory argument");
-        die();
-    }
-
-    $projectDir = self::getDir($arg);
-    
-    // Récupérer le crawl depuis PostgreSQL
-    $crawlRecord = CrawlDatabase::getCrawlByPath($projectDir);
-    
-    if (!$crawlRecord) {
-        self::alert("Crawl not found in database for path: $projectDir");
-        die();
-    }
-    
-    // Récupérer la config depuis la base de données (JSONB)
-    $data = json_decode($crawlRecord->config, true);
-    
-    if (empty($data) || !isset($data['general']) || !isset($data['general']['start'])) {
-        self::alert("Config invalide ou manquante pour crawl ID: {$crawlRecord->id}. La config doit contenir 'general.start'.");
-        die();
-    }
-    
-    // Fusionner les configurations general et advanced
-    $config = $data['advanced'] ?? [];
-    $config['crawl_speed'] = $data['general']['crawl_speed'] ?? 'fast';
-    $config['crawl_mode'] = $data['general']['crawl_mode'] ?? 'classic';
-    $config['user-agent'] = $data['general']['user-agent'] ?? 'Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)';
-    
-    // INJECTION DES VARIABLES D'ENVIRONNEMENT (WORKER)
-    // Si ces variables sont présentes (injectées par le worker), elles surchargent la config
-    if (getenv('MAX_CONCURRENT_CURL')) {
-        $config['max_concurrent_curl'] = (int)getenv('MAX_CONCURRENT_CURL');
-    }
-    if (getenv('MAX_CONCURRENT_CHROME')) {
-        $config['max_concurrent_chrome'] = (int)getenv('MAX_CONCURRENT_CHROME');
-    }
-    
-    // Propager follow_redirects, retry_failed_urls et crawl_type dans la config
-    $config['follow_redirects'] = $data['advanced']['follow_redirects'] ?? true;
-    $config['retry_failed_urls'] = $data['advanced']['retry_failed_urls'] ?? true;
-    $config['store_html'] = $data['advanced']['store_html'] ?? true;
-    $config['crawl_type'] = $data['general']['crawl_type'] ?? 'spider';
-
-    // Ajouter xPathExtractors et regexExtractors s'ils existent
-    if (isset($data['advanced']['xPathExtractors'])) {
-        $config['xPathExtractors'] = $data['advanced']['xPathExtractors'];
-    } else {
-        $config['xPathExtractors'] = [];
-    }
-    if (isset($data['advanced']['regexExtractors'])) {
-        $config['regexExtractors'] = $data['advanced']['regexExtractors'];
-    } else {
-        $config['regexExtractors'] = [];
-    }
-    
-    $crawl = new Crawler([
-        "crawl_id" => $crawlRecord->id,
-        "depthMax" => (int)($crawlRecord->depth_max ?? $data['general']['depthMax'] ?? 5),
-        "start" => $data['general']['start'],
-        "pattern" => $data['general']['domains'] ?? [],
-        "config" => $config,
-        "crawl_type" => $data['general']['crawl_type'] ?? 'spider',
-        "url_list" => $data['general']['url_list'] ?? []
-    ]);
-
-    $crawl->run();
-  }
   static function dashboard(){
     $web = self::$dir."web".DIRECTORY_SEPARATOR;
     
@@ -154,18 +77,6 @@ class Cmder
     }
   }
 
-
-  static function inlinks($arg) {
-    self::info("Post-processing is now automatic. Use 'crawl' command or web interface.");
-  }
-
-  static function pagerank($arg) {
-    self::info("Post-processing is now automatic. Use 'crawl' command or web interface.");
-  }
-
-  static function cat($arg) {
-    self::info("Post-processing is now automatic. Use 'crawl' command or web interface.");
-  }
 
   /**
    * Batch categorization for all crawls in a project
@@ -241,9 +152,11 @@ class Cmder
                   ':config2' => $yamlConfig
               ]);
 
-              // Run categorization
-              $postProcessor = new \App\Analysis\PostProcessor($crawl->id);
-              $postProcessor->categorize();
+              // Run categorization. PostProcessor a été retiré avec le crawl PHP
+              // (cf. refacto.md §11) ; on appelle directement CategorizationService
+              // (qui reste — partagé UI/API/IA/batch).
+              $service = new \App\Analysis\CategorizationService($db);
+              $service->applyCategorization($crawl->id, $yamlConfig, $projectId);
 
               // Update job progress
               if ($jobManager) {
@@ -305,6 +218,15 @@ class Cmder
           // Drop partitions first (instant, regardless of row count)
           self::info("Dropping partitions for crawl $crawlId...");
           $db->exec("SELECT drop_crawl_partitions($crawlId)");
+
+          // Purge the crawl's HTML blobs (S3/local) — the page-HTML moved out of
+          // the DB into the blob store, so its prefix must be cleaned up too.
+          try {
+              $removed = \App\Storage\Storage::instance()->deletePrefix("html/{$crawlId}/");
+              self::info("Removed $removed HTML blob(s) for crawl $crawlId");
+          } catch (\Throwable $e) {
+              self::alert("HTML blob purge failed for crawl $crawlId: " . $e->getMessage());
+          }
           if ($jobManager) $jobManager->updateJobProgress($jobId, 50);
 
           // Delete categorization config
@@ -365,6 +287,13 @@ class Cmder
               // Drop partitions (instant)
               $db->exec("SELECT drop_crawl_partitions({$crawl->id})");
 
+              // Purge the crawl's HTML blobs (S3/local) too.
+              try {
+                  \App\Storage\Storage::instance()->deletePrefix("html/{$crawl->id}/");
+              } catch (\Throwable $e) {
+                  self::alert("HTML blob purge failed for crawl {$crawl->id}: " . $e->getMessage());
+              }
+
               // Delete categorization config
               $stmt = $db->prepare("DELETE FROM categorization_config WHERE crawl_id = :id");
               $stmt->execute([':id' => $crawl->id]);
@@ -402,14 +331,6 @@ class Cmder
       self::info("Project $projectId deleted successfully");
   }
 
-  static function logs($arg) {
-    self::info("Logs import is deprecated.");
-  }
-
-  static function semanticAnalysis($arg) {
-    self::info("Post-processing is now automatic. Use 'crawl' command or web interface.");
-  }
-
   static function alert($msg) {
     self::wred("    --------------------------------------------\r\n");
     self::wred("   - $msg\r\n");
@@ -430,4 +351,39 @@ class Cmder
   static function wgreen($msg) { echo "\033[32m$msg\033[0m "; }
   static function wred($msg) { echo "\033[31m$msg\033[0m "; }
   static function wblack($msg) { echo "\033[30m$msg\033[0m "; }
+
+  /**
+   * Bulk AI generation worker entrypoint. Receives a bulk_generation_jobs.id
+   * via the CLI arg, hands off to the BulkGenerator orchestrator.
+   *
+   * @param string $arg Format: bulk-ai-generate:<bulk_job_id>
+   */
+  static function bulkAiGenerate($arg)
+  {
+      if (strpos($arg, ':') === false) {
+          self::alert("Invalid command format. Expected: bulk-ai-generate:<bulk_job_id>");
+          die();
+      }
+      [, $bulkJobId] = explode(':', $arg, 2);
+      $bulkJobId = (int)$bulkJobId;
+      if ($bulkJobId <= 0) {
+          self::alert("Invalid bulk job ID: $bulkJobId");
+          die();
+      }
+
+      self::info("Starting bulk AI generation for bulk_job_id: $bulkJobId");
+
+      // Bridge progress updates to the JobManager so the existing Jobs UI
+      // shows the percentage in real time too.
+      $jobMgrId = getenv('JOB_ID');
+      $jobManager = $jobMgrId ? new \App\Job\JobManager() : null;
+
+      $gen = new \App\AI\BulkGenerator();
+      $gen->run($bulkJobId, function (int $processed, int $total) use ($jobManager, $jobMgrId) {
+          if (!$jobManager || $total <= 0) return;
+          $jobManager->updateJobProgress($jobMgrId, (int)round($processed * 100 / $total));
+      });
+
+      self::info("Bulk AI generation finished for bulk_job_id: $bulkJobId");
+  }
 }

@@ -856,6 +856,43 @@ font-family: Consolas, Menlo, Monaco, "Courier New", monospace; /* Le stack VS C
 }
 
 /* ========================================
+   HOVER RESUME ACTION (stopped crawls — project history, LEFT placement)
+   The one-click resume play button sits right next to the crawl-type
+   (lightning) icon on the far left, NOT in the right-hand action icons — that
+   avoided the "white hole" between the report/logs icons.
+
+   To keep the date column pixel-aligned, the slot holding the play button is
+   RESERVED on every row (fixed width); the button is only inside it for
+   stopped crawls. At rest it's invisible AND non-interactive (opacity:0 +
+   pointer-events:none), revealed on row hover.
+======================================== */
+.pj-crawl-type-group {
+    display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+}
+.pj-resume-slot-left {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px;
+}
+.pj-resume-inline {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; padding: 0;
+    border: none; background: none; cursor: pointer;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s ease-in-out;
+}
+.pj-crawl-row:hover .pj-resume-inline,
+.pj-resume-inline:focus-visible,
+.pj-resume-inline.resuming {
+    opacity: 1; pointer-events: auto;
+}
+.pj-resume-inline .material-symbols-outlined { font-size: 18px; color: var(--primary-color); }
+.pj-resume-inline:hover .material-symbols-outlined { color: var(--primary-dark); }
+/* Touch / coarse pointers can't hover — always show so it stays reachable */
+@media (hover: none) {
+    .pj-resume-inline { opacity: 1; pointer-events: auto; }
+}
+
+/* ========================================
    EFFET DÉGRADÉ BAS DU TERMINAL
 ======================================== */
 .crawl-panel-terminal::after {

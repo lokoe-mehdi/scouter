@@ -21,8 +21,8 @@ $stmt->execute([':crawl_id' => $crawlId]);
 $codes = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
 // Stats par famille de codes (0xx, 1xx, 2xx, 3xx, 4xx, 5xx)
-$stmt = $pdo->prepare("
-    SELECT 
+$sqlCodeFamilyStats = "
+    SELECT
         SUM(CASE WHEN code = 0 THEN 1 ELSE 0 END) as code_0xx,
         SUM(CASE WHEN code >= 100 AND code < 200 THEN 1 ELSE 0 END) as code_1xx,
         SUM(CASE WHEN code >= 200 AND code < 300 THEN 1 ELSE 0 END) as code_2xx,
@@ -31,9 +31,11 @@ $stmt = $pdo->prepare("
         SUM(CASE WHEN code >= 500 AND code < 600 THEN 1 ELSE 0 END) as code_5xx
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND in_crawl = TRUE
-");
-$stmt->execute([':crawl_id' => $crawlId]);
-$codeFamilyStats = $stmt->fetch(PDO::FETCH_OBJ);
+";
+$codeFamilyStatsRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'codes_family_stats', $pdo, $sqlCodeFamilyStats, [':crawl_id' => $crawlId], false
+);
+$codeFamilyStats = $codeFamilyStatsRows[0] ?? null;
 
 // Distribution par code HTTP avec moyennes
 $sqlCodeStats = "
@@ -48,30 +50,28 @@ $sqlCodeStats = "
     GROUP BY code
     ORDER BY COUNT(*) DESC
 ";
-$stmt = $pdo->prepare($sqlCodeStats);
-$stmt->execute([':crawl_id' => $crawlId]);
-$codeStats = $stmt->fetchAll(PDO::FETCH_OBJ);
+$codeStats = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'codes_code_stats', $pdo, $sqlCodeStats, [':crawl_id' => $crawlId], false
+);
 
 // Distribution par catégorie et code HTTP (sans jointure, on utilise le tableau PHP)
 $sqlCodeByCategory = "
-    SELECT 
-        p.cat_id,
+    SELECT
+        p.category,
         p.code,
         COUNT(*) as count
     FROM pages p
     WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.in_crawl = TRUE
-    GROUP BY p.cat_id, p.code
-    ORDER BY count DESC, p.cat_id, p.code
+    GROUP BY p.category, p.code
+    ORDER BY count DESC, p.category, p.code
 ";
-$stmt = $pdo->prepare($sqlCodeByCategory);
-$stmt->execute([':crawl_id' => $crawlId]);
-$codeByCategory = $stmt->fetchAll(PDO::FETCH_OBJ);
+$codeByCategory = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'codes_by_category', $pdo, $sqlCodeByCategory, [':crawl_id' => $crawlId], true
+);
 
-// Convertir cat_id en nom de catégorie via le tableau global
-$categoriesMap = $GLOBALS['categoriesMap'] ?? [];
+// La colonne category contient déjà le nom de catégorie
 foreach ($codeByCategory as $row) {
-    $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
 }
 
 /**

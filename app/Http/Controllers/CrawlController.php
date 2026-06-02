@@ -76,7 +76,11 @@ class CrawlController extends Controller
         if (!$crawlRecord) {
             Response::notFound('Crawl non trouvé');
         }
-        
+
+        // Reprenable seulement si la frontier PG existe encore (cf. hasPgData) :
+        // un crawl finalisé/purgé n'a plus que ClickHouse et n'est plus reprenable.
+        $crawlRecord->resumable = CrawlDatabase::hasPgData((int)$crawlRecord->id);
+
         $this->success(['crawl' => $crawlRecord]);
     }
 
@@ -221,7 +225,15 @@ class CrawlController extends Controller
         if (!$crawlRecord) {
             Response::notFound('Crawl not found');
         }
-        
+
+        // La reprise rejoue la frontier (URLs non crawlées) qui ne vit que dans
+        // PostgreSQL. Une fois le crawl finalisé/purgé, cette donnée a disparu
+        // (ClickHouse seul) → reprise impossible. On refuse explicitement plutôt
+        // que de lancer un job qui ne crawlerait rien.
+        if (!CrawlDatabase::hasPgData((int)$crawlRecord->id)) {
+            $this->error(__('crawl_panel.resume_unavailable'));
+        }
+
         // Clear old log file so stale errors don't persist
         $safeDir = basename($projectDir); // Prevent path traversal
         $logFile = dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . $safeDir . '.log';

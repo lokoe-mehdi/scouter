@@ -4,7 +4,6 @@ namespace App\Database;
 
 use PDO;
 use PDOException;
-use App\Analysis\PostProcessor;
 
 /**
  * Gestion des données de crawl dans PostgreSQL
@@ -14,9 +13,9 @@ use App\Analysis\PostProcessor;
  * - Liens : insertion en batch
  * - HTML : stockage du contenu brut
  * - Statistiques : mise à jour des stats de crawl
- * 
- * Les analyses post-crawl sont déléguées à App\Analysis\PostProcessor.
- * 
+ *
+ * Le crawl + post-processing sont assurés par le worker Go (crawler-go/).
+ *
  * @package    Scouter
  * @subpackage Database
  * @author     Mehdi Colin
@@ -324,7 +323,23 @@ class CrawlDatabase
     public function insertPages(array $pages): void
     {
         if (empty($pages)) return;
-        
+
+        // Deduplicate by id BEFORE inserting. A page can link the same target
+        // several times, producing duplicate (crawl_id, id) rows in one batch —
+        // and "ON CONFLICT DO UPDATE" forbids touching the same row twice in a
+        // single statement (cardinality violation). We collapse duplicates here,
+        // OR-ing in_crawl so a single followable link keeps the target crawlable.
+        $unique = [];
+        foreach ($pages as $page) {
+            $id = $page['id'];
+            if (!isset($unique[$id])) {
+                $unique[$id] = $page;
+            } else {
+                $unique[$id]['in_crawl'] = ($unique[$id]['in_crawl'] ?? true) || ($page['in_crawl'] ?? true);
+            }
+        }
+        $pages = array_values($unique);
+
         // Batch par chunks de 100 pour éviter les requêtes trop longues
         $chunks = array_chunk($pages, 100);
         
@@ -334,7 +349,7 @@ class CrawlDatabase
             $i = 0;
             
             foreach ($chunk as $page) {
-                $values[] = "(:crawl_id{$i}, :id{$i}, :domain{$i}, :url{$i}, :depth{$i}, :code{$i}, :crawled{$i}, :external{$i}, :blocked{$i}, :date{$i})";
+                $values[] = "(:crawl_id{$i}, :id{$i}, :domain{$i}, :url{$i}, :depth{$i}, :code{$i}, :crawled{$i}, :external{$i}, :blocked{$i}, :date{$i}, :in_crawl{$i})";
                 $params[":crawl_id{$i}"] = $this->crawlId;
                 $params[":id{$i}"] = $page['id'];
                 $params[":domain{$i}"] = $page['domain'] ?? '';
@@ -345,12 +360,20 @@ class CrawlDatabase
                 $params[":external{$i}"] = $this->toBool($page['external'] ?? false);
                 $params[":blocked{$i}"] = $this->toBool($page['blocked'] ?? false);
                 $params[":date{$i}"] = $page['date'] ?? date('Y-m-d H:i:s');
+                // in_crawl=false marks a target reached ONLY via a nofollow link (or
+                // from a meta-robots-nofollow page) when respect_nofollow is on.
+                $params[":in_crawl{$i}"] = $this->toBool($page['in_crawl'] ?? true);
                 $i++;
             }
-            
-            $sql = "INSERT INTO pages (crawl_id, id, domain, url, depth, code, crawled, external, blocked, date) VALUES " 
-                 . implode(', ', $values) 
-                 . " ON CONFLICT (crawl_id, id) DO NOTHING";
+
+            // Monotonic promotion: a page stays/becomes crawlable as soon as ONE
+            // followable link points to it, regardless of discovery order. We only
+            // write on a real false→true promotion (cheap, avoids touching every
+            // conflict) and never touch sitemap-only placeholder rows.
+            $sql = "INSERT INTO pages (crawl_id, id, domain, url, depth, code, crawled, external, blocked, date, in_crawl) VALUES "
+                 . implode(', ', $values)
+                 . " ON CONFLICT (crawl_id, id) DO UPDATE SET in_crawl = true
+                     WHERE pages.in_crawl = false AND pages.in_sitemap = false AND EXCLUDED.in_crawl = true";
             
             // Retry sur deadlock
             $this->executeWithRetry($this->db, function($pdo) use ($sql, $params) {
@@ -484,14 +507,18 @@ class CrawlDatabase
      */
     public function getCurrentDepth(): int
     {
+        // Resume from the LOWEST unfinished depth so the walk stays breadth-first;
+        // without ORDER BY, PG returns an arbitrary uncrawled row and a resume could
+        // jump to a deeper level while a shallower one still had pending URLs.
         $stmt = $this->db->prepare("
             SELECT depth FROM pages
             WHERE crawl_id = :crawl_id AND crawled = false AND external = false AND blocked = false AND in_crawl = TRUE
+            ORDER BY depth ASC
             LIMIT 1
         ");
         $stmt->execute([':crawl_id' => $this->crawlId]);
         $result = $stmt->fetch(PDO::FETCH_OBJ);
-        
+
         return $result ? (int)$result->depth : 0;
     }
 
@@ -626,14 +653,27 @@ class CrawlDatabase
     }
 
     /**
-     * Exécute tous les post-traitements via PostProcessor
+     * Indique si un crawl peut encore être repris.
+     *
+     * La reprise rejoue la frontier (les URLs découvertes non crawlées), qui ne
+     * vit QUE dans la partition PostgreSQL `pages_<id>`. Quand le crawl est
+     * finalisé / purgé (drop_crawl_partitions, cf. CLICKHOUSE_DROP_PG), cette
+     * table disparaît : il ne reste que ClickHouse (lecture seule) et le crawl
+     * n'est plus reprenable, même si son statut est encore "stopped". On teste
+     * donc l'existence de la table `pages_<id>` plutôt que le seul statut.
+     *
+     * @param int $crawlId ID du crawl
+     *
+     * @return bool true si la frontier PG existe encore
      */
-    public function runPostProcessing(): void
+    public static function hasPgData(int $crawlId): bool
     {
-        $processor = new PostProcessor($this->crawlId);
-        $processor->run();
-        
-        // Mettre à jour les stats finales
-        $this->updateCrawlStats();
+        $db = PostgresDatabase::getInstance()->getConnection();
+        $stmt = $db->prepare(
+            "SELECT EXISTS(SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = :t)"
+        );
+        $stmt->execute([':t' => 'pages_' . $crawlId]);
+        return (bool) $stmt->fetchColumn();
     }
+
 }

@@ -19,9 +19,10 @@ $sqlHeadingsStats = "
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
-$stmt = $pdo->prepare($sqlHeadingsStats);
-$stmt->execute([':crawl_id' => $crawlId]);
-$headingsStats = $stmt->fetch(PDO::FETCH_OBJ);
+$headingsStatsRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'headings_stats', $pdo, $sqlHeadingsStats, [':crawl_id' => $crawlId], false
+);
+$headingsStats = $headingsStatsRows[0] ?? null;
 
 $total = (int)($headingsStats->total ?? 0);
 $h1MultipleCount = (int)($headingsStats->h1_multiple_count ?? 0);
@@ -31,8 +32,8 @@ $hnOkCount = (int)($headingsStats->hn_ok_count ?? 0);
 
 // Stats par catégorie
 $sqlHeadingsByCategory = "
-    SELECT 
-        cat_id,
+    SELECT
+        category,
         COUNT(*) as total,
         SUM(CASE WHEN h1_multiple = true THEN 1 ELSE 0 END) as h1_multiple_count,
         SUM(CASE WHEN h1_multiple = false THEN 1 ELSE 0 END) as h1_unique_count,
@@ -40,22 +41,20 @@ $sqlHeadingsByCategory = "
         SUM(CASE WHEN headings_missing = false THEN 1 ELSE 0 END) as hn_ok_count
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
-    GROUP BY cat_id
-    ORDER BY cat_id
+    GROUP BY category
+    ORDER BY category
 ";
-$stmt = $pdo->prepare($sqlHeadingsByCategory);
-$stmt->execute([':crawl_id' => $crawlId]);
-$categoryStatsRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
+$categoryStatsRaw = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'headings_by_category', $pdo, $sqlHeadingsByCategory, [':crawl_id' => $crawlId], true
+);
 
-// Convertir cat_id en nom de catégorie
-$categoriesMap = $GLOBALS['categoriesMap'] ?? [];
+// category est déjà le nom de la catégorie
 $h1ByCategory = [];
 $hnByCategory = [];
 
 foreach ($categoryStatsRaw as $row) {
-    $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
-    
+    $catName = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
+
     $h1ByCategory[] = [
         'category' => $catName,
         'total' => $row->total,
@@ -87,9 +86,10 @@ foreach ($categoryStatsRaw as $row) {
         WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
         AND (h1_multiple = true OR headings_missing = true)
     ";
-    $stmtProb = $pdo->prepare($sqlProblemCount);
-    $stmtProb->execute([':crawl_id' => $crawlId]);
-    $problemCount = (int)($stmtProb->fetch(PDO::FETCH_OBJ)->problem_count ?? 0);
+    $problemCountRows = \App\Analysis\ReportPrecompute::cached(
+        (int) $crawlId, 'headings_problem_count', $pdo, $sqlProblemCount, [':crawl_id' => $crawlId], false
+    );
+    $problemCount = (int)($problemCountRows[0]->problem_count ?? 0);
     $problemPercent = $total > 0 ? round(($problemCount / $total) * 100, 1) : 0;
     
     Component::card([

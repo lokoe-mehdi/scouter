@@ -57,10 +57,19 @@ function processCrawlsForProject($project, $crawls, $jobManager) {
             "name" => $crawl->domain,
             "date" => date("d/m/Y H:i", $timestamp),
             "timestamp" => $timestamp,
+            "started_at" => $crawl->started_at ?? null,
+            "finished_at" => $crawl->finished_at ?? null,
+            // Temps de traitement réel (hors pauses) ; null → repli mur d'horloge.
+            "processing_seconds" => $crawl->path ? $jobManager->getProcessingSeconds($crawl->path) : null,
             "stats" => [
                 'urls' => $crawl->urls,
                 'crawled' => $crawl->crawled,
-                'compliant' => $crawl->compliant
+                'compliant' => $crawl->compliant,
+                'duplicates' => $crawl->duplicates ?? 0,
+                'critical_errors' => $crawl->critical_errors ?? 0,
+                'response_time' => $crawl->response_time ?? 0,
+                // null = pas encore calculé (sentinelle write-through CrawlStats)
+                'health_score' => isset($crawl->health_score) ? (int)$crawl->health_score : null
             ],
             "job_status" => $jobStatus,
             "in_progress" => $crawl->in_progress ?? 0,
@@ -170,11 +179,23 @@ try {
     // TRI ET ORGANISATION COMMUNES
     // ================================================================
     
-    // Fonction de tri par ID du dernier crawl (le plus récent = ID le plus grand)
-    $sortByLastCrawl = function($a, $b) {
-        $aId = !empty($a->crawls) ? $a->crawls[0]->crawl_id : 0;
-        $bId = !empty($b->crawls) ? $b->crawls[0]->crawl_id : 0;
-        return $bId - $aId;
+    // Tri par DATE du dernier crawl : on prend, pour chaque projet, l'activité de
+    // crawl la plus récente (finished_at si dispo, sinon started_at) parmi tous ses
+    // crawls. Plus fiable que l'ID — un vieux crawl repris récemment (id bas mais
+    // finished_at récent) remonte bien le projet en tête.
+    $projectLastCrawlTs = function($p) {
+        $max = 0;
+        foreach (($p->crawls ?? []) as $c) {
+            $t = max(
+                !empty($c->finished_at) ? (int)strtotime($c->finished_at) : 0,
+                !empty($c->started_at)  ? (int)strtotime($c->started_at)  : 0
+            );
+            if ($t > $max) $max = $t;
+        }
+        return $max;
+    };
+    $sortByLastCrawl = function($a, $b) use ($projectLastCrawlTs) {
+        return $projectLastCrawlTs($b) <=> $projectLastCrawlTs($a);
     };
     
     if (!empty($myProjects)) usort($myProjects, $sortByLastCrawl);
@@ -246,10 +267,55 @@ try {
     }
     unset($p);
     
+    // Stats dérivées (pages indexables + erreurs critiques + score santé) : write-through.
+    // On NE calcule en live QUE les crawls dont health_score n'est pas encore stocké
+    // (sentinelle NULL) ; les autres sont lus directement de la ligne crawls → zéro
+    // requête ClickHouse. La passe CH (App\Analysis\CrawlStats) calcule les 3 d'un coup
+    // ET les persiste, donc au fil des visites tout se remplit et la home devient
+    // instantanée. Les nouveaux crawls sont déjà pré-remplis au post-crawl (scouter.php).
+    require_once(__DIR__ . '/components/project-metrics.php');
+    // Ne JAMAIS réchauffer un crawl en cours : il n'a pas encore de data finale,
+    // calculer/persister un health_score maintenant figerait une valeur fausse
+    // (souvent 0). On attend qu'il soit terminé (post-crawl ou prochaine visite).
+    $inProgressStatuses = ['running', 'queued', 'pending', 'processing', 'stopping'];
+    $needIds = [];
+    foreach ([$myProjects, $sharedProjects, $otherProjects] as $list) {
+        foreach ($list as $p) {
+            foreach (($p->crawls ?? []) as $c) {
+                if (in_array($c->job_status ?? 'finished', $inProgressStatuses, true)) { continue; }
+                if (pcNeedsHealth($c->stats)) { $needIds[(int)$c->crawl_id] = true; }
+            }
+        }
+    }
+    if (!empty($needIds)) {
+        $computed = \App\Analysis\CrawlStats::ensureFromClickHouse(array_keys($needIds));
+        foreach ([$myProjects, $sharedProjects, $otherProjects] as $list) {
+            foreach ($list as $p) {
+                foreach (($p->crawls ?? []) as $c) {
+                    if (!pcNeedsHealth($c->stats)) { continue; }
+                    $id = (int)$c->crawl_id;
+                    $stats = $c->stats;
+                    if (isset($computed[$id])) {
+                        $stats['compliant'] = $computed[$id]['compliant'];
+                        $stats['critical_errors'] = $computed[$id]['critical_errors'];
+                        $stats['health_score'] = $computed[$id]['health_score'];
+                    } else {
+                        // crawl absent de ClickHouse → repli pcHealthScore (pur PHP, gratuit)
+                        // + on fige la sentinelle pour ne plus retenter à chaque visite.
+                        $fallback = pcHealthScore($stats);
+                        $stats['health_score'] = $fallback;
+                        \App\Analysis\CrawlStats::persistHealthScore($id, $fallback);
+                    }
+                    $c->stats = $stats;
+                }
+            }
+        }
+    }
+
     // Calculer le total des projets pour l'affichage
     $totalProjects = count($myProjects) + count($sharedProjects) + count($otherProjects);
     $hasProjects = $totalProjects > 0;
-    
+
 } catch(Exception $e) {
     error_log("Erreur lors du chargement des projets: " . $e->getMessage());
     $hasProjects = false;
@@ -272,6 +338,7 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
     <link rel="stylesheet" href="assets/style.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/responsive.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/crawl-panel.css?v=<?= time() ?>">
+    <link rel="stylesheet" href="assets/home-redesign.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
     <style>
         .config-icon {
@@ -350,7 +417,26 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
     <div class="container-with-sidebar">
         <?php if($hasProjects): ?>
         <!-- Categories Sidebar -->
-        <aside class="categories-sidebar">
+        <aside class="categories-sidebar" id="categoriesSidebar">
+            <?php if (!$isViewer): ?>
+            <nav class="hp-sidebar-nav">
+                <a class="hp-nav-item active" data-navtab="my" onclick="switchProjectsTab('my'); return false;">
+                    <span class="material-symbols-outlined">folder</span>
+                    <span><?= __('index.tab_my_projects') ?></span>
+                </a>
+                <?php if ($isAdmin && !empty($otherProjects)): ?>
+                <a class="hp-nav-item" data-navtab="all" onclick="switchProjectsTab('all'); return false;">
+                    <span class="material-symbols-outlined">admin_panel_settings</span>
+                    <span><?= __('index.tab_all_projects') ?></span>
+                </a>
+                <?php elseif (!$isAdmin && !empty($sharedProjects)): ?>
+                <a class="hp-nav-item" data-navtab="shared" onclick="switchProjectsTab('shared'); return false;">
+                    <span class="material-symbols-outlined">group</span>
+                    <span><?= __('index.tab_shared') ?></span>
+                </a>
+                <?php endif; ?>
+            </nav>
+            <?php endif; ?>
             <div class="categories-sidebar-header">
                 <h3><?= __('index.categories') ?></h3>
                 <button class="btn-icon" onclick="openCategoriesModal()" title="<?= __('index.manage_categories') ?>" style="cursor:pointer">
@@ -385,12 +471,21 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                     <?= __('index.add_category') ?>
                 </button>
             </div>
+
+            <div class="sidebar-help">
+                <span class="material-symbols-outlined">menu_book</span>
+                <div>
+                    <h4><?= __('index.help_title') ?></h4>
+                    <p><?= __('index.help_text') ?></p>
+                    <a href="https://github.com/lokoe-mehdi/scouter" target="_blank" rel="noopener"><?= __('index.help_link') ?></a>
+                </div>
+            </div>
         </aside>
         <?php endif; ?>
         
         <!-- Main Content -->
         <div class="main-content-area">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+            <div class="hp-page-head" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                 <h1 class="page-title"><?= $isViewer ? __('index.viewer_title') : __('index.user_title') ?></h1>
                 <div style="display: flex; gap: 1rem;">
                     <?php if(!$hasProjects): ?>
@@ -489,23 +584,23 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                     </div>
                 <?php else: ?>
                     <!-- Admin/User: système d'onglets -->
-                    <div class="projects-tabs" style="display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border-color);">
-                        <button type="button" class="projects-tab active" onclick="switchProjectsTab('my')" data-tab="my" style="flex: 0 0 auto; padding: 0.75rem 1.5rem; background: none; border: none; cursor: pointer; font-weight: 600; color: var(--primary-color); border-bottom: 2px solid var(--primary-color); margin-bottom: -2px; display: flex; align-items: center; gap: 0.5rem;">
+                    <div class="projects-tabs" style="display: flex; margin-bottom: 1.25rem;">
+                        <button type="button" class="projects-tab active" onclick="switchProjectsTab('my')" data-tab="my">
                             <span class="material-symbols-outlined" style="font-size: 18px;">folder</span>
                             <?= __('index.tab_my_projects') ?>
-                            <span style="background: var(--primary-color); color: white; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.75rem;"><?= count($myProjects) ?></span>
+                            <span class="pc-tab-count"><?= count($myProjects) ?></span>
                         </button>
                         <?php if ($isAdmin && !empty($otherProjects)): ?>
-                        <button type="button" class="projects-tab" onclick="switchProjectsTab('all')" data-tab="all" style="flex: 0 0 auto; padding: 0.75rem 1.5rem; background: none; border: none; cursor: pointer; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; display: flex; align-items: center; gap: 0.5rem;">
+                        <button type="button" class="projects-tab" onclick="switchProjectsTab('all')" data-tab="all">
                             <span class="material-symbols-outlined" style="font-size: 18px;">admin_panel_settings</span>
                             <?= __('index.tab_all_projects') ?>
-                            <span style="background: #9B59B6; color: white; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.75rem;"><?= count($otherProjects) ?></span>
+                            <span class="pc-tab-count"><?= count($otherProjects) ?></span>
                         </button>
                         <?php elseif (!$isAdmin && !empty($sharedProjects)): ?>
-                        <button type="button" class="projects-tab" onclick="switchProjectsTab('shared')" data-tab="shared" style="flex: 0 0 auto; padding: 0.75rem 1.5rem; background: none; border: none; cursor: pointer; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; display: flex; align-items: center; gap: 0.5rem;">
+                        <button type="button" class="projects-tab" onclick="switchProjectsTab('shared')" data-tab="shared">
                             <span class="material-symbols-outlined" style="font-size: 18px;">group</span>
                             <?= __('index.tab_shared') ?>
-                            <span style="background: #F39C12; color: white; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.75rem;"><?= count($sharedProjects) ?></span>
+                            <span class="pc-tab-count"><?= count($sharedProjects) ?></span>
                         </button>
                         <?php endif; ?>
                     </div>
@@ -580,7 +675,48 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                     </div>
                     <?php endif; ?>
                 <?php endif; ?>
-                
+
+                <?php
+                // Pour un user : ses projets partagés. Pour un admin (pas de
+                // "partagés") : les projets des autres, pour que la bande soit visible.
+                $sharedSrc = !empty($sharedProjects) ? $sharedProjects : ($isAdmin ? ($otherProjects ?? []) : []);
+                $sharedTab = !empty($sharedProjects) ? 'shared' : 'all';
+                if (!$isViewer && !empty($sharedSrc)):
+                    require_once(__DIR__ . '/components/project-metrics.php');
+                    $sharedPreview = array_slice($sharedSrc, 0, 4);
+                    $sharedExtra = count($sharedSrc) - count($sharedPreview);
+                ?>
+                <section class="pc-shared-section">
+                    <div class="pc-shared-head">
+                        <h2><?= __('index.shared_with_me') ?></h2>
+                        <span class="count"><?= count($sharedSrc) ?></span>
+                        <a class="see-all" href="#" onclick="switchProjectsTab('<?= $sharedTab ?>'); return false;"><?= __('index.see_all') ?></a>
+                    </div>
+                    <div class="pc-shared-grid">
+                        <?php foreach ($sharedPreview as $sp):
+                            $spLatest = !empty($sp->crawls) ? $sp->crawls[0] : null;
+                            $spScore = $spLatest ? pcHealthScore((array)$spLatest->stats) : 0;
+                            $spOwner = $sp->owner_email ?? '';
+                        ?>
+                        <a class="pc-shared-card" href="project.php?id=<?= (int)$sp->id ?>">
+                            <img class="pc-favicon" alt="" onerror="this.style.display='none'"
+                                 src="https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://<?= htmlspecialchars($sp->name) ?>&size=16">
+                            <div class="pc-shared-info">
+                                <div class="pc-shared-name"><?= htmlspecialchars($sp->name) ?></div>
+                                <?php if ($spOwner): ?><div class="pc-shared-by"><?= __('index.shared_by') ?> <?= htmlspecialchars($spOwner) ?></div><?php endif; ?>
+                            </div>
+                            <?php if ($spLatest): ?><span class="pc-score-badge <?= pcScoreClass($spScore) ?>"><?= $spScore ?></span><?php endif; ?>
+                        </a>
+                        <?php endforeach; ?>
+                        <?php if ($sharedExtra > 0): ?>
+                        <a class="pc-shared-card" href="#" onclick="switchProjectsTab('<?= $sharedTab ?>'); return false;" style="justify-content:center; color:var(--text-secondary); font-weight:600;">
+                            <?= __('index.show_n_more', ['count' => $sharedExtra]) ?>
+                        </a>
+                        <?php endif; ?>
+                    </div>
+                </section>
+                <?php endif; ?>
+
             <?php endif; ?>
             </div><!-- /projectListContainer -->
         </div>
@@ -731,7 +867,7 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
             // Reset user-agent
             document.querySelectorAll('.user-agent-option').forEach(opt => opt.classList.remove('active'));
             document.querySelector('.user-agent-option[data-ua="scouter"]')?.classList.add('active');
-            document.getElementById('user_agent').value = 'Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)';
+            document.getElementById('user_agent').value = 'Scouter/0.7 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)';
             document.getElementById('custom_ua_input').value = '';
 
             // Reset follow_redirects
@@ -949,7 +1085,7 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
         
         // Custom UA Dropdown
         const uaPresets = {
-            'scouter': 'Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)',
+            'scouter': 'Scouter/0.7 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)',
             'googlebot-mobile': 'Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2272.96 Mobile Safari/537.36 (compatible; Googlebot/2.1; +https://www.google.com/bot.html)',
             'googlebot-desktop': 'Mozilla/5.0 (compatible; Googlebot/2.1; +https://www.google.com/bot.html)',
             'chrome': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'
@@ -1509,6 +1645,11 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                 activePane.style.display = 'block';
             }
             
+            // Synchroniser la nav latérale (qui reflète les onglets)
+            document.querySelectorAll('.hp-nav-item[data-navtab]').forEach(n => {
+                n.classList.toggle('active', n.dataset.navtab === tabName);
+            });
+
             // Recalculer le message "aucun résultat" pour le nouveau panneau actif
             if (activePane) {
                 const activePaneCards = activePane.querySelectorAll('.domain-card');
@@ -1520,22 +1661,26 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
             }
         }
 
-        // Toggle domain accordion
+        // Mesure la hauteur réelle du header → variable CSS (hauteur exacte du
+        // conteneur = 100vh - header, sans nombre magique).
+        function measureHeaderHeight() {
+            const h = document.querySelector('.header');
+            if (h) document.documentElement.style.setProperty('--hp-header-h', h.offsetHeight + 'px');
+        }
+        measureHeaderHeight();
+        window.addEventListener('resize', measureHeaderHeight);
+        window.addEventListener('load', measureHeaderHeight);
+
+        // Toggle domain accordion (compact KPI row → crawl table)
         function toggleDomain(domainName) {
             const domainCrawls = document.getElementById(`domain-${domainName}`);
-            const header = document.querySelector(`#domain-${domainName}`)?.previousElementSibling;
-            const expandIcon = header?.querySelector('.expand-icon');
-            
             if (!domainCrawls) return;
-            
-            if (domainCrawls.style.display === 'none') {
-                domainCrawls.style.display = 'block';
-                if (expandIcon) expandIcon.textContent = 'expand_less';
-            } else {
-                domainCrawls.style.display = 'none';
-                if (expandIcon) expandIcon.textContent = 'expand_more';
-            }
+            const row = domainCrawls.closest('.pc-row');
+            const isHidden = domainCrawls.style.display === 'none' || getComputedStyle(domainCrawls).display === 'none';
+            domainCrawls.style.display = isHidden ? 'block' : 'none';
+            if (row) row.classList.toggle('open', isHidden);
         }
+
 
         // Category management
         let activeCategory = 'all';
@@ -1592,23 +1737,9 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                     const [type, direction] = currentSortOption.split('-');
                     
                     if (type === 'date') {
-                        // Sort by timestamp (date + time)
-                        const dateTimeA = a.querySelector('.domain-meta').textContent.match(/Dernier:\s*(\d{2}\/\d{2}\/\d{4})\s*(\d{2}:\d{2})/);
-                        const dateTimeB = b.querySelector('.domain-meta').textContent.match(/Dernier:\s*(\d{2}\/\d{2}\/\d{4})\s*(\d{2}:\d{2})/);
-                        
-                        if (dateTimeA && dateTimeB) {
-                            // Convert to comparable format: YYYYMMDDHHMM
-                            const [dayA, monthA, yearA] = dateTimeA[1].split('/');
-                            const [hourA, minA] = dateTimeA[2].split(':');
-                            valueA = parseInt(`${yearA}${monthA}${dayA}${hourA}${minA}`);
-                            
-                            const [dayB, monthB, yearB] = dateTimeB[1].split('/');
-                            const [hourB, minB] = dateTimeB[2].split(':');
-                            valueB = parseInt(`${yearB}${monthB}${dayB}${hourB}${minB}`);
-                        } else {
-                            valueA = 0;
-                            valueB = 0;
-                        }
+                        // Sort by the last-crawl timestamp carried on the card.
+                        valueA = parseInt(a.getAttribute('data-ts') || '0', 10);
+                        valueB = parseInt(b.getAttribute('data-ts') || '0', 10);
                     } else {
                         // Sort alphabetically by domain name
                         valueA = a.querySelector('.domain-name').textContent.trim().toLowerCase();
@@ -2743,6 +2874,6 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
             }
         })();
     </script>
-    <div style="text-align: center; padding: 2rem 0 1rem; font-size: 0.9rem; color: #c0c4cc; letter-spacing: 0.3px;">Scouter v0.6</div>
+    <div style="text-align: center; padding: 2rem 0 1rem; font-size: 0.9rem; color: #c0c4cc; letter-spacing: 0.3px;">Scouter v0.7</div>
 </body>
 </html>

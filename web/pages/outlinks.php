@@ -14,9 +14,9 @@ try {
         GROUP BY outlinks
         ORDER BY outlinks DESC
     ";
-    $stmt = $pdo->prepare($sqlOutlinksDistribution);
-    $stmt->execute([':crawl_id' => $crawlId]);
-    $outlinksDistribution = $stmt->fetchAll(PDO::FETCH_OBJ);
+    $outlinksDistribution = \App\Analysis\ReportPrecompute::cached(
+        (int) $crawlId, 'outlinks_distribution', $pdo, $sqlOutlinksDistribution, [':crawl_id' => $crawlId], false
+    );
     
     // Calcul du total d'URLs pour les pourcentages
     $totalUrls = array_sum(array_column($outlinksDistribution, 'url_count'));
@@ -45,9 +45,9 @@ try {
     }
     
     // Moyenne d'outlinks par catégorie (sans jointure)
-    $stmt = $pdo->prepare("
-        SELECT 
-            cat_id,
+    $sqlOutlinksByCategory = "
+        SELECT
+            category,
             COUNT(id) as url_count,
             ROUND(AVG(outlinks)::numeric, 2) as avg_outlinks,
             MIN(outlinks) as min_outlinks,
@@ -55,24 +55,23 @@ try {
             SUM(outlinks) as total_outlinks
         FROM pages
         WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
-        GROUP BY cat_id
+        GROUP BY category
         ORDER BY AVG(outlinks) DESC
-    ");
-    $stmt->execute([':crawl_id' => $crawlId]);
-    $outlinksByCategoryRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
-    
-    // Convertir cat_id en nom de catégorie
-    $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
+    ";
+    $outlinksByCategoryRaw = \App\Analysis\ReportPrecompute::cached(
+        (int) $crawlId, 'outlinks_by_category', $pdo, $sqlOutlinksByCategory, [':crawl_id' => $crawlId], true
+    );
+
+    // category est déjà le nom de la catégorie
     $outlinksByCategory = [];
     foreach ($outlinksByCategoryRaw as $row) {
-        $catInfo = $categoriesMap[$row->cat_id] ?? null;
-        $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+        $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
         $outlinksByCategory[] = $row;
     }
     
     // Statistiques globales (renommer pour éviter conflit)
-    $stmt = $pdo->prepare("
-        SELECT 
+    $sqlOutlinksStats = "
+        SELECT
             COUNT(*) as total_urls,
             ROUND(AVG(outlinks)::numeric, 2) as avg_outlinks,
             MIN(outlinks) as min_outlinks,
@@ -80,18 +79,20 @@ try {
             SUM(outlinks) as total_outlinks
         FROM pages
         WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
-    ");
-    $stmt->execute([':crawl_id' => $crawlId]);
-    $outlinksStats = $stmt->fetch(PDO::FETCH_OBJ);
+    ";
+    $outlinksStatsRows = \App\Analysis\ReportPrecompute::cached(
+        (int) $crawlId, 'outlinks_stats', $pdo, $sqlOutlinksStats, [':crawl_id' => $crawlId], false
+    );
+    $outlinksStats = $outlinksStatsRows[0] ?? null;
     
     // Top 100 des URLs avec le plus d'outlinks (sans jointure)
     $stmt = $pdo->prepare("
-        SELECT 
+        SELECT
             url,
             outlinks,
             depth,
             code,
-            cat_id
+            category
         FROM pages
         WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
         ORDER BY outlinks DESC, url ASC
@@ -99,11 +100,10 @@ try {
     ");
     $stmt->execute([':crawl_id' => $crawlId]);
     $topOutlinksUrls = $stmt->fetchAll(PDO::FETCH_OBJ);
-    
-    // Ajouter le nom de catégorie
+
+    // category est déjà le nom de la catégorie
     foreach ($topOutlinksUrls as $row) {
-        $catInfo = $categoriesMap[$row->cat_id] ?? null;
-        $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+        $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
     }
     
 } catch(PDOException $e) {

@@ -2,6 +2,12 @@ services:
   # Base de données PostgreSQL
   postgres:
     image: postgres:16-alpine
+    # mem_limit AUTO-DIMENSIONNÉ par scripts/autosize.sh (lancé par start.sh) en
+    # fraction de la RAM hôte → somme < RAM dispo, un conteneur qui dérape redémarre
+    # au lieu de tuer l'hôte. Plus de quota cpus en dur : cpu_shares (poids relatif)
+    # s'adapte à tout nombre de cœurs. Les défauts ne sont qu'un secours.
+    mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
+    cpu_shares: 2048 # interactif — priorité face aux crawls sous contention
     ports:
       - "5432:5432"
     command: postgres -c max_locks_per_transaction=256
@@ -16,9 +22,48 @@ services:
     networks:
       - scouter-net
 
+  # ClickHouse — entrepôt des données de crawl (pages/links/html + post-proc).
+  # PostgreSQL garde la frontier + les métadonnées. Voir clickhouse.md.
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    # CH 24 borne son max_server_memory_usage sur ce cgroup → pas de creep RAM.
+    # Fallback 6g (autosize.sh le surcharge à ~30% de la RAM hôte via start.sh).
+    mem_limit: ${CLICKHOUSE_MEM_LIMIT:-6g}
+    cpu_shares: 2048 # interactif (sert les rapports)
+    ports:
+      - "8123:8123"  # HTTP interface (lectures rapports + writes crawler)
+      - "9000:9000"  # native (debug local via clickhouse-client)
+    environment:
+      - CLICKHOUSE_DB=scouter
+      - CLICKHOUSE_USER=scouter
+      - CLICKHOUSE_PASSWORD=scouter
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      # Source unique partagée avec le schéma embarqué du crawler (EnsureSchema),
+      # comme en prod (docker-compose.yml). L'ancien chemin ./docker/clickhouse/init.sql
+      # n'existe pas et faisait échouer/diverger l'install locale à neuf.
+      - ./crawler-go/internal/db/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    restart: unless-stopped
+    networks:
+      - scouter-net
+    healthcheck:
+      # wget to localhost inside the alpine image is refused (IPv6/bind quirk);
+      # clickhouse-client is the reliable check.
+      test: ["CMD", "clickhouse-client", "-q", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   # Application PHP principale
   scouter:
     build: .
+    mem_limit: ${SCOUTER_MEM_LIMIT:-1g}
+    cpu_shares: 2048 # interactif (UI + API)
     ports:
       - "8080:8080"
     volumes:
@@ -26,20 +71,58 @@ services:
       - ./app:/app/app
       - ./crawls:/var/www/crawls
       - ./logs:/app/logs
+      # Page-HTML blobs (local backend) shared with the worker + crawler-go.
+      - ./storage:/app/storage
     environment:
       - PHP_CLI_SERVER_WORKERS=8
-      - RENDERER_URL=http://renderer:3000
+      - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       - DATABASE_URL=postgresql://scouter:scouter@postgres:5432/scouter
+      # ClickHouse (entrepôt données de crawl). Vide = lectures sur PG (ancien comportement).
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=scouter
+      - CLICKHOUSE_USER=scouter
+      - CLICKHOUSE_PASSWORD=scouter
+      # Master key used to encrypt secrets stored in app_settings (Gemini API key, etc.).
+      # Read from .env (gitignored). Generate one with `openssl rand -hex 32`.
+      - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY}
+      # Page-HTML blob storage: local dir by default; set S3_* to use a bucket.
+      - STORAGE_PATH=/app/storage
+      - S3_BUCKET=${S3_BUCKET:-}
+      - S3_REGION=${S3_REGION:-}
+      - S3_ENDPOINT=${S3_ENDPOINT:-}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-}
+      - S3_PREFIX=${S3_PREFIX:-}
+      - S3_USE_PATH_STYLE=${S3_USE_PATH_STYLE:-false}
     restart: unless-stopped
     networks:
       - scouter-net
     depends_on:
-      - renderer
+      - renderer-1
       - postgres
+      - clickhouse
+
+  # Serveur MCP (Model Context Protocol) — adaptateur au-dessus de /api/v1.
+  mcp:
+    build: ./mcp
+    mem_limit: ${MCP_MEM_LIMIT:-256m}
+    cpu_shares: 512 # léger adaptateur, background
+    expose:
+      - 3000
+    environment:
+      - SCOUTER_API_URL=http://scouter:8080
+    restart: unless-stopped
+    networks:
+      - scouter-net
+    depends_on:
+      - scouter
 
   # Service Worker (Crawl)
   worker:
     build: .
+    # Appliqué à CHACUN des 4 réplicas : défaut 384m × 4 = 1,5 Go.
+    mem_limit: ${WORKER_MEM_LIMIT:-384m}
+    cpu_shares: 512 # jobs background (delete / batch-categorize / bulk-ai)
     entrypoint: ["php", "app/bin/worker.php"]
     restart: unless-stopped
     deploy:
@@ -47,35 +130,141 @@ services:
       replicas: 4
     environment:
       - DATABASE_URL=postgresql://scouter:scouter@postgres:5432/scouter
-      - RENDERER_URL=http://renderer:3000
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=scouter
+      - CLICKHOUSE_USER=scouter
+      - CLICKHOUSE_PASSWORD=scouter
+      - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=15
+      # NB : le crawl PHP a été retiré (refacto.md §11). Le worker PHP ne prend
+      # plus QUE delete / batch-categorize / bulk-ai ; les crawls sont au worker Go.
+      # Worker needs the encryption key to decrypt the OpenRouter API key
+      # stored in app_settings (used by the Bulk AI Generator + any future
+      # background AI job). Without this, AppSettings::get('ai.openrouter.api_key')
+      # returns null and jobs fail with "API key not configured".
+      # Read from .env (gitignored) — same key as the scouter service above.
+      - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY}
+      # Page-HTML blob storage — the worker purges a crawl's HTML on deletion.
+      - STORAGE_PATH=/app/storage
+      - S3_BUCKET=${S3_BUCKET:-}
+      - S3_REGION=${S3_REGION:-}
+      - S3_ENDPOINT=${S3_ENDPOINT:-}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-}
+      - S3_PREFIX=${S3_PREFIX:-}
+      - S3_USE_PATH_STYLE=${S3_USE_PATH_STYLE:-false}
     volumes:
       - ./web:/app/web
       - ./app:/app/app
       - ./logs:/app/logs
+      - ./storage:/app/storage
     networks:
       - scouter-net
     depends_on:
       - postgres
-      - renderer
+      - clickhouse
+      - renderer-1
 
-  # Service de rendu JavaScript - Multiple instances pour parallélisme
-  renderer:
+  # Go crawl worker (crawler-go) — replaces the PHP crawl path. One process,
+  # multiple concurrent crawls (MAX_CONCURRENT_CRAWLS). Claims ONLY
+  # command='crawl' jobs; cohabits with the PHP worker above.
+  crawler-go:
+    # Dev local : on NE build PAS d'image. On lance via `go run` avec le code
+    # monté en volume + cache de compilation persistant. Workflow :
+    #   éditer crawler-go/**.go  →  docker compose -f docker-compose.local.yml restart crawler-go
+    # → recompilation en quelques secondes (cache chaud), SANS rebuild d'image.
+    # (La prod, docker-compose.yml, garde le binaire compilé via le Dockerfile.)
+    image: golang:1.25-alpine
+    working_dir: /src
+    command: go run ./cmd/scouter-crawler
+    # Pose le cgroup memory.max → active GOMEMLIMIT auto dans le crawler (~1,8 Go).
+    mem_limit: ${CRAWLER_MEM_LIMIT:-2g}
+    cpu_shares: 512 # background : cède le CPU à l'interactif (couplé au gouverneur PSI)
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      - CGO_ENABLED=0
+      - GOTOOLCHAIN=local
+      - DATABASE_URL=postgresql://scouter:scouter@postgres:5432/scouter
+      # ClickHouse : si défini, le crawler appende les données + fait le post-proc dans CH.
+      # Vide = comportement PG-only inchangé (aucune régression).
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=scouter
+      - CLICKHOUSE_USER=scouter
+      - CLICKHOUSE_PASSWORD=scouter
+      # Auto-migration au démarrage : backfill des anciens crawls PG -> ClickHouse.
+      # Non destructif (garde PG). Idempotent (skip les crawls déjà migrés).
+      - CLICKHOUSE_AUTO_MIGRATE=${CLICKHOUSE_AUTO_MIGRATE:-1}
+      # Bascule COMPLÈTE (DESTRUCTIF, défaut ON) : saute le post-proc PG, DROP les
+      # données PG en fin de crawl, ET purge le PG des anciens crawls après le
+      # backfill auto. Donc ./start.sh migre + purge tout seul. Mettre 0 pour garder PG.
+      - CLICKHOUSE_DROP_PG=${CLICKHOUSE_DROP_PG:-1}
+      # 3 hostnames distincts (PAS un service répliqué) : le round-robin Go +
+      # ses pools de connexions séparés répartissent vraiment sur les 3. Avec un
+      # seul nom DNS + keep-alive, Go se collerait à un seul replica.
+      - RENDERER_URLS=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
+      # 4 crawls simultanés × 12 fetches parallèles = ~48 requêtes en vol.
+      # Monter MAX_CONCURRENT_CURL seulement si le serveur cible encaisse (sinon
+      # il rate-limite → 429/503 → retries → plus lent). Mettre crawl_speed=
+      # unlimited sur le crawl (UI) pour lever le throttle.
+      - MAX_CONCURRENT_CRAWLS=${MAX_CONCURRENT_CRAWLS:-4}
+      - MAX_CONCURRENT_CURL=${MAX_CONCURRENT_CURL:-12}
+      - POOL_CONNS_PER_CRAWL=${POOL_CONNS_PER_CRAWL:-8}
+      - LOG_DIR=/app/logs
+      # Page-HTML blob storage — local dir by default; set S3_* to use a bucket.
+      - STORAGE_PATH=/app/storage
+      - S3_BUCKET=${S3_BUCKET:-}
+      - S3_REGION=${S3_REGION:-}
+      - S3_ENDPOINT=${S3_ENDPOINT:-}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-}
+      - S3_PREFIX=${S3_PREFIX:-}
+      - S3_USE_PATH_STYLE=${S3_USE_PATH_STYLE:-false}
+    volumes:
+      - ./crawler-go:/src
+      - go-build-cache:/root/.cache/go-build
+      - go-mod-cache:/go/pkg/mod
+      # Shared with the scouter container so the UI live console can tail logs.
+      - ./logs:/app/logs
+      # Page-HTML blobs (local backend) — shared with scouter so it can read them.
+      - ./storage:/app/storage
+    networks:
+      - scouter-net
+    depends_on:
+      - postgres
+      - clickhouse
+      - renderer-1
+      - renderer-2
+      - renderer-3
+
+  # Service de rendu JavaScript — 3 instances NOMMÉES (renderer-1/2/3) pour que
+  # le round-robin du crawler Go les utilise réellement toutes les trois.
+  # Tune RAM/débit par renderer via MAX_CONCURRENT_PAGES / PAGE_POOL_SIZE.
+  renderer-1: &renderer-base
     build: ./renderer
+    # Borne Chrome. Hérité par renderer-2/3 : défaut 1 Go × 3 = 3 Go.
+    mem_limit: ${RENDERER_MEM_LIMIT:-1g}
+    cpu_shares: 512 # Chrome = gros consommateur ; background, hérité par renderer-2/3
     init: true
     expose:
       - 3000
     environment:
       - SCOUTER_API_URL=http://scouter:8080
+      # Multi-process Chrome : 20 pages/renderer × 3 renderers = 60 rendus //.
+      # Largement suffisant, et tient la RAM. Monter seulement si RAM dispo.
+      - MAX_CONCURRENT_PAGES=${MAX_CONCURRENT_PAGES:-20}
+      - PAGE_POOL_SIZE=${PAGE_POOL_SIZE:-20}
     cap_add:
       - SYS_ADMIN
     restart: unless-stopped
     networks:
       - scouter-net
-    deploy:
-      mode: replicated
-      replicas: 3
+
+  renderer-2:
+    <<: *renderer-base
+  renderer-3:
+    <<: *renderer-base
 
 networks:
   scouter-net:
@@ -83,3 +272,7 @@ networks:
 
 volumes:
   postgres_data:
+  clickhouse_data:
+  # Persistent Go caches so `go run` recompiles in seconds on restart (dev only).
+  go-build-cache:
+  go-mod-cache:

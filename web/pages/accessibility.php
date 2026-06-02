@@ -7,29 +7,23 @@
  * $crawlId est défini dans dashboard.php
  */
 
-// Catégories disponibles
-$stmt = $pdo->prepare("SELECT id, cat FROM crawl_categories WHERE project_id = :project_id ORDER BY id");
-$stmt->execute([':project_id' => $crawlRecord->project_id]);
-$categories = $stmt->fetchAll(PDO::FETCH_OBJ);
-
 // Stats par catégorie (uniquement celles avec des URLs)
-$stmt = $pdo->prepare("
-    SELECT 
-        c.id,
-        c.cat,
-        COUNT(p.id) as total,
-        SUM(CASE WHEN p.compliant = true THEN 1 ELSE 0 END) as compliant,
-        AVG(p.inlinks) as avg_inlinks,
-        AVG(p.pri) as avg_pagerank
-    FROM crawl_categories c
-    LEFT JOIN pages p ON c.id = p.cat_id AND p.crawl_id = :crawl_id2 AND p.crawled = true AND p.is_html = true AND p.in_crawl = TRUE
-    WHERE c.project_id = :project_id
-    GROUP BY c.id, c.cat
-    HAVING COUNT(p.id) > 0
-    ORDER BY COUNT(p.id) DESC
-");
-$stmt->execute([':project_id' => $crawlRecord->project_id, ':crawl_id2' => $crawlId]);
-$categoryStats = $stmt->fetchAll(PDO::FETCH_OBJ);
+$sqlCategoryStats = "
+    SELECT
+        category as cat,
+        COUNT(id) as total,
+        SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) as compliant,
+        AVG(inlinks) as avg_inlinks,
+        AVG(pri) as avg_pagerank
+    FROM pages
+    WHERE crawl_id = :crawl_id2 AND crawled = true AND is_html = true AND in_crawl = TRUE
+    GROUP BY category
+    HAVING COUNT(id) > 0
+    ORDER BY COUNT(id) DESC
+";
+$categoryStats = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'accessibility_category_stats', $pdo, $sqlCategoryStats, [':crawl_id2' => $crawlId], true
+);
 
 // Distribution des URLs découvertes : on distingue désormais les URLs réellement
 // bloquées par robots.txt (blocked = true) des URLs simplement non crawlées
@@ -44,9 +38,10 @@ $sqlUrlDistribution = "
     FROM pages
     WHERE crawl_id = :crawl_id AND in_crawl = TRUE
 ";
-$stmt = $pdo->prepare($sqlUrlDistribution);
-$stmt->execute([':crawl_id' => $crawlId]);
-$urlDistribution = $stmt->fetch(PDO::FETCH_OBJ);
+$urlDistributionRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'accessibility_url_distribution', $pdo, $sqlUrlDistribution, [':crawl_id' => $crawlId], false
+);
+$urlDistribution = $urlDistributionRows[0] ?? null;
 
 // Raisons de non-indexabilité (parmi les URLs crawlées)
 $sqlNonIndexable = "
@@ -57,58 +52,56 @@ $sqlNonIndexable = "
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = false AND is_html = true AND in_crawl = TRUE
 ";
-$stmt = $pdo->prepare($sqlNonIndexable);
-$stmt->execute([':crawl_id' => $crawlId]);
-$nonIndexableReasons = $stmt->fetch(PDO::FETCH_OBJ);
+$nonIndexableRows = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'accessibility_non_indexable', $pdo, $sqlNonIndexable, [':crawl_id' => $crawlId], false
+);
+$nonIndexableReasons = $nonIndexableRows[0] ?? null;
 
 // Distribution par catégorie (URLs internes uniquement) :
 // indexables vs médias vs bloquées au robots.txt.
 $sqlDistributionByCategory = "
     SELECT
-        cat_id,
+        category,
         SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) as indexable,
         SUM(CASE WHEN blocked = false AND crawled = true AND (is_html = false OR is_html IS NULL) THEN 1 ELSE 0 END) as media,
         SUM(CASE WHEN blocked = true THEN 1 ELSE 0 END) as blocked
     FROM pages
     WHERE crawl_id = :crawl_id AND external = false AND in_crawl = TRUE
-    GROUP BY cat_id
+    GROUP BY category
     ORDER BY SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) DESC
 ";
-$stmt = $pdo->prepare($sqlDistributionByCategory);
-$stmt->execute([':crawl_id' => $crawlId]);
-$distributionByCategoryRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
+$distributionByCategoryRaw = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'accessibility_distribution_by_category', $pdo, $sqlDistributionByCategory, [':crawl_id' => $crawlId], true
+);
 
-// Convertir cat_id en nom de catégorie
-$categoriesMap = $GLOBALS['categoriesMap'] ?? [];
+// Nom de catégorie (déjà fourni par la colonne category)
 $distributionByCategory = [];
 foreach ($distributionByCategoryRaw as $row) {
-    $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
     $distributionByCategory[] = $row;
 }
 
 // Indexabilité par catégorie (sans jointure)
 $sqlIndexabilityByCategory = "
-    SELECT 
-        cat_id,
+    SELECT
+        category,
         SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) as indexable,
         SUM(CASE WHEN compliant = false AND canonical = false THEN 1 ELSE 0 END) as non_canonical,
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = true THEN 1 ELSE 0 END) as noindex,
         SUM(CASE WHEN compliant = false AND canonical = true AND noindex = false AND code != 200 THEN 1 ELSE 0 END) as bad_status
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND is_html = true AND in_crawl = TRUE
-    GROUP BY cat_id
+    GROUP BY category
     ORDER BY SUM(CASE WHEN compliant = true THEN 1 ELSE 0 END) DESC
 ";
-$stmt = $pdo->prepare($sqlIndexabilityByCategory);
-$stmt->execute([':crawl_id' => $crawlId]);
-$indexabilityByCategoryRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
+$indexabilityByCategoryRaw = \App\Analysis\ReportPrecompute::cached(
+    (int) $crawlId, 'accessibility_indexability_by_category', $pdo, $sqlIndexabilityByCategory, [':crawl_id' => $crawlId], true
+);
 
-// Convertir cat_id en nom de catégorie
+// Nom de catégorie (déjà fourni par la colonne category)
 $indexabilityByCategory = [];
 foreach ($indexabilityByCategoryRaw as $row) {
-    $catInfo = $categoriesMap[$row->cat_id] ?? null;
-    $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
     $indexabilityByCategory[] = $row;
 }
 

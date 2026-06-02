@@ -4,6 +4,18 @@
  * $crawlId est défini dans dashboard.php
  */
 
+// AI-assisted filter generation availability — same pattern as the URL Explorer.
+$linkExplorerAiConfigured = false;
+try {
+    $_leAiKey   = \App\Settings\AppSettings::get('ai.openrouter.api_key');
+    $_leAiModel = \App\Settings\AppSettings::get('ai.openrouter.model_light');
+    $linkExplorerAiConfigured = $_leAiKey !== null && $_leAiKey !== '' && $_leAiModel !== null && $_leAiModel !== '';
+} catch (\Throwable $e) {
+    $linkExplorerAiConfigured = false;
+}
+// AI reserved for admins + editors; hidden entirely for viewers.
+$aiRoleAllowed = \App\AI\BudgetService::isAiEligibleRole($_SESSION['role'] ?? null);
+
 // Récupération des filtres
 $filters = isset($_GET['filters']) ? json_decode($_GET['filters'], true) : [];
 $search = isset($_GET['search']) ? $_GET['search'] : '';
@@ -54,6 +66,49 @@ try {
 $GLOBALS['extractorTypes'] = [];
 foreach ($availableExtractors as $extr) {
     $GLOBALS['extractorTypes'][$extr['key']] = $extr['type'];
+}
+
+// Détection auto des clés générées par le Bulk AI Generator (pages.generation)
+// — même approche que dans url-explorer.php : on lit jsonb_typeof pour
+// déduire le type dominant, et on construit la liste des keys avec leur
+// type pour exposer dans le sélecteur de filtres.
+$availableGenerations = [];
+try {
+    $stmt = $pdo->prepare("
+        WITH samples AS (
+            SELECT generation FROM pages
+            WHERE crawl_id = :crawl_id AND generation IS NOT NULL
+              AND jsonb_typeof(generation) = 'object'
+            LIMIT 500
+        )
+        SELECT j.key, jsonb_typeof(j.value) AS jtype, COUNT(*) AS n
+        FROM samples s, jsonb_each(s.generation) j
+        GROUP BY j.key, jsonb_typeof(j.value)
+    ");
+    $stmt->execute([':crawl_id' => $crawlId]);
+    $byKey = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $k = $row['key'];
+        if (!isset($byKey[$k])) $byKey[$k] = [];
+        $byKey[$k][$row['jtype']] = (int)$row['n'];
+    }
+    foreach ($byKey as $key => $typeCounts) {
+        $total = array_sum($typeCounts);
+        arsort($typeCounts);
+        $dominant = (string)array_key_first($typeCounts);
+        $pct      = $total > 0 ? $typeCounts[$dominant] / $total : 0;
+        if      ($dominant === 'number'  && $pct >= 0.95) $uiType = 'number';
+        elseif  ($dominant === 'boolean' && $pct >= 0.95) $uiType = 'boolean';
+        else                                              $uiType = 'text';
+        $availableGenerations[] = ['key' => $key, 'type' => $uiType];
+    }
+    usort($availableGenerations, fn($a, $b) => strcmp($a['key'], $b['key']));
+} catch (Exception $e) {
+    // pages.generation absent — silencieux.
+}
+$GLOBALS['generationTypes'] = [];
+foreach ($availableGenerations as $g) {
+    $GLOBALS['generationTypes'][$g['key']] = $g['type'];
 }
 
 // Construction de la clause WHERE
@@ -199,17 +254,20 @@ function buildFilterConditions($items, &$params, &$paramCounter = 0) {
                     
                 case 'category':
                     if(!empty($value) && is_array($value)) {
-                        $catIds = array_map('intval', $value);
+                        // Filter by the live category NAME (no cat_id). Resolve the
+                        // dropdown's category ids to names via $categoriesMap.
+                        $catMap = $GLOBALS['categoriesMap'] ?? [];
                         $placeholders = [];
-                        foreach($catIds as $catId) {
+                        foreach($value as $v) {
+                            $name = isset($catMap[(int)$v]) ? $catMap[(int)$v]['cat'] : (string)$v;
                             $paramName = ':cat_' . $paramCounter++;
                             $placeholders[] = $paramName;
-                            $params[$paramName] = $catId;
+                            $params[$paramName] = $name;
                         }
                         if($operator === 'not_in') {
-                            $condition = "({$tablePrefix}.cat_id NOT IN (" . implode(',', $placeholders) . ") OR {$tablePrefix}.cat_id IS NULL)";
+                            $condition = "({$tablePrefix}.category NOT IN (" . implode(',', $placeholders) . ") OR {$tablePrefix}.category = '')";
                         } else {
-                            $condition = "{$tablePrefix}.cat_id IN (" . implode(',', $placeholders) . ")";
+                            $condition = "{$tablePrefix}.category IN (" . implode(',', $placeholders) . ")";
                         }
                     }
                     break;
@@ -402,6 +460,40 @@ function buildFilterConditions($items, &$params, &$paramCounter = 0) {
                             }
                         }
                     }
+                    // Filtres dynamiques sur les générations IA (`generation_<key>`).
+                    // Filtrage sur le source ou le target selon le tablePrefix.
+                    if (strpos($field, 'generation_') === 0) {
+                        $genKey = substr($field, 11);
+                        $jsonAccess = "{$tablePrefix}.generation->>'" . addslashes($genKey) . "'";
+                        $genType = $GLOBALS['generationTypes'][$genKey] ?? 'text';
+
+                        if ($genType === 'number') {
+                            $sqlOp = in_array($operator, ['=', '>', '<', '>=', '<=', '!=']) ? $operator : '=';
+                            $paramName = ':gen_' . $paramCounter++;
+                            $condition = "({$jsonAccess}) ~ '^-?[0-9]+(\\.[0-9]+)?$' AND ({$jsonAccess})::numeric {$sqlOp} {$paramName}";
+                            $params[$paramName] = floatval($value);
+                        } elseif ($genType === 'boolean') {
+                            $paramName = ':gen_' . $paramCounter++;
+                            $boolValue = ($value === true || $value === 'true' || $value === 1 || $value === '1') ? 'true' : 'false';
+                            $condition = "{$jsonAccess} = {$paramName}";
+                            $params[$paramName] = $boolValue;
+                        } else {
+                            $paramName = ':gen_' . $paramCounter++;
+                            if ($operator === 'contains') {
+                                $condition = "{$jsonAccess} ILIKE {$paramName}";
+                                $params[$paramName] = '%' . $value . '%';
+                            } elseif ($operator === 'not_contains') {
+                                $condition = "({$jsonAccess} NOT ILIKE {$paramName} OR {$jsonAccess} IS NULL)";
+                                $params[$paramName] = '%' . $value . '%';
+                            } elseif ($operator === 'regex') {
+                                $condition = "{$jsonAccess} ~* {$paramName}";
+                                $params[$paramName] = $value;
+                            } elseif ($operator === 'not_regex') {
+                                $condition = "({$jsonAccess} !~* {$paramName} OR {$jsonAccess} IS NULL)";
+                                $params[$paramName] = $value;
+                            }
+                        }
+                    }
                     break;
             }
             
@@ -512,6 +604,179 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
     background: rgba(78, 205, 196, 0.05);
 }
 .btn-add-filter .material-symbols-outlined { font-size: 18px; }
+
+/* ============================================================
+   AI link filters — bouton "Demander à l'IA" + popover Copilot-style
+   Mêmes classes que dans URL Explorer (chaque page est chargée seule,
+   donc dupliquer la CSS reste plus simple qu'un asset partagé).
+   ============================================================ */
+.ai-url-toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    height: 36px;
+    padding: 0 0.75rem;
+    background: var(--bg-secondary, #f4f6f8);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.ai-url-toolbar-btn:hover:not(:disabled) {
+    background: white;
+    border-color: #667eea;
+}
+.ai-url-toolbar-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.ai-url-toolbar-btn .material-symbols-outlined {
+    font-size: 18px;
+    color: #667eea;
+}
+.ai-url-toolbar-btn:disabled .material-symbols-outlined {
+    color: var(--text-secondary);
+}
+.ai-url-toolbar-btn .shortcut {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    background: white;
+    border: 1px solid var(--border-color);
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-left: 0.25rem;
+}
+.ai-url-popover {
+    position: fixed;
+    width: min(560px, calc(100vw - 2rem));
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+    z-index: 10000;
+    padding: 0.85rem 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    animation: aiLinkPopIn 0.15s ease-out;
+}
+@keyframes aiLinkPopIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.ai-url-popover-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 28px;
+}
+.ai-url-popover-icon {
+    color: #667eea;
+    font-size: 20px;
+    line-height: 1;
+}
+.ai-url-popover-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 1;
+    font-size: 0.95rem;
+    line-height: 1;
+}
+.ai-url-popover-close {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.15s;
+    padding: 0;
+    line-height: 1;
+}
+.ai-url-popover-close:hover {
+    background: var(--bg-secondary, #f4f6f8);
+    color: var(--text-primary);
+}
+.ai-url-popover-close .material-symbols-outlined { font-size: 18px; line-height: 1; }
+.ai-url-popover-input {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    background: white;
+    color: var(--text-primary);
+    resize: none;
+    height: 72px;
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+    line-height: 1.4;
+}
+.ai-url-popover-input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+}
+.ai-url-popover-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    min-height: 32px;
+}
+.ai-url-popover-hint {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    background: var(--bg-secondary, #f4f6f8);
+    padding: 4px 8px;
+    border-radius: 4px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+}
+.ai-url-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    height: 32px;
+    padding: 0 0.9rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.ai-url-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+.ai-url-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.ai-url-btn .material-symbols-outlined { font-size: 18px; }
+.ai-url-btn-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: aiLinkSpin 0.75s linear infinite;
+    display: inline-block;
+}
+@keyframes aiLinkSpin { to { transform: rotate(360deg); } }
 
 /* Chips container */
 .filter-chips-container {
@@ -954,11 +1219,50 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
         <?= __('link_explorer.filter') ?>
     </button>
 
+    <!-- Demander à l'IA — même pattern qu'URL Explorer / SQL Explorer (Copilot-style) -->
+    <?php if ($aiRoleAllowed): ?>
+    <button class="ai-url-toolbar-btn"
+            id="aiLinkOpenBtn"
+            onclick="openAiLinkPopover()"
+            <?= $linkExplorerAiConfigured ? '' : 'disabled' ?>
+            title="<?= htmlspecialchars($linkExplorerAiConfigured ? __('link_explorer.ai_button_label') . ' (Ctrl+K)' : __('link_explorer.ai_not_configured')) ?>">
+        <span class="material-symbols-outlined">auto_awesome</span>
+        <span><?= __('link_explorer.ai_button_label') ?></span>
+        <span class="shortcut">Ctrl+K</span>
+    </button>
+    <?php endif; ?>
+
     <!-- Clear All -->
     <button class="btn-clear-filters" id="btnClearAll" style="display: none;" onclick="clearFilters()">
         <span class="material-symbols-outlined">close</span>
         <?= __('link_explorer.clear_all') ?>
     </button>
+</div>
+
+<!-- Popover IA — ancré dynamiquement sous le bouton via JS -->
+<div id="aiLinkPopover" class="ai-url-popover" style="display: none;">
+    <div class="ai-url-popover-header">
+        <span class="material-symbols-outlined ai-url-popover-icon">auto_awesome</span>
+        <span class="ai-url-popover-title"><?= __('link_explorer.ai_button_label') ?></span>
+        <button type="button" class="ai-url-popover-close" onclick="closeAiLinkPopover()" title="<?= __('common.cancel') ?>">
+            <span class="material-symbols-outlined">close</span>
+        </button>
+    </div>
+    <textarea id="aiLinkInput"
+              class="ai-url-popover-input"
+              placeholder="<?= htmlspecialchars(__('link_explorer.ai_placeholder')) ?>"
+              rows="3"></textarea>
+    <div class="ai-url-popover-footer">
+        <span class="ai-url-popover-hint">Ctrl+Enter</span>
+        <button type="button"
+                id="aiLinkGenerateBtn"
+                class="ai-url-btn"
+                onclick="generateLinkFiltersFromQuestion()">
+            <span class="material-symbols-outlined ai-url-btn-icon">arrow_forward</span>
+            <span class="ai-url-btn-spinner" style="display:none;"></span>
+            <span class="ai-url-btn-label"><?= __('link_explorer.ai_generate') ?></span>
+        </button>
+    </div>
 </div>
 
 <!-- Popover Overlay -->
@@ -1089,6 +1393,11 @@ $selectedColumns = isset($_GET['columns']) ? explode(',', $_GET['columns']) : ['
             <span class="material-symbols-outlined">code</span> <?= htmlspecialchars($extr['key']) ?>
         </div>
         <?php endforeach; ?>
+        <?php foreach ($availableGenerations as $gen): ?>
+        <div class="popover-field-item" onclick="selectField('generation_<?= htmlspecialchars($gen['key']) ?>', 'page')">
+            <span class="material-symbols-outlined">auto_awesome</span> AI : <?= htmlspecialchars($gen['key']) ?>
+        </div>
+        <?php endforeach; ?>
     </div>
 </div>
 
@@ -1176,6 +1485,20 @@ availableExtractors.forEach(extr => {
         fieldConfig[fieldId] = { label: extr.key, icon: 'code', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] };
     } else {
         fieldConfig[fieldId] = { label: extr.key, icon: 'code', type: 'text', scope: 'page', operators: ['contains', 'not_contains', 'regex', 'not_regex'] };
+    }
+});
+
+// Idem pour les clés générées par le Bulk AI Generator (page-scope —
+// filtre soit sur le source soit sur le target du lien selon la cible).
+const availableGenerations = <?= json_encode($availableGenerations) ?>;
+availableGenerations.forEach(gen => {
+    const fieldId = 'generation_' + gen.key;
+    if (gen.type === 'number') {
+        fieldConfig[fieldId] = { label: 'AI: ' + gen.key, icon: 'auto_awesome', type: 'number', scope: 'page', operators: ['=', '>', '<', '>=', '<=', '!='] };
+    } else if (gen.type === 'boolean') {
+        fieldConfig[fieldId] = { label: 'AI: ' + gen.key, icon: 'auto_awesome', type: 'boolean', scope: 'page', operators: ['='] };
+    } else {
+        fieldConfig[fieldId] = { label: 'AI: ' + gen.key, icon: 'auto_awesome', type: 'text', scope: 'page', operators: ['contains', 'not_contains', 'regex', 'not_regex'] };
     }
 });
 
@@ -2105,6 +2428,170 @@ document.getElementById('globalSearch').addEventListener('keydown', function(e) 
 // ============================================
 // INIT
 // ============================================
-document.addEventListener('DOMContentLoaded', function() { renderChips(); });
+// ============================================
+// AI-assisted filters : NL question → chips + auto-added columns
+//
+// Mirrors URL Explorer but with the extra `target` axis (source/target/link)
+// required by link rows. Page-scope chips get target=source|target;
+// link-scope chips get target=link.
+// ============================================
+function openAiLinkPopover() {
+    const openBtn = document.getElementById('aiLinkOpenBtn');
+    if (openBtn && openBtn.disabled) return;
+    const popover = document.getElementById('aiLinkPopover');
+    const input   = document.getElementById('aiLinkInput');
+    if (!popover || !openBtn) return;
+
+    const r = openBtn.getBoundingClientRect();
+    const margin = 8;
+    popover.style.display = 'flex';
+    const w = popover.offsetWidth || 560;
+    let left = r.left;
+    if (left + w + margin > window.innerWidth) left = window.innerWidth - w - margin;
+    if (left < margin) left = margin;
+    popover.style.left = left + 'px';
+    popover.style.top  = (r.bottom + margin) + 'px';
+    if (input) setTimeout(() => input.focus(), 30);
+}
+
+function closeAiLinkPopover() {
+    const popover = document.getElementById('aiLinkPopover');
+    if (popover) popover.style.display = 'none';
+}
+
+async function generateLinkFiltersFromQuestion() {
+    const input   = document.getElementById('aiLinkInput');
+    const btn     = document.getElementById('aiLinkGenerateBtn');
+    const btnIcon = btn ? btn.querySelector('.ai-url-btn-icon') : null;
+    const btnSpin = btn ? btn.querySelector('.ai-url-btn-spinner') : null;
+    if (!input || !btn || btn.disabled) return;
+
+    const question = input.value.trim();
+    if (!question) { input.focus(); return; }
+
+    btn.disabled   = true;
+    input.disabled = true;
+    if (btnIcon) btnIcon.style.display = 'none';
+    if (btnSpin) btnSpin.style.display = 'inline-block';
+
+    try {
+        const res = await fetch('../api/link-explorer/ai-filters', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                crawl_id: <?= (int)$crawlId ?>,
+                question: question
+            })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            const msg = data.error || data.message || res.statusText || 'Unknown error';
+            if (typeof showGlobalStatus === 'function') showGlobalStatus('IA : ' + msg, 'error');
+            else alert('IA : ' + msg);
+            return;
+        }
+
+        // Server returns `groups`: [[chip,...], ...].
+        // Outer = AND (each becomes a filterGroup). Inner = OR (chips in a group).
+        const newGroups = Array.isArray(data.groups) ? data.groups : [];
+        if (newGroups.length === 0) {
+            if (typeof showGlobalStatus === 'function') {
+                showGlobalStatus('<?= addslashes(__('link_explorer.ai_no_filters')) ?>', 'warning');
+            }
+            return;
+        }
+
+        // 1. Push each AI group into filterGroups, preserving the OR semantic.
+        newGroups.forEach(grp => {
+            if (!Array.isArray(grp) || grp.length === 0) return;
+            const chips = grp.map(f => ({
+                field: f.field,
+                operator: f.operator || '=',
+                value: f.value,
+                target: f.target || 'target'
+            }));
+            filterGroups.push(chips);
+        });
+
+        // 2. Add missing columns. For SEO state filters (title/h1/metadesc with
+        //    array value and no text operator), also add the *_status column —
+        //    link-table will auto-prefix it with source_/target_ on render.
+        const stateFilterFields = ['title', 'h1', 'metadesc'];
+        const isStateFilter = (chip) => {
+            const textOps = ['contains', 'not_contains', 'regex', 'not_regex'];
+            return !textOps.includes(chip.operator) && Array.isArray(chip.value);
+        };
+
+        const newCols = [...currentColumns];
+        newGroups.forEach(grp => {
+            grp.forEach(f => {
+                if (!f.field) return;
+                if (!newCols.includes(f.field)) newCols.push(f.field);
+                if (stateFilterFields.includes(f.field) && isStateFilter(f)) {
+                    const statusCol = f.field + '_status';
+                    if (!newCols.includes(statusCol)) newCols.push(statusCol);
+                }
+            });
+        });
+
+        // 3. Persist via URL — same pattern as applyFilters().
+        const params = new URLSearchParams(window.location.search);
+        params.set('page', 'link-explorer');
+        params.delete('p');
+        params.set('filters', JSON.stringify(collectFiltersForURL()));
+        if (newCols.length !== currentColumns.length) {
+            params.set('columns', newCols.join(','));
+        }
+        input.value = '';
+        closeAiLinkPopover();
+        window.location.search = params.toString();
+    } catch (e) {
+        if (typeof showGlobalStatus === 'function') showGlobalStatus('IA : ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        input.disabled = false;
+        if (btnIcon) btnIcon.style.display = '';
+        if (btnSpin) btnSpin.style.display = 'none';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    renderChips();
+
+    // AI popover wiring : Ctrl+Enter submit, Ctrl+K toggle, Esc close, click-outside dismiss.
+    const aiInput  = document.getElementById('aiLinkInput');
+    const popover  = document.getElementById('aiLinkPopover');
+    const openBtn  = document.getElementById('aiLinkOpenBtn');
+
+    if (aiInput) {
+        aiInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                generateLinkFiltersFromQuestion();
+            }
+        });
+    }
+    document.addEventListener('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+            if (openBtn && openBtn.disabled) return;
+            e.preventDefault();
+            if (popover && popover.style.display === 'flex') {
+                closeAiLinkPopover();
+            } else {
+                openAiLinkPopover();
+            }
+            return;
+        }
+        if (e.key === 'Escape' && popover && popover.style.display === 'flex') {
+            closeAiLinkPopover();
+        }
+    });
+    document.addEventListener('mousedown', function (e) {
+        if (!popover || popover.style.display !== 'flex') return;
+        if (popover.contains(e.target)) return;
+        if (openBtn && openBtn.contains(e.target)) return;
+        closeAiLinkPopover();
+    });
+});
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeAllPopovers(); });
 </script>

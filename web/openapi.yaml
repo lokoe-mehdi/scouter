@@ -1,0 +1,800 @@
+openapi: 3.1.0
+info:
+  title: Scouter Public API
+  version: "1.0.0"
+  description: >
+    Read-only API to drive Scouter: list projects, list a project's crawls,
+    inspect a crawl, and run **read-only SQL** against a crawl (same limits as
+    the in-app SQL Explorer: SELECT/WITH only, whitelisted tables, project-scoped,
+    READ ONLY transaction). Authenticated with a per-user API key (Bearer token)
+    generated from the admin Settings page. Designed to back an MCP server.
+servers:
+  - url: /api/v1
+    description: Same-origin (replace with https://your-host/api/v1)
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: sctr_<token>
+      description: "API key sent as the `Authorization: Bearer sctr_…` header. Generate one in Settings."
+  schemas:
+    Error:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error:   { type: string }
+    Project:
+      type: object
+      properties:
+        id:            { type: integer, example: 32 }
+        name:          { type: string, nullable: true, example: example.com }
+        crawl_count:   { type: integer, nullable: true, example: 12 }
+        last_crawl_at: { type: string, nullable: true, example: "2026-05-20 18:42:11" }
+        owner_email:   { type: string, nullable: true }
+    Crawl:
+      type: object
+      properties:
+        id:          { type: integer, example: 542 }
+        project_id:  { type: integer, example: 32 }
+        domain:      { type: string, example: example.com }
+        status:      { type: string, example: finished }
+        crawl_type:  { type: string, example: spider }
+        scheduled:   { type: boolean, nullable: true, description: "true = launched by a schedule, false = launched manually." }
+        urls:        { type: integer, example: 12847 }
+        crawled:     { type: integer, example: 12412 }
+        compliant:   { type: integer, example: 9981 }
+        started_at:  { type: string }
+        finished_at: { type: string, nullable: true }
+    CategorizationDeployment:
+      type: object
+      description: >
+        State of the most recent project-wide categorization propagation (the
+        async re-categorization of the project's other crawls). The TARGET crawl
+        is always applied synchronously, so this only concerns the rest.
+      properties:
+        status:
+          type: string
+          enum: [idle, running, completed, failed, queued, pending, stopped]
+          description: "idle = no project-wide deploy queued; running/queued/pending = still propagating; completed/failed = done."
+        job_id:       { type: integer, nullable: true }
+        progress:     { type: integer, description: "0–100." }
+        other_crawls: { type: integer, description: "Other crawls queued for re-categorization (present on PUT)." }
+    Schedule:
+      type: object
+      description: A project's recurring-crawl schedule (structured frequency, not raw cron).
+      properties:
+        project_id:        { type: integer, example: 32 }
+        domain:            { type: string, nullable: true, example: example.com }
+        enabled:           { type: boolean }
+        frequency:         { type: string, enum: [daily, weekly, monthly] }
+        hour:              { type: integer, example: 8, description: "0–23 (server time)" }
+        minute:            { type: integer, example: 0, description: "0–59" }
+        days_of_week:      { type: array, items: { type: string }, example: ["mon","thu"], description: "weekly only" }
+        day_of_month:      { type: integer, example: 15, description: "1–28, monthly only — a single day (no lists)" }
+        crawl_type:        { type: string }
+        depth_max:         { type: integer }
+        next_run_at:       { type: string, nullable: true }
+        last_triggered_at: { type: string, nullable: true }
+        updated_at:        { type: string, nullable: true }
+    ListMeta:
+      type: object
+      properties:
+        limit:  { type: integer }
+        offset: { type: integer }
+        total:  { type: integer }
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, default: 50, maximum: 200 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, default: 0, minimum: 0 }
+  responses:
+    Unauthorized:
+      description: Missing or invalid API token
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Forbidden:
+      description: Authenticated but no access to this resource
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Resource not found
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    RateLimited:
+      description: Too many requests (per-key limit). See Retry-After.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+paths:
+  /projects:
+    get:
+      summary: List accessible projects
+      description: Admin sees all projects; other roles see owned + shared.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Project' } }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /schedules:
+    get:
+      summary: List all crawl schedules (incl. disabled)
+      description: >
+        Every recurring-crawl schedule across the projects the key can access,
+        including disabled ones. One schedule per project.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Schedule' } }
+                  meta: { type: object, properties: { total: { type: integer } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /projects/{id}/schedule:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      summary: Get a project's schedule (or null)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { oneOf: [ { $ref: '#/components/schemas/Schedule' }, { type: 'null' } ] }
+                  meta: { type: object, properties: { project_id: { type: integer } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      summary: Create or replace a project's schedule (upsert)
+      description: >
+        Defines a recurring crawl. `template_crawl_id` (an existing crawl of the
+        project) supplies the config reused for each run — required to create,
+        optional to only change timing. Re-calling fully REPLACES any existing
+        schedule for the project (one schedule per project). Frequency is
+        structured (not cron): "daily" (hour:minute), "weekly" (days_of_week at
+        hour:minute), "monthly" (a single day_of_month at hour:minute). Requires
+        project management rights.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [frequency]
+              properties:
+                template_crawl_id: { type: integer, description: "Crawl id of this project whose config is reused. Required to create." }
+                frequency:         { type: string, enum: [daily, weekly, monthly] }
+                hour:              { type: integer, default: 8, minimum: 0, maximum: 23 }
+                minute:            { type: integer, default: 0, minimum: 0, maximum: 59 }
+                days_of_week:      { type: array, items: { type: string }, example: ["mon","thu"], description: "weekly only" }
+                day_of_month:      { type: integer, default: 1, minimum: 1, maximum: 28, description: "monthly only — a single day (1–28), not a list" }
+                enabled:           { type: boolean, default: true }
+            examples:
+              weekly:
+                summary: Weekly, Mon & Thu at 06:30, from crawl 542
+                value: { template_crawl_id: 542, frequency: weekly, days_of_week: ["mon","thu"], hour: 6, minute: 30 }
+              daily:
+                summary: Daily at 03:00
+                value: { template_crawl_id: 542, frequency: daily, hour: 3, minute: 0 }
+      responses:
+        '200':
+          description: Schedule saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Schedule' }
+        '400':
+          description: Invalid frequency, or missing template_crawl_id when creating
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      summary: Enable / disable an existing schedule
+      description: Flip a schedule on/off without changing its settings. Enabling recomputes the next run.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Schedule' }
+        '400': { description: Missing enabled, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: No schedule exists for this project
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    delete:
+      summary: Remove a project's schedule
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: object, properties: { project_id: { type: integer }, deleted: { type: boolean } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /crawls:
+    post:
+      summary: Create and queue a new crawl
+      description: >
+        Launches a new crawl from a configuration object. The ONLY required field
+        is the start URL (`config.general.start`, or `config.general.url_list` in
+        list mode); every other field falls back to sensible template defaults.
+        If `config.general.domains` is omitted it defaults to the start URL's
+        domain. The crawl is created and queued immediately; a worker picks it up.
+
+        Key config fields — general: `crawl_type` ("spider" = follow links and
+        discover the site / "list" = crawl only `url_list`), `crawl_mode`
+        ("classic" = HTTP, fast / "javascript" = headless render), `crawl_speed`
+        ("very_slow" ~1 URL/s, "slow" ~5, "fast" ~20, "unlimited" = no limit),
+        `depthMax` (1–100, spider), `domains`, `url_list` (list mode),
+        `user-agent`. advanced: respect_robots / respect_nofollow /
+        respect_canonical / follow_redirects / retry_failed_urls / store_html
+        (booleans), `sitemap_urls`, `custom_headers`, `http_auth`
+        (null or {username,password}), `xPathExtractors` {name: xpath},
+        `regexExtractors` {name: regex}.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config]
+              properties:
+                config:
+                  type: object
+                  additionalProperties: true
+            examples:
+              spider:
+                summary: Spider mode (follow links from a start URL)
+                value:
+                  config:
+                    general:
+                      start: "https://www.website.tld/"
+                      crawl_type: spider
+                      depthMax: 30
+                      domains: ["www.website.tld"]
+                    advanced:
+                      respect_robots: true
+                      follow_redirects: true
+                      store_html: true
+              list:
+                summary: List mode (crawl an explicit set of URLs)
+                value:
+                  config:
+                    general:
+                      crawl_type: list
+                      url_list:
+                        - "https://www.website.tld/page-1"
+                        - "https://www.website.tld/page-2"
+                        - "https://www.website.tld/blog/article"
+                    advanced:
+                      store_html: true
+      responses:
+        '200':
+          description: Crawl created and queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      crawl_id:    { type: integer }
+                      project_id:  { type: integer }
+                      job_id:      { type: integer }
+                      project_dir: { type: string }
+                      domain:      { type: string }
+                      crawl_type:  { type: string }
+                      status:      { type: string, example: queued }
+        '400':
+          description: Invalid config (missing/invalid start URL or url_list)
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: The key's user is not allowed to create crawls (viewer role)
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /projects/{id}/crawls:
+    get:
+      summary: List crawls of a project
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Crawl' } }
+                  meta:
+                    allOf:
+                      - $ref: '#/components/schemas/ListMeta'
+                      - type: object
+                        properties: { project_id: { type: integer } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /crawls/{id}:
+    get:
+      summary: Get crawl metadata + full configuration
+      description: >
+        Returns the crawl metadata plus a `config` object holding the FULL crawl
+        configuration (start URLs, limits, filters, rendering, extractors, etc.,
+        decoded from storage). `config` is null when no configuration was stored.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/Crawl'
+                      - type: object
+                        properties:
+                          config:
+                            type: object
+                            nullable: true
+                            additionalProperties: true
+                            description: Full crawl configuration (decoded). null if none stored.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /crawls/{id}/status:
+    get:
+      summary: Live status / progress of a crawl
+      description: >
+        Live state of a crawl: status, discovered vs crawled URL counts, the
+        worker job status, and the latest log lines (oldest→newest). No fake
+        progress percentage — URL counts keep growing as the crawler discovers
+        more pages.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      crawl_id:        { type: integer }
+                      status:          { type: string, example: running }
+                      crawl_type:      { type: string }
+                      scheduled:       { type: boolean, nullable: true }
+                      in_progress:     { type: integer, nullable: true }
+                      urls_discovered: { type: integer }
+                      urls_crawled:    { type: integer }
+                      compliant:       { type: integer }
+                      started_at:      { type: string, nullable: true }
+                      finished_at:     { type: string, nullable: true }
+                      job:
+                        type: object
+                        nullable: true
+                        properties:
+                          id:     { type: integer }
+                          status: { type: string }
+                      recent_logs:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            at:      { type: string }
+                            type:    { type: string }
+                            message: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /crawls/{id}/stop:
+    post:
+      summary: Stop / cancel a running or queued crawl
+      description: >
+        Queued/pending crawls are cancelled immediately; a running crawl gets a
+        graceful stop (finishes the current batch). Calling it again on a
+        "stopping" crawl force-stops it. Requires management rights on the crawl’s project.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Stop accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      crawl_id: { type: integer }
+                      status:   { type: string, example: stopping }
+                      message:  { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Crawl is not running/queued, or has no active job
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /crawls/{id}/start:
+    post:
+      summary: Resume a fully-stopped crawl
+      description: >
+        Restarts a stopped crawl (a new worker job continues where it left off).
+        Allowed ONLY when the crawl is fully stopped (status "stopped" or
+        "failed") — rejected with 409 while it is running, queued, pending, or
+        still "stopping" (finishing its current batch). Requires management rights on the crawl’s project.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Crawl resumed (queued)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      crawl_id: { type: integer }
+                      job_id:   { type: integer }
+                      status:   { type: string, example: queued }
+                      message:  { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Crawl is not fully stopped yet (running/queued/stopping)
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /crawls/{id}/schema:
+    get:
+      summary: Queryable tables + columns for a crawl
+      description: Use to write valid SQL without guessing column names.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      tables:
+                        type: object
+                        additionalProperties:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name: { type: string }
+                              type: { type: string }
+                      notes: { type: string }
+                  meta: { type: object, properties: { crawl_id: { type: integer } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /crawls/{id}/content:
+    get:
+      summary: Readable content of one page (title, headings, visible text)
+      description: >
+        Extracts the human-readable content of a single crawled page from its
+        stored HTML: the page title, the ordered h1..h6 tree, and the visible
+        text (scripts/styles/svg stripped). `has_html` is false when the crawl
+        didn't keep raw HTML for that URL.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - name: url
+          in: query
+          required: true
+          description: Full page URL, matching `pages.url` exactly.
+          schema: { type: string, example: "https://example.com/blog/post" }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      url:        { type: string }
+                      title:      { type: string, nullable: true }
+                      has_html:   { type: boolean }
+                      headings:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            level: { type: integer, example: 2 }
+                            text:  { type: string }
+                      text:       { type: string }
+                      word_count: { type: integer }
+                      truncated:  { type: boolean }
+                  meta: { type: object, properties: { crawl_id: { type: integer } } }
+        '400':
+          description: Missing url
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /crawls/{id}/html:
+    get:
+      summary: Raw HTML of one page
+      description: >
+        Returns the raw stored HTML markup of a single crawled page (decoded from
+        the crawl's storage). Can be large, so it is capped at `max_chars`
+        (default 1,000,000) with a `truncated` flag. `has_html` is false when the
+        crawl didn't keep raw HTML for that URL.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - name: url
+          in: query
+          required: true
+          description: Full page URL, matching `pages.url` exactly.
+          schema: { type: string, example: "https://example.com/blog/post" }
+        - name: max_chars
+          in: query
+          required: false
+          description: Cap on returned HTML length (1000–2000000).
+          schema: { type: integer, default: 1000000 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      url:             { type: string }
+                      has_html:        { type: boolean }
+                      html:            { type: string }
+                      length:          { type: integer }
+                      original_length: { type: integer }
+                      truncated:       { type: boolean }
+                  meta: { type: object, properties: { crawl_id: { type: integer } } }
+        '400':
+          description: Missing url
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /crawls/{id}/query:
+    post:
+      summary: Run a read-only SQL query (paginated)
+      description: >
+        SELECT / WITH … SELECT only. Whitelisted tables (pages, links,
+        crawl_categories, duplicate_clusters, page_schemas, redirect_chains;
+        plus `pages@<id>` cross-crawl within the same project). The query is
+        wrapped server-side with LIMIT/OFFSET; the true total is returned unless
+        count=false. Loop pages while meta.has_more is true.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:     { type: string, example: "SELECT url, code FROM pages WHERE code >= 400 ORDER BY inlinks DESC" }
+                page:      { type: integer, default: 1, minimum: 1 }
+                page_size: { type: integer, default: 100, maximum: 1000 }
+                count:     { type: boolean, default: true, description: Set false to skip the COUNT(*) total (faster streaming). }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      columns: { type: array, items: { type: string } }
+                      rows:    { type: array, items: { type: object, additionalProperties: true } }
+                  meta:
+                    type: object
+                    properties:
+                      crawl_id:    { type: integer }
+                      page:        { type: integer }
+                      page_size:   { type: integer }
+                      returned:    { type: integer }
+                      total:       { type: integer, nullable: true }
+                      total_pages: { type: integer, nullable: true }
+                      has_more:    { type: boolean }
+        '400':
+          description: Missing query
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: Invalid / forbidden SQL (same rules as the SQL Explorer)
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /crawls/{id}/categorization:
+    get:
+      summary: Get the crawl's categorization rules + applied categories
+      description: >
+        Categories are page TEMPLATES (homepage / product / category / blog_post …)
+        and are the unit of SEO analysis. Returns the YAML rules (`config`), the
+        categories actually applied to THIS crawl (`name` null = uncategorized
+        bucket), and a `deployment` block describing the most recent project-wide
+        propagation. Requires project access.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      crawl_id:   { type: integer }
+                      project_id: { type: integer }
+                      config:
+                        type: string
+                        nullable: true
+                        description: The YAML rule set (null if none stored).
+                      categories:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:  { type: string, nullable: true, description: null = uncategorized bucket. }
+                            color: { type: string, nullable: true }
+                            count: { type: integer }
+                      deployment: { $ref: '#/components/schemas/CategorizationDeployment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      summary: Set the categorization rules, apply, and deploy
+      description: >
+        Replaces the project's categorization YAML, applies it SYNCHRONOUSLY to
+        the target crawl (its `categories` are correct the moment this returns),
+        then queues an async job to re-categorize the project's OTHER crawls
+        (unless deploy_to_project=false). Each category has `include` (regex list
+        on the URL PATH), optional `exclude`, `color`, and an optional `dom` —
+        omit `dom` (or use the `{dom}` placeholder) to auto-fill the crawl's
+        domain. Patterns are PostgreSQL POSIX (~*, case-insensitive); FIRST MATCH
+        WINS so order matters. Poll GET …/categorization and watch
+        deployment.status to know when the project-wide deploy finished. Requires
+        management rights on the crawl's project.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [yaml]
+              properties:
+                yaml:
+                  type: string
+                  description: The categorization rules as a YAML string.
+                  example: |
+                    homepage:
+                      include:
+                        - ^/?$
+                      color: '#4ecdc4'
+                    product:
+                      include:
+                        - ^/p/[0-9]+
+                        - ^/product/[^/]+
+                      exclude:
+                        - /preview
+                      color: '#6bd899'
+                    other:
+                      include:
+                        - .*
+                      color: '#cccccc'
+                deploy_to_project:
+                  type: boolean
+                  default: true
+                  description: Also re-categorize the project's other crawls (async). false = this crawl only.
+      responses:
+        '200':
+          description: Saved + applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      crawl_id:          { type: integer }
+                      project_id:        { type: integer }
+                      categorized_count: { type: integer, description: Pages categorized on the target crawl. }
+                      deploy_to_project: { type: boolean }
+                      apply_error:       { type: string, nullable: true, description: Present only if the synchronous apply failed (config still saved). }
+                      deployment:        { $ref: '#/components/schemas/CategorizationDeployment' }
+        '400':
+          description: Missing/invalid YAML
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: A regex pattern in the YAML is invalid
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }

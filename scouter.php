@@ -14,58 +14,9 @@ Cmder::header();
 
 switch($module){
 
-  case "setup":
-    $url=(isset($argv[2]))?$argv[2]:"none";
-    Cmder::setup($url);
-  break;
-
-  case "crawl":
-    $dir=(isset($argv[2]))?$argv[2]:"none";
-    $jobManager = new \App\Job\JobManager();
-    $job = $jobManager->getJobByProject($dir);
-
-    // Register shutdown handler to capture fatal errors (OOM, segfault, etc.)
-    register_shutdown_function(function() use ($dir, &$job, $jobManager) {
-        $error = error_get_last();
-        if ($error && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
-            $errorMsg = "{$error['message']} in {$error['file']}:{$error['line']}";
-            echo "\n\nFATAL ERROR: $errorMsg\n";
-            try {
-                if ($job) {
-                    $jobManager->updateJobStatus($job->id, 'failed');
-                    $jobManager->setJobError($job->id, $errorMsg);
-                    $jobManager->addLog($job->id, "Fatal error: $errorMsg", 'error');
-                }
-            } catch (\Throwable $ignored) {}
-        }
-    });
-
-    try {
-        // Le crawl inclut maintenant le post-traitement (inlinks, pagerank, semantic, categorization)
-        // via CrawlDatabase::runPostProcessing() appelé dans Crawler::depthStarter()
-        Cmder::crawl($dir);
-
-        // Re-fetch job status (it may have changed during crawl - e.g., stop signal)
-        $currentJob = $jobManager->getJobByProject($dir);
-        $currentStatus = $currentJob ? $currentJob->status : null;
-
-        // Only mark as completed if still running (not stopped/stopping)
-        if ($currentJob && $currentStatus === 'running') {
-            $jobManager->updateJobStatus($currentJob->id, 'completed');
-            $jobManager->addLog($currentJob->id, "Crawl completed successfully", 'success');
-        }
-        // If status is 'stopping', the worker will handle setting it to 'stopped'
-
-    } catch (\Throwable $e) {
-        // Marquer le job comme échoué en cas d'erreur (Throwable = Exception + Error)
-        if ($job) {
-            $jobManager->updateJobStatus($job->id, 'failed');
-            $jobManager->setJobError($job->id, $e->getMessage());
-            $jobManager->addLog($job->id, "Crawl failed: " . $e->getMessage(), 'error');
-        }
-        echo "\n\nERROR: " . $e->getMessage() . "\n";
-    }
-  break;
+  // Le crawl est assuré par le worker Go (crawler-go/). Ce dispatcher CLI ne sert
+  // plus qu'aux jobs non-crawl lancés par le worker PHP (delete / batch-categorize /
+  // bulk-ai) et à la commande dashboard (serveur de dev local).
 
   case "batch-categorize-project":
     $arg = (isset($argv[2])) ? $argv[2] : "none";
@@ -87,6 +38,29 @@ switch($module){
             $jobManager->updateJobStatus($jobId, 'failed');
             $jobManager->setJobError($jobId, $e->getMessage());
             $jobManager->addLog($jobId, "Batch categorization failed: " . $e->getMessage(), 'error');
+        }
+        echo "\n\nERROR: " . $e->getMessage() . "\n";
+    }
+  break;
+
+  case "bulk-ai-generate":
+    $arg = (isset($argv[2])) ? $argv[2] : "none";
+    $jobManager = new \App\Job\JobManager();
+
+    try {
+        Cmder::bulkAiGenerate($arg);
+
+        $jobId = getenv('JOB_ID');
+        if ($jobId) {
+            $jobManager->updateJobStatus($jobId, 'completed');
+            $jobManager->addLog($jobId, "Bulk AI generation completed", 'success');
+        }
+    } catch (\Throwable $e) {
+        $jobId = getenv('JOB_ID');
+        if ($jobId) {
+            $jobManager->updateJobStatus($jobId, 'failed');
+            $jobManager->setJobError($jobId, $e->getMessage());
+            $jobManager->addLog($jobId, "Bulk AI generation failed: " . $e->getMessage(), 'error');
         }
         echo "\n\nERROR: " . $e->getMessage() . "\n";
     }
@@ -117,42 +91,77 @@ switch($module){
     }
   break;
 
-  case "analyse":
-    $dir=(isset($argv[2]))?$argv[2]:"none";
-    Cmder::inlinks($dir);
-    Cmder::pagerank($dir);
-    Cmder::semanticAnalysis($dir);
-    Cmder::cat($dir);
-    Cmder::logs($dir);
+  // Précalcul des fragments de rapport lourds (cf. App\Analysis\ReportPrecompute).
+  // Lancé par le worker PHP : à la fin d'un crawl ("precompute-reports:<crawlId>")
+  // et à chaque save de catégorisation ("precompute-reports-project:<projectId>").
+  case "precompute-reports":
+  case "precompute-reports-project":
+    $arg = (isset($argv[2])) ? $argv[2] : "none";
+    $jobManager = new \App\Job\JobManager();
+    try {
+        $id = (int) (explode(':', $arg)[1] ?? 0);
+        if ($id > 0) {
+            if ($module === 'precompute-reports-project') {
+                \App\Analysis\ReportPrecompute::recomputeProject($id);
+            } else {
+                \App\Analysis\ReportPrecompute::recompute($id);
+                // Stats de crawl persistées (compliant + critical_errors + health_score)
+                // calculées depuis ClickHouse, une fois, à la fin du crawl → la home et
+                // la page projet n'ont plus à les calculer en live. Le score n'étant pas
+                // dépendant des catégories, on ne le refait PAS au precompute-reports-project.
+                \App\Analysis\CrawlStats::ensureFromClickHouse([$id]);
+            }
+        }
+        $jobId = getenv('JOB_ID');
+        if ($jobId) {
+            $jobManager->updateJobStatus($jobId, 'completed');
+            $jobManager->addLog($jobId, "Report precompute completed", 'success');
+        }
+    } catch (\Throwable $e) {
+        $jobId = getenv('JOB_ID');
+        if ($jobId) {
+            $jobManager->updateJobStatus($jobId, 'failed');
+            $jobManager->setJobError($jobId, $e->getMessage());
+            $jobManager->addLog($jobId, "Report precompute failed: " . $e->getMessage(), 'error');
+        }
+        echo "\n\nERROR: " . $e->getMessage() . "\n";
+    }
   break;
 
-  case "inlinks":
-    $dir=(isset($argv[2]))?$argv[2]:"none";
-    Cmder::inlinks($dir);
+  // Export CSV asynchrone (SQL / URL / Link / Redirect explorer) : génère le CSV
+  // côté serveur et l'envoie sur le blob store (S3/local). Lancé par le worker
+  // PHP ("export:<exportId>").
+  case "export":
+    $arg = (isset($argv[2])) ? $argv[2] : "none";
+    $jobManager = new \App\Job\JobManager();
+    $exportId = (int) (explode(':', $arg)[1] ?? 0);
+    try {
+        if ($exportId <= 0) {
+            throw new \RuntimeException("Invalid export id: {$arg}");
+        }
+        (new \App\Export\ExportService())->run($exportId);
+
+        $jobId = getenv('JOB_ID');
+        if ($jobId) {
+            $jobManager->updateJobStatus($jobId, 'completed');
+            $jobManager->addLog($jobId, "Export #{$exportId} ready", 'success');
+        }
+    } catch (\Throwable $e) {
+        if ($exportId > 0) {
+            try { (new \App\Export\ExportService())->fail($exportId, $e->getMessage()); } catch (\Throwable $ignore) {}
+        }
+        $jobId = getenv('JOB_ID');
+        if ($jobId) {
+            $jobManager->updateJobStatus($jobId, 'failed');
+            $jobManager->setJobError($jobId, $e->getMessage());
+            $jobManager->addLog($jobId, "Export failed: " . $e->getMessage(), 'error');
+        }
+        echo "\n\nERROR: " . $e->getMessage() . "\n";
+    }
   break;
 
-  case "pagerank":
-    $dir=(isset($argv[2]))?$argv[2]:"none";
-    Cmder::pagerank($dir);
-  break;
-  
   case "dashboard":
     Cmder::dashboard();
-  break;
-
-  case "cat":
-    $dir=(isset($argv[2]))?$argv[2]:"none";
-    Cmder::cat($dir);
-  break;
-
-  case "logs":
-    $dir=(isset($argv[2]))?$argv[2]:"none";
-    Cmder::logs($dir);
-  break;
-
-  case "semantic-analyse":
-    $dir=(isset($argv[2]))?$argv[2]:"none";
-    Cmder::semanticAnalysis($dir);
   break;
 
   case "none":

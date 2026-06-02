@@ -1,0 +1,688 @@
+// Package backfill migrates a crawl's data from PostgreSQL into ClickHouse:
+// reads the PG pages/links/html/page_schemas partitions, bulk-inserts them into
+// CH, recomputes the post-processing IN ClickHouse, then flips
+// crawls.data_store='clickhouse' so the reports read CH. Idempotent (drops the
+// crawl's CH partitions first).
+package backfill
+
+import (
+	"bytes"
+	"compress/flate"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"scouter-crawler/internal/db"
+	"scouter-crawler/internal/postprocess"
+)
+
+type Backfiller struct {
+	pool *db.Pool
+	ch   *db.CH
+	logf func(string, ...any)
+}
+
+func New(pool *db.Pool, ch *db.CH, logf func(string, ...any)) *Backfiller {
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	return &Backfiller{pool: pool, ch: ch, logf: logf}
+}
+
+const batchSize = 2000
+
+// WaitForSchema blocks until the crawls.data_store column exists. That column is
+// added by the PHP migrations running in the *scouter* container — which the
+// crawler does not own and races against on a fresh deploy: the crawler can boot
+// (and fire auto-migration) before scouter has applied its migrations. Without
+// this guard the first All() fails with "column data_store does not exist" and
+// the auto-migration goroutine gives up, leaving every crawl on PostgreSQL until
+// a manual restart. Polls every 5s for up to ~5min.
+func (b *Backfiller) WaitForSchema(ctx context.Context) error {
+	for attempt := 0; attempt < 60; attempt++ {
+		var exists bool
+		err := b.pool.QueryRow(ctx,
+			`SELECT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_name = 'crawls' AND column_name = 'data_store'
+			)`).Scan(&exists)
+		if err == nil && exists {
+			return nil
+		}
+		if attempt == 0 {
+			b.logf("backfill: waiting for crawls.data_store column (PHP migrations)…")
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+	}
+	return fmt.Errorf("crawls.data_store column not present after wait — is scouter applying migrations?")
+}
+
+// All backfills every crawl that still has PG data and isn't yet on ClickHouse.
+func (b *Backfiller) All(ctx context.Context) error {
+	rows, err := b.pool.Query(ctx,
+		`SELECT id FROM crawls WHERE COALESCE(data_store,'pg') <> 'clickhouse' ORDER BY id`)
+	if err != nil {
+		return err
+	}
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	b.logf("backfill: %d crawl(s) to migrate", len(ids))
+	// Phase 1: pages/links/schemas + post-processing + flip data_store. This is
+	// what makes the REPORTS work, so every crawl becomes "migrated" fast — the
+	// heavy HTML (view-source only) is deferred to phase 2 so one huge crawl's
+	// HTML doesn't block all the others.
+	var done []int
+	for _, id := range ids {
+		if err := b.migrate(ctx, id, false); err != nil {
+			b.logf("backfill crawl %d FAILED: %v", id, err)
+			continue
+		}
+		done = append(done, id)
+	}
+	// Phase 2: backfill HTML for the migrated crawls (best-effort, non-blocking
+	// for the reports which already read ClickHouse).
+	b.logf("backfill: phase 2 — HTML for %d crawl(s)", len(done))
+	for _, id := range done {
+		if err := b.html(ctx, id); err != nil {
+			b.logf("backfill crawl %d: html partial (%v)", id, err)
+		}
+	}
+	return nil
+}
+
+// PurgePG drops the PostgreSQL crawl-data partitions for crawls already on
+// ClickHouse, freeing disk. Re-verifies CH completeness before each destructive
+// drop (never purges PG if CH is missing data).
+//
+// target = "all": only FINISHED crawls are fully dropped (a catch-up for any that
+// escaped the at-finish drop). Stopped crawls are NEVER fully dropped here — their
+// frontier (pages_<id>) is kept indefinitely so they stay resumable with no time
+// limit. Their dead-weight links/HTML/schemas are stripped separately by
+// PurgeHeavyKeepFrontier, which keeps the frontier. target = <crawl id>:
+// force-drops that one crawl fully (manual override, any status).
+func (b *Backfiller) PurgePG(ctx context.Context, target string) error {
+	var ids []int
+	if target == "all" {
+		rows, err := b.pool.Query(ctx, `SELECT id FROM crawls
+			WHERE data_store='clickhouse'
+			  AND status IN ('finished','completed')
+			ORDER BY id`)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id int
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		rows.Close()
+	} else {
+		id, err := strconv.Atoi(target)
+		if err != nil {
+			return fmt.Errorf("invalid crawl id %q", target)
+		}
+		ids = []int{id}
+	}
+
+	b.logf("purge-pg: %d crawl(s) to purge", len(ids))
+	for _, id := range ids {
+		var store string
+		_ = b.pool.QueryRow(ctx, "SELECT COALESCE(data_store,'pg') FROM crawls WHERE id=$1", id).Scan(&store)
+		if store != "clickhouse" {
+			b.logf("purge-pg crawl %d: skipped (data_store=%s, not migrated)", id, store)
+			continue
+		}
+		b.SyncStats(ctx, id) // refresh scorecard stats from CH (fixes crawls migrated before this)
+		// Re-verify ClickHouse has the data before the destructive PG drop.
+		var pgCount int
+		_ = b.pool.QueryRow(ctx, "SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND crawled=true AND in_crawl=true", id).Scan(&pgCount)
+		chStr, err := b.ch.QueryScalar(ctx, fmt.Sprintf("SELECT uniqExact(id) FROM %s.pages WHERE crawl_id=%d", b.ch.DB(), id))
+		if err != nil {
+			b.logf("purge-pg crawl %d: skipped (CH check failed: %v)", id, err)
+			continue
+		}
+		chCount, _ := strconv.Atoi(strings.TrimSpace(chStr))
+		if pgCount > 0 && chCount < pgCount*9/10 {
+			b.logf("purge-pg crawl %d: SKIPPED — CH has %d pages vs %d in PG", id, chCount, pgCount)
+			continue
+		}
+		if _, err := b.pool.Exec(ctx, "SELECT drop_crawl_partitions($1)", id); err != nil {
+			b.logf("purge-pg crawl %d: drop failed: %v", id, err)
+			continue
+		}
+		b.logf("purge-pg crawl %d: PostgreSQL data dropped (%d pages live in CH)", id, chCount)
+	}
+	b.logf("purge-pg: done")
+	return nil
+}
+
+// PurgeHeavyKeepFrontier strips the heavy crawl-data partitions
+// (links_<id>, html_<id>, page_schemas_<id>) off migrated crawls while KEEPING
+// the frontier (pages_<id>), so they stay resumable. This complements PurgePG:
+// PurgePG drops everything (incl. the frontier) for crawls past the resume
+// window, but it deliberately keeps recently-stopped crawls whole — and those
+// kept crawls were still carrying their links/HTML, which the resume never reads
+// (the resume only walks the pages frontier) and which the reports read from
+// ClickHouse. So this reclaims that dead weight on boot without losing resume.
+//
+// Targets clickhouse-migrated, non-running crawls that still have a heavy table.
+// Re-verifies ClickHouse has the data before each destructive drop (same guard as
+// PurgePG: never drop if CH is missing the pages). Idempotent.
+func (b *Backfiller) PurgeHeavyKeepFrontier(ctx context.Context) error {
+	rows, err := b.pool.Query(ctx, `
+		SELECT DISTINCT regexp_replace(t.tablename, '^(links|html|page_schemas)_', '')::int AS cid
+		FROM pg_tables t
+		JOIN crawls c ON c.id = regexp_replace(t.tablename, '^(links|html|page_schemas)_', '')::int
+		WHERE t.schemaname = 'public'
+		  AND t.tablename ~ '^(links|html|page_schemas)_[0-9]+$'
+		  AND COALESCE(c.data_store,'pg') = 'clickhouse'
+		  AND c.status NOT IN ('running','queued','processing','pending','stopping')
+		ORDER BY cid`)
+	if err != nil {
+		return err
+	}
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+
+	if len(ids) == 0 {
+		b.logf("slim-heavy: none")
+		return nil
+	}
+	b.logf("slim-heavy: %d crawl(s) with leftover links/html/page_schemas to strip", len(ids))
+	for _, id := range ids {
+		// Re-verify ClickHouse has the data before the destructive drop.
+		var pgCrawled int
+		_ = b.pool.QueryRow(ctx, "SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND crawled=true AND in_crawl=true", id).Scan(&pgCrawled)
+		chStr, err := b.ch.QueryScalar(ctx, fmt.Sprintf("SELECT uniqExact(id) FROM %s.pages WHERE crawl_id=%d", b.ch.DB(), id))
+		if err != nil {
+			b.logf("slim-heavy crawl %d: skipped (CH check failed: %v)", id, err)
+			continue
+		}
+		chCount, _ := strconv.Atoi(strings.TrimSpace(chStr))
+		if pgCrawled > 0 && chCount < pgCrawled*9/10 {
+			b.logf("slim-heavy crawl %d: SKIPPED — CH has %d pages vs %d crawled in PG", id, chCount, pgCrawled)
+			continue
+		}
+		var dropErr error
+		for _, tbl := range []string{"links", "html", "page_schemas"} {
+			if _, err := b.pool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s_%d", tbl, id)); err != nil {
+				dropErr = err
+				break
+			}
+		}
+		if dropErr != nil {
+			b.logf("slim-heavy crawl %d: drop failed: %v", id, dropErr)
+			continue
+		}
+		b.logf("slim-heavy crawl %d: links/html/page_schemas dropped, frontier (pages_%d) kept — still resumable", id, id)
+	}
+	b.logf("slim-heavy: done")
+	return nil
+}
+
+// SweepOrphans drops leftover per-crawl PostgreSQL partition tables
+// (pages_<id>, links_<id>, html_<id>, …) whose crawl no longer has a row in
+// `crawls`. These are reliquats of deleted crawls: the FK cascade emptied the
+// rows but the partition tables (and their bloated indexes/TOAST) were never
+// dropped, so they hold disk forever. Safe by definition — no crawl row means
+// nothing to migrate and nothing to resume. Meant to run LAST, after migration
+// and PurgePG, so a not-yet-migrated crawl is never swept.
+func (b *Backfiller) SweepOrphans(ctx context.Context) error {
+	rows, err := b.pool.Query(ctx, `
+		SELECT DISTINCT (regexp_replace(c.relname,
+			'^(pages|links|html|page_schemas|duplicate_clusters|redirect_chains)_', ''))::int AS cid
+		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public' AND c.relkind = 'r'
+		  AND c.relname ~ '^(pages|links|html|page_schemas|duplicate_clusters|redirect_chains)_[0-9]+$'
+		  AND NOT EXISTS (SELECT 1 FROM crawls cr WHERE cr.id = (regexp_replace(c.relname,
+			'^(pages|links|html|page_schemas|duplicate_clusters|redirect_chains)_', ''))::int)
+		ORDER BY cid`)
+	if err != nil {
+		return err
+	}
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+
+	if len(ids) == 0 {
+		b.logf("sweep-orphans: none")
+		return nil
+	}
+	b.logf("sweep-orphans: %d orphan crawl(s) to drop (deleted crawls with leftover PG tables)", len(ids))
+	dropped := 0
+	for _, id := range ids {
+		if _, err := b.pool.Exec(ctx, "SELECT drop_crawl_partitions($1)", id); err != nil {
+			b.logf("sweep-orphans crawl %d: drop failed: %v", id, err)
+			continue
+		}
+		dropped++
+	}
+	b.logf("sweep-orphans: done (%d/%d dropped)", dropped, len(ids))
+	return nil
+}
+
+// Crawl backfills one crawl PG -> CH, including HTML (single/manual use).
+func (b *Backfiller) Crawl(ctx context.Context, crawlID int) error {
+	return b.migrate(ctx, crawlID, true)
+}
+
+// OptimizeExisting brings already-migrated crawls up to the new read-perf baseline
+// retroactively — the at-finish OPTIMIZE/projection (added with this change) only
+// apply to crawls processed afterwards. It:
+//  1. OPTIMIZE … FINAL the pages/page_metrics partitions of terminal ClickHouse
+//     crawls whose parts are still fragmented (>1 active part). Cheap, adds no
+//     storage, lets report reads work on deduplicated parts. Running crawls are
+//     skipped (never optimize a partition still being written).
+//  2. (opt-in, CLICKHOUSE_MATERIALIZE_PROJECTIONS) materialize the links
+//     `proj_by_target` projection for old partitions that lack it — this DOUBLES
+//     the projected columns' storage for those crawls, so it is OFF by default.
+//
+// Best-effort and idempotent: after the first pass partitions are single-part and
+// no longer selected, so re-running on every boot is nearly free.
+func (b *Backfiller) OptimizeExisting(ctx context.Context) error {
+	d := b.ch.DB()
+
+	// Terminal CH crawls only (never touch a running crawl's partition).
+	terminal := map[int]bool{}
+	rows, err := b.pool.Query(ctx, `SELECT id FROM crawls
+		WHERE COALESCE(data_store,'pg')='clickhouse'
+		  AND status IN ('finished','stopped','error')`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err == nil {
+			terminal[id] = true
+		}
+	}
+	rows.Close()
+	if len(terminal) == 0 {
+		b.logf("optimize-ch: no terminal ClickHouse crawls")
+		return nil
+	}
+
+	// 1. Optimize fragmented pages/page_metrics partitions.
+	optimized := 0
+	for _, tbl := range []string{"pages", "page_metrics"} {
+		parts, _ := b.ch.QueryTSV(ctx, fmt.Sprintf(
+			"SELECT partition FROM system.parts WHERE database='%s' AND table='%s' AND active GROUP BY partition HAVING count() > 1", d, tbl))
+		for _, row := range parts {
+			if len(row) == 0 {
+				continue
+			}
+			cid, perr := strconv.Atoi(strings.TrimSpace(row[0]))
+			if perr != nil || !terminal[cid] {
+				continue
+			}
+			if err := b.ch.Exec(ctx, fmt.Sprintf("OPTIMIZE TABLE %s.%s PARTITION %d FINAL", d, tbl, cid)); err != nil {
+				b.logf("optimize-ch %s crawl %d: %v", tbl, cid, err)
+				continue
+			}
+			optimized++
+		}
+	}
+	b.logf("optimize-ch: optimized %d fragmented partition(s)", optimized)
+
+	// 2. Opt-in: materialize the links target-projection for old crawls.
+	if envBool("CLICKHOUSE_MATERIALIZE_PROJECTIONS") {
+		b.materializeLinksProjection(ctx, terminal)
+	}
+	return nil
+}
+
+// materializeLinksProjection triggers (async) materialization of the
+// proj_by_target projection on `links` partitions that don't have it yet.
+func (b *Backfiller) materializeLinksProjection(ctx context.Context, terminal map[int]bool) {
+	d := b.ch.DB()
+	have := map[string]bool{}
+	pp, _ := b.ch.QueryTSV(ctx, fmt.Sprintf(
+		"SELECT DISTINCT partition FROM system.projection_parts WHERE database='%s' AND table='links' AND projection_name='proj_by_target' AND active", d))
+	for _, r := range pp {
+		if len(r) > 0 {
+			have[strings.TrimSpace(r[0])] = true
+		}
+	}
+	parts, _ := b.ch.QueryTSV(ctx, fmt.Sprintf(
+		"SELECT DISTINCT partition FROM system.parts WHERE database='%s' AND table='links' AND active", d))
+	done := 0
+	for _, r := range parts {
+		if len(r) == 0 {
+			continue
+		}
+		p := strings.TrimSpace(r[0])
+		cid, perr := strconv.Atoi(p)
+		if perr != nil || !terminal[cid] || have[p] {
+			continue
+		}
+		if err := b.ch.Exec(ctx, fmt.Sprintf("ALTER TABLE %s.links MATERIALIZE PROJECTION proj_by_target IN PARTITION %d", d, cid)); err != nil {
+			b.logf("materialize-proj crawl %d: %v", cid, err)
+			continue
+		}
+		done++
+	}
+	b.logf("materialize-proj: triggered for %d partition(s) (async mutation)", done)
+}
+
+// envBool reports whether an env var is set to a truthy value.
+func envBool(key string) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+// SyncStats writes back the duplicate/redirect SCORECARD stats on the crawls row
+// from the ClickHouse derived tables. The CH post-processing computes
+// duplicate_clusters/redirect_chains but (unlike the PG post-processor) doesn't
+// touch crawls.* — so without this the reports' scorecards (e.g. "N clusters")
+// read stale PG zeros while the lists show the real CH rows. Idempotent.
+func (b *Backfiller) SyncStats(ctx context.Context, crawlID int) {
+	d := b.ch.DB()
+	cid := strconv.Itoa(crawlID)
+	n := func(q string) int {
+		s, _ := b.ch.QueryScalar(ctx, q)
+		v, _ := strconv.Atoi(strings.TrimSpace(s))
+		return v
+	}
+	clusters := n("SELECT count() FROM " + d + ".duplicate_clusters WHERE crawl_id=" + cid)
+	dupPages := n("SELECT toInt64(ifNull(sum(page_count),0)) FROM " + d + ".duplicate_clusters WHERE crawl_id=" + cid)
+	redirTotal := n("SELECT count() FROM (SELECT code FROM " + d + ".pages WHERE crawl_id=" + cid + " LIMIT 1 BY id) WHERE code >= 300 AND code < 400")
+	redirChains := n("SELECT count() FROM " + d + ".redirect_chains WHERE crawl_id=" + cid)
+	redirErrors := n("SELECT countIf(is_loop = 1 OR (final_code != 200 AND final_id != '')) FROM " + d + ".redirect_chains WHERE crawl_id=" + cid)
+	_, _ = b.pool.Exec(ctx, `UPDATE crawls SET clusters_duplicate=$1, compliant_duplicate=$2,
+		redirect_total=$3, redirect_chains_count=$4, redirect_chains_errors=$5 WHERE id=$6`,
+		clusters, dupPages, redirTotal, redirChains, redirErrors, crawlID)
+}
+
+// migrate does the PG->CH migration of one crawl. withHTML controls whether the
+// heavy HTML (view-source only) is migrated inline; All() defers it to phase 2.
+func (b *Backfiller) migrate(ctx context.Context, crawlID int, withHTML bool) error {
+	cid := strconv.Itoa(crawlID)
+	b.logf("backfill crawl %d: starting", crawlID)
+
+	// Idempotent: clear any prior CH data for this crawl (except HTML, which is
+	// dropped+rebuilt in its own step so a re-run doesn't wipe a good HTML copy).
+	tables := []string{"pages", "links", "page_schemas", "page_metrics", "duplicate_clusters", "redirect_chains"}
+	for _, t := range tables {
+		_ = b.ch.DropPartition(ctx, b.ch.DB()+"."+t, crawlID)
+	}
+
+	if err := b.pages(ctx, crawlID); err != nil {
+		return fmt.Errorf("pages: %w", err)
+	}
+	if err := b.links(ctx, crawlID); err != nil {
+		return fmt.Errorf("links: %w", err)
+	}
+	if err := b.schemas(ctx, crawlID); err != nil {
+		return fmt.Errorf("page_schemas: %w", err)
+	}
+
+	// Post-processing in ClickHouse (page_metrics, duplicate, redirect).
+	var cfg []byte
+	_ = b.pool.QueryRow(ctx, "SELECT config FROM crawls WHERE id=$1", crawlID).Scan(&cfg)
+	postprocess.NewCHRunner(b.ch, crawlID, postprocess.RespectNofollowFromConfig(cfg), b.logf).Run(ctx)
+	b.SyncStats(ctx, crawlID) // write back duplicate/redirect scorecard stats
+
+	// Completeness check before flipping the read store.
+	var pgCount int
+	_ = b.pool.QueryRow(ctx, "SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND crawled=true AND in_crawl=true", crawlID).Scan(&pgCount)
+	chStr, _ := b.ch.QueryScalar(ctx, "SELECT uniqExact(id) FROM "+b.ch.DB()+".pages WHERE crawl_id="+cid)
+	chCount, _ := strconv.Atoi(strings.TrimSpace(chStr))
+	if pgCount > 0 && chCount < pgCount*9/10 {
+		return fmt.Errorf("completeness check failed: CH has %d pages vs %d in PG", chCount, pgCount)
+	}
+
+	if _, err := b.pool.Exec(ctx, "UPDATE crawls SET data_store='clickhouse' WHERE id=$1", crawlID); err != nil {
+		return fmt.Errorf("set data_store: %w", err)
+	}
+	// This crawl was (re)processed: drop the report query cache so a previously
+	// cached view of it (from a prior store/run) is not served stale.
+	_ = b.ch.DropQueryCache(ctx)
+	b.logf("backfill crawl %d: done (%d pages in CH) — reports now on ClickHouse", crawlID, chCount)
+
+	// HTML last (view-source only). All() defers this to phase 2 (withHTML=false).
+	if withHTML {
+		if err := b.html(ctx, crawlID); err != nil {
+			b.logf("backfill crawl %d: html partial (%v)", crawlID, err)
+		}
+	}
+	return nil
+}
+
+func (b *Backfiller) pages(ctx context.Context, crawlID int) error {
+	rows, err := b.pool.Query(ctx, `
+		SELECT id, domain, url, depth, code, response_time, outlinks, content_type, redirect_to,
+		       crawled, compliant, noindex, nofollow, canonical, canonical_value, external, blocked,
+		       title, h1, metadesc, extracts, simhash, is_html, h1_multiple, headings_missing, schemas, word_count
+		FROM pages WHERE crawl_id=$1 AND in_crawl=true AND (crawled=true OR external=true)`, crawlID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	batch := make([]any, 0, batchSize)
+	for rows.Next() {
+		// Nullable columns (TEXT/INT that PG may store as NULL — e.g. title/h1 on
+		// non-HTML pages, code on uncrawled redirect targets) are scanned into
+		// pointers and coalesced to ''/0 for ClickHouse (no NULLs in those CH cols).
+		var (
+			id                                                                  string
+			domain, url, contentType, redirectTo, canonicalValue, title, h1, metadesc *string
+			depth, outlinks, wordCount                                          int
+			code                                                                *int
+			responseTime                                                        *float64
+			crawled, compliant, noindex, nofollow, canonical, external, blocked bool
+			isHTML, h1Multiple, headingsMissing                                 *bool
+			extracts                                                            []byte
+			simhash                                                             *int64
+			schemas                                                             []string
+		)
+		if err := rows.Scan(&id, &domain, &url, &depth, &code, &responseTime, &outlinks, &contentType, &redirectTo,
+			&crawled, &compliant, &noindex, &nofollow, &canonical, &canonicalValue, &external, &blocked,
+			&title, &h1, &metadesc, &extracts, &simhash, &isHTML, &h1Multiple, &headingsMissing, &schemas, &wordCount); err != nil {
+			return err
+		}
+		extractsMap := map[string]string{}
+		if len(extracts) > 0 {
+			_ = json.Unmarshal(extracts, &extractsMap)
+		}
+		if schemas == nil {
+			schemas = []string{}
+		}
+		codeV := 0
+		if code != nil {
+			codeV = *code
+		}
+		rtV := 0.0
+		if responseTime != nil {
+			rtV = *responseTime
+		}
+		batch = append(batch, map[string]any{
+			"crawl_id": crawlID, "id": strings.TrimSpace(id), "domain": ps(domain), "url": ps(url), "depth": depth,
+			"code": codeV, "response_time": rtV, "outlinks": outlinks, "content_type": ps(contentType),
+			"redirect_to": ps(redirectTo), "crawled": b2i(crawled), "compliant": b2i(compliant), "noindex": b2i(noindex),
+			"nofollow": b2i(nofollow), "canonical": b2i(canonical), "canonical_value": ps(canonicalValue),
+			"external": b2i(external), "blocked": b2i(blocked), "title": ps(title), "h1": ps(h1), "metadesc": ps(metadesc),
+			"extracts": extractsMap, "simhash": simhash, "is_html": pb2i(isHTML), "h1_multiple": pb2i(h1Multiple),
+			"headings_missing": pb2i(headingsMissing), "schemas": schemas, "word_count": wordCount,
+		})
+		if len(batch) >= batchSize {
+			if err := b.ch.InsertJSONEachRow(ctx, b.ch.DB()+".pages", batch); err != nil {
+				return err
+			}
+			batch = batch[:0]
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return b.ch.InsertJSONEachRow(ctx, b.ch.DB()+".pages", batch)
+}
+
+func (b *Backfiller) links(ctx context.Context, crawlID int) error {
+	rows, err := b.pool.Query(ctx,
+		`SELECT src, target, anchor, external, nofollow, type, xpath, position FROM links WHERE crawl_id=$1`, crawlID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	batch := make([]any, 0, batchSize)
+	for rows.Next() {
+		var src, target string
+		var anchor, typ, position, xpath *string
+		var external, nofollow bool
+		if err := rows.Scan(&src, &target, &anchor, &external, &nofollow, &typ, &xpath, &position); err != nil {
+			return err
+		}
+		pos := ps(position)
+		if pos == "" {
+			pos = "Content"
+		}
+		batch = append(batch, map[string]any{
+			"crawl_id": crawlID, "src": strings.TrimSpace(src), "target": strings.TrimSpace(target),
+			"anchor": ps(anchor), "external": b2i(external), "nofollow": b2i(nofollow), "type": ps(typ),
+			"xpath": xpath, "position": pos,
+		})
+		if len(batch) >= batchSize {
+			if err := b.ch.InsertJSONEachRow(ctx, b.ch.DB()+".links", batch); err != nil {
+				return err
+			}
+			batch = batch[:0]
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return b.ch.InsertJSONEachRow(ctx, b.ch.DB()+".links", batch)
+}
+
+func (b *Backfiller) html(ctx context.Context, crawlID int) error {
+	// Own the html partition lifecycle (it's migrated separately from the rest).
+	_ = b.ch.DropPartition(ctx, b.ch.DB()+".html", crawlID)
+	rows, err := b.pool.Query(ctx, `SELECT id, html FROM html WHERE crawl_id=$1`, crawlID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	batch := make([]any, 0, batchSize/4)
+	for rows.Next() {
+		var id, htmlZip string
+		if err := rows.Scan(&id, &htmlZip); err != nil {
+			return err
+		}
+		raw := unzip(htmlZip)
+		if raw == "" {
+			continue
+		}
+		batch = append(batch, map[string]any{"crawl_id": crawlID, "id": strings.TrimSpace(id), "html": raw})
+		if len(batch) >= batchSize/4 {
+			if err := b.ch.InsertJSONEachRow(ctx, b.ch.DB()+".html", batch); err != nil {
+				return err
+			}
+			batch = batch[:0]
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return b.ch.InsertJSONEachRow(ctx, b.ch.DB()+".html", batch)
+}
+
+func (b *Backfiller) schemas(ctx context.Context, crawlID int) error {
+	rows, err := b.pool.Query(ctx, `SELECT page_id, schema_type FROM page_schemas WHERE crawl_id=$1`, crawlID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	batch := make([]any, 0, batchSize)
+	for rows.Next() {
+		var pageID, schemaType string
+		if err := rows.Scan(&pageID, &schemaType); err != nil {
+			return err
+		}
+		batch = append(batch, map[string]any{"crawl_id": crawlID, "page_id": strings.TrimSpace(pageID), "schema_type": schemaType})
+		if len(batch) >= batchSize {
+			if err := b.ch.InsertJSONEachRow(ctx, b.ch.DB()+".page_schemas", batch); err != nil {
+				return err
+			}
+			batch = batch[:0]
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return b.ch.InsertJSONEachRow(ctx, b.ch.DB()+".page_schemas", batch)
+}
+
+func b2i(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+func pb2i(v *bool) int {
+	if v != nil && *v {
+		return 1
+	}
+	return 0
+}
+
+// ps derefs a nullable string column to "" when NULL.
+func ps(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+// unzip reverses PG's stored DomZip (base64 + raw flate) to raw HTML. The
+// "<!-- TRUNCATED -->" marker on >1MB blobs is harmless (decodes the prefix).
+func unzip(s string) string {
+	s = strings.TrimSuffix(s, "\n<!-- TRUNCATED -->")
+	data, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return ""
+	}
+	r := flate.NewReader(bytes.NewReader(data))
+	defer r.Close()
+	out, err := io.ReadAll(r)
+	if err != nil && len(out) == 0 {
+		return ""
+	}
+	return string(out)
+}

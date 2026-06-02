@@ -54,13 +54,8 @@ $sqlSchemaDistribution = "
     ORDER BY page_count DESC
 ";
 
-$stmtRef = $pdo->prepare($sqlSchemaDistribution);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$schemaDistRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlSchemaDistribution);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$schemaDistBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$schemaDistRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'structdatacmp_types', $pdo, $sqlSchemaDistribution, [':crawl_id' => $safeCrawlId],   false);
+$schemaDistBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'structdatacmp_types', $pdo, $sqlSchemaDistribution, [':crawl_id' => $safeCompareId], false);
 
 $colors = ['#4ECDC4', '#FF6B6B', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'];
 
@@ -141,35 +136,28 @@ foreach ($top10Types as $type) {
 // =========================================
 $sqlSchemaByCategory = "
     SELECT
-        p.cat_id,
+        p.category,
         COALESCE(AVG(array_length(p.schemas, 1)), 0) as avg_schemas
     FROM pages p
     WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.compliant = true AND p.in_crawl = TRUE
-    GROUP BY p.cat_id
+    GROUP BY p.category
     ORDER BY avg_schemas DESC
 ";
 
-$stmtRef = $pdo->prepare($sqlSchemaByCategory);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$schemaCatRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlSchemaByCategory);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$schemaCatBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$schemaCatRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'structdatacmp_by_category', $pdo, $sqlSchemaByCategory, [':crawl_id' => $safeCrawlId],   true);
+$schemaCatBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'structdatacmp_by_category', $pdo, $sqlSchemaByCategory, [':crawl_id' => $safeCompareId], true);
 
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 
 // Build maps by category name
 $refSchemaCatData = [];
 foreach ($schemaCatRef as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $refSchemaCatData[$catName] = round((float)$r->avg_schemas, 2);
 }
 $baseSchemaCatData = [];
 foreach ($schemaCatBase as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $baseSchemaCatData[$catName] = round((float)$r->avg_schemas, 2);
 }
 
@@ -185,17 +173,17 @@ foreach ($allSchemaCatNames as $catName) {
 }
 
 $sqlSchemaCatDisplay = "SELECT
-    COALESCE(r.cat_id, b.cat_id) AS cat_id,
+    COALESCE(r.category, b.category) AS category,
     COALESCE(r.avg_schemas, 0) AS ref_avg_schemas,
     COALESCE(b.avg_schemas, 0) AS base_avg_schemas
 FROM (
-    SELECT cat_id, COALESCE(AVG(array_length(schemas, 1)), 0) AS avg_schemas
-    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
+    SELECT category, COALESCE(AVG(array_length(schemas, 1)), 0) AS avg_schemas
+    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY category
 ) r
 FULL OUTER JOIN (
-    SELECT cat_id, COALESCE(AVG(array_length(schemas, 1)), 0) AS avg_schemas
-    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
-) b ON r.cat_id = b.cat_id
+    SELECT category, COALESCE(AVG(array_length(schemas, 1)), 0) AS avg_schemas
+    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY category
+) b ON r.category = b.category
 ORDER BY COALESCE(r.avg_schemas, 0) + COALESCE(b.avg_schemas, 0) DESC";
 
 ?>
@@ -296,9 +284,9 @@ ORDER BY COALESCE(r.avg_schemas, 0) + COALESCE(b.avg_schemas, 0) DESC";
     Component::urlTable([
         'title' => __('comparison.lost_schemas_table'),
         'id' => 'lost_schemas_table',
-        'whereClause' => "WHERE c.crawled = true AND c.compliant = true AND (array_length(c.schemas, 1) IS NULL OR array_length(c.schemas, 1) = 0) AND c.in_crawl = TRUE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE AND array_length(b.schemas, 1) > 0
+        'whereClause' => "WHERE c.crawled = true AND c.compliant = true AND (array_length(c.schemas, 1) IS NULL OR array_length(c.schemas, 1) = 0) AND c.in_crawl = TRUE AND c.url IN (
+            SELECT url FROM pages_{$safeCompareId} b
+            WHERE b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE AND array_length(b.schemas, 1) > 0
         )",
         'orderBy' => 'ORDER BY c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'depth', 'inlinks'],

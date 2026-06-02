@@ -5,32 +5,38 @@
  */
 try {
     // Statistiques globales (URLs compliant = code 200)
-    $stmt = $pdo->prepare("
-        SELECT 
+    $sqlResponseStats = "
+        SELECT
             COUNT(*) as total_urls,
             ROUND(AVG(response_time)::numeric, 2) as avg_time,
             MAX(response_time) as max_time
         FROM pages
         WHERE crawl_id = :crawl_id AND crawled = true AND code = 200 AND is_html = true AND in_crawl = TRUE
-    ");
-    $stmt->execute([':crawl_id' => $crawlId]);
-    $responseStats = $stmt->fetch(PDO::FETCH_OBJ);
-    
+    ";
+    $responseStatsRows = \App\Analysis\ReportPrecompute::cached(
+        (int) $crawlId, 'response_time_global_stats', $pdo, $sqlResponseStats, [':crawl_id' => $crawlId], false
+    );
+    $responseStats = $responseStatsRows[0] ?? null;
+
     // Calcul de la médiane avec PERCENTILE_CONT en PostgreSQL
-    $stmt = $pdo->prepare("
+    $sqlResponseMedian = "
         SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY response_time) as median_time
         FROM pages
         WHERE crawl_id = :crawl_id AND crawled = true AND code = 200 AND is_html = true AND in_crawl = TRUE
-    ");
-    $stmt->execute([':crawl_id' => $crawlId]);
-    $medianResult = $stmt->fetch(PDO::FETCH_OBJ);
-    
-    $responseStats->median_time = $medianResult ? round($medianResult->median_time, 2) : 0;
+    ";
+    $medianRows = \App\Analysis\ReportPrecompute::cached(
+        (int) $crawlId, 'response_time_median', $pdo, $sqlResponseMedian, [':crawl_id' => $crawlId], false
+    );
+    $medianResult = $medianRows[0] ?? null;
+
+    if ($responseStats) {
+        $responseStats->median_time = $medianResult ? round($medianResult->median_time, 2) : 0;
+    }
     
     // Statistiques par catégorie (sans jointure)
     $sqlResponseByCategory = "
-        SELECT 
-            cat_id,
+        SELECT
+            category,
             COUNT(*) as total_urls,
             SUM(CASE WHEN response_time < 200 THEN 1 ELSE 0 END) as fast_count,
             SUM(CASE WHEN response_time >= 200 AND response_time < 600 THEN 1 ELSE 0 END) as medium_count,
@@ -38,19 +44,17 @@ try {
             ROUND(AVG(response_time)::numeric, 2) as avg_time
         FROM pages
         WHERE crawl_id = :crawl_id AND crawled = true AND code = 200 AND is_html = true AND in_crawl = TRUE
-        GROUP BY cat_id
+        GROUP BY category
         ORDER BY AVG(response_time) DESC
     ";
-    $stmt = $pdo->prepare($sqlResponseByCategory);
-    $stmt->execute([':crawl_id' => $crawlId]);
-    $categoryStatsRaw = $stmt->fetchAll(PDO::FETCH_OBJ);
-    
-    // Convertir cat_id en nom de catégorie
-    $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
+    $categoryStatsRaw = \App\Analysis\ReportPrecompute::cached(
+        (int) $crawlId, 'response_time_by_category', $pdo, $sqlResponseByCategory, [':crawl_id' => $crawlId], true
+    );
+
+    // La colonne category contient déjà le nom de catégorie
     $categoryStats = [];
     foreach ($categoryStatsRaw as $row) {
-        $catInfo = $categoriesMap[$row->cat_id] ?? null;
-        $row->category = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+        $row->category = (($row->category ?? '') !== '') ? $row->category : __('common.uncategorized');
         $categoryStats[] = $row;
     }
     

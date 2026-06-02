@@ -50,13 +50,8 @@ $sqlDepthStats = "
     GROUP BY depth ORDER BY depth
 ";
 
-$stmtRef = $pdo->prepare($sqlDepthStats);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$depthStatsRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlDepthStats);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$depthStatsBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$depthStatsRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'depthcmp_dist', $pdo, $sqlDepthStats, [':crawl_id' => $safeCrawlId],   false);
+$depthStatsBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'depthcmp_dist', $pdo, $sqlDepthStats, [':crawl_id' => $safeCompareId], false);
 
 // Merge all depth levels
 $allDepths = [];
@@ -113,34 +108,27 @@ ORDER BY COALESCE(r.depth, b.depth)";
 // Chart 2: Depth × Category (stacked percent) ref vs base
 // =========================================
 $sqlDepthCat = "
-    SELECT depth, cat_id, COUNT(*) as count
+    SELECT depth, category, COUNT(*) as count
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
-    GROUP BY depth, cat_id ORDER BY depth, cat_id
+    GROUP BY depth, category ORDER BY depth, category
 ";
 
-$stmtCatRef = $pdo->prepare($sqlDepthCat);
-$stmtCatRef->execute([':crawl_id' => $safeCrawlId]);
-$depthCatRef = $stmtCatRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtCatBase = $pdo->prepare($sqlDepthCat);
-$stmtCatBase->execute([':crawl_id' => $safeCompareId]);
-$depthCatBase = $stmtCatBase->fetchAll(PDO::FETCH_OBJ);
+$depthCatRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'depthcmp_by_category', $pdo, $sqlDepthCat, [':crawl_id' => $safeCrawlId],   true);
+$depthCatBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'depthcmp_by_category', $pdo, $sqlDepthCat, [':crawl_id' => $safeCompareId], true);
 
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 
 // Organize by category name
 $refCatData = [];
 foreach ($depthCatRef as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     if (!isset($refCatData[$catName])) $refCatData[$catName] = [];
     $refCatData[$catName][$r->depth] = (int)$r->count;
 }
 $baseCatData = [];
 foreach ($depthCatBase as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     if (!isset($baseCatData[$catName])) $baseCatData[$catName] = [];
     $baseCatData[$catName][$r->depth] = (int)$r->count;
 }
@@ -175,20 +163,20 @@ foreach ($allCatNames as $catName) {
 // SQL display for category chart
 $sqlDepthCatDisplay = "SELECT
     COALESCE(r.depth, b.depth) AS depth,
-    COALESCE(r.cat_id, b.cat_id) AS cat_id,
+    COALESCE(r.category, b.category) AS category,
     COALESCE(r.count, 0) AS ref_count,
     COALESCE(b.count, 0) AS base_count
 FROM (
-    SELECT depth, cat_id, COUNT(*) AS count FROM pages@{$safeCrawlId}
+    SELECT depth, category, COUNT(*) AS count FROM pages@{$safeCrawlId}
     WHERE crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
-    GROUP BY depth, cat_id
+    GROUP BY depth, category
 ) r
 FULL OUTER JOIN (
-    SELECT depth, cat_id, COUNT(*) AS count FROM pages@{$safeCompareId}
+    SELECT depth, category, COUNT(*) AS count FROM pages@{$safeCompareId}
     WHERE crawled = true AND compliant = true AND is_html = true AND in_crawl = TRUE
-    GROUP BY depth, cat_id
-) b ON r.depth = b.depth AND r.cat_id = b.cat_id
-ORDER BY COALESCE(r.depth, b.depth), cat_id";
+    GROUP BY depth, category
+) b ON r.depth = b.depth AND r.category = b.category
+ORDER BY COALESCE(r.depth, b.depth), category";
 
 ?>
 
@@ -278,9 +266,9 @@ ORDER BY COALESCE(r.depth, b.depth), cat_id";
     Component::urlTable([
         'title' => __('comparison.depth_changes_table_title'),
         'id' => 'depth_changes_table',
-        'whereClause' => "WHERE c.crawled = true AND c.is_html = true AND c.in_crawl = TRUE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.is_html = true AND b.in_crawl = TRUE AND b.depth != c.depth
+        'whereClause' => "WHERE c.crawled = true AND c.is_html = true AND c.in_crawl = TRUE AND c.url IN (
+            SELECT cur.url FROM pages_{$safeCrawlId} cur JOIN pages_{$safeCompareId} b ON cur.url = b.url
+            WHERE cur.depth != b.depth AND b.crawled = true AND b.is_html = true AND b.in_crawl = TRUE
         )",
         'orderBy' => 'ORDER BY c.depth ASC, c.inlinks DESC',
         'defaultColumns' => ['url', 'category', 'depth', 'compliant', 'code'],

@@ -12,18 +12,54 @@ $categoryColors = $GLOBALS['categoryColors'] ?? [];
 // Récupérer le domaine depuis le crawl
 $crawledDomain = $crawlRecord->domain ?? '';
 
+// AI-assisted categorization availability — read global app settings.
+// The button stays visible for every user but is disabled with a tooltip
+// when the admin has not configured an OpenRouter key + light model.
+$aiConfigured = false;
+try {
+    $aiKey   = \App\Settings\AppSettings::get('ai.openrouter.api_key');
+    $aiModel = \App\Settings\AppSettings::get('ai.openrouter.model_light');
+    $aiConfigured = $aiKey !== null && $aiKey !== '' && $aiModel !== null && $aiModel !== '';
+} catch (\Throwable $e) {
+    // app_settings table missing (migration not yet run) → just disable the feature.
+    $aiConfigured = false;
+}
+// AI reserved for admins + editors; the AI-suggest button is hidden for viewers.
+$aiRoleAllowed = \App\AI\BudgetService::isAiEligibleRole($_SESSION['role'] ?? null);
+
 // Lecture de la config de catégorisation depuis PostgreSQL
 $catYmlContent = "# " . __('categorize.yaml_comment_define') . "\n# " . __('categorize.yaml_comment_format') . "\n# " . __('categorize.yaml_comment_cat_name') . "\n#   - pattern1\n#   - pattern2\n";
 $yamlCategories = [];
 
+// IMPORTANT: categorization_config / crawl_categories / projects are PostgreSQL
+// METADATA tables. On a ClickHouse crawl `$pdo` is the ChPdo shim (CH connection),
+// which would send this SELECT to ClickHouse where the table doesn't exist → the
+// query silently fails and the editor shows an empty YAML. Always read metadata
+// through the raw PG handle ($pdoPg, set by dashboard.php; fallback for safety).
+$metaPdo = (isset($pdoPg) && $pdoPg instanceof \PDO)
+    ? $pdoPg
+    : \App\Database\PostgresDatabase::getInstance()->getConnection();
+
 try {
-    $stmt = $pdo->prepare("SELECT config FROM categorization_config WHERE crawl_id = :crawl_id");
+    $stmt = $metaPdo->prepare("SELECT config FROM categorization_config WHERE crawl_id = :crawl_id");
     $stmt->execute([':crawl_id' => $crawlId]);
     $configRow = $stmt->fetch(PDO::FETCH_OBJ);
-    
-    if ($configRow && !empty($configRow->config)) {
-        $catYmlContent = $configRow->config;
-        
+    $loaded = ($configRow && !empty($configRow->config)) ? $configRow->config : null;
+
+    // Fallback to the PROJECT-level config (the source of truth for the live
+    // category) when the crawl has no per-crawl config yet — otherwise the editor
+    // would look empty even though categorization is active.
+    if ($loaded === null && !empty($crawlRecord->project_id)) {
+        $pstmt = $metaPdo->prepare("SELECT categorization_config FROM projects WHERE id = :pid");
+        $pstmt->execute([':pid' => $crawlRecord->project_id]);
+        $proj = $pstmt->fetchColumn();
+        if (!empty($proj)) {
+            $loaded = $proj;
+        }
+    }
+
+    if ($loaded !== null) {
+        $catYmlContent = $loaded;
         // Parser le YAML pour récupérer les catégories
         $yamlData = \Spyc::YAMLLoadString($catYmlContent);
         if(is_array($yamlData)) {
@@ -38,7 +74,7 @@ try {
 
 // Récupération des catégories actuelles en base (sans LEFT JOIN coûteux)
 try {
-    $stmt = $pdo->prepare("SELECT id, cat, color FROM crawl_categories WHERE project_id = :project_id ORDER BY id");
+    $stmt = $metaPdo->prepare("SELECT id, cat, color FROM crawl_categories WHERE project_id = :project_id ORDER BY id");
     $stmt->execute([':project_id' => $crawlRecord->project_id]);
     $categories = $stmt->fetchAll(PDO::FETCH_OBJ);
 
@@ -1622,6 +1658,162 @@ body {
     font-size: 20px;
 }
 
+/* ============================================================
+   SIDEBAR FOOTER — actions empilées proprement
+   Layout: 3 lignes verticales, boutons uniformes (40px), full-width.
+   ============================================================ */
+.editor-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    flex-shrink: 0;
+}
+
+/* Base commune à tous les boutons du footer — même hauteur, même radius */
+.footer-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    height: 40px;
+    padding: 0 0.9rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    box-sizing: border-box;
+    line-height: 1;
+    border: 1px solid transparent;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.footer-btn .material-symbols-outlined {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+.footer-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* Variante "+ Ajouter une règle" — pointillé subtil, action manuelle */
+.footer-btn-add {
+    background: white;
+    border: 2px dashed var(--border-color);
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+.footer-btn-add:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: rgba(52, 152, 219, 0.05);
+}
+
+/* Variante "✨ Générer par IA" — gradient accent, action principale créative */
+.footer-btn-ai {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.25);
+}
+.footer-btn-ai:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.35);
+}
+.footer-btn-ai:disabled {
+    background: #95a5a6;
+    box-shadow: none;
+}
+.ai-btn-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,0.35);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: aiSpin 0.75s linear infinite;
+    display: inline-block;
+    flex-shrink: 0;
+}
+@keyframes aiSpin {
+    to { transform: rotate(360deg); }
+}
+
+/* Séparateur discret entre actions de création et actions de validation */
+.footer-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 0.25rem 0;
+}
+
+/* Ligne 50/50 pour Tester + Sauvegarder */
+.footer-row {
+    display: flex;
+    gap: 0.5rem;
+}
+.footer-row .footer-btn {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+/* Variante secondaire : Tester (action neutre) */
+.footer-btn-secondary {
+    background: #ecf0f1;
+    color: var(--text-primary);
+    border: 1px solid #d5dbdb;
+}
+.footer-btn-secondary:hover {
+    background: #d5dbdb;
+}
+
+/* Variante principale : Sauvegarder (action commit, turquoise charte) */
+.footer-btn-primary {
+    background: var(--success-color, #4ecdc4);
+    color: white;
+    border: none;
+}
+.footer-btn-primary:hover {
+    filter: brightness(0.95);
+}
+
+/* === Loading overlay on the rules container during AI generation ===
+   Voile bleu foncé translucide + blur — discret, ne casse pas l'identité
+   visuelle, lit bien sur un fond clair comme sur un fond sombre. */
+.visual-editor-wrapper {
+    position: relative;
+}
+.rules-loading-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(44, 62, 80, 0.35);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    border-radius: 8px;
+}
+.rules-loading-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(255, 255, 255, 0.25);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: aiSpin 0.8s linear infinite;
+}
+.rules-loading-text {
+    color: white;
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
 @media (max-width: 1400px) {
     .categorize-layout {
         grid-template-columns: 1fr;
@@ -1658,7 +1850,7 @@ body {
                 </button>
             </div>
         </h3>
-        
+
         <!-- Toggle Switch Mode -->
         <div class="editor-mode-toggle">
             <button class="mode-btn" data-mode="code" onclick="switchEditorMode('code')">
@@ -1670,30 +1862,52 @@ body {
                 <?= __('categorize.mode_visual') ?>
             </button>
         </div>
-        
+
         <!-- Mode Code (CodeMirror) -->
         <div id="yamlEditorWrapper" class="yaml-editor-wrapper" style="display: none;">
             <textarea id="yamlEditor" style="display:none;"><?= htmlspecialchars($catYmlContent) ?></textarea>
         </div>
-        
+
         <!-- Mode Visuel (WYSIWYG) -->
         <div id="visualEditorWrapper" class="visual-editor-wrapper">
+            <!-- Overlay de chargement pendant la génération IA -->
+            <div id="rulesLoadingOverlay" class="rules-loading-overlay" style="display: none;">
+                <div class="rules-loading-spinner"></div>
+                <div class="rules-loading-text"><?= __('categorize.ai_running') ?></div>
+            </div>
             <div id="rulesContainer" class="rules-container"></div>
-            <button class="add-rule-btn" onclick="addNewRule()">
-                <span class="material-symbols-outlined">add</span>
-                <?= __('categorize.btn_add_rule') ?>
-            </button>
         </div>
-        <div class="editor-actions">
-            <button class="btn btn-primary" onclick="testCategorization()" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
-                <span class="material-symbols-outlined">science</span>
-                <?= __('categorize.btn_test') ?>
+
+        <!-- Pied de sidebar : 3 lignes empilées, hauteurs et largeurs uniformes -->
+        <div class="editor-footer">
+            <!-- Ligne 1 : créer une règle manuellement (full width) -->
+            <button class="footer-btn footer-btn-add" onclick="addNewRule()">
+                <span class="material-symbols-outlined">add</span>
+                <span><?= __('categorize.btn_add_rule') ?></span>
             </button>
-            <button class="btn btn-success" onclick="saveCategorization()" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
-                <span class="material-symbols-outlined">save</span>
-                <?= __('categorize.btn_save') ?>
-                <span class="shortcut-hint">Ctrl+S</span>
+            <!-- Ligne 2 : générer par IA (full width, accent) -->
+            <?php if ($aiRoleAllowed): ?>
+            <button class="footer-btn footer-btn-ai" id="btn-ai-suggest" onclick="aiSuggestCategorization()"
+                    <?= $aiConfigured ? '' : 'disabled' ?>
+                    title="<?= htmlspecialchars($aiConfigured ? __('categorize.btn_ai_suggest') : __('categorize.btn_ai_not_configured')) ?>">
+                <span class="material-symbols-outlined ai-btn-icon">auto_awesome</span>
+                <span class="ai-btn-spinner" style="display:none;"></span>
+                <span><?= __('categorize.btn_ai_suggest') ?></span>
             </button>
+            <?php endif; ?>
+            <!-- Séparateur discret avant les actions de validation -->
+            <div class="footer-divider"></div>
+            <!-- Ligne 3 : tester + sauvegarder, 50/50 -->
+            <div class="footer-row">
+                <button class="footer-btn footer-btn-secondary" onclick="testCategorization()">
+                    <span class="material-symbols-outlined">science</span>
+                    <span><?= __('categorize.btn_test') ?></span>
+                </button>
+                <button class="footer-btn footer-btn-primary" onclick="saveCategorization()" title="Ctrl+S">
+                    <span class="material-symbols-outlined">save</span>
+                    <span><?= __('categorize.btn_save') ?></span>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -2428,12 +2642,9 @@ async function saveCategorization() {
     .then(response => response.json())
     .then(data => {
         if(data.success) {
-            if (data.async) {
-                showGlobalStatus(__('categorize.msg_saved_async'), 'success');
-            } else {
-                const categorizedCount = data.categorized_count || 0;
-                showGlobalStatus(__('categorize.msg_saved').replace(':count', categorizedCount), 'success');
-            }
+            // Always clear the "Sauvegarde en cours..." warning toast — it has
+            // no auto-hide, so it would stay yellow forever if we don't.
+            showGlobalStatus(null);
 
             // Quitter le mode test immédiatement
             if (isTestMode) {
@@ -2442,30 +2653,19 @@ async function saveCategorization() {
                 isTestMode = false;
             }
 
-            // Mettre à jour les pills immédiatement via test (dry-run avec les nouveaux noms)
-            fetch('../api/categorization/test', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ project: categorizeProjectDir, yaml: yamlContent })
-            })
-            .then(r => r.json())
-            .then(testData => {
-                if (testData.success) {
-                    // Mettre à jour les couleurs globales
-                    testData.stats.forEach(s => {
-                        if (s.color && s.category !== UNCATEGORIZED_LABEL) {
-                            globalCategoryColors[s.category] = s.color;
-                        }
-                    });
-                    renderChart(testData.stats, false);
-                }
-            })
-            .catch(() => {});
-
-            // Démarrer le polling du job batch pour suivre la progression
             if (data.batch_job_created && data.job_id) {
+                // Batch path: the badge at the top conveys progress, and the
+                // polling will call refreshCategorizationView() when the job
+                // is fully complete. We deliberately skip the dry-run /test
+                // here — it would race with the polling refresh and could
+                // overwrite the real DB stats with its own simulation.
                 startBatchPolling(data.job_id);
+            } else if (data.async) {
+                showGlobalStatus(__('categorize.msg_saved_async'), 'success');
+                refreshCategorizationView();
             } else {
+                const categorizedCount = data.categorized_count || 0;
+                showGlobalStatus(__('categorize.msg_saved').replace(':count', categorizedCount), 'success');
                 refreshCategorizationView();
             }
         } else {
@@ -2475,6 +2675,68 @@ async function saveCategorization() {
     .catch(error => {
         showGlobalStatus(__('common.error') + ': ' + error, 'error');
     });
+}
+
+// AI-assisted categorization via OpenRouter.
+// Sends a server-side sample of up to 200 internal URLs (+ H1 + title) to the
+// configured light model and replaces the YAML editor with the proposed
+// config. Existing content is overwritten — that's expected: Ctrl+Z in
+// CodeMirror still rolls back, and nothing is persisted until the user
+// hits Save.
+async function aiSuggestCategorization() {
+    const btn       = document.getElementById('btn-ai-suggest');
+    const btnIcon   = btn ? btn.querySelector('.ai-btn-icon') : null;
+    const btnSpin   = btn ? btn.querySelector('.ai-btn-spinner') : null;
+    const overlay   = document.getElementById('rulesLoadingOverlay');
+    if (!btn || btn.disabled) return;
+
+    // Loading state — feedback is COLOCATED with the action:
+    //   1. Spinner replaces the sparkle icon on the button itself.
+    //   2. Overlay on the rules-container (where the cards will appear).
+    // No bottom-right toast: the user's eye stays on the area that's changing.
+    btn.disabled = true;
+    if (btnIcon) btnIcon.style.display = 'none';
+    if (btnSpin) btnSpin.style.display = 'inline-block';
+    if (overlay) overlay.style.display = 'flex';
+
+    try {
+        const res = await fetch('../api/categorization/ai-suggest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project: '<?= $projectDir ?>' })
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            showGlobalStatus(__('common.error') + ': ' + (data.error || data.message || res.statusText), 'error');
+            return;
+        }
+
+        // Inject the AI-proposed YAML into CodeMirror (source of truth).
+        // We do NOT switch editor mode — the user stays in whatever mode they
+        // were in (visual or code).
+        yamlEditor.setValue(data.yaml);
+
+        // Apply the user's pastel palette to the freshly-loaded categories.
+        // generateColors() syncs code → visual, assigns colors, regenerates
+        // the YAML, and re-renders the visual cards. Wrapped in try/catch so
+        // a render glitch never leaves the user stuck in the loading state.
+        try {
+            generateColors();
+        } catch (renderErr) {
+            console.error('[AI categorize] generateColors() threw:', renderErr);
+        }
+
+        // Success feedback is the visible result (new rule cards + colors).
+        // We deliberately skip the green toast — the change is self-evident.
+    } catch (e) {
+        showGlobalStatus(__('common.error') + ': ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        if (btnIcon) btnIcon.style.display = '';
+        if (btnSpin) btnSpin.style.display = 'none';
+        if (overlay) overlay.style.display = 'none';
+    }
 }
 
 

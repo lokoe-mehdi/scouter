@@ -740,15 +740,13 @@ $scopeItems = ['redirect_chains'];
         });
     };
 
-    // Export CSV
+    // Export CSV — asynchrone (job → blob store), récupéré via l'icône « téléchargements ».
     window['exportToCSV_' + componentId] = function() {
-        const selectedCols = [];
-        document.querySelectorAll('.column-checkbox-' + componentId + ':checked').forEach(cb => {
-            selectedCols.push(cb.value);
+        if (typeof window.queueExport !== 'function') return;
+        window.queueExport({
+            type: 'redirects',
+            project: <?= json_encode((string)($crawlId ?? $projectDir)) ?>
         });
-
-        document.getElementById('exportColumns_' + componentId).value = JSON.stringify(selectedCols);
-        document.getElementById('exportForm_' + componentId).submit();
     };
 
     // Synchronisation scrollbars

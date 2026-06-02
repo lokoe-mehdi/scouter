@@ -1,11 +1,13 @@
 /vendor/
-logs/
-crawls/
+# Ancrés à la racine : sinon `storage/` (par ex.) matchait AUSSI le package
+# crawler-go/internal/storage/ et son code partait du repo en silence.
+/logs/
+/crawls/
+/storage/
 composer.lock
 .env
 .claude
 .phpunit.cache/
-# Doctum
-docs/api/
-.doctum/
-doctum.phar
+# Composer binary — le build Docker utilise l'image composer:latest, pas ce phar
+composer.phar
+.env.autosize

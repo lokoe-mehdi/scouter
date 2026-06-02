@@ -2,6 +2,23 @@ services:
   # Base de données PostgreSQL (avec init.sql intégré)
   postgres:
     build: ./docker/postgres
+    # Les mem_limit sont AUTO-DIMENSIONNÉS par scripts/autosize.sh en fraction de
+    # la RAM réelle de l'hôte (lancé par start.sh ; sourcé dans .env.autosize). Sur
+    # Coolify : lancer scripts/autosize.sh une fois OU poser ces vars dans l'UI. La
+    # SOMME des mem_limit reste < RAM dispo : un conteneur qui dérape est OOM-killé
+    # + redémarré (restart: unless-stopped) AU LIEU de tuer l'hôte. Côté crawler,
+    # poser ce cgroup memory.max ACTIVE le GOMEMLIMIT auto (applyMemoryLimit).
+    # Le CPU n'a PLUS de quota en dur : seul cpu_shares (poids relatif) reste, donc
+    # ça s'adapte à n'importe quel nombre de cœurs sans sur-souscription. Les
+    # défauts ci-dessous ne servent que de secours si autosize n'a pas tourné.
+    mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
+    # cpu_shares = poids CPU RELATIF (défaut 1024), pas un plafond : ne mord que
+    # SOUS contention, et n'empêche jamais un conteneur de burster à 100% quand
+    # l'hôte est libre. Aucun nombre de cœurs en dur → reste adaptatif (cloud-ready).
+    # Ratio voulu ~4:1 en faveur de l'interactif (postgres / scouter / clickhouse)
+    # face au background (crawler / renderers / workers), pour que sous charge la
+    # latence des rapports et de l'UI passe avant le débit des crawls.
+    cpu_shares: 2048
     # Config "Ferrari" ajustée pour la stabilité :
     # - synchronous_commit=off : Rapide, risque minime de perte de données en cas de crash
     # - max_connections=200 : Réduit de 300 à 200 pour économiser la RAM
@@ -20,21 +37,101 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      # start_period : laisse Postgres finir son init (build custom + config) sans
+      # être marqué "unhealthy" → `docker compose up` (Coolify) n'avorte plus le
+      # déploiement pendant le démarrage.
+      start_period: 90s
+
+  # ClickHouse — entrepôt des données de crawl (pages/links/html + post-proc).
+  # PostgreSQL garde la frontier + les métadonnées. Voir clickhouse.md.
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    # ClickHouse 24 détecte le cgroup memory.max et borne automatiquement son
+    # max_server_memory_usage (~90%), donc ce mem_limit suffit à l'empêcher de
+    # grignoter toute la RAM via les merges/cache de requêtes sur la durée.
+    # Fallback à 6g (CH = service le plus lourd, source de vérité des données) ;
+    # autosize.sh le remplace par ~30% de la RAM hôte quand start.sh est utilisé.
+    mem_limit: ${CLICKHOUSE_MEM_LIMIT:-6g}
+    # Interactif (sert les rapports PHP). Le travail background du crawler dans CH
+    # est déjà rendu "nice" au niveau threads (os_thread_priority, voir crawler-go),
+    # donc le conteneur garde un poids élevé pour ne pas pénaliser les rapports.
+    cpu_shares: 2048
+    environment:
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-scouter}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-scouter}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      # NB : pas de mount init.sql ici. Le schéma est appliqué au boot par le
+      # crawler Go (CH.EnsureSchema, //go:embed schema.sql, DDL idempotent). Le
+      # bind-mount relatif ./crawler-go/...schema.sql cassait sur Coolify (le
+      # fichier absent du contexte → Docker crée un DOSSIER → l'entrypoint CH
+      # erreur "Is a directory" sur init.sql). EnsureSchema est la source unique.
+    restart: unless-stopped
+    healthcheck:
+      # clickhouse-client is reliable inside the image (wget to localhost is refused).
+      test: ["CMD", "clickhouse-client", "-q", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      # start_period : pendant ce délai les échecs ne comptent pas et le conteneur
+      # reste "starting" (pas "unhealthy"), donc `docker compose up` (Coolify) ne
+      # tue pas le déploiement pendant le démarrage normal de ClickHouse.
+      start_period: 120s
 
   # Application PHP principale (Le cerveau)
   scouter:
     build: .
+    mem_limit: ${SCOUTER_MEM_LIMIT:-1g}
+    cpu_shares: 2048 # interactif (UI + API) — priorité face aux crawls sous charge
     expose:
       - 8080
     environment:
       - PHP_CLI_SERVER_WORKERS=8
       - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-scouter}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-scouter}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      # Cache des résultats de rapport (query cache CH) pour les crawls TERMINÉS
+      # (données immuables). Auto-invalidé à l'édition des catégories (la regex est
+      # dans le SQL) ; flush explicite au re-backfill. Mettre 0 pour désactiver.
+      - CLICKHOUSE_QUERY_CACHE=${CLICKHOUSE_QUERY_CACHE:-1}
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=30
+      # Master key used to encrypt secrets stored in app_settings (Gemini API key, etc.).
+      # REQUIRED: set SCOUTER_ENCRYPTION_KEY in your .env / Coolify env (openssl rand -hex 32).
+      # No hardcoded default (the old public one was removed): if it's empty, AppSettings
+      # refuses to store/read secrets — fail-closed at the APP level, never a silent
+      # public-key fallback. (No compose `:?` guard: Coolify's build-arg parser chokes on
+      # the `:?…(…)` syntax.) Losing this value makes encrypted settings unrecoverable —
+      # back it up alongside your DB credentials.
+      - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY}
+      # --- Page-HTML blob storage (kept OUT of the database) --------------------
+      # The crawler writes each page's gzip'd HTML to a blob store; the UI/API/MCP
+      # /chatbot read it back from here. If S3 credentials are set the data goes to
+      # that bucket (AWS/R2/MinIO/B2, persistent long-term); otherwise it lands in
+      # STORAGE_PATH — a named volume SHARED with the crawler-go container so writer
+      # and readers see the same files. Set S3_ENDPOINT for non-AWS providers and
+      # S3_USE_PATH_STYLE=true when they need path-style addressing (e.g. MinIO).
+      - STORAGE_PATH=/app/storage
+      - S3_BUCKET=${S3_BUCKET:-}
+      - S3_REGION=${S3_REGION:-}
+      - S3_ENDPOINT=${S3_ENDPOINT:-}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-}
+      - S3_PREFIX=${S3_PREFIX:-}
+      - S3_USE_PATH_STYLE=${S3_USE_PATH_STYLE:-false}
     volumes:
       - ./logs:/app/logs
+      - storage_data:/app/storage
     restart: unless-stopped
     depends_on:
       renderer-1:
@@ -45,15 +142,36 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
+      clickhouse:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8080/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
 
+  # Serveur MCP (Model Context Protocol) — adaptateur fin au-dessus de /api/v1.
+  # nginx (dans le conteneur scouter) proxifie /mcp vers ce service. L'auth est
+  # un simple passthrough du header Authorization: Bearer sctr_… vers l'API.
+  mcp:
+    build: ./mcp
+    mem_limit: ${MCP_MEM_LIMIT:-256m}
+    cpu_shares: 512 # léger adaptateur, background
+    expose:
+      - 3000
+    environment:
+      - SCOUTER_API_URL=http://scouter:8080
+    restart: unless-stopped
+    depends_on:
+      scouter:
+        condition: service_started
+
   # Service Worker 1 (Base & Anchor)
   worker-1: &worker-base
     build: .
+    # Limites héritées par worker-2..4 via l'ancre YAML : défaut 384m × 4 = 1,5 Go.
+    mem_limit: ${WORKER_MEM_LIMIT:-384m}
+    cpu_shares: 512 # jobs background (delete / batch-categorize / bulk-ai) — hérité par worker-2..4
     entrypoint: ["php", "app/bin/worker.php"]
     restart: unless-stopped
     stop_grace_period: 3s
@@ -62,13 +180,36 @@ services:
       - 1.1.1.1
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-scouter}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-scouter}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
       - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
       - MAX_CONCURRENT_CURL=30
       - MAX_CONCURRENT_CHROME=15
+      # NB : le crawl PHP a été retiré (refacto.md §11). Le worker PHP ne prend
+      # plus QUE delete / batch-categorize / bulk-ai ; les crawls sont au worker Go.
+      # Required to decrypt secrets stored in app_settings (OpenRouter API key
+      # used by the Bulk AI Generator + any future background AI job).
+      # Same env var as the scouter service above (no `:?` — Coolify-safe).
+      - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY}
+      # Page-HTML blob storage — the worker handles crawl/project deletion, which
+      # purges the crawl's HTML prefix, so it needs the same backend config.
+      - STORAGE_PATH=/app/storage
+      - S3_BUCKET=${S3_BUCKET:-}
+      - S3_REGION=${S3_REGION:-}
+      - S3_ENDPOINT=${S3_ENDPOINT:-}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-}
+      - S3_PREFIX=${S3_PREFIX:-}
+      - S3_USE_PATH_STYLE=${S3_USE_PATH_STYLE:-false}
     volumes:
       - ./logs:/app/logs
+      - storage_data:/app/storage
     depends_on:
       postgres:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
       renderer-1:
         condition: service_started
@@ -84,14 +225,120 @@ services:
   worker-4:
     <<: *worker-base
 
+  # Go crawl worker (crawler-go) — replaces the PHP crawl path. One process,
+  # multiple concurrent crawls (MAX_CONCURRENT_CRAWLS). Claims ONLY
+  # command='crawl' jobs; cohabits with the PHP workers above.
+  crawler-go:
+    build: ./crawler-go
+    # mem_limit pose le cgroup memory.max lu par applyMemoryLimit → GOMEMLIMIT ≈
+    # 90% = ~1,8 Go : le GC Go réclame avant de déborder, ce qui empêche le creep
+    # mémoire des longs crawls (very_slow) de finir en OOM hôte.
+    mem_limit: ${CRAWLER_MEM_LIMIT:-2g}
+    cpu_shares: 512 # background : sous contention il cède le CPU à l'interactif (couplé au gouverneur PSI interne)
+    restart: unless-stopped
+    stop_grace_period: 30s
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # ClickHouse : si défini, le crawler appende les données + fait le post-proc dans CH.
+      # Vide = comportement PG-only inchangé (aucune régression).
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-scouter}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-scouter}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      # Auto-migration au démarrage : backfill des anciens crawls PG -> ClickHouse
+      # (non destructif). Défaut ON — Coolify/prod migre tout seul au boot.
+      - CLICKHOUSE_AUTO_MIGRATE=${CLICKHOUSE_AUTO_MIGRATE:-1}
+      # Bascule COMPLÈTE (DESTRUCTIF, défaut ON) : saute le post-proc PG, DROP les
+      # données PG en fin de crawl, ET purge le PG des anciens crawls migrés (après
+      # contrôle de complétude CH). Mettre 0 pour garder PostgreSQL.
+      - CLICKHOUSE_DROP_PG=${CLICKHOUSE_DROP_PG:-1}
+      # Perf rapports : à la fin d'un crawl, OPTIMIZE FINAL des partitions (pages…)
+      # dédoublonne le ReplacingMergeTree → lectures plus rapides. Rétroactif sur
+      # les anciens crawls au boot (OptimizeExisting), sans coût disque.
+      # OPT-IN : matérialiser la projection links `proj_by_target` (accélère les
+      # agrégations par target) sur les ANCIENS crawls — DOUBLE le stockage des
+      # colonnes projetées de ces crawls, donc OFF par défaut. Les nouveaux crawls
+      # l'ont nativement et gratuitement.
+      - CLICKHOUSE_MATERIALIZE_PROJECTIONS=${CLICKHOUSE_MATERIALIZE_PROJECTIONS:-0}
+      - RENDERER_URLS=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
+      # 4 crawls simultanés × 12 fetches parallèles = ~48 requêtes en vol.
+      # Monter MAX_CONCURRENT_CURL seulement si le serveur cible encaisse (sinon
+      # il rate-limite → 429/503 → retries → plus lent). Mettre crawl_speed=
+      # unlimited sur le crawl (UI) pour lever le throttle.
+      - MAX_CONCURRENT_CRAWLS=${MAX_CONCURRENT_CRAWLS:-4}
+      - MAX_CONCURRENT_CURL=${MAX_CONCURRENT_CURL:-12}
+      - POOL_CONNS_PER_CRAWL=${POOL_CONNS_PER_CRAWL:-8}
+      # --- Gouverneur CPU adaptatif (back-pressure PSI) -------------------------
+      # Le crawler lit /proc/pressure/cpu (PSI Linux) et ajuste tout seul le nombre
+      # de fetches simultanés (somme de TOUS les crawls) : il accélère tant que le
+      # CPU a de la marge, ralentit net dès que la pression monte. But : lancer
+      # autant de crawls "unlimited" qu'on veut sans jamais saturer l'hôte au point
+      # de devoir rebooter. AUCUN nombre de cœurs en dur — s'adapte au dispo (idéal
+      # cloud). Plafond = MAX_CONCURRENT_CRAWLS × MAX_CONCURRENT_CURL ; plancher =
+      # MAX_CONCURRENT_CRAWLS (≥1 fetch/crawl). Dans un conteneur, /proc/pressure
+      # n'est pas virtualisé → reflète la pression de l'HÔTE ENTIER (CH + renderers
+      # inclus), exactement ce qu'on veut. Si PSI absent (cgroup v1, kernel sans
+      # PSI), le gouverneur se met en retrait (plafond fixe) — zéro régression.
+      #   CPU_GOVERNOR=0           → désactive (revient au comportement statique)
+      #   PSI_LOW / PSI_HIGH       → seuils % de stall CPU sur 10s (défaut 15 / 50)
+      #   PSI_PATH                 → chemin du fichier PSI (défaut /proc/pressure/cpu)
+      - CPU_GOVERNOR=${CPU_GOVERNOR:-1}
+      - PSI_LOW=${PSI_LOW:-15}
+      - PSI_HIGH=${PSI_HIGH:-50}
+      # Priorité OS (nice) des threads des requêtes CH du crawler (background :
+      # dual-write, post-proc, OPTIMIZE, backfill). >0 = plus "nice" → cède le CPU
+      # aux rapports interactifs (PHP) et au reste de l'hôte sous contention.
+      # Pas de cap de cœurs (max_threads reste adaptatif). 0 = désactive le hint.
+      - CH_OS_THREAD_PRIORITY=${CH_OS_THREAD_PRIORITY:-5}
+      - LOG_DIR=/app/logs
+      # --- Page-HTML blob storage (see the scouter service for the full note) ---
+      # MUST match the scouter service: same S3 bucket, or the same STORAGE_PATH
+      # volume — the crawler writes the HTML the web app reads.
+      - STORAGE_PATH=/app/storage
+      - S3_BUCKET=${S3_BUCKET:-}
+      - S3_REGION=${S3_REGION:-}
+      - S3_ENDPOINT=${S3_ENDPOINT:-}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-}
+      - S3_PREFIX=${S3_PREFIX:-}
+      - S3_USE_PATH_STYLE=${S3_USE_PATH_STYLE:-false}
+    volumes:
+      # Shared with the scouter container so the UI's live console
+      # (JobController::parseLogFile) can tail logs/<projectDir>.log.
+      - ./logs:/app/logs
+      # Page-HTML blobs (local backend) — shared with scouter so it can read them.
+      - storage_data:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      renderer-1:
+        condition: service_started
+      renderer-2:
+        condition: service_started
+      renderer-3:
+        condition: service_started
+
   # Service de rendu JavaScript (Puppeteer) - Multiple instances pour parallélisme
   renderer-1: &renderer-base
     build: ./renderer
+    # Borne Chrome (gros consommateur). Hérité par renderer-2/3 : défaut 1 Go × 3 = 3 Go.
+    # Si Chrome dépasse, ce conteneur est OOM-killé + redémarré sans toucher l'hôte.
+    mem_limit: ${RENDERER_MEM_LIMIT:-1g}
+    cpu_shares: 512 # Chrome = gros consommateur ; background, hérité par renderer-2/3
     init: true
     expose:
       - 3000
     environment:
       - SCOUTER_API_URL=http://scouter:8080
+      # RAM/débit par renderer (chaque onglet Chrome ≈ 30-80 Mo). Multi-process :
+      # 20 pages/renderer × 3 = 60 rendus //. Monter si la RAM le permet.
+      - MAX_CONCURRENT_PAGES=${MAX_CONCURRENT_PAGES:-20}
+      - PAGE_POOL_SIZE=${PAGE_POOL_SIZE:-20}
     restart: unless-stopped
 
   renderer-2:
@@ -101,3 +348,7 @@ services:
 
 volumes:
   postgres_data:
+  clickhouse_data:
+  # Page-HTML blobs when no S3 is configured (local backend). Shared by the
+  # crawler (writer) and scouter (reader); persists across deploys.
+  storage_data:

@@ -478,7 +478,7 @@ const CrawlPanel = {
                     }
                 } else {
                     // Plus rien à afficher
-                    this.elements.minimized.classList.remove('is-visible');
+                    this.elements.minimized?.classList.remove('is-visible');
                 }
                 
                 // Vérifier si le crawl actuellement affiché est toujours en cours
@@ -834,7 +834,7 @@ const CrawlPanel = {
         
         this.elements.panel.classList.add('is-open');
         this.elements.overlay.classList.add('is-visible');
-        this.elements.minimized.classList.remove('is-visible');
+        this.elements.minimized?.classList.remove('is-visible');
         
         // Marquer TOUS les crawls terminés non vus comme vus d'un coup
         // Mais les garder dans sessionFinishedCrawls pour le switch
@@ -923,33 +923,26 @@ const CrawlPanel = {
         if (this.state.runningCrawls.length > 0 || this.state.finishedUnseenCrawls.length > 0) {
             this.showMinimized();
         } else {
-            this.elements.minimized.classList.remove('is-visible');
+            this.elements.minimized?.classList.remove('is-visible');
         }
     },
 
     /**
-     * Affiche la notification minimisée (sauf si masquée par l'utilisateur)
+     * Badge flottant retiré : le volet ne pop plus jamais tout seul. Les fins
+     * de crawl sont désormais signalées par la cloche de notifications (header).
+     * Conservé en no-op pour ne pas casser les appelants existants.
      */
     showMinimized() {
-        // Ne pas afficher si l'utilisateur a masqué la notification
-        if (this.isNotificationHidden()) {
-            return;
-        }
-        this.updateMinimizedBadge();
-        this.elements.minimized.classList.add('is-visible');
+        return;
     },
 
     /**
      * Masque la notification pour la session (sans annuler les crawls)
      */
     hideNotification(event) {
-        event.stopPropagation();
-        
-        // Marquer comme masqué pour cette session
+        if (event) event.stopPropagation();
         sessionStorage.setItem('crawlPanel_hidden', 'true');
-        
-        // Cacher la notification
-        this.elements.minimized.classList.remove('is-visible');
+        this.elements.minimized?.classList.remove('is-visible');
     },
     
     /**
@@ -1095,6 +1088,14 @@ const CrawlPanel = {
             this.state.currentCrawl.urls = maxStats.urls;
             this.state.currentCrawl.crawled = maxStats.crawled;
 
+            // Reprenable seulement si la frontier PG existe encore (flag serveur,
+            // cf. CrawlController::info). Un crawl stoppé puis purgé (ClickHouse
+            // seul) ne l'est plus → on masquera "Reprendre".
+            const infoCrawl = statsData.crawl || statsData;
+            if (infoCrawl && typeof infoCrawl.resumable !== 'undefined') {
+                this.state.currentCrawl.resumable = infoCrawl.resumable === true;
+            }
+
             // Utiliser le status du CRAWL (statsData.status) comme source de vérité
             // Mapper les status crawl vers les status UI
             const crawlToUiStatus = {
@@ -1178,7 +1179,11 @@ const CrawlPanel = {
         // Boutons - montrer Stop si en cours, Resume si stoppé/échoué, Dashboard si terminé
         const isRunning = ['running', 'processing', 'pending', 'queued'].includes(status);
         const isStopping = status === 'stopping';
-        const isResumable = ['stopped', 'failed', 'error'].includes(status);
+        // Reprenable seulement si le statut le permet ET que la frontier PG existe
+        // encore (resumable, fourni par le serveur). Sans donnée PG → mêmes options
+        // qu'un crawl terminé (Dashboard + logs), pas de bouton "Reprendre".
+        const isResumable = ['stopped', 'failed', 'error'].includes(status)
+            && this.state.currentCrawl?.resumable === true;
         const isFinished = ['completed', 'stopped', 'finished', 'failed', 'error'].includes(status);
         
         if (this.elements.stopBtn) {
@@ -1623,7 +1628,7 @@ const CrawlPanel = {
         this.state.trackedCrawlIds = [];
         this.state.sessionFinishedCrawls = [];
         this.updateMinimizedBadge();
-        this.elements.minimized.classList.remove('is-visible', 'is-finished', 'has-finished');
+        this.elements.minimized?.classList.remove('is-visible', 'is-finished', 'has-finished');
         console.log('CrawlPanel: Storage cleared');
     },
     
@@ -1725,5 +1730,52 @@ async function startCrawlWithPanel(projectDir, projectName) {
     } catch (error) {
         alert(`${__('crawl_panel.error_label')}: ${error.message}`);
         throw error;
+    }
+}
+
+/**
+ * One-click resume for a STOPPED crawl, triggered from the hover action on the
+ * project cards (index.php) and the project history rows (project.php).
+ * Posts to /crawls/resume, then opens the crawl panel so the user immediately
+ * sees the crawl picking back up (live progress). No confirm modal — the action
+ * is reversible (the crawl can be stopped again) and the spec asks for one click.
+ *
+ * @param {string} projectDir  the crawl's directory (project_dir / dir)
+ * @param {string} projectName domain/display name, for the panel header
+ * @param {number} crawlId     crawl id, for the panel
+ * @param {HTMLElement} [btnEl] the clicked button (for spinner feedback)
+ */
+async function quickResumeCrawl(projectDir, projectName, crawlId, btnEl) {
+    if (!projectDir) return;
+    let originalHtml = null;
+    if (btnEl) {
+        originalHtml = btnEl.innerHTML;
+        btnEl.disabled = true;
+        btnEl.classList.add('resuming');
+        btnEl.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span>';
+    }
+    try {
+        const resp = await fetch('api/crawls/resume', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project_dir: projectDir })
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            throw new Error(result.error || __('crawl_panel.error_resume'));
+        }
+        // Show live progress immediately — clearest possible confirmation.
+        if (typeof openCrawlPanel === 'function') {
+            openCrawlPanel(projectDir, projectName || projectDir, crawlId);
+        } else {
+            window.location.reload();
+        }
+    } catch (error) {
+        if (btnEl) {
+            btnEl.disabled = false;
+            btnEl.classList.remove('resuming');
+            if (originalHtml !== null) btnEl.innerHTML = originalHtml;
+        }
+        alert(`${__('crawl_panel.error_resume')}: ${error.message}`);
     }
 }

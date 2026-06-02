@@ -40,7 +40,16 @@ foreach ($projectCrawls as $crawl) {
     $crawls[] = (object)[
         'dir' => $dir, 'crawl_id' => $crawl->id, 'domain' => $crawl->domain,
         'date' => date('d/m/Y H:i', $timestamp), 'timestamp' => $timestamp,
-        'stats' => ['urls' => $crawl->urls ?? 0, 'crawled' => $crawl->crawled ?? 0, 'compliant' => $crawl->compliant ?? 0],
+        'started_at' => $crawl->started_at ?? null, 'finished_at' => $crawl->finished_at ?? null,
+        // Temps de traitement réel (hors pauses) ; null → repli mur d'horloge.
+        'processing_seconds' => $crawl->path ? $jobManager->getProcessingSeconds($crawl->path) : null,
+        'stats' => [
+            'urls' => $crawl->urls ?? 0, 'crawled' => $crawl->crawled ?? 0, 'compliant' => $crawl->compliant ?? 0,
+            'duplicates' => $crawl->duplicates ?? 0, 'critical_errors' => $crawl->critical_errors ?? 0,
+            'response_time' => $crawl->response_time ?? 0, 'depth_max' => $crawl->depth_max ?? 0,
+            // null = pas encore calculé (sentinelle write-through CrawlStats)
+            'health_score' => isset($crawl->health_score) ? (int)$crawl->health_score : null,
+        ],
         'job_status' => $jobStatus, 'in_progress' => $crawl->in_progress ?? 0,
         'config' => json_decode($crawl->config ?? '{}', true), 'crawl_type' => $crawl->crawl_type ?? 'spider',
         'scheduled' => $crawl->scheduled ?? false,
@@ -48,15 +57,148 @@ foreach ($projectCrawls as $crawl) {
 }
 usort($crawls, fn($a, $b) => $b->crawl_id - $a->crawl_id);
 
-$lastFinished = null;
+require_once(__DIR__ . '/components/project-metrics.php');
+
+// Stats dérivées (pages indexables + erreurs critiques + score santé) : write-through.
+// On NE calcule en live QUE les crawls dont health_score n'est pas encore stocké
+// (sentinelle NULL) ; les autres sont lus directement de la ligne crawls → zéro
+// requête ClickHouse. La passe CH calcule les 3 d'un coup ET les persiste.
+$needIds = [];
 foreach ($crawls as $c) {
-    if (in_array($c->job_status, ['completed', 'stopped', 'failed'])) { $lastFinished = $c; break; }
+    if (pcNeedsHealth($c->stats)) { $needIds[(int)$c->crawl_id] = true; }
 }
+if (!empty($needIds)) {
+    $computed = \App\Analysis\CrawlStats::ensureFromClickHouse(array_keys($needIds));
+    foreach ($crawls as $c) {
+        if (!pcNeedsHealth($c->stats)) { continue; }
+        $id = (int)$c->crawl_id;
+        $s = $c->stats;
+        if (isset($computed[$id])) {
+            $s['compliant'] = $computed[$id]['compliant'];
+            $s['critical_errors'] = $computed[$id]['critical_errors'];
+            $s['health_score'] = $computed[$id]['health_score'];
+        } else {
+            // crawl absent de ClickHouse → repli pcHealthScore (gratuit) + fige la sentinelle.
+            $fallback = pcHealthScore($s);
+            $s['health_score'] = $fallback;
+            \App\Analysis\CrawlStats::persistHealthScore($id, $fallback);
+        }
+        $c->stats = $s;
+    }
+}
+
+// Dernier crawl terminé + le précédent (pour les variations).
+$lastFinished = null; $prevFinished = null;
+$finishedList = array_values(array_filter($crawls, fn($c) => in_array($c->job_status, ['completed', 'stopped', 'failed'])));
+$lastFinished = $finishedList[0] ?? null;
+$prevFinished = $finishedList[1] ?? null;
 
 $kpiUrls = $lastFinished ? $lastFinished->stats['urls'] : 0;
 $kpiCrawled = $lastFinished ? $lastFinished->stats['crawled'] : 0;
 $kpiCompliant = $lastFinished ? $lastFinished->stats['compliant'] : 0;
-$kpiIndexableRate = $kpiCrawled > 0 ? round(($kpiCompliant / $kpiCrawled) * 100, 1) : 0;
+$kpiHealth = $lastFinished ? (int)($lastFinished->stats['health_score'] ?? pcHealthScore($lastFinished->stats)) : 0;
+
+// Séries de tendance (ancien→récent) pour les sparklines de l'aperçu.
+$trendFin = array_reverse(array_slice($finishedList, 0, 12));
+$trUrls = array_map(fn($c) => (int)$c->stats['urls'], $trendFin);
+$trCrawled = array_map(fn($c) => (int)$c->stats['crawled'], $trendFin);
+$trCompliant = array_map(fn($c) => (int)$c->stats['compliant'], $trendFin);
+$trErr = array_map(fn($c) => (int)$c->stats['critical_errors'], $trendFin);
+
+// Map crawl_id → crawl terminé précédent (pour les variations en ligne).
+$prevOf = [];
+for ($i = 0; $i < count($finishedList); $i++) {
+    $prevOf[(int)$finishedList[$i]->crawl_id] = $finishedList[$i + 1] ?? null;
+}
+
+/** Jauge épaisse (anneau, extrémités arrondies) avec le score au centre. */
+function pjxGauge($score, $color) {
+    $score = max(0, min(100, (int)$score));
+    $r = 52; $c = 2 * M_PI * $r; $off = $c * (1 - $score / 100);
+    return '<svg class="pjx-gauge-svg" viewBox="0 0 120 120" aria-hidden="true">'
+        . '<circle class="pjx-gauge-track" cx="60" cy="60" r="' . $r . '"/>'
+        . '<circle class="pjx-gauge-arc" cx="60" cy="60" r="' . $r . '" stroke="' . $color . '"'
+        . ' stroke-dasharray="' . round($c, 1) . '" stroke-dashoffset="' . round($off, 1) . '"/>'
+        . '</svg>';
+}
+
+/** Variation absolue (↑12 / ↓14), couleur selon le sens "bon". */
+function pjxAbsDelta($cur, $prev, $goodWhenUp, $suffix = '') {
+    if ($prev === null) return '';
+    $d = (int)$cur - (int)$prev;
+    if ($d === 0) return '<span class="pc-delta flat">±0' . $suffix . '</span>';
+    $up = $d > 0;
+    $good = $goodWhenUp ? $up : !$up;
+    return '<span class="pc-delta ' . ($good ? 'up' : 'down') . '">' . ($up ? '↑' : '↓') . ' ' . abs($d) . $suffix . '</span>';
+}
+
+/** Rend une ligne <tr> de l'historique des crawls (table). */
+function pjxCrawlRow($crawl, $prev, $canManage, $domainName, $dataIndex, $hidden = false, $resumable = false) {
+    $st = $crawl->job_status ?? 'finished';
+    $inProgress = in_array($st, ['running', 'queued', 'pending', 'processing', 'stopping']);
+    $finished = in_array($st, ['completed', 'stopped', 'failed']);
+    if (in_array($st, ['running', 'stopping'])) { $badge = 'running'; $txt = __('index.status_running'); }
+    elseif (in_array($st, ['queued', 'pending'])) { $badge = 'running'; $txt = __('index.status_queued'); }
+    elseif ($st === 'processing') { $badge = 'running'; $txt = __('index.status_processing'); }
+    elseif ($st === 'failed') { $badge = 'failed'; $txt = __('index.status_failed'); }
+    elseif ($st === 'stopped') { $badge = 'stopped'; $txt = __('index.status_stopped'); }
+    else { $badge = 'done'; $txt = __('index.status_completed'); }
+
+    $s = (array)$crawl->stats;
+    $ps = $prev ? (array)$prev->stats : null;
+
+    $cid = (int)$crawl->crawl_id;
+    $rowUrl = "dashboard.php?crawl=$cid";
+    $click = $finished ? ' onclick="window.location.href=\'' . $rowUrl . '\'"' : '';
+    $h = $hidden ? ' style="display:none;"' : '';
+    // Cohérent avec l'aperçu KPI (ligne ~98) : on privilégie le score CH 5 piliers
+    // stocké ; pcHealthScore n'est qu'un repli quand health_score n'est pas dispo.
+    // Un crawl arrêté est post-traité comme un terminé → il a un score valable.
+    $score = $finished ? (int)($s['health_score'] ?? pcHealthScore($s)) : null;
+    $idxRate = ($s['crawled'] > 0) ? round($s['compliant'] / $s['crawled'] * 100) : 0;
+    $prevIdx = ($ps && $ps['crawled'] > 0) ? round($ps['compliant'] / $ps['crawled'] * 100) : null;
+
+    $cells = '';
+    if ($inProgress) {
+        $cells = '<td class="pjx-num">—</td><td class="pjx-num">—</td><td class="pjx-num">—</td>';
+    } else {
+        $cells .= '<td class="pjx-num">' . number_format($s['crawled']) . ' ' . ($ps ? pcDelta($s['crawled'], $ps['crawled'], true) : '') . '</td>';
+        $cells .= '<td class="pjx-num">' . $idxRate . '% ' . ($prevIdx !== null ? pcDelta((int)$idxRate, (int)$prevIdx, true) : '') . '</td>';
+        $cells .= '<td class="pjx-num">' . number_format((int)$s['critical_errors']) . ' ' . ($ps ? pcDelta((int)$s['critical_errors'], (int)$ps['critical_errors'], false) : '') . '</td>';
+    }
+
+    $scoreCell = ($score !== null)
+        ? '<span class="pjx-score">' . pcDonutSvg($score) . '<b>' . $score . '</b></span>'
+        : '<span class="pjx-num">—</span>';
+
+    $isList = ($crawl->crawl_type ?? 'spider') === 'list';
+    $typeIcon = $isList ? 'list' : 'bug_report';
+    $typeLabel = $isList ? __('config.type_list') : __('config.type_spider');
+    $typeBadge = '<span class="material-symbols-outlined pjx-type-ic" title="' . $typeLabel . '">' . $typeIcon . '</span>';
+    $dur = $inProgress ? '—' : pcDuration($crawl->started_at ?? null, $crawl->finished_at ?? null, $crawl->processing_seconds ?? null);
+
+    $actions = '';
+    // "Reprendre" uniquement si la frontier PG existe encore ($resumable) : un
+    // crawl stoppé puis purgé (CH seul) prend les mêmes options qu'un crawl terminé.
+    if ($canManage && $st === 'stopped' && $resumable) {
+        $actions .= '<button type="button" class="pjx-act" title="' . __('crawl_panel.confirm_resume_title') . '" onclick="event.stopPropagation(); quickResumeCrawl(\'' . htmlspecialchars($crawl->dir) . '\',\'' . htmlspecialchars($domainName) . '\',' . $cid . ', this)"><span class="material-symbols-outlined">play_circle</span></button>';
+    }
+    if ($finished) {
+        $actions .= '<a href="' . $rowUrl . '" class="pjx-act" title="' . __('project.view_report') . '"><span class="material-symbols-outlined">bar_chart</span></a>';
+    }
+    if ($canManage) {
+        $actions .= '<button type="button" class="pjx-act" title="' . ($inProgress ? __('index.monitoring') : __('index.view_logs')) . '" onclick="event.stopPropagation(); openCrawlPanel(\'' . htmlspecialchars($crawl->dir) . '\',\'' . htmlspecialchars($domainName) . '\',' . $cid . ')"><span class="material-symbols-outlined">terminal</span></button>';
+    }
+
+    return '<tr class="pjx-row' . ($finished ? ' pjx-row--clickable' : '') . '" data-index="' . $dataIndex . '"' . $h . $click . '>'
+        . '<td><span class="pjx-date">' . $typeBadge . htmlspecialchars($crawl->date) . '</span></td>'
+        . '<td><span class="pc-badge ' . $badge . '">' . $txt . '</span></td>'
+        . '<td>' . $scoreCell . '</td>'
+        . $cells
+        . '<td class="pjx-num">' . $dur . '</td>'
+        . '<td class="pjx-acts" onclick="event.stopPropagation();">' . $actions . '</td>'
+        . '</tr>';
+}
 
 // Project stats
 $totalCrawls = count($crawls);
@@ -64,31 +206,61 @@ $completedCrawls = count(array_filter($crawls, fn($c) => in_array($c->job_status
 $failedCrawls = count(array_filter($crawls, fn($c) => $c->job_status === 'failed'));
 $runningCrawls = count(array_filter($crawls, fn($c) => in_array($c->job_status, ['running', 'queued', 'pending', 'processing'])));
 
-// Project disk size (sum of all partition sizes for this project's crawls)
+// Taille PAR crawl = PG (partitions) + ClickHouse (system.parts), comme la page
+// monitor. La "taille du projet" = somme de TOUS les crawls ; la "taille du
+// crawl" (aperçu) = uniquement le dernier crawl. Les deux étaient identiques car
+// l'ancien calcul ne sommait que PG (vide pour les crawls migrés sur ClickHouse).
 $pdo = \App\Database\PostgresDatabase::getInstance()->getConnection();
-$projectSize = '—';
-try {
-    $crawlIds = array_map(fn($c) => (int)$c->crawl_id, $crawls);
-    if (!empty($crawlIds)) {
+if (!function_exists('pjxFormatBytes')) {
+    function pjxFormatBytes($b) {
+        $b = (int)$b;
+        if ($b <= 0) return '—';
+        if ($b >= 1073741824) return round($b / 1073741824, 2) . ' GB';
+        if ($b >= 1048576) return round($b / 1048576, 1) . ' MB';
+        if ($b >= 1024) return round($b / 1024, 0) . ' KB';
+        return $b . ' B';
+    }
+}
+$crawlSizeBytes = []; // crawl_id => bytes (PG + CH)
+$pgResumable = [];    // crawl_id => true si la partition PG `pages_<id>` existe encore (reprenable)
+$crawlIds = array_map(fn($c) => (int)$c->crawl_id, $crawls);
+if (!empty($crawlIds)) {
+    try {
         $idsPattern = implode('|', $crawlIds);
         $sizeStmt = $pdo->query("
-            SELECT pg_total_relation_size(tablename::regclass) AS s
+            SELECT tablename, pg_total_relation_size(tablename::regclass) AS s
             FROM pg_tables
             WHERE schemaname = 'public'
               AND tablename ~ '^(pages|links|html|page_schemas|duplicate_clusters|redirect_chains)_({$idsPattern})$'
         ");
-        $totalBytes = 0;
         foreach ($sizeStmt->fetchAll(PDO::FETCH_OBJ) as $row) {
-            $totalBytes += (int)$row->s;
+            if (preg_match('/_(\d+)$/', $row->tablename, $m)) {
+                $cid = (int)$m[1];
+                $crawlSizeBytes[$cid] = ($crawlSizeBytes[$cid] ?? 0) + (int)$row->s;
+                // La frontier (URLs non crawlées) vit dans la partition `pages_<id>`.
+                // Tant qu'elle existe, le crawl est reprenable ; purgée, il ne reste
+                // que ClickHouse (lecture seule) → on masque "Reprendre".
+                if (strpos($row->tablename, 'pages_') === 0) {
+                    $pgResumable[$cid] = true;
+                }
+            }
         }
-        if ($totalBytes >= 1073741824) $projectSize = round($totalBytes / 1073741824, 2) . ' GB';
-        elseif ($totalBytes >= 1048576) $projectSize = round($totalBytes / 1048576, 1) . ' MB';
-        elseif ($totalBytes >= 1024) $projectSize = round($totalBytes / 1024, 0) . ' KB';
-        else $projectSize = $totalBytes . ' B';
+    } catch (\Throwable $e) {}
+    if (\App\Database\ClickHouseDatabase::enabled()) {
+        try {
+            $ch = \App\Database\ClickHouseDatabase::getInstance();
+            $wanted = array_flip($crawlIds);
+            foreach ($ch->select("SELECT partition AS crawl_id, sum(bytes_on_disk) AS bytes FROM system.parts WHERE database = {db:String} AND active = 1 GROUP BY partition", ['db' => $ch->getDatabase()]) as $row) {
+                $cid = (int)$row['crawl_id'];
+                if (isset($wanted[$cid])) {
+                    $crawlSizeBytes[$cid] = ($crawlSizeBytes[$cid] ?? 0) + (int)($row['bytes'] ?? 0);
+                }
+            }
+        } catch (\Throwable $e) {}
     }
-} catch (Exception $e) {
-    $projectSize = '—';
 }
+$projectSize = pjxFormatBytes(array_sum($crawlSizeBytes));                       // tous les crawls
+$lastCrawlSize = $lastFinished ? pjxFormatBytes($crawlSizeBytes[(int)$lastFinished->crawl_id] ?? 0) : '—';  // dernier crawl
 
 // Load shares & admins
 $sharesData = [];
@@ -120,46 +292,12 @@ $basePath = '';
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     header('Content-Type: text/html; charset=utf-8');
     if (empty($crawls)) {
-        echo '<div class="pj-empty"><span class="material-symbols-outlined">search_off</span><p>' . __('project.no_crawl_yet') . '</p></div>';
+        echo '<tr><td colspan="8" class="pjx-empty-cell">' . __('project.no_crawl_yet') . '</td></tr>';
     } else {
         $ajaxIdx = 0;
         foreach ($crawls as $crawl) {
-            $isInProgress = in_array($crawl->job_status, ['running', 'queued', 'pending', 'processing', 'stopping']);
-            $isFinished = in_array($crawl->job_status, ['completed', 'stopped', 'failed']);
-            $statusClass = 'pj-status--completed'; $statusText = __('index.status_completed');
-            if ($crawl->job_status === 'running' || $crawl->job_status === 'stopping') { $statusClass = 'pj-status--running'; $statusText = __('index.status_running'); }
-            elseif (in_array($crawl->job_status, ['queued', 'pending'])) { $statusClass = 'pj-status--queued'; $statusText = __('index.status_queued'); }
-            elseif ($crawl->job_status === 'processing') { $statusClass = 'pj-status--processing'; $statusText = __('index.status_processing'); }
-            elseif ($crawl->job_status === 'failed') { $statusClass = 'pj-status--failed'; $statusText = __('index.status_failed'); }
-            elseif ($crawl->job_status === 'stopped') { $statusClass = 'pj-status--stopped'; $statusText = __('index.status_stopped'); }
-            $typeIcon = $crawl->scheduled ? 'schedule' : (($crawl->crawl_type ?? 'spider') === 'list' ? 'list_alt' : 'bolt');
-            $typeTitle = $crawl->scheduled ? __('project.scheduled_crawl') : (($crawl->crawl_type ?? 'spider') === 'list' ? __('index.mode_url_list') : 'Spider');
-            echo '<div class="pj-crawl-row ' . ($isFinished ? 'pj-crawl-row--clickable' : '') . '" data-index="' . $ajaxIdx . '" ' . ($isFinished ? 'onclick="window.location.href=\'dashboard.php?crawl=' . $crawl->crawl_id . '\'"' : '') . '>';
+            echo pjxCrawlRow($crawl, $prevOf[(int)$crawl->crawl_id] ?? null, $canManage, $domainName, $ajaxIdx, false, $pgResumable[(int)$crawl->crawl_id] ?? false);
             $ajaxIdx++;
-            echo '<span class="pj-crawl-type" title="' . htmlspecialchars($typeTitle) . '"><span class="material-symbols-outlined">' . $typeIcon . '</span></span>';
-            echo '<div class="pj-crawl-info"><span class="pj-crawl-date">' . $crawl->date . '</span><span class="pj-status ' . $statusClass . '">' . $statusText . '</span></div>';
-            echo '<div class="pj-crawl-kpis">';
-            if (!$isInProgress) {
-                echo '<span class="pj-crawl-kpi"><strong>' . number_format($crawl->stats['urls']) . '</strong> URLs</span>';
-                echo '<span class="pj-crawl-kpi"><strong>' . number_format($crawl->stats['crawled']) . '</strong> ' . __('header.crawled') . '</span>';
-                echo '<span class="pj-crawl-kpi"><strong>' . number_format($crawl->stats['compliant']) . '</strong> ' . __('columns.indexable') . '</span>';
-            } else {
-                echo '<span class="pj-crawl-kpi" style="color:var(--text-tertiary);">--</span>';
-            }
-            echo '</div>';
-            echo '<div class="pj-crawl-config">';
-            echo '<span class="material-symbols-outlined config-icon ' . (($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript' ? 'active' : 'inactive') . '" title="' . __('index.mode_javascript') . '">javascript</span>';
-            echo '<span class="material-symbols-outlined config-icon ' . ((!empty($crawl->config['advanced']['respect']['robots']) || !empty($crawl->config['advanced']['respect_robots'])) ? 'active' : 'inactive') . '" title="' . __('index.respect_robots') . '">smart_toy</span>';
-            echo '<span class="material-symbols-outlined config-icon ' . ((!empty($crawl->config['advanced']['respect']['canonical']) || !empty($crawl->config['advanced']['respect_canonical'])) ? 'active' : 'inactive') . '" title="' . __('index.respect_canonical') . '">content_copy</span>';
-            echo '<span class="material-symbols-outlined config-icon ' . ((!empty($crawl->config['advanced']['respect']['nofollow']) || !empty($crawl->config['advanced']['respect_nofollow'])) ? 'active' : 'inactive') . '" title="' . __('index.respect_nofollow') . '">link_off</span>';
-            echo '<span class="material-symbols-outlined config-icon ' . (($crawl->config['advanced']['follow_redirects'] ?? true) ? 'active' : 'inactive') . '" title="' . __('index.follow_redirects') . '">redo</span>';
-            echo '<span class="material-symbols-outlined config-icon ' . (($crawl->config['advanced']['store_html'] ?? true) ? 'active' : 'inactive') . '" title="' . __('index.store_html') . '">code</span>';
-            if (($crawl->crawl_type ?? 'spider') !== 'list') echo '<span class="config-depth-badge" title="' . __('index.max_depth') . '">' . ($crawl->config['general']['depthMax'] ?? '-') . '</span>';
-            echo '</div>';
-            echo '<div class="pj-crawl-actions" onclick="event.stopPropagation();">';
-            if ($isFinished) echo '<a href="dashboard.php?crawl=' . $crawl->crawl_id . '" class="pj-icon-btn" title="' . __('project.view_report') . '"><span class="material-symbols-outlined">bar_chart</span></a>';
-            if ($canManage) echo '<button class="pj-icon-btn" title="' . ($isInProgress ? __('index.monitoring') : __('index.view_logs')) . '" onclick="openCrawlPanel(\'' . htmlspecialchars($crawl->dir) . '\', \'' . htmlspecialchars($domainName) . '\', ' . $crawl->crawl_id . ')"><span class="material-symbols-outlined">terminal</span></button>';
-            echo '</div></div>';
         }
     }
     exit;
@@ -175,6 +313,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     <link rel="stylesheet" href="assets/style.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/responsive.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/crawl-panel.css?v=<?= time() ?>">
+    <link rel="stylesheet" href="assets/project-redesign.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
     <script src="assets/i18n.js"></script>
     <script>ScouterI18n.init(<?= I18n::getInstance()->getJsTranslations() ?>, <?= json_encode(I18n::getInstance()->getLang()) ?>);</script>
@@ -338,83 +477,130 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             <?php endif; ?>
 
             <!-- Project Info -->
-            <div class="pj-card pj-card--info">
-                <h2 class="pj-card-title" style="margin: 0 0 0.5rem;"><?= __('project.info') ?></h2>
-                <div class="pj-info-list">
-                    <div class="pj-info-row">
-                        <span class="pj-info-dot pj-info-dot--neutral"></span>
-                        <span class="pj-info-label"><?= __('project.info_total') ?></span>
-                        <span class="pj-info-value"><?= $totalCrawls ?></span>
-                    </div>
-                    <div class="pj-info-row">
-                        <span class="pj-info-dot pj-info-dot--success"></span>
-                        <span class="pj-info-label"><?= __('index.status_completed') ?></span>
-                        <span class="pj-info-value"><?= $completedCrawls ?></span>
-                    </div>
-                    <div class="pj-info-row">
-                        <span class="pj-info-dot <?= $failedCrawls > 0 ? 'pj-info-dot--error' : 'pj-info-dot--neutral' ?>"></span>
-                        <span class="pj-info-label"><?= __('index.status_failed') ?></span>
-                        <span class="pj-info-value"><?= $failedCrawls ?></span>
-                    </div>
-                    <div class="pj-info-row">
-                        <span class="pj-info-dot pj-info-dot--running <?= $runningCrawls > 0 ? 'pj-info-dot--pulse' : '' ?>"></span>
-                        <span class="pj-info-label"><?= __('index.status_running') ?></span>
-                        <span class="pj-info-value"><?= $runningCrawls ?></span>
-                    </div>
+            <div class="pjx-accordion">
+                <button type="button" class="pjx-acc-head" onclick="pjxToggleAcc(this)">
+                    <?= __('project.info') ?>
+                    <span class="material-symbols-outlined pjx-acc-chevron">expand_more</span>
+                </button>
+                <div class="pjx-acc-body">
+                    <div class="pjx-acc-row"><span><?= __('index.col_status') ?></span><b><?= htmlspecialchars($domainName) ?></b></div>
+                    <div class="pjx-acc-row"><span><?= __('project.info_total') ?></span><b><?= $totalCrawls ?></b></div>
+                    <div class="pjx-acc-row"><span><?= __('index.status_completed') ?></span><b><?= $completedCrawls ?></b></div>
+                    <div class="pjx-acc-row"><span><?= __('index.status_failed') ?></span><b><?= $failedCrawls ?></b></div>
+                    <div class="pjx-acc-row"><span><?= __('index.status_running') ?></span><b><?= $runningCrawls ?></b></div>
                 </div>
-                <div class="pj-info-size">
-                    <span class="material-symbols-outlined">database</span>
-                    <span><?= __('project.info_size') ?></span>
-                    <strong><?= $projectSize ?></strong>
-                </div>
+            </div>
+
+            <div class="pjx-projsize">
+                <span class="material-symbols-outlined">database</span>
+                <span><?= __('project.info_size') ?></span>
+                <strong><?= $projectSize ?></strong>
             </div>
           </div>
 
           <div class="pj-col-center">
 <!-- Last Report -->
-            <div class="pj-card pj-card--report">
-                <h2 class="pj-card-title"><?= __('project.last_snapshot') ?></h2>
-                <?php if ($lastFinished): ?>
-                <div class="pj-gauges">
-                    <div class="pj-gauge">
-                        <svg viewBox="0 0 36 36" class="pj-gauge-svg">
-                            <path class="pj-gauge-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                            <path class="pj-gauge-fill pj-gauge-fill--primary" stroke-dasharray="100, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                        </svg>
-                        <div class="pj-gauge-value"><?= number_format($kpiUrls) ?></div>
-                        <div class="pj-gauge-label">URLs</div>
+            <div class="pj-card pjx-overview">
+                <?php
+                if ($lastFinished) {
+                    $ovStatus = $lastFinished->job_status;
+                    $ovBadge = 'done'; $ovBadgeText = __('index.status_completed');
+                    if ($ovStatus === 'stopped') { $ovBadge = 'stopped'; $ovBadgeText = __('index.status_stopped'); }
+                    elseif ($ovStatus === 'failed') { $ovBadge = 'failed'; $ovBadgeText = __('index.status_failed'); }
+
+                    // Temps de traitement réel (hors pauses) si dispo, sinon mur d'horloge.
+                    $procSec = $lastFinished->processing_seconds ?? null;
+                    $durSec = ($procSec !== null && $procSec > 0)
+                        ? $procSec
+                        : (($lastFinished->started_at && $lastFinished->finished_at)
+                            ? max(0, strtotime($lastFinished->finished_at) - strtotime($lastFinished->started_at)) : 0);
+                    $pps = $durSec > 0 ? round($kpiCrawled / $durSec, 2) : 0;
+                    $lastErr = (int)$lastFinished->stats['critical_errors'];
+                    $healthPrev = $prevFinished ? (int)($prevFinished->stats['health_score'] ?? pcHealthScore($prevFinished->stats)) : null;
+                    $scoreCls = pcScoreClass($kpiHealth);
+                    $scoreLabel = $kpiHealth >= 75 ? __('project.score_excellent') : ($kpiHealth >= 50 ? __('project.score_watch') : __('project.score_critical'));
+                ?>
+                <div class="pjx-ov-head">
+                    <h2 class="pjx-ov-title"><?= __('project.overview_title') ?></h2>
+                    <span class="pc-badge <?= $ovBadge ?>"><?= $ovBadgeText ?></span>
+                    <span class="pjx-ov-date"><?= date('d/m/Y', $lastFinished->timestamp) . ' à ' . date('H:i', $lastFinished->timestamp) ?></span>
+                </div>
+
+                <?php
+                    $pvU = $prevFinished ? (int)$prevFinished->stats['urls'] : null;
+                    $pvC = $prevFinished ? (int)$prevFinished->stats['crawled'] : null;
+                    $pvCompliant = $prevFinished ? (int)$prevFinished->stats['compliant'] : null;
+                    $pvE = $prevFinished ? (int)$prevFinished->stats['critical_errors'] : null;
+                ?>
+                <div class="pjx-kpis">
+                    <div class="pjx-kpi-health">
+                        <span class="pjx-kpi-label"><button type="button" class="pjx-help-btn" onclick="openHealthInfo()" aria-label="<?= htmlspecialchars(__('project.health_help_title')) ?>"><span class="material-symbols-outlined">help</span></button><?= __('project.health_score') ?></span>
+                        <div class="pjx-gauge-wrap">
+                            <?= pjxGauge($kpiHealth, pcScoreColor($kpiHealth)) ?>
+                            <div class="pjx-gauge-center">
+                                <span class="pjx-gauge-num"><?= $kpiHealth ?></span>
+                                <span class="pjx-gauge-state pjx-score-<?= $scoreCls ?>"><?= $scoreLabel ?></span>
+                            </div>
+                        </div>
+                        <?php if ($healthPrev !== null): ?>
+                        <span class="pjx-kpi-sub"><?= pjxAbsDelta($kpiHealth, $healthPrev, true, ' pts') ?> <?= __('project.vs_prev') ?></span>
+                        <?php endif; ?>
                     </div>
-                    <div class="pj-gauge">
-                        <svg viewBox="0 0 36 36" class="pj-gauge-svg">
-                            <path class="pj-gauge-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                            <path class="pj-gauge-fill pj-gauge-fill--info" stroke-dasharray="<?= $kpiUrls > 0 ? round(($kpiCrawled/$kpiUrls)*100) : 0 ?>, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                        </svg>
-                        <div class="pj-gauge-value"><?= number_format($kpiCrawled) ?></div>
-                        <div class="pj-gauge-label"><?= __('header.crawled') ?></div>
+
+                    <div class="pjx-kpi">
+                        <span class="pjx-kpi-label">URLs</span>
+                        <div class="pjx-kpi-val"><?= number_format($kpiUrls) ?></div>
+                        <span class="pjx-kpi-sub"><?= pjxAbsDelta($kpiUrls, $pvU, true) ?> <?= __('project.vs_prev') ?></span>
+                        <?= pcSparklineSvg($trUrls, '#4ECDC4') ?>
                     </div>
-                    <div class="pj-gauge">
-                        <svg viewBox="0 0 36 36" class="pj-gauge-svg">
-                            <path class="pj-gauge-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                            <path class="pj-gauge-fill pj-gauge-fill--success" stroke-dasharray="<?= $kpiIndexableRate ?>, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                        </svg>
-                        <div class="pj-gauge-value"><?= $kpiIndexableRate ?>%</div>
-                        <div class="pj-gauge-label"><?= __('columns.indexable') ?></div>
+                    <div class="pjx-kpi">
+                        <span class="pjx-kpi-label"><?= __('header.crawled') ?></span>
+                        <div class="pjx-kpi-val"><?= number_format($kpiCrawled) ?></div>
+                        <span class="pjx-kpi-sub"><?= pjxAbsDelta($kpiCrawled, $pvC, true) ?> <?= __('project.vs_prev') ?></span>
+                        <?= pcSparklineSvg($trCrawled, '#3B82F6') ?>
+                    </div>
+                    <div class="pjx-kpi">
+                        <span class="pjx-kpi-label"><?= __('index.kpi_indexable') ?></span>
+                        <div class="pjx-kpi-val"><?= number_format($kpiCompliant) ?></div>
+                        <span class="pjx-kpi-sub"><?= pcDelta($kpiCompliant, $pvCompliant ?? 0, true) ?> <?= __('project.vs_prev') ?></span>
+                        <?= pcSparklineSvg($trCompliant, '#2ECC71') ?>
+                    </div>
+                    <div class="pjx-kpi">
+                        <span class="pjx-kpi-label"><?= __('project.errors') ?></span>
+                        <div class="pjx-kpi-val"><?= number_format($lastErr) ?></div>
+                        <span class="pjx-kpi-sub"><?= pjxAbsDelta($lastErr, $pvE, false) ?> <?= __('project.vs_prev') ?></span>
+                        <?= pcSparklineSvg($trErr, '#E0816F') ?>
                     </div>
                 </div>
-                <a href="dashboard.php?crawl=<?= $lastFinished->crawl_id ?>" class="pj-btn-report">
-                    <span><?= __('project.view_report') ?></span>
-                    <span class="material-symbols-outlined">arrow_forward</span>
-                </a>
-                <?php else: ?>
+
+                <div class="pjx-ministats">
+                    <div class="pjx-mini"><span class="material-symbols-outlined">schedule</span><div><span class="pjx-mini-label"><?= __('project.crawl_time') ?></span><span class="pjx-mini-val"><?= $durSec > 0 ? pcFormatDuration((int)$durSec) : '—' ?></span></div></div>
+                    <div class="pjx-mini"><span class="material-symbols-outlined">speed</span><div><span class="pjx-mini-label"><?= __('project.pages_per_sec') ?></span><span class="pjx-mini-val"><?= $pps ?: '—' ?></span></div></div>
+                    <div class="pjx-mini"><span class="material-symbols-outlined">account_tree</span><div><span class="pjx-mini-label"><?= __('project.max_depth') ?></span><span class="pjx-mini-val"><?= (int)$lastFinished->stats['depth_max'] ?: '—' ?></span></div></div>
+                    <div class="pjx-mini"><span class="material-symbols-outlined">database</span><div><span class="pjx-mini-label"><?= __('project.crawl_size') ?></span><span class="pjx-mini-val"><?= $lastCrawlSize ?></span></div></div>
+                </div>
+
+                <div class="pjx-cta">
+                    <a href="dashboard.php?crawl=<?= $lastFinished->crawl_id ?>" class="pjx-cta-primary">
+                        <?= __('project.access_report') ?>
+                        <span class="material-symbols-outlined">arrow_forward</span>
+                    </a>
+                </div>
+                <?php } else { ?>
+                <div class="pjx-ov-head"><h2 class="pjx-ov-title"><?= __('project.overview_title') ?></h2></div>
                 <p class="pj-empty-text"><?= __('project.no_crawl_yet') ?></p>
-                <?php endif; ?>
+                <?php } ?>
             </div>
 
             <!-- Crawl History -->
-            <div class="pj-card pj-card--history">
-                <div class="pj-card-header">
-                    <h2 class="pj-card-title"><?= __('project.crawl_history') ?></h2>
-                    <span class="pj-card-count"><?= count($crawls) ?></span>
+            <div class="pj-card pjx-history">
+                <div class="pjx-hist-head">
+                    <h2 class="pjx-hist-title"><?= __('project.crawl_history') ?> <span class="pj-card-count"><?= count($crawls) ?></span></h2>
+                    <?php if ($lastFinished && $prevFinished): ?>
+                    <a class="pjx-hist-compare" href="dashboard.php?crawl=<?= $lastFinished->crawl_id ?>&compare=<?= $prevFinished->crawl_id ?>&page=comparison-overview">
+                        <span class="material-symbols-outlined">compare_arrows</span> <?= __('project.compare_crawls') ?>
+                    </a>
+                    <?php endif; ?>
                 </div>
 
                 <?php if (empty($crawls)): ?>
@@ -423,77 +609,32 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                     <p><?= __('project.no_crawl_yet') ?></p>
                 </div>
                 <?php else: ?>
-                <div class="pj-crawl-list" id="pjCrawlList">
-                    <?php foreach ($crawls as $crawlIdx => $crawl):
-                        $isInProgress = in_array($crawl->job_status, ['running', 'queued', 'pending', 'processing', 'stopping']);
-                        $isFinished = in_array($crawl->job_status, ['completed', 'stopped', 'failed']);
-
-                        $statusClass = 'pj-status--completed'; $statusText = __('index.status_completed');
-                        if ($crawl->job_status === 'running' || $crawl->job_status === 'stopping') {
-                            $statusClass = 'pj-status--running'; $statusText = __('index.status_running');
-                        } elseif (in_array($crawl->job_status, ['queued', 'pending'])) {
-                            $statusClass = 'pj-status--queued'; $statusText = __('index.status_queued');
-                        } elseif ($crawl->job_status === 'processing') {
-                            $statusClass = 'pj-status--processing'; $statusText = __('index.status_processing');
-                        } elseif ($crawl->job_status === 'failed') {
-                            $statusClass = 'pj-status--failed'; $statusText = __('index.status_failed');
-                        } elseif ($crawl->job_status === 'stopped') {
-                            $statusClass = 'pj-status--stopped'; $statusText = __('index.status_stopped');
-                        }
-                    ?>
-                    <div class="pj-crawl-row <?= $isFinished ? 'pj-crawl-row--clickable' : '' ?>" data-index="<?= $crawlIdx ?>" <?= $crawlIdx >= 10 ? 'style="display:none;"' : '' ?> <?= $isFinished ? 'onclick="window.location.href=\'dashboard.php?crawl=' . $crawl->crawl_id . '\'"' : '' ?>>
-                        <span class="pj-crawl-type" title="<?= $crawl->scheduled ? __('project.scheduled_crawl') : (($crawl->crawl_type ?? 'spider') === 'list' ? __('index.mode_url_list') : 'Spider') ?>">
-                            <span class="material-symbols-outlined"><?= $crawl->scheduled ? 'schedule' : (($crawl->crawl_type ?? 'spider') === 'list' ? 'list_alt' : 'bolt') ?></span>
-                        </span>
-                        <div class="pj-crawl-info">
-                            <span class="pj-crawl-date"><?= $crawl->date ?></span>
-                            <span class="pj-status <?= $statusClass ?>"><?= $statusText ?></span>
-                        </div>
-                        <div class="pj-crawl-kpis">
-                            <?php if (!$isInProgress): ?>
-                            <span class="pj-crawl-kpi"><strong><?= number_format($crawl->stats['urls']) ?></strong> URLs</span>
-                            <span class="pj-crawl-kpi"><strong><?= number_format($crawl->stats['crawled']) ?></strong> <?= __('header.crawled') ?></span>
-                            <span class="pj-crawl-kpi"><strong><?= number_format($crawl->stats['compliant']) ?></strong> <?= __('columns.indexable') ?></span>
-                            <?php else: ?>
-                            <span class="pj-crawl-kpi" style="color: var(--text-tertiary);">--</span>
-                            <?php endif; ?>
-                        </div>
-                        <div class="pj-crawl-config">
-                            <span class="material-symbols-outlined config-icon <?= ($crawl->config['general']['crawl_mode'] ?? 'classic') === 'javascript' ? 'active' : 'inactive' ?>" title="<?= __('index.mode_javascript') ?>">javascript</span>
-                            <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['robots']) || !empty($crawl->config['advanced']['respect_robots'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_robots') ?>">smart_toy</span>
-                            <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['canonical']) || !empty($crawl->config['advanced']['respect_canonical'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_canonical') ?>">content_copy</span>
-                            <span class="material-symbols-outlined config-icon <?= (!empty($crawl->config['advanced']['respect']['nofollow']) || !empty($crawl->config['advanced']['respect_nofollow'])) ? 'active' : 'inactive' ?>" title="<?= __('index.respect_nofollow') ?>">link_off</span>
-                            <span class="material-symbols-outlined config-icon <?= ($crawl->config['advanced']['follow_redirects'] ?? true) ? 'active' : 'inactive' ?>" title="<?= __('index.follow_redirects') ?>">redo</span>
-                            <span class="material-symbols-outlined config-icon <?= ($crawl->config['advanced']['store_html'] ?? true) ? 'active' : 'inactive' ?>" title="<?= __('index.store_html') ?>">code</span>
-                            <?php if (($crawl->crawl_type ?? 'spider') !== 'list'): ?>
-                                <span class="config-depth-badge" title="<?= __('index.max_depth') ?>"><?= $crawl->config['general']['depthMax'] ?? '-' ?></span>
-                            <?php endif; ?>
-                        </div>
-                        <div class="pj-crawl-actions" onclick="event.stopPropagation();">
-                            <?php if ($isFinished): ?>
-                            <a href="dashboard.php?crawl=<?= $crawl->crawl_id ?>" class="pj-icon-btn" title="<?= __('project.view_report') ?>">
-                                <span class="material-symbols-outlined">bar_chart</span>
-                            </a>
-                            <?php endif; ?>
-                            <?php if ($canManage): ?>
-                            <button class="pj-icon-btn" title="<?= $isInProgress ? __('index.monitoring') : __('index.view_logs') ?>" onclick="openCrawlPanel('<?= htmlspecialchars($crawl->dir) ?>', '<?= htmlspecialchars($domainName) ?>', <?= $crawl->crawl_id ?>)">
-                                <span class="material-symbols-outlined">terminal</span>
-                            </button>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    <?php endforeach; ?>
+                <div class="pjx-table-wrap">
+                <table class="pjx-table">
+                    <thead>
+                        <tr>
+                            <th><?= __('index.col_date') ?></th>
+                            <th><?= __('index.col_status') ?></th>
+                            <th><?= __('project.col_score') ?></th>
+                            <th><?= __('header.crawled') ?></th>
+                            <th><?= __('columns.indexable') ?></th>
+                            <th><?= __('project.errors') ?></th>
+                            <th><?= __('index.col_time') ?></th>
+                            <th><?= __('index.col_actions') ?></th>
+                        </tr>
+                    </thead>
+                    <tbody id="pjCrawlList">
+                        <?php foreach ($crawls as $crawlIdx => $crawl) {
+                            echo pjxCrawlRow($crawl, $prevOf[(int)$crawl->crawl_id] ?? null, $canManage, $domainName, $crawlIdx, $crawlIdx >= 10, $pgResumable[(int)$crawl->crawl_id] ?? false);
+                        } ?>
+                    </tbody>
+                </table>
                 </div>
                 <?php if (count($crawls) > 10): ?>
-                <div class="pj-pagination" id="pjPagination">
-                    <button class="pj-page-btn" id="pjPrevBtn" onclick="pjChangePage(-1)" disabled>
-                        <span class="material-symbols-outlined">chevron_left</span>
-                    </button>
-                    <span class="pj-page-info" id="pjPageInfo">1 / <?= ceil(count($crawls) / 10) ?></span>
-                    <button class="pj-page-btn" id="pjNextBtn" onclick="pjChangePage(1)">
-                        <span class="material-symbols-outlined">chevron_right</span>
-                    </button>
-                </div>
+                <button type="button" class="pjx-see-all" id="pjxSeeAll" onclick="pjxShowAllCrawls(this)">
+                    <?= __('index.view_all_crawls', ['count' => count($crawls)]) ?>
+                    <span class="material-symbols-outlined">expand_more</span>
+                </button>
                 <?php endif; ?>
                 <?php endif; ?>
             </div>
@@ -571,12 +712,27 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                 </div>
             </div>
 
-            <?php if ($isOwner || $auth->isAdmin()): ?>
-            <div class="pj-card pj-card--danger">
-                <button class="pj-btn-delete" onclick="confirmDeleteProject(<?= $projectId ?>, '<?= htmlspecialchars($domainName, ENT_QUOTES) ?>')">
-                    <span class="material-symbols-outlined">delete</span>
-                    <?= __('project.delete_project') ?>
+            <?php if ($canManage): ?>
+            <div class="pj-card pjx-quick-card">
+                <h2 class="pjx-quick-title"><?= __('project.quick_actions') ?></h2>
+                <?php if ($lastFinished): ?>
+                <button type="button" class="pjx-quick-item" onclick="duplicateAndStart('<?= htmlspecialchars($lastFinished->dir) ?>', <?= $project->user_id ?>)">
+                    <span class="material-symbols-outlined">restart_alt</span><?= __('project.duplicate_relaunch') ?>
                 </button>
+                <?php endif; ?>
+                <button type="button" class="pjx-quick-item" onclick="openNewProjectModal()">
+                    <span class="material-symbols-outlined">tune</span><?= __('project.configure_crawl') ?>
+                </button>
+                <?php if ($lastFinished): ?>
+                <a class="pjx-quick-item" href="dashboard.php?crawl=<?= $lastFinished->crawl_id ?>&page=url-explorer">
+                    <span class="material-symbols-outlined">download</span><?= __('project.export_data') ?>
+                </a>
+                <?php endif; ?>
+                <?php if ($isOwner || $auth->isAdmin()): ?>
+                <button type="button" class="pjx-quick-item pjx-quick-danger" onclick="confirmDeleteProject(<?= $projectId ?>, '<?= htmlspecialchars($domainName, ENT_QUOTES) ?>')">
+                    <span class="material-symbols-outlined">delete</span><?= __('project.delete_project') ?>
+                </button>
+                <?php endif; ?>
             </div>
             <?php endif; ?>
           </div>
@@ -584,6 +740,41 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     </div><!-- /pj -->
 
     <?php include 'components/crawl-modal.php'; ?>
+
+    <!-- Modale explicative du health score -->
+    <div id="healthInfoModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-title"><?= __('project.health_help_title') ?></span>
+                <button type="button" class="modal-close" onclick="closeHealthInfo()" aria-label="<?= htmlspecialchars(__('common.close')) ?>">&times;</button>
+            </div>
+            <p class="hsi-intro"><?= __('project.health_help_intro') ?></p>
+            <ul class="hsi-list">
+                <?php
+                $hsiPillars = [
+                    ['verified',     __('project.health_p1')],
+                    ['title',        __('project.health_p2')],
+                    ['article',      __('project.health_p3')],
+                    ['account_tree', __('project.health_p4')],
+                    ['linear_scale', __('project.health_p5')],
+                ];
+                foreach ($hsiPillars as [$hsiIc, $hsiTxt]):
+                    [$hsiName, $hsiDesc] = array_pad(explode('|', $hsiTxt, 2), 2, '');
+                ?>
+                <li class="hsi-item">
+                    <span class="material-symbols-outlined hsi-ic"><?= $hsiIc ?></span>
+                    <div>
+                        <div class="hsi-name"><?= htmlspecialchars($hsiName) ?></div>
+                        <div class="hsi-desc"><?= htmlspecialchars($hsiDesc) ?></div>
+                    </div>
+                </li>
+                <?php endforeach; ?>
+            </ul>
+            <div class="hsi-footer">
+                <button type="button" class="btn btn-primary" onclick="closeHealthInfo()"><?= __('common.close') ?></button>
+            </div>
+        </div>
+    </div>
 
     <script src="assets/global-status.js"></script>
     <script src="assets/crawl-panel.js?v=<?= time() ?>"></script>
@@ -594,9 +785,11 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     // Quick crawl — no confirmation, instant launch
     async function duplicateAndStart(projectDir, targetUserId) {
         const button = event.target.closest('button');
-        const originalHTML = button.innerHTML;
+        // Disable briefly to avoid a double-submit during the request, but NO
+        // loading spinner on the label — the launch is async and the real
+        // progress is shown by the CrawlPanel sidebar. The button is always
+        // re-enabled in finally, so it can never get stuck after the crawl.
         button.disabled = true;
-        button.innerHTML = '<span class="material-symbols-outlined spinning">progress_activity</span>';
         try {
             const payload = { project: projectDir };
             if (targetUserId) payload.target_user_id = targetUserId;
@@ -607,8 +800,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                 // Rafraîchit la liste des crawls sans recharger la page (sinon ça
                 // fermerait la sidebar CrawlPanel qui vient de démarrer)
                 setTimeout(() => refreshCrawlList(), 1500);
-            } else { alert(__('common.error') + ': ' + (data.error || '')); button.disabled = false; button.innerHTML = originalHTML; }
-        } catch (e) { alert(__('common.error') + ': ' + e.message); button.disabled = false; button.innerHTML = originalHTML; }
+            } else {
+                alert(__('common.error') + ': ' + (data.error || ''));
+            }
+        } catch (e) {
+            alert(__('common.error') + ': ' + e.message);
+        } finally {
+            button.disabled = false;
+        }
     }
 
     // Clamp numeric inputs to min/max
@@ -844,6 +1043,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         document.getElementById('newProjectForm').reset();
         document.getElementById('formMessage').innerHTML = '';
     }
+    function openHealthInfo() { document.getElementById('healthInfoModal').classList.add('active'); }
+    function closeHealthInfo() { document.getElementById('healthInfoModal').classList.remove('active'); }
     function switchCrawlTab(tabName) {
         document.querySelectorAll('.crawl-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
         document.querySelectorAll('.crawl-tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tabName));
@@ -903,7 +1104,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     }
     // Presets UA (alignés sur index.php) : utilisés par selectUAOption et applyCustomUA
     const uaPresets = {
-        'scouter': 'Scouter/0.6 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)',
+        'scouter': 'Scouter/0.7 (Crawler developed by Lokoe SASU; +https://lokoe.fr/scouter-crawler)',
         'googlebot-mobile': 'Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2272.96 Mobile Safari/537.36 (compatible; Googlebot/2.1; +https://www.google.com/bot.html)',
         'googlebot-desktop': 'Mozilla/5.0 (compatible; Googlebot/2.1; +https://www.google.com/bot.html)',
         'chrome': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'
@@ -1143,6 +1344,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     // Close modal on outside click
     document.addEventListener('click', function(e) {
         if (e.target.id === 'newProjectModal') closeNewProjectModal();
+        if (e.target.id === 'healthInfoModal') closeHealthInfo();
         const ss = document.getElementById('speedSelect');
         const sd = document.getElementById('speedDropdown');
         if (ss && sd && !ss.contains(e.target) && !sd.contains(e.target)) {
@@ -1151,6 +1353,11 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         }
         const us = document.getElementById('uaSelect');
         if (us && !us.contains(e.target)) us.classList.remove('open');
+    });
+
+    // Fermeture des modales à la touche Échap
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeHealthInfo();
     });
 
     // Pagination
@@ -1165,8 +1372,19 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         pjApplyPage();
     }
 
+    // Accordéons de la colonne gauche (Informations / Paramètres avancés).
+    function pjxToggleAcc(btn) {
+        btn.closest('.pjx-accordion').classList.toggle('open');
+    }
+
+    // "Voir tous les crawls" : révèle toutes les lignes masquées.
+    function pjxShowAllCrawls(btn) {
+        document.querySelectorAll('#pjCrawlList .pjx-row').forEach(r => { r.style.display = ''; });
+        if (btn) btn.style.display = 'none';
+    }
+
     function pjApplyPage() {
-        const rows = document.querySelectorAll('#pjCrawlList .pj-crawl-row');
+        const rows = document.querySelectorAll('#pjCrawlList .pjx-row');
         const start = pjCurrentPage * PJ_PER_PAGE;
         const end = start + PJ_PER_PAGE;
         rows.forEach(r => {

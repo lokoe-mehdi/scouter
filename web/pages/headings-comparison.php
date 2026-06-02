@@ -52,13 +52,10 @@ $sqlHeadingsStats = "
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
 ";
 
-$stmtRef = $pdo->prepare($sqlHeadingsStats);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$statsRef = $stmtRef->fetch(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlHeadingsStats);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$statsBase = $stmtBase->fetch(PDO::FETCH_OBJ);
+$statsRefRows  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'headingscmp_stats', $pdo, $sqlHeadingsStats, [':crawl_id' => $safeCrawlId],   false);
+$statsRef  = $statsRefRows[0] ?? null;
+$statsBaseRows = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'headingscmp_stats', $pdo, $sqlHeadingsStats, [':crawl_id' => $safeCompareId], false);
+$statsBase = $statsBaseRows[0] ?? null;
 
 $sqlHeadingsStatsDisplay = "-- Reference crawl
 SELECT 'reference' AS source,
@@ -102,38 +99,31 @@ $hnBaseData = [
 // =========================================
 $sqlHeadingsByCategory = "
     SELECT
-        cat_id,
+        category,
         SUM(CASE WHEN h1_multiple = false THEN 1 ELSE 0 END) as h1_unique_count,
         SUM(CASE WHEN h1_multiple = true THEN 1 ELSE 0 END) as h1_multiple_count,
         SUM(CASE WHEN headings_missing = false THEN 1 ELSE 0 END) as hn_ok_count,
         SUM(CASE WHEN headings_missing = true THEN 1 ELSE 0 END) as hn_missing_count
     FROM pages
     WHERE crawl_id = :crawl_id AND crawled = true AND compliant = true AND in_crawl = TRUE
-    GROUP BY cat_id
-    ORDER BY cat_id
+    GROUP BY category
+    ORDER BY category
 ";
 
-$stmtRef = $pdo->prepare($sqlHeadingsByCategory);
-$stmtRef->execute([':crawl_id' => $safeCrawlId]);
-$catRef = $stmtRef->fetchAll(PDO::FETCH_OBJ);
-
-$stmtBase = $pdo->prepare($sqlHeadingsByCategory);
-$stmtBase->execute([':crawl_id' => $safeCompareId]);
-$catBase = $stmtBase->fetchAll(PDO::FETCH_OBJ);
+$catRef  = \App\Analysis\ReportPrecompute::cached($safeCrawlId,   'headingscmp_by_category', $pdo, $sqlHeadingsByCategory, [':crawl_id' => $safeCrawlId],   true);
+$catBase = \App\Analysis\ReportPrecompute::cached($safeCompareId, 'headingscmp_by_category', $pdo, $sqlHeadingsByCategory, [':crawl_id' => $safeCompareId], true);
 
 $categoriesMap = $GLOBALS['categoriesMap'] ?? [];
 
 // Build maps by category name
 $refCatData = [];
 foreach ($catRef as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $refCatData[$catName] = $r;
 }
 $baseCatData = [];
 foreach ($catBase as $r) {
-    $catInfo = $categoriesMap[$r->cat_id] ?? null;
-    $catName = $catInfo ? $catInfo['cat'] : __('common.uncategorized');
+    $catName = (($r->category ?? '') !== '') ? $r->category : __('common.uncategorized');
     $baseCatData[$catName] = $r;
 }
 
@@ -199,7 +189,7 @@ foreach ($hnReasons as $key => [$label, $color]) {
 
 // SQL display for category charts
 $sqlCatDisplay = "SELECT
-    COALESCE(r.cat_id, b.cat_id) AS cat_id,
+    COALESCE(r.category, b.category) AS category,
     COALESCE(r.h1_unique_count, 0) AS ref_h1_unique,
     COALESCE(r.h1_multiple_count, 0) AS ref_h1_multiple,
     COALESCE(r.hn_ok_count, 0) AS ref_hn_ok,
@@ -209,22 +199,22 @@ $sqlCatDisplay = "SELECT
     COALESCE(b.hn_ok_count, 0) AS base_hn_ok,
     COALESCE(b.hn_missing_count, 0) AS base_hn_missing
 FROM (
-    SELECT cat_id,
+    SELECT category,
         SUM(CASE WHEN h1_multiple = false THEN 1 ELSE 0 END) AS h1_unique_count,
         SUM(CASE WHEN h1_multiple = true THEN 1 ELSE 0 END) AS h1_multiple_count,
         SUM(CASE WHEN headings_missing = false THEN 1 ELSE 0 END) AS hn_ok_count,
         SUM(CASE WHEN headings_missing = true THEN 1 ELSE 0 END) AS hn_missing_count
-    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
+    FROM pages@{$safeCrawlId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY category
 ) r
 FULL OUTER JOIN (
-    SELECT cat_id,
+    SELECT category,
         SUM(CASE WHEN h1_multiple = false THEN 1 ELSE 0 END) AS h1_unique_count,
         SUM(CASE WHEN h1_multiple = true THEN 1 ELSE 0 END) AS h1_multiple_count,
         SUM(CASE WHEN headings_missing = false THEN 1 ELSE 0 END) AS hn_ok_count,
         SUM(CASE WHEN headings_missing = true THEN 1 ELSE 0 END) AS hn_missing_count
-    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY cat_id
-) b ON r.cat_id = b.cat_id
-ORDER BY cat_id";
+    FROM pages@{$safeCompareId} WHERE crawled = true AND compliant = true AND in_crawl = TRUE GROUP BY category
+) b ON r.category = b.category
+ORDER BY category";
 
 ?>
 
@@ -321,9 +311,9 @@ ORDER BY cat_id";
     Component::urlTable([
         'title' => __('comparison.headings_regressions_table'),
         'id' => 'headings_regressions_table',
-        'whereClause' => "WHERE c.compliant = true AND (c.h1_multiple = true OR c.headings_missing = true) AND c.in_crawl = TRUE AND EXISTS (
-            SELECT 1 FROM pages_{$safeCompareId} b
-            WHERE b.url = c.url AND b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE
+        'whereClause' => "WHERE c.compliant = true AND (c.h1_multiple = true OR c.headings_missing = true) AND c.in_crawl = TRUE AND c.url IN (
+            SELECT url FROM pages_{$safeCompareId} b
+            WHERE b.crawled = true AND b.compliant = true AND b.in_crawl = TRUE
             AND b.h1_multiple = false AND b.headings_missing = false
         )",
         'orderBy' => 'ORDER BY c.h1_multiple DESC, c.headings_missing DESC, c.url',
