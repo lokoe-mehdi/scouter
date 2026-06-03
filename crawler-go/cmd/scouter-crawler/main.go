@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"scouter-crawler/internal/analysis"
 	"scouter-crawler/internal/backfill"
 	"scouter-crawler/internal/config"
 	"scouter-crawler/internal/crawl"
@@ -319,6 +320,10 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 		_ = mgr.UpdateStatus(ctx, j.ID, "failed", j.ProjectDir)
 		return
 	}
+
+	// robots.txt and sitemap fetches must identify with the SAME configured UA as
+	// the page crawler — set the package-wide UA before any of them runs.
+	analysis.SetUserAgent(cfg.UserAgent)
 
 	cdb := db.NewCrawlDB(pool, rec.ID)
 	if err := cdb.CreatePartitions(ctx); err != nil {

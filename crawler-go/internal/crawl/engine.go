@@ -266,11 +266,15 @@ func (e *Engine) fetchOne(ctx context.Context, rawURL string) fetchResult {
 		res.err = err
 		return res
 	}
-	req.Header.Set("User-Agent", e.cfg.UserAgent)
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	// Full Chrome-like navigation headers (consistent with the uTLS Chrome TLS
+	// fingerprint), so a non-JS fetch doesn't read as a bare two-header bot.
+	analysis.ApplyBrowserHeaders(req, e.cfg.UserAgent)
 	for k, v := range e.cfg.CustomHeaders {
 		req.Header.Set(k, v)
 	}
+	// The configured UA is authoritative everywhere: custom headers may tune the
+	// rest, but never the User-Agent.
+	req.Header.Set("User-Agent", e.cfg.UserAgent)
 	if e.cfg.HTTPAuth.Enabled {
 		req.SetBasicAuth(e.cfg.HTTPAuth.Username, e.cfg.HTTPAuth.Password)
 	}

@@ -21,8 +21,9 @@ type Robots struct {
 
 var defaultRobots = NewRobots()
 
-// NewRobots builds a Robots cache with a Googlebot-style fetcher (120s timeout,
-// SSRF-validated, http(s) only — like RobotsTxt::get_file).
+// NewRobots builds a Robots cache. The fetcher uses the configured crawl UA
+// (120s timeout, SSRF-validated, http(s) only — like RobotsTxt::get_file); only
+// the directive interpretation treats us as Googlebot.
 func NewRobots() *Robots {
 	return &Robots{
 		cache:  make(map[string]string),
@@ -167,7 +168,10 @@ func (r *Robots) fetch(url string) string {
 	if err != nil {
 		return ""
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
+	// robots.txt is fetched with OUR configured UA like every other request — we
+	// only INTERPRET the directives as Googlebot (see the agents map in Allowed),
+	// which is a separate concern from how we identify on the wire.
+	ApplyBrowserHeaders(req, UserAgent())
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return ""
