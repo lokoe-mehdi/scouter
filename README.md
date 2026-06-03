@@ -1,4 +1,4 @@
-<div align="center">
+<div align="center"> 
 <img width="100" height="100" alt="image" src="https://github.com/user-attachments/assets/13212ec4-4548-4ddb-864f-ca84ab20ecec" /> 
 
 # Scouter SEO Crawler
