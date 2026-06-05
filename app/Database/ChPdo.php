@@ -219,7 +219,12 @@ class ChPdo
             $joins .= " LEFT JOIN (SELECT crawl_id AS _gcid, id AS _gid, generation "
                 . "FROM {$this->db}.page_generation WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id)) g ON g._gcid = p.crawl_id AND g._gid = p.id";
         }
-        $cols[] = "toUInt8(1) AS in_crawl";
+        // in_crawl: a page reached by the crawl vs. a sitemap-only placeholder. The
+        // post-processing stores sitemap-only rows (in the sitemap but not crawled)
+        // with depth = -1 — the only rows with a negative depth — so in_crawl is the
+        // inverse of that sentinel. Hardcoding 1 here (before this fix) made every
+        // sitemap-only URL look crawled, collapsing the sitemap report's buckets.
+        $cols[] = "if(p.depth < 0, toUInt8(0), toUInt8(1)) AS in_crawl";
         return "(SELECT " . implode(', ', $cols)
             . " FROM (SELECT * FROM {$this->db}.pages WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id)) p"
             . $joins . ")";

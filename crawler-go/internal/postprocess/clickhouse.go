@@ -21,9 +21,14 @@ import (
 // over Memory tables instead of PG temp-table UPDATEs.
 type CHRunner struct {
 	ch              *db.CH
+	pool            *db.Pool // PostgreSQL — source of truth for the sitemap dimension (may be nil)
 	crawlID         int
 	respectNofollow bool
 	logf            func(string, ...any)
+
+	// sitemapTable is the Memory table of in_sitemap page ids built by loadSitemap;
+	// buildMetrics joins it to flag page_metrics.in_sitemap. Empty = no sitemap.
+	sitemapTable string
 }
 
 // RespectNofollowFromConfig reads advanced.respect_nofollow (default true, like
@@ -33,14 +38,17 @@ func RespectNofollowFromConfig(raw []byte) bool {
 }
 
 // NewCHRunner returns a CH post-processor, or nil if ch is nil (CH disabled).
-func NewCHRunner(ch *db.CH, crawlID int, respectNofollow bool, logf func(string, ...any)) *CHRunner {
+// pool is the PostgreSQL pool: the PG post-processing's sitemapAnalysis is the
+// source of truth for the sitemap dimension (in_sitemap flags + sitemap-only rows),
+// which loadSitemap copies into ClickHouse. May be nil (sitemap step is then a no-op).
+func NewCHRunner(ch *db.CH, pool *db.Pool, crawlID int, respectNofollow bool, logf func(string, ...any)) *CHRunner {
 	if ch == nil {
 		return nil
 	}
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	return &CHRunner{ch: ch, crawlID: crawlID, respectNofollow: respectNofollow, logf: logf}
+	return &CHRunner{ch: ch, pool: pool, crawlID: crawlID, respectNofollow: respectNofollow, logf: logf}
 }
 
 func (r *CHRunner) t(name string) string { return r.ch.DB() + "." + name }
@@ -52,6 +60,13 @@ func (r *CHRunner) cid() string          { return strconv.Itoa(r.crawlID) }
 // pages read so the derived tables are built from clean, one-row-per-page data.
 func (r *CHRunner) pd() string {
 	return "(SELECT * FROM " + r.t("pages") + " WHERE crawl_id = " + r.cid() + " LIMIT 1 BY id)"
+}
+
+// pdCrawl is pd() restricted to pages actually reached by the crawl (depth >= 0).
+// Sitemap-only placeholder rows are stored with depth = -1, so this excludes them
+// from PageRank (which mirrors the PG pagerank's `WHERE in_crawl = TRUE`).
+func (r *CHRunner) pdCrawl() string {
+	return "(SELECT * FROM " + r.t("pages") + " WHERE crawl_id = " + r.cid() + " AND depth >= 0 LIMIT 1 BY id)"
 }
 
 // Run executes the CH post-processing steps, isolating failures per step.
@@ -67,6 +82,9 @@ func (r *CHRunner) Run(ctx context.Context) []string {
 		name string
 		fn   func(context.Context) error
 	}{
+		// First: pull the sitemap dimension from PG into CH so buildMetrics can flag
+		// in_sitemap and the sitemap-only rows are countable.
+		{"ch-sitemap", r.loadSitemap},
 		{"ch-pagerank+metrics", r.buildMetrics},
 		{"ch-duplicate", r.duplicateAnalysis},
 		{"ch-redirect", r.redirectChainAnalysis},
@@ -96,6 +114,9 @@ func (r *CHRunner) buildMetrics(ctx context.Context) error {
 	defer func() {
 		_ = r.ch.Exec(ctx, "DROP TABLE IF EXISTS "+r.t("pr_cur_"+r.cid()))
 		_ = r.ch.Exec(ctx, "DROP TABLE IF EXISTS "+r.t("pr_next_"+r.cid()))
+		if r.sitemapTable != "" {
+			_ = r.ch.Exec(ctx, "DROP TABLE IF EXISTS "+r.sitemapTable)
+		}
 	}()
 
 	cid := r.cid()
@@ -114,15 +135,221 @@ func (r *CHRunner) buildMetrics(ctx context.Context) error {
 	inlinksSub := `(SELECT target AS tid, count() AS inlinks FROM ` + r.t("links") +
 		` WHERE crawl_id = ` + cid + ` GROUP BY target)`
 
+	// in_sitemap: 1 when the page id is in the sitemap set loaded from PG, else 0.
+	// (Hardcoded 0 until #38's CH migration was fixed — which silently zeroed every
+	// crawl's sitemap report.) When there is no sitemap, sitemapTable is empty → 0.
+	inSitemap := "0"
+	if r.sitemapTable != "" {
+		inSitemap = "if(p.id IN (SELECT id FROM " + r.sitemapTable + "), 1, 0)"
+	}
+
 	sql := `INSERT INTO ` + r.t("page_metrics") +
 		` (crawl_id, id, inlinks, pri, title_status, h1_status, metadesc_status, in_sitemap)
-		SELECT ` + cid + `, p.id, il.inlinks, pr.pr, st.title_status, st.h1_status, st.metadesc_status, 0
+		SELECT ` + cid + `, p.id, il.inlinks, pr.pr, st.title_status, st.h1_status, st.metadesc_status, ` + inSitemap + `
 		FROM ` + r.pd() + ` p
 		LEFT JOIN ` + inlinksSub + ` il ON il.tid = p.id
 		LEFT JOIN ` + r.t("pr_cur_"+cid) + ` pr ON pr.id = p.id
 		LEFT JOIN ` + statusSub + ` st ON st.id = p.id
 		WHERE p.crawl_id = ` + cid
 	return r.ch.Exec(ctx, sql)
+}
+
+// loadSitemap brings the sitemap dimension into ClickHouse. The PG post-processing
+// (sitemapAnalysis) is the source of truth: it parses the sitemap, flags the
+// crawled pages that appear in it (pages.in_sitemap), and inserts sitemap-only
+// placeholder rows (in_crawl = FALSE, depth = -1) for URLs that are in the sitemap
+// but were not reached by the crawl. None of that ever reached ClickHouse — the CH
+// page_metrics.in_sitemap was hardcoded to 0 and the placeholders were never copied
+// — so the sitemap report read all-zeros once a crawl was on ClickHouse. This step:
+//
+//  1. loads the in_sitemap id set into a Memory table that buildMetrics joins, and
+//  2. copies the sitemap-only rows into CH `pages` (depth -1 preserved), so the
+//     read shim derives in_crawl = FALSE and the "sitemap only" / "total sitemap"
+//     counts are complete.
+//
+// No-op when there is no PG pool or the crawl has no sitemap data (leaves in_sitemap
+// at 0). Runs before buildMetrics so the placeholders exist when page_metrics is
+// built — PageRank uses pdCrawl() (depth >= 0) so the placeholders never skew it.
+func (r *CHRunner) loadSitemap(ctx context.Context) error {
+	if r.pool == nil {
+		return nil
+	}
+	var n int
+	if err := r.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM pages WHERE crawl_id=$1 AND in_sitemap=TRUE", r.crawlID).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		return nil // no sitemap configured, or nothing matched — nothing to mark
+	}
+
+	// 1) in_sitemap id set → Memory table joined by buildMetrics.
+	tbl := r.t("sitemap_ids_" + r.cid())
+	if err := r.ch.Exec(ctx, "DROP TABLE IF EXISTS "+tbl); err != nil {
+		return err
+	}
+	if err := r.ch.Exec(ctx, "CREATE TABLE "+tbl+" (id FixedString(8)) ENGINE = Memory"); err != nil {
+		return err
+	}
+	idRows, err := r.pool.Query(ctx, "SELECT id FROM pages WHERE crawl_id=$1 AND in_sitemap=TRUE", r.crawlID)
+	if err != nil {
+		return err
+	}
+	batch := make([]any, 0, 2000)
+	flushIDs := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		err := r.ch.InsertJSONEachRow(ctx, tbl, batch)
+		batch = batch[:0]
+		return err
+	}
+	for idRows.Next() {
+		var id string
+		if err := idRows.Scan(&id); err != nil {
+			idRows.Close()
+			return err
+		}
+		batch = append(batch, map[string]any{"id": strings.TrimSpace(id)})
+		if len(batch) >= 2000 {
+			if err := flushIDs(); err != nil {
+				idRows.Close()
+				return err
+			}
+		}
+	}
+	idRows.Close()
+	if err := idRows.Err(); err != nil {
+		return err
+	}
+	if err := flushIDs(); err != nil {
+		return err
+	}
+	r.sitemapTable = tbl
+
+	// 2) sitemap-only rows (in the sitemap, not in the crawl graph) → CH pages.
+	return r.copySitemapOnlyPages(ctx)
+}
+
+// copySitemapOnlyPages copies the PG sitemap-only rows (in_crawl = FALSE) into CH
+// `pages` so they are countable by the report. depth is forced to -1 (the
+// placeholder sentinel) so the read shim classifies them as in_crawl = FALSE.
+//
+// Ids already present in CH are skipped: an in-scope sitemap URL fetched during the
+// PG sitemap pass was written to CH by the crawl store (with its real depth), and a
+// second row for the same id would corrupt duplicate detection (its simhash counted
+// twice) and the in_crawl classification. Those keep their fetched row (counted as
+// crawl ∩ sitemap); only the never-fetched URLs become depth -1 placeholders.
+func (r *CHRunner) copySitemapOnlyPages(ctx context.Context) error {
+	cid := r.cid()
+
+	// Candidate ids, then drop those already in CH so we never write a 2nd row/id.
+	candRows, err := r.pool.Query(ctx, "SELECT id FROM pages WHERE crawl_id=$1 AND in_crawl=FALSE", r.crawlID)
+	if err != nil {
+		return err
+	}
+	var candidates []string
+	for candRows.Next() {
+		var id string
+		if err := candRows.Scan(&id); err != nil {
+			candRows.Close()
+			return err
+		}
+		candidates = append(candidates, strings.TrimSpace(id))
+	}
+	candRows.Close()
+	if err := candRows.Err(); err != nil {
+		return err
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	existing := map[string]bool{}
+	for _, c := range chunk(candidates, 5000) {
+		tsv, err := r.ch.QueryTSV(ctx, "SELECT id FROM "+r.t("pages")+" WHERE crawl_id="+cid+" AND id IN ("+quoteList(c)+")")
+		if err != nil {
+			return err
+		}
+		for _, row := range tsv {
+			if len(row) > 0 {
+				existing[strings.TrimSpace(row[0])] = true
+			}
+		}
+	}
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, domain, url, code, response_time, outlinks, content_type, redirect_to,
+		       crawled, compliant, noindex, nofollow, canonical, canonical_value, external, blocked,
+		       title, h1, metadesc, simhash, word_count
+		FROM pages WHERE crawl_id=$1 AND in_crawl=FALSE`, r.crawlID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	batch := make([]any, 0, 2000)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		err := r.ch.InsertJSONEachRow(ctx, r.t("pages"), batch)
+		batch = batch[:0]
+		return err
+	}
+	for rows.Next() {
+		var (
+			id                                                                        string
+			domain, url, contentType, redirectTo, canonicalValue, title, h1, metadesc *string
+			outlinks, wordCount                                                       int
+			code                                                                      *int
+			responseTime                                                              *float64
+			crawled, compliant, noindex, nofollow, canonical, external, blocked       bool
+			simhash                                                                   *int64
+		)
+		if err := rows.Scan(&id, &domain, &url, &code, &responseTime, &outlinks, &contentType, &redirectTo,
+			&crawled, &compliant, &noindex, &nofollow, &canonical, &canonicalValue, &external, &blocked,
+			&title, &h1, &metadesc, &simhash, &wordCount); err != nil {
+			return err
+		}
+		id = strings.TrimSpace(id)
+		if existing[id] {
+			continue // already in CH (fetched in-scope) — keep that row
+		}
+		codeV := 0
+		if code != nil {
+			codeV = *code
+		}
+		rtV := 0.0
+		if responseTime != nil {
+			rtV = *responseTime
+		}
+		batch = append(batch, map[string]any{
+			"crawl_id": r.crawlID, "id": id, "domain": chStr(domain), "url": chStr(url),
+			"depth": -1, "code": codeV, "response_time": rtV, "outlinks": outlinks,
+			"content_type": chStr(contentType), "redirect_to": chStr(redirectTo), "crawled": b2iCH(crawled),
+			"compliant": b2iCH(compliant), "noindex": b2iCH(noindex), "nofollow": b2iCH(nofollow),
+			"canonical": b2iCH(canonical), "canonical_value": chStr(canonicalValue), "external": b2iCH(external),
+			"blocked": b2iCH(blocked), "title": chStr(title), "h1": chStr(h1), "metadesc": chStr(metadesc),
+			"extracts": map[string]string{}, "simhash": simhash, "is_html": 0, "h1_multiple": 0,
+			"headings_missing": 0, "schemas": []string{}, "word_count": wordCount,
+		})
+		if len(batch) >= 2000 {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return flush()
+}
+
+// chStr derefs a nullable PG string column to "" (CH has no NULLs in those cols).
+func chStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // optimizeFinal merges this crawl's partitions so subsequent report reads work
@@ -155,7 +382,7 @@ func (r *CHRunner) computePageRank(ctx context.Context) error {
 		}
 	}
 
-	pagesCountStr, err := r.ch.QueryScalar(ctx, "SELECT count() FROM "+r.pd())
+	pagesCountStr, err := r.ch.QueryScalar(ctx, "SELECT count() FROM "+r.pdCrawl())
 	if err != nil {
 		return err
 	}
@@ -171,14 +398,14 @@ func (r *CHRunner) computePageRank(ctx context.Context) error {
 
 	if !hasLinks {
 		// No graph: pri stays 0 (matches PG, which skips the update entirely).
-		return r.ch.Exec(ctx, "INSERT INTO "+prCur+" SELECT id, 0, 0 FROM "+r.pd())
+		return r.ch.Exec(ctx, "INSERT INTO "+prCur+" SELECT id, 0, 0 FROM "+r.pdCrawl())
 	}
 
 	initPR := 1.0 / float64(pagesCount)
 	bonus := (1 - damping) / float64(pagesCount)
 	if err := r.ch.Exec(ctx, `INSERT INTO `+prCur+`
 		SELECT p.id, `+f(initPR)+`, ol.c
-		FROM `+r.pd()+` p
+		FROM `+r.pdCrawl()+` p
 		LEFT JOIN `+outlinksSub+` ol ON ol.sid = p.id`); err != nil {
 		return err
 	}

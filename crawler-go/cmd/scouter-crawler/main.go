@@ -433,7 +433,7 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 	// Post-processing in ClickHouse (PageRank/inlinks/semantic/duplicate/redirect)
 	// → derived tables. Runs in addition to PG during the dual-write transition.
 	if ch != nil {
-		chpp := postprocess.NewCHRunner(ch, rec.ID, postprocess.RespectNofollowFromConfig(rec.Config), logf)
+		chpp := postprocess.NewCHRunner(ch, pool, rec.ID, postprocess.RespectNofollowFromConfig(rec.Config), logf)
 		ppFailures = append(ppFailures, chpp.Run(ctx)...)
 		// In full-CH mode the PG post-processor is skipped, so write the
 		// duplicate/redirect scorecard stats back to crawls.* from ClickHouse.
