@@ -199,7 +199,8 @@ func (p *SitemapParser) fetch(url string) []byte {
 		p.result.Errors = append(p.result.Errors, url+" ("+err.Error()+")")
 		return nil
 	}
-	req.Header.Set("User-Agent", "Scouter/SitemapFetcher (+https://lokoe.fr/scouter)")
+	// Same configured UA as the page crawler — no separate sitemap identity.
+	ApplyBrowserHeaders(req, UserAgent())
 	resp, err := p.client.Do(req)
 	if err != nil {
 		p.result.Errors = append(p.result.Errors, url+" ("+err.Error()+")")

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -181,7 +182,13 @@ func initBrowser() error {
 	// Lancer Chrome avec les options optimisées pour VPS/Docker
 	u := launcher.New().
 		Bin(chromePath).
-		Headless(true).
+		// New headless = the real Chrome rendering path, far less detectable than
+		// the legacy headless shell (whose UA/behaviour give the bot away).
+		Set("headless", "new").
+		// Remove the navigator.webdriver / "controlled by automated software" tell.
+		Set("disable-blink-features", "AutomationControlled").
+		// Keep the browser locale consistent with the Accept-Language we send.
+		Set("lang", "fr-FR").
 		Set("disable-gpu").
 		Set("no-sandbox").
 		Set("disable-setuid-sandbox").
@@ -261,6 +268,90 @@ func stableTimeout() time.Duration {
 	return 5 * time.Second
 }
 
+// stealthJS masks the most common headless/automation tells in every document
+// the page loads. Injected once per page via AddScriptToEvaluateOnNewDocument.
+const stealthJS = `
+Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+window.chrome = window.chrome || { runtime: {} };
+Object.defineProperty(navigator, 'languages', { get: () => ['fr-FR', 'fr', 'en-US', 'en'] });
+Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+try {
+  const q = window.navigator.permissions && window.navigator.permissions.query;
+  if (q) {
+    window.navigator.permissions.query = (p) =>
+      p && p.name === 'notifications'
+        ? Promise.resolve({ state: Notification.permission })
+        : q(p);
+  }
+} catch (e) {}
+`
+
+func applyStealth(page *rod.Page) {
+	_, _ = proto.PageAddScriptToEvaluateOnNewDocument{Source: stealthJS}.Call(page)
+}
+
+var chromeMajorRe = regexp.MustCompile(`(?i)(?:Chrome|Chromium|CriOS|Edg)/(\d+)`)
+
+// uaOverride builds the CDP user-agent override for the configured UA, deriving
+// Client-Hint metadata (brands/platform/mobile) from it so navigator.userAgent
+// and sec-ch-ua* stay consistent with the UA we present.
+func uaOverride(ua string) *proto.NetworkSetUserAgentOverride {
+	o := &proto.NetworkSetUserAgentOverride{
+		UserAgent:      ua,
+		AcceptLanguage: "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+		Platform:       navigatorPlatform(ua),
+	}
+	if m := chromeMajorRe.FindStringSubmatch(ua); m != nil {
+		major := m[1]
+		o.UserAgentMetadata = &proto.EmulationUserAgentMetadata{
+			Brands: []*proto.EmulationUserAgentBrandVersion{
+				{Brand: "Chromium", Version: major},
+				{Brand: "Google Chrome", Version: major},
+				{Brand: "Not_A Brand", Version: "99"},
+			},
+			FullVersion:  major + ".0.0.0",
+			Platform:     uaPlatformName(ua),
+			Architecture: "x86",
+			Mobile:       strings.Contains(ua, "Mobile") || strings.Contains(ua, "Android"),
+		}
+	}
+	return o
+}
+
+// navigatorPlatform returns the navigator.platform value matching the UA's OS.
+func navigatorPlatform(ua string) string {
+	switch {
+	case strings.Contains(ua, "Windows"):
+		return "Win32"
+	case strings.Contains(ua, "Mac OS X") || strings.Contains(ua, "Macintosh"):
+		return "MacIntel"
+	case strings.Contains(ua, "Android"):
+		return "Linux armv8l"
+	case strings.Contains(ua, "Linux") || strings.Contains(ua, "X11"):
+		return "Linux x86_64"
+	default:
+		return "Win32"
+	}
+}
+
+// uaPlatformName returns the Client-Hint platform name matching the UA's OS.
+func uaPlatformName(ua string) string {
+	switch {
+	case strings.Contains(ua, "Windows"):
+		return "Windows"
+	case strings.Contains(ua, "Android"):
+		return "Android"
+	case strings.Contains(ua, "CrOS"):
+		return "Chrome OS"
+	case strings.Contains(ua, "Mac OS X") || strings.Contains(ua, "Macintosh"):
+		return "macOS"
+	case strings.Contains(ua, "Linux") || strings.Contains(ua, "X11"):
+		return "Linux"
+	default:
+		return "Windows"
+	}
+}
+
 func getPage() (*rod.Page, error) {
 	markActivity() // keeps the pool reaper from closing tabs mid-crawl
 
@@ -281,6 +372,10 @@ func getPage() (*rod.Page, error) {
 			<-semaphore // rendre le slot avant de remonter l'erreur
 			return nil, err
 		}
+		// Inject the anti-detection patches once, at page creation: the script runs
+		// on every new document for this page's lifetime, so reused pooled pages stay
+		// patched without re-injecting (which would stack listeners/leak).
+		_ = rod.Try(func() { applyStealth(page) })
 		return page, nil
 	}
 }
@@ -313,14 +408,25 @@ func renderURL(urlStr string, headers map[string]string) RenderResponse {
 	}
 	defer releasePage(page)
 
-	// Configurer les headers (Rod prend des paires key, value). Protégé : un
-	// MustSetExtraHeaders qui panique ne doit pas court-circuiter releasePage.
-	if len(headers) > 0 {
-		args := make([]string, 0, len(headers)*2)
-		for k, v := range headers {
-			args = append(args, k, v)
+	// Le User-Agent est appliqué via CDP setUserAgentOverride (PAS un simple extra
+	// header) : sinon navigator.userAgent et les Client Hints (sec-ch-ua*) restent
+	// ceux du Chrome headless réel et trahissent le bot malgré le header. L'UA
+	// fournie par la config est utilisée telle quelle, et les Client Hints en sont
+	// dérivés pour rester cohérents. Les autres headers passent en extra headers.
+	var ua string
+	extra := make([]string, 0, len(headers)*2)
+	for k, v := range headers {
+		if strings.EqualFold(k, "User-Agent") {
+			ua = v
+			continue
 		}
-		_ = rod.Try(func() { page.MustSetExtraHeaders(args...) })
+		extra = append(extra, k, v)
+	}
+	if ua != "" {
+		_ = rod.Try(func() { page.MustSetUserAgent(uaOverride(ua)) })
+	}
+	if len(extra) > 0 {
+		_ = rod.Try(func() { page.MustSetExtraHeaders(extra...) })
 	}
 
 	// Variables pour capturer le code HTTP et le TTFB
