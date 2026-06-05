@@ -455,7 +455,7 @@ func (b *Backfiller) migrate(ctx context.Context, crawlID int, withHTML bool) er
 	// Post-processing in ClickHouse (page_metrics, duplicate, redirect).
 	var cfg []byte
 	_ = b.pool.QueryRow(ctx, "SELECT config FROM crawls WHERE id=$1", crawlID).Scan(&cfg)
-	postprocess.NewCHRunner(b.ch, crawlID, postprocess.RespectNofollowFromConfig(cfg), b.logf).Run(ctx)
+	postprocess.NewCHRunner(b.ch, b.pool, crawlID, postprocess.RespectNofollowFromConfig(cfg), b.logf).Run(ctx)
 	b.SyncStats(ctx, crawlID) // write back duplicate/redirect scorecard stats
 
 	// Completeness check before flipping the read store.

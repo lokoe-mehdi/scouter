@@ -443,8 +443,8 @@ class ExportService
         // crawl_id predicate for that alias; without `cs.crawl_id`/`ct.crawl_id`
         // the join hash table is built over EVERY crawl's pages (millions of rows)
         // → MEMORY_LIMIT_EXCEEDED on big sites. Scoping each side keeps it small
-        // (~1 GiB, ~1s vs OOM). (in_crawl is synthesised as a constant 1 in CH, so
-        // there's no point filtering on it here.) No ORDER BY: sorting tens of
+        // (~1 GiB, ~1s vs OOM). (No in_crawl filter: sitemap-only placeholders have
+        // no links, so they never reach this src/target join anyway.) No ORDER BY: sorting tens of
         // millions of joined rows in CH would blow the memory limit anyway.
         $sql = "SELECT {$select} FROM links l "
             . "JOIN pages cs ON l.src = cs.id AND cs.crawl_id = {$cid} "
