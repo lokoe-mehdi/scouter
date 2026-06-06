@@ -1448,15 +1448,22 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
         });
     };
 
+    // Listeners document/window : une seule fois par composant (l'init se
+    // ré-exécute à chaque navigation htmx ; sans garde ils s'empileraient).
+    window.__urlTableDocWired = window.__urlTableDocWired || {};
+
     // Fermer dropdown colonnes si clic ailleurs
-    document.addEventListener('click', function(e) {
-        const dropdown = document.getElementById('columnDropdown_' + componentId);
-        const button = e.target.closest('button[onclick="toggleColumnDropdown_' + componentId + '()"]');
-        
-        if(!button && dropdown && !dropdown.contains(e.target)) {
-            dropdown.style.display = 'none';
-        }
-    });
+    if (!window.__urlTableDocWired['ltcol_' + componentId]) {
+        window.__urlTableDocWired['ltcol_' + componentId] = true;
+        document.addEventListener('click', function(e) {
+            const dropdown = document.getElementById('columnDropdown_' + componentId);
+            const button = e.target.closest('button[onclick="toggleColumnDropdown_' + componentId + '()"]');
+
+            if(!button && dropdown && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+            }
+        });
+    }
 
     // Toggle dropdown perPage
     window['togglePerPageDropdown_' + componentId] = function() {
@@ -1481,21 +1488,24 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
     };
 
     // Fermer dropdown perPage si clic ailleurs
-    document.addEventListener('click', function(e) {
-        const dropdown = document.getElementById('perPageDropdown_' + componentId);
-        const button = document.getElementById('perPageBtn_' + componentId);
-        // Bail out cleanly if either element is missing on the current page
-        // (e.g. after navigating to a page without this link-table instance) —
-        // otherwise calling .contains on null throws and pollutes every click.
-        if (!button || !dropdown) return;
+    if (!window.__urlTableDocWired['ltpp_' + componentId]) {
+        window.__urlTableDocWired['ltpp_' + componentId] = true;
+        document.addEventListener('click', function(e) {
+            const dropdown = document.getElementById('perPageDropdown_' + componentId);
+            const button = document.getElementById('perPageBtn_' + componentId);
+            // Bail out cleanly if either element is missing on the current page
+            // (e.g. after navigating to a page without this link-table instance) —
+            // otherwise calling .contains on null throws and pollutes every click.
+            if (!button || !dropdown) return;
 
-        if(!button.contains(e.target) && !dropdown.contains(e.target)) {
-            dropdown.style.display = 'none';
-            dropdown.classList.remove('show');
-            const icon = button.querySelector('.material-symbols-outlined');
-            if (icon) icon.style.transform = 'rotate(0deg)';
-        }
-    });
+            if(!button.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+                dropdown.classList.remove('show');
+                const icon = button.querySelector('.material-symbols-outlined');
+                if (icon) icon.style.transform = 'rotate(0deg)';
+            }
+        });
+    }
 
     // Tri par colonne en AJAX
     window['sortByColumn_' + componentId] = function(column) {
@@ -1700,14 +1710,17 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
     // Initialiser au chargement
     window['initScrollbarSync_' + componentId]();
 
-    // Synchroniser lors du redimensionnement de la fenêtre
-    window.addEventListener('resize', function() {
-        const topScrollbarContent = document.getElementById('topScrollbarContent_' + componentId);
-        const table = document.getElementById('urlTable_' + componentId);
-        if (table && topScrollbarContent) {
-            topScrollbarContent.style.width = table.offsetWidth + 'px';
-        }
-    });
+    // Synchroniser lors du redimensionnement de la fenêtre (une fois par composant)
+    if (!window.__urlTableDocWired['ltrz_' + componentId]) {
+        window.__urlTableDocWired['ltrz_' + componentId] = true;
+        window.addEventListener('resize', function() {
+            const topScrollbarContent = document.getElementById('topScrollbarContent_' + componentId);
+            const table = document.getElementById('urlTable_' + componentId);
+            if (table && topScrollbarContent) {
+                topScrollbarContent.style.width = table.offsetWidth + 'px';
+            }
+        });
+    }
 
     // Handler pour copier le chemin - utiliser la délégation d'événements sur document
     window['attachCopyHandlers_' + componentId] = function() {

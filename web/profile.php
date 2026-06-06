@@ -74,8 +74,10 @@ $barColor = $pct >= 100 ? '#dc2626' : ($pct >= 80 ? '#f59e0b' : 'var(--primary-c
         .pf-empty { color: var(--text-secondary); font-size: 0.9rem; padding: 1rem 0; }
         .pf-notice { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; border-radius: 10px; padding: 1rem 1.25rem; }
     </style>
+    <?php include __DIR__ . '/partials/head-assets.php'; ?>
 </head>
-<body style="background: #f4f5f7;">
+<!-- hx-boost : navigation hub sans rechargement (voir htmx.md §4bis) -->
+<body style="background: #f4f5f7;" hx-boost="true">
     <?php $headerContext = 'profile'; include 'components/top-header.php'; ?>
 
     <div class="pf">

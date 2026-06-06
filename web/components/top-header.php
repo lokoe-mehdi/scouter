@@ -54,7 +54,7 @@ if (!function_exists('getUserInitials')) {
 $userInitials = getUserInitials($currentUserEmail);
 ?>
 <header class="header">
-    <a href="<?= $basePath ?>index.php" class="header-brand" style="text-decoration: none; color: inherit;">
+    <a href="<?= $basePath ?>index.php" class="header-brand" style="text-decoration: none; color: inherit;" hx-boost="false"><?php /* index.php pas encore swap-safe → nav pleine */ ?>
         <div class="header-brand-icon">
             <img src="<?= $basePath ?>logo.png" alt="Logo Scouter">
         </div>
@@ -131,7 +131,7 @@ $userInitials = getUserInitials($currentUserEmail);
     <div class="header-actions">
         <?php if ($headerContext === 'dashboard' || $headerContext === 'monitor'): ?>
         <!-- Ghost link : Retour au projet -->
-        <a href="<?= $basePath ?>project.php?id=<?= $crawlRecord->project_id ?? '' ?>" class="header-back-link">
+        <a href="<?= $basePath ?>project.php?id=<?= $crawlRecord->project_id ?? '' ?>" class="header-back-link" hx-boost="false">
             <span class="material-symbols-outlined">arrow_back</span>
             <?= __('header.project') ?>
         </a>
@@ -139,14 +139,16 @@ $userInitials = getUserInitials($currentUserEmail);
         
         <?php if ($headerContext === 'admin'): ?>
         <!-- Ghost link : Retour à l'accueil -->
-        <a href="<?= $basePath ?>index.php" class="header-back-link">
+        <a href="<?= $basePath ?>index.php" class="header-back-link" hx-boost="false">
             <span class="material-symbols-outlined">arrow_back</span>
             <?= __('header.home') ?>
         </a>
         <?php endif; ?>
         
         <!-- Centre de téléchargements (exports CSV asynchrones) -->
-        <div class="notif-bell" id="dlBell">
+        <!-- hx-preserve : sous hx-boost (nav hub) htmx garde ce nœud vivant
+             (listeners + polling intacts) au lieu de le recréer. Voir htmx.md §4bis. -->
+        <div class="notif-bell" id="dlBell" hx-preserve="true">
             <button class="notif-bell-btn" id="dlBellBtn" type="button"
                     aria-label="<?= __('downloads.title') ?>">
                 <span class="material-symbols-outlined">download</span>
@@ -166,7 +168,7 @@ $userInitials = getUserInitials($currentUserEmail);
         </div>
 
         <!-- Cloche de notifications -->
-        <div class="notif-bell" id="notifBell">
+        <div class="notif-bell" id="notifBell" hx-preserve="true">
             <button class="notif-bell-btn" id="notifBellBtn" type="button"
                     aria-label="<?= __('notifications.title') ?>">
                 <span class="material-symbols-outlined">notifications</span>
@@ -204,7 +206,7 @@ $userInitials = getUserInitials($currentUserEmail);
                     <?= __('header.profile') ?>
                 </a>
                 <?php if ($isAdmin): ?>
-                <a href="<?= $basePath ?>pages/settings.php?tab=team" class="user-dropdown-item">
+                <a href="<?= $basePath ?>pages/settings.php?tab=team" class="user-dropdown-item" hx-boost="false">
                     <span class="material-symbols-outlined">manage_accounts</span>
                     <?= __('header.manage_users') ?>
                 </a>
@@ -212,13 +214,13 @@ $userInitials = getUserInitials($currentUserEmail);
                     <span class="material-symbols-outlined">monitoring</span>
                     <?= __('header.system_monitor') ?>
                 </a>
-                <a href="<?= $basePath ?>pages/settings.php" class="user-dropdown-item">
+                <a href="<?= $basePath ?>pages/settings.php" class="user-dropdown-item" hx-boost="false">
                     <span class="material-symbols-outlined">settings</span>
                     <?= __('header.settings') ?>
                 </a>
                 <?php else: ?>
                 <!-- Non-admins get self-service access to their own API keys & MCP setup. -->
-                <a href="<?= $basePath ?>pages/settings.php?tab=api" class="user-dropdown-item">
+                <a href="<?= $basePath ?>pages/settings.php?tab=api" class="user-dropdown-item" hx-boost="false">
                     <span class="material-symbols-outlined">vpn_key</span>
                     <?= __('header.api_mcp') ?>
                 </a>
@@ -232,7 +234,7 @@ $userInitials = getUserInitials($currentUserEmail);
                         </a>
                     <?php endforeach; ?>
                 </div>
-                <a href="<?= $basePath ?>api/logout" class="user-dropdown-item user-dropdown-item-danger"
+                <a href="<?= $basePath ?>api/logout" class="user-dropdown-item user-dropdown-item-danger" hx-boost="false"
                    onclick="try{Object.keys(localStorage).filter(function(k){return k.indexOf('dr-brief:')===0;}).forEach(function(k){localStorage.removeItem(k);});}catch(e){}">
                     <span class="material-symbols-outlined">logout</span>
                     <?= __('header.logout') ?>

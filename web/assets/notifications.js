@@ -43,6 +43,11 @@
         open: false,
 
         init() {
+            // Ré-exécution sous hx-boost (navigation hub) : la cloche est
+            // préservée via hx-preserve avec ses listeners et son polling ; on
+            // ne ré-initialise pas (sinon listeners empilés + polls dupliqués).
+            if (window.__notifCenterWired) return;
+            window.__notifCenterWired = true;
             this.el.bell    = document.getElementById('notifBell');
             this.el.btn     = document.getElementById('notifBellBtn');
             this.el.dropdown = document.getElementById('notifDropdown');

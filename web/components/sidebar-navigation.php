@@ -16,7 +16,13 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
 ?>
 
 <!-- Icon Rail (barre d'icônes principale) -->
-<aside class="icon-rail">
+<!-- hx-boost : les liens directs (segments/config) naviguent dans #main-content
+     sans recharger la page. Les <div data-section> ne sont pas des liens → non boostés. -->
+<aside class="icon-rail"
+       hx-boost="true"
+       hx-target="#main-content"
+       hx-swap="innerHTML show:window:top"
+       hx-push-url="true">
     <nav class="icon-rail-nav">
         <!-- Crawl Report -->
         <div class="icon-rail-item <?= $activeSection === 'report' ? 'active' : '' ?>"
@@ -63,7 +69,14 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
 </aside>
 
 <!-- Panneau latéral secondaire (caché si page directe) -->
-<aside class="sidebar-panel <?= !$isDirectPage ? 'open scrollable' : '' ?>" id="sidebarPanel">
+<!-- hx-boost : tous les liens de rapport/comparaison/explorer naviguent dans
+     #main-content sans recharger la page (voir htmx.md §4). Les <button> de
+     fermeture ne sont pas boostés (htmx ne boost que <a>/<form>). -->
+<aside class="sidebar-panel <?= !$isDirectPage ? 'open scrollable' : '' ?>" id="sidebarPanel"
+       hx-boost="true"
+       hx-target="#main-content"
+       hx-swap="innerHTML show:window:top"
+       hx-push-url="true">
     <!-- Section Crawl Report -->
     <div class="sidebar-panel-section" data-section="report" style="<?= $activeSection !== 'report' ? 'display: none;' : '' ?>">
         <div class="sidebar-panel-header">
@@ -138,7 +151,7 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
                 <span><?= __('sidebar.content_richness') ?></span>
             </a>
 
-            <a href="?crawl=<?= $crawlId ?>&page=duplication" 
+            <a href="?crawl=<?= $crawlId ?>&page=duplication"
                class="sidebar-panel-item <?= $page === 'duplication' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">content_copy</span>
                 <span><?= __('sidebar.duplication') ?></span>
@@ -302,17 +315,17 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
         </div>
         
         <div class="sidebar-panel-group">
-            <a href="?crawl=<?= $crawlId ?>&page=url-explorer" 
+            <a href="?crawl=<?= $crawlId ?>&page=url-explorer"
                class="sidebar-panel-item <?= $page === 'url-explorer' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">link</span>
                 <span><?= __('sidebar.url_explorer') ?></span>
             </a>
-            <a href="?crawl=<?= $crawlId ?>&page=link-explorer" 
+            <a href="?crawl=<?= $crawlId ?>&page=link-explorer"
                class="sidebar-panel-item <?= $page === 'link-explorer' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">hub</span>
                 <span><?= __('sidebar.link_explorer') ?></span>
             </a>
-            <a href="?crawl=<?= $crawlId ?>&page=sql-explorer" 
+            <a href="?crawl=<?= $crawlId ?>&page=sql-explorer"
                class="sidebar-panel-item <?= $page === 'sql-explorer' ? 'active' : '' ?>">
                 <span class="material-symbols-outlined">database</span>
                 <span><?= __('sidebar.sql_explorer') ?></span>

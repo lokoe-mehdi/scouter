@@ -1308,15 +1308,24 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
         });
     };
 
+    // Listeners au niveau document/window : enregistrés UNE SEULE FOIS par
+    // composant. L'init de table se ré-exécute à chaque navigation htmx (swap de
+    // #main-content) ; sans ce garde, ces listeners s'empileraient ET
+    // survivraient au DOM échangé (handler fantôme → erreurs/double-fire).
+    window.__urlTableDocWired = window.__urlTableDocWired || {};
+
     // Fermer dropdown colonnes si clic ailleurs
-    document.addEventListener('click', function(e) {
-        const dropdown = document.getElementById('columnDropdown_' + componentId);
-        const button = e.target.closest('button[onclick="toggleColumnDropdown_' + componentId + '()"]');
-        
-        if(!button && dropdown && !dropdown.contains(e.target)) {
-            dropdown.style.display = 'none';
-        }
-    });
+    if (!window.__urlTableDocWired['col_' + componentId]) {
+        window.__urlTableDocWired['col_' + componentId] = true;
+        document.addEventListener('click', function(e) {
+            const dropdown = document.getElementById('columnDropdown_' + componentId);
+            const button = e.target.closest('button[onclick="toggleColumnDropdown_' + componentId + '()"]');
+
+            if(!button && dropdown && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+            }
+        });
+    }
 
     // Toggle dropdown perPage
     window['togglePerPageDropdown_' + componentId] = function() {
@@ -1341,17 +1350,21 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
     };
 
     // Fermer dropdown perPage si clic ailleurs
-    document.addEventListener('click', function(e) {
-        const dropdown = document.getElementById('perPageDropdown_' + componentId);
-        const button = document.getElementById('perPageBtn_' + componentId);
-        
-        if(!button.contains(e.target) && dropdown && !dropdown.contains(e.target)) {
-            dropdown.style.display = 'none';
-            dropdown.classList.remove('show');
-            const icon = button.querySelector('.material-symbols-outlined');
-            icon.style.transform = 'rotate(0deg)';
-        }
-    });
+    if (!window.__urlTableDocWired['pp_' + componentId]) {
+        window.__urlTableDocWired['pp_' + componentId] = true;
+        document.addEventListener('click', function(e) {
+            const dropdown = document.getElementById('perPageDropdown_' + componentId);
+            const button = document.getElementById('perPageBtn_' + componentId);
+
+            // Garde null : après un swap htmx, button peut avoir disparu.
+            if(button && !button.contains(e.target) && dropdown && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+                dropdown.classList.remove('show');
+                const icon = button.querySelector('.material-symbols-outlined');
+                if (icon) icon.style.transform = 'rotate(0deg)';
+            }
+        });
+    }
 
     // Tri par colonne en AJAX
     window['sortByColumn_' + componentId] = function(column) {
@@ -1591,14 +1604,17 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
     // Initialiser au chargement
     window['initScrollbarSync_' + componentId]();
 
-    // Synchroniser lors du redimensionnement de la fenêtre
-    window.addEventListener('resize', function() {
-        const topScrollbarContent = document.getElementById('topScrollbarContent_' + componentId);
-        const table = document.getElementById('urlTable_' + componentId);
-        if (table && topScrollbarContent) {
-            topScrollbarContent.style.width = table.offsetWidth + 'px';
-        }
-    });
+    // Synchroniser lors du redimensionnement de la fenêtre (une fois par composant)
+    if (!window.__urlTableDocWired['rz_' + componentId]) {
+        window.__urlTableDocWired['rz_' + componentId] = true;
+        window.addEventListener('resize', function() {
+            const topScrollbarContent = document.getElementById('topScrollbarContent_' + componentId);
+            const table = document.getElementById('urlTable_' + componentId);
+            if (table && topScrollbarContent) {
+                topScrollbarContent.style.width = table.offsetWidth + 'px';
+            }
+        });
+    }
 
     // Handler pour copier le chemin - utiliser la délégation d'événements sur document
     window['attachCopyHandlers_' + componentId] = function() {

@@ -1499,8 +1499,8 @@ include __DIR__ . '/../components/url-table.php';
 // ============================================
 // SMART FILTER BAR - Configuration & State
 // ============================================
-const availableCategories = <?= json_encode($availableCategories) ?>;
-const fieldConfig = {
+var availableCategories = <?= json_encode($availableCategories) ?>;
+var fieldConfig = {
     url: { label: 'URL', icon: 'link', type: 'text', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
     category: { label: __('url_explorer.field_category'), icon: 'label', type: 'category', operators: ['in', 'not_in'] },
     depth: { label: __('url_explorer.field_depth'), icon: 'layers', type: 'number', operators: ['=', '>', '<', '>=', '<=', '!='] },
@@ -1534,7 +1534,7 @@ const fieldConfig = {
 
 // Étendre fieldConfig avec un filtre dynamique par extracteur custom.
 // Le type (number/text) est détecté côté serveur par sampling et passé ici.
-const availableExtractors = <?= json_encode($availableExtractors) ?>;
+var availableExtractors = <?= json_encode($availableExtractors) ?>;
 availableExtractors.forEach(extr => {
     const fieldId = 'extract_' + extr.key;
     if (extr.type === 'number') {
@@ -1547,7 +1547,7 @@ availableExtractors.forEach(extr => {
 // Étendre fieldConfig avec un filtre par clé générée par l'IA (Bulk AI Generator).
 // Type détecté via jsonb_typeof côté serveur — opérateurs adaptés (number → >,<,
 // between ; boolean → = true/false ; text → contains, regex…).
-const availableGenerations = <?= json_encode($availableGenerations) ?>;
+var availableGenerations = <?= json_encode($availableGenerations) ?>;
 availableGenerations.forEach(gen => {
     const fieldId = 'generation_' + gen.key;
     if (gen.type === 'number') {
@@ -1559,30 +1559,30 @@ availableGenerations.forEach(gen => {
     }
 });
 
-const availableSchemas = <?= json_encode($availableSchemas) ?>;
+var availableSchemas = <?= json_encode($availableSchemas) ?>;
 
-const operatorLabels = {
+var operatorLabels = {
     'contains': __('url_explorer.op_contains'), 'not_contains': __('url_explorer.op_not_contains'),
     'regex': __('url_explorer.op_regex'), 'not_regex': __('url_explorer.op_not_regex'),
     '=': '=', '>': '>', '<': '<', '>=': '≥', '<=': '≤', '!=': '≠',
     'in': __('url_explorer.op_is'), 'not_in': __('url_explorer.op_is_not')
 };
 
-const seoValueLabels = { 'unique': __('url_explorer.seo_unique'), 'empty': __('url_explorer.seo_empty'), 'duplicate': __('url_explorer.seo_duplicate') };
-const httpCodeLabels = { '1xx': '1xx (100-199)', '2xx': '2xx (200-299)', '3xx': '3xx (300-399)', '4xx': '4xx (400-499)', '5xx': '5xx (500-599)', 'other': __('url_explorer.other') };
-const boolLabels = { 'true': __('common.yes'), 'false': __('common.no') };
+var seoValueLabels = { 'unique': __('url_explorer.seo_unique'), 'empty': __('url_explorer.seo_empty'), 'duplicate': __('url_explorer.seo_duplicate') };
+var httpCodeLabels = { '1xx': '1xx (100-199)', '2xx': '2xx (200-299)', '3xx': '3xx (300-399)', '4xx': '4xx (400-499)', '5xx': '5xx (500-599)', 'other': __('url_explorer.other') };
+var boolLabels = { 'true': __('common.yes'), 'false': __('common.no') };
 
 // État des filtres : tableau de groupes, chaque groupe = tableau de conditions liées par OU
 // Les groupes entre eux sont liés par ET
-let filterGroups = [];
-let pendingFilterConfig = null; // Pour stocker le filtre en cours de configuration
-let editingChipIndex = null; // {groupIndex, chipIndex} si on édite une chip existante
+var filterGroups = [];
+var pendingFilterConfig = null; // Pour stocker le filtre en cours de configuration
+var editingChipIndex = null; // {groupIndex, chipIndex} si on édite une chip existante
 
 // Charger les filtres depuis l'URL
-const currentFilters = <?= json_encode($filters) ?>;
+var currentFilters = <?= json_encode($filters) ?>;
 // Colonnes actuellement affichées dans le tableau — utilisé pour auto-ajouter
 // la colonne correspondante quand on ajoute un filtre.
-const currentColumns = <?= json_encode($selectedColumns) ?>;
+var currentColumns = <?= json_encode($selectedColumns) ?>;
 if (currentFilters && currentFilters.length > 0) {
     // Convertir l'ancien format vers le nouveau
     filterGroups = convertOldFiltersToNew(currentFilters);
@@ -2175,7 +2175,7 @@ function selectStyledOption(item, inputId) {
 }
 
 // Fermer les selects au clic ailleurs
-document.addEventListener('click', function(e) {
+htmxPageListener(document, 'click', function(e) {
     if (!e.target.closest('.styled-select-wrapper')) {
         document.querySelectorAll('.styled-select-menu.show').forEach(m => m.classList.remove('show'));
     }
@@ -2369,7 +2369,7 @@ function clearFilters() {
 // ============================================
 // SEARCH
 // ============================================
-let searchTimeout;
+var searchTimeout;
 document.getElementById('globalSearch').addEventListener('input', function() {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
@@ -2545,7 +2545,7 @@ async function generateUrlFiltersFromQuestion() {
 // ============================================
 // INIT
 // ============================================
-document.addEventListener('DOMContentLoaded', function() {
+htmxOnReady(function() {
     renderChips();
 
     // AI popover wiring : Ctrl+Enter to submit, Ctrl+K to toggle, Esc to close,
@@ -2562,7 +2562,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
-    document.addEventListener('keydown', function (e) {
+    htmxPageListener(document, 'keydown', function (e) {
         if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
             if (openBtn && openBtn.disabled) return;
             e.preventDefault();
@@ -2577,7 +2577,7 @@ document.addEventListener('DOMContentLoaded', function() {
             closeAiUrlPopover();
         }
     });
-    document.addEventListener('mousedown', function (e) {
+    htmxPageListener(document, 'mousedown', function (e) {
         if (!popover || popover.style.display !== 'flex') return;
         if (popover.contains(e.target)) return;
         if (openBtn && openBtn.contains(e.target)) return;
@@ -2586,7 +2586,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Fermer popovers avec Escape
-document.addEventListener('keydown', function(e) {
+htmxPageListener(document, 'keydown', function(e) {
     if (e.key === 'Escape') closeAllPopovers();
 });
 
@@ -2617,7 +2617,7 @@ function updateBulkBtn() {
 }
 
 // Re-count whenever the table is re-rendered (sort, paginate, filter).
-document.addEventListener('DOMContentLoaded', () => {
+htmxOnReady(() => {
     updateBulkBtn();
     const tableWrap = document.querySelector('.table-scroll-area') ||
                       document.querySelector('table');

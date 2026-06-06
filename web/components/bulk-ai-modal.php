@@ -1258,19 +1258,19 @@
             else if (e.key === 'Enter')     { if (visible[activeIndex]) select(visible[activeIndex].model); e.preventDefault(); }
             else if (e.key === 'Escape')    { close(); trigger.focus(); }
         });
-        document.addEventListener('mousedown', e => {
+        htmxPageListener(document, 'mousedown', e => {
             if (!rootEl.contains(e.target) && !dropdown.contains(e.target)) close();
         });
         // Close on OUTSIDE scroll/resize so the dropdown doesn't drift away
         // from its anchor. Crucially, ignore scroll events that bubble FROM
         // INSIDE the dropdown — otherwise scrolling the model list itself
         // would close the dropdown immediately (chicken-and-egg).
-        document.addEventListener('scroll', (e) => {
+        htmxPageListener(document, 'scroll', (e) => {
             if (rootEl.getAttribute('data-open') !== 'true') return;
             if (e.target && (dropdown === e.target || dropdown.contains(e.target))) return;
             close();
         }, true);
-        window.addEventListener('resize', () => { if (rootEl.getAttribute('data-open') === 'true') close(); });
+        htmxPageListener(window, 'resize', () => { if (rootEl.getAttribute('data-open') === 'true') close(); });
 
         return {
             setModels(newModels) { models = newModels; renderDisplay(); },
