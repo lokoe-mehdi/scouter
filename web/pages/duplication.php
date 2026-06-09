@@ -611,14 +611,18 @@ function selectClusterPerPage(n) {
     changeClusterPerPage(n);
 }
 // Fermer le dropdown au clic en dehors (l'élément est recréé à chaque swap AJAX,
-// on le relit donc par id au moment du clic).
-document.addEventListener('click', function (e) {
-    const btn = document.getElementById('clusterPerPageBtn');
-    const dd = document.getElementById('clusterPerPageDropdown');
-    if (dd && dd.style.display === 'block' && btn && !btn.contains(e.target) && !dd.contains(e.target)) {
-        dd.style.display = 'none';
-    }
-});
+// on le relit donc par id au moment du clic). Listener enregistré une seule fois
+// (ids fixes) pour ne pas s'empiler à chaque navigation htmx.
+if (!window.__dupClusterWired) {
+    window.__dupClusterWired = true;
+    document.addEventListener('click', function (e) {
+        const btn = document.getElementById('clusterPerPageBtn');
+        const dd = document.getElementById('clusterPerPageDropdown');
+        if (dd && dd.style.display === 'block' && btn && !btn.contains(e.target) && !dd.contains(e.target)) {
+            dd.style.display = 'none';
+        }
+    });
+}
 function _reloadClusters(updates) {
     const container = document.getElementById('clustersContainer');
     if (!container) return;

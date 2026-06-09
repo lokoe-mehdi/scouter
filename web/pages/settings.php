@@ -702,7 +702,10 @@ try {
             background: #f1f5f9;
         }
     </style>
+    <?php $assetBase = '../'; include __DIR__ . '/../partials/head-assets.php'; ?>
 </head>
+<!-- Pas de hx-boost : settings a un garde beforeunload (modifs non sauvegardées)
+     que le boost contournerait → nav pleine pour préserver l'avertissement. -->
 <body>
     <?php $headerContext = 'admin'; $isInSubfolder = true; include(__DIR__ . '/../components/top-header.php'); ?>
 

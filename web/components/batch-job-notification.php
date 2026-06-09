@@ -105,10 +105,10 @@
 
 <script>
 // Batch Job Notification System
-let batchJobPollInterval = null;
-let batchJobId = null;
+var batchJobPollInterval = null;
+var batchJobId = null;
 
-let batchJobFirstCheck = true;
+var batchJobFirstCheck = true;
 
 function checkBatchJobStatus() {
     if (!batchJobId) return;
@@ -215,7 +215,7 @@ function stopBatchPolling() {
 }
 
 // Auto-start polling if job_id is in URL
-document.addEventListener('DOMContentLoaded', function() {
+htmxOnReady(function() {
     const urlParams = new URLSearchParams(window.location.search);
     const jobId = urlParams.get('batch_job_id');
     if (jobId) {

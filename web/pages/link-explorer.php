@@ -1433,10 +1433,10 @@ include __DIR__ . '/../components/link-table.php';
 // ============================================
 // SMART FILTER BAR - Link Explorer
 // ============================================
-const availableCategories = <?= json_encode($availableCategories) ?>;
+var availableCategories = <?= json_encode($availableCategories) ?>;
 
 // Configuration des champs
-const fieldConfig = {
+var fieldConfig = {
     // Champs liés au lien (pas de source/target)
     anchor: { label: __('link_explorer.field_anchor'), icon: 'text_fields', type: 'text', scope: 'link', operators: ['contains', 'not_contains', 'regex', 'not_regex'] },
     external: { label: __('link_explorer.field_internal_external'), icon: 'open_in_new', type: 'internal_external', scope: 'link' },
@@ -1478,7 +1478,7 @@ const fieldConfig = {
 };
 
 // Étendre fieldConfig avec un filtre dynamique par extracteur custom.
-const availableExtractors = <?= json_encode($availableExtractors) ?>;
+var availableExtractors = <?= json_encode($availableExtractors) ?>;
 availableExtractors.forEach(extr => {
     const fieldId = 'extract_' + extr.key;
     if (extr.type === 'number') {
@@ -1490,7 +1490,7 @@ availableExtractors.forEach(extr => {
 
 // Idem pour les clés générées par le Bulk AI Generator (page-scope —
 // filtre soit sur le source soit sur le target du lien selon la cible).
-const availableGenerations = <?= json_encode($availableGenerations) ?>;
+var availableGenerations = <?= json_encode($availableGenerations) ?>;
 availableGenerations.forEach(gen => {
     const fieldId = 'generation_' + gen.key;
     if (gen.type === 'number') {
@@ -1502,31 +1502,31 @@ availableGenerations.forEach(gen => {
     }
 });
 
-const availableSchemas = <?= json_encode($availableSchemas) ?>;
+var availableSchemas = <?= json_encode($availableSchemas) ?>;
 
-const operatorLabels = {
+var operatorLabels = {
     'contains': __('link_explorer.op_contains'), 'not_contains': __('link_explorer.op_not_contains'),
     'regex': __('link_explorer.op_regex'), 'not_regex': __('link_explorer.op_not_regex'),
     '=': '=', '>': '>', '<': '<', '>=': '≥', '<=': '≤', '!=': '≠',
     'in': __('link_explorer.op_is'), 'not_in': __('link_explorer.op_is_not')
 };
-const seoValueLabels = { 'unique': __('link_explorer.seo_unique'), 'empty': __('link_explorer.seo_empty'), 'duplicate': __('link_explorer.seo_duplicate') };
-const httpCodeLabels = { '1xx': '1xx (100-199)', '2xx': '2xx (200-299)', '3xx': '3xx (300-399)', '4xx': '4xx (400-499)', '5xx': '5xx (500-599)', 'other': __('link_explorer.other') };
-const boolLabels = { 'true': __('common.yes'), 'false': __('common.no') };
-const internalExternalLabels = { 'external': __('link_explorer.external'), 'internal': __('link_explorer.internal') };
-const dofollowNofollowLabels = { 'nofollow': 'Nofollow', 'dofollow': 'Dofollow' };
-const linkTypeLabels = { 'ahref': 'Ahref', 'canonical': 'Canonical', 'redirect': __('link_explorer.redirect') };
-const targetLabels = { 'source': __('link_explorer.source'), 'target': __('link_explorer.target'), 'link': __('link_explorer.link') };
+var seoValueLabels = { 'unique': __('link_explorer.seo_unique'), 'empty': __('link_explorer.seo_empty'), 'duplicate': __('link_explorer.seo_duplicate') };
+var httpCodeLabels = { '1xx': '1xx (100-199)', '2xx': '2xx (200-299)', '3xx': '3xx (300-399)', '4xx': '4xx (400-499)', '5xx': '5xx (500-599)', 'other': __('link_explorer.other') };
+var boolLabels = { 'true': __('common.yes'), 'false': __('common.no') };
+var internalExternalLabels = { 'external': __('link_explorer.external'), 'internal': __('link_explorer.internal') };
+var dofollowNofollowLabels = { 'nofollow': 'Nofollow', 'dofollow': 'Dofollow' };
+var linkTypeLabels = { 'ahref': 'Ahref', 'canonical': 'Canonical', 'redirect': __('link_explorer.redirect') };
+var targetLabels = { 'source': __('link_explorer.source'), 'target': __('link_explorer.target'), 'link': __('link_explorer.link') };
 
-let filterGroups = [];
-let pendingFilterConfig = null;
-let editingChipIndex = null;
+var filterGroups = [];
+var pendingFilterConfig = null;
+var editingChipIndex = null;
 
 // Charger les filtres depuis l'URL
-const currentFilters = <?= json_encode($filters) ?>;
+var currentFilters = <?= json_encode($filters) ?>;
 // Colonnes actuellement sélectionnées (avant transformation source_/target_ par
 // link-table). Utilisé pour auto-ajouter la colonne quand on ajoute un filtre.
-const currentColumns = <?= json_encode($selectedColumnsRaw ?? []) ?>;
+var currentColumns = <?= json_encode($selectedColumnsRaw ?? []) ?>;
 if (currentFilters && currentFilters.length > 0) {
     filterGroups = convertOldFiltersToNew(currentFilters);
 }
@@ -2175,7 +2175,7 @@ function openConfigPopover(field, existingChip = null) {
 }
 
 // Listener global pour valider avec Entrée quand un popover est ouvert
-document.addEventListener('keydown', function(e) {
+htmxPageListener(document, 'keydown', function(e) {
     if (e.key === 'Enter') {
         const configPopover = document.getElementById('configPopover');
         if (configPopover && configPopover.classList.contains('active')) {
@@ -2327,7 +2327,7 @@ function selectStyledOption(item, inputId) {
     item.closest('.styled-select-menu').classList.remove('show');
 }
 
-document.addEventListener('click', function(e) {
+htmxPageListener(document, 'click', function(e) {
     if (!e.target.closest('.styled-select-wrapper')) {
         document.querySelectorAll('.styled-select-menu.show').forEach(m => m.classList.remove('show'));
     }
@@ -2400,7 +2400,7 @@ function clearFilters() {
 // ============================================
 // SEARCH
 // ============================================
-let searchTimeout;
+var searchTimeout;
 document.getElementById('globalSearch').addEventListener('input', function() {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
@@ -2555,7 +2555,7 @@ async function generateLinkFiltersFromQuestion() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', function() {
+htmxOnReady(function() {
     renderChips();
 
     // AI popover wiring : Ctrl+Enter submit, Ctrl+K toggle, Esc close, click-outside dismiss.
@@ -2571,7 +2571,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
-    document.addEventListener('keydown', function (e) {
+    htmxPageListener(document, 'keydown', function (e) {
         if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
             if (openBtn && openBtn.disabled) return;
             e.preventDefault();
@@ -2586,12 +2586,12 @@ document.addEventListener('DOMContentLoaded', function() {
             closeAiLinkPopover();
         }
     });
-    document.addEventListener('mousedown', function (e) {
+    htmxPageListener(document, 'mousedown', function (e) {
         if (!popover || popover.style.display !== 'flex') return;
         if (popover.contains(e.target)) return;
         if (openBtn && openBtn.contains(e.target)) return;
         closeAiLinkPopover();
     });
 });
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeAllPopovers(); });
+htmxPageListener(document, 'keydown', function(e) { if (e.key === 'Escape') closeAllPopovers(); });
 </script>

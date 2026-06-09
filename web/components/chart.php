@@ -1392,13 +1392,18 @@ if (typeof window.downloadChart === 'undefined') {
         }
     };
 
-    // Fermer avec la touche Escape (une seule fois)
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') {
-            closeChartModal();
-            closeChartSqlModal();
-        }
-    });
+    // Fermer avec la touche Escape — enregistré une seule fois globalement.
+    // (chart.php se ré-exécute par graphe ET à chaque navigation htmx ; sans ce
+    // garde le listener s'empilerait indéfiniment.)
+    if (!window.__chartEscWired) {
+        window.__chartEscWired = true;
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                if (typeof closeChartModal === 'function') closeChartModal();
+                if (typeof closeChartSqlModal === 'function') closeChartSqlModal();
+            }
+        });
+    }
 
     // Fonction pour afficher la modale SQL Scope (utilise le composant partagé)
     window.showChartSqlScope = function(chartId) {

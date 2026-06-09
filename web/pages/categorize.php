@@ -2172,17 +2172,17 @@ tags:
 
 <script>
 // Mapping global des couleurs de catégories (depuis PHP)
-const globalCategoryColors = <?= json_encode($categoryColors, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-const TEMP_CATEGORY_COLOR = '#95a5a6';
-const UNCATEGORIZED_LABEL = <?= json_encode(__('categorize.uncategorized')) ?>;
+var globalCategoryColors = <?= json_encode($categoryColors, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+var TEMP_CATEGORY_COLOR = '#95a5a6';
+var UNCATEGORIZED_LABEL = <?= json_encode(__('categorize.uncategorized')) ?>;
 
 // Variables pour l'AJAX
-const categorizeProjectDir = <?= json_encode($projectDir) ?>;
-const categorizeCrawlId = <?= json_encode($crawlId) ?>;
+var categorizeProjectDir = <?= json_encode($projectDir) ?>;
+var categorizeCrawlId = <?= json_encode($crawlId) ?>;
 
 // État du graphique
-let isTestMode = false;
-let activeFilter = <?= json_encode($filterCat ?: null) ?>;
+var isTestMode = false;
+var activeFilter = <?= json_encode($filterCat ?: null) ?>;
 
 function Categorize_getCategoryColor(categoryName) {
     // D'abord chercher dans les règles éditées (mode visuel)
@@ -2206,9 +2206,9 @@ function isTemporaryCategory(categoryName) {
 }
 
 // Variables pour la pagination des pilules
-let allCategoryData = [];
-let pillsPage = 0;
-const PILLS_PER_PAGE = 6;
+var allCategoryData = [];
+var pillsPage = 0;
+var PILLS_PER_PAGE = 6;
 
 function renderChart(data, testMode = false) {
     const pillsContainer = document.getElementById('categoryPills');
@@ -2485,7 +2485,7 @@ function refreshCategorizationView() {
 }
 
 // Éditeur CodeMirror
-let yamlEditor = null;
+var yamlEditor = null;
 
 // Fonctions pour la modale d'aide
 function showHelp() {
@@ -2499,7 +2499,7 @@ function hideHelp() {
 }
 
 // Palette de 20 couleurs pastel pour les catégories
-const pastelColors = [
+var pastelColors = [
     '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
     '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
     '#F8B500', '#00CED1', '#FF7F50', '#9370DB', '#20B2AA',
@@ -2532,7 +2532,7 @@ function generateColors() {
 }
 
 // Initialiser le graphique et l'éditeur au chargement
-document.addEventListener('DOMContentLoaded', function() {
+htmxOnReady(function() {
     const initialData = <?= json_encode($categoryStats) ?>;
     if(initialData && initialData.length > 0) {
         // Pré-initialiser le mapping avec les données initiales
@@ -2566,7 +2566,7 @@ document.addEventListener('DOMContentLoaded', function() {
     syncCodeToVisual();
     
     // Raccourci Ctrl+S pour sauvegarder
-    document.addEventListener('keydown', function(e) {
+    htmxPageListener(document, 'keydown', function(e) {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') {
             e.preventDefault();
             saveCategorization();
@@ -2744,9 +2744,9 @@ async function aiSuggestCategorization() {
 // MODE VISUEL (WYSIWYG)
 // =====================================================
 
-let currentEditorMode = 'visual';
-let rulesData = [];
-let draggedElement = null;
+var currentEditorMode = 'visual';
+var rulesData = [];
+var draggedElement = null;
 
 // Switch entre les modes
 function switchEditorMode(mode) {
@@ -3135,8 +3135,8 @@ function removePattern(ruleIndex, section, patternIndex) {
 }
 
 // Setup drag and drop avec indicateur visuel
-let dropIndicator = null;
-let dropTargetIndex = -1;
+var dropIndicator = null;
+var dropTargetIndex = -1;
 
 function setupDragAndDrop() {
     const container = document.getElementById('rulesContainer');

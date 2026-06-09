@@ -631,13 +631,19 @@ $scopeItems = ['redirect_chains'];
         });
     };
 
-    document.addEventListener('click', function(e) {
-        const dropdown = document.getElementById('columnDropdown_' + componentId);
-        const button = e.target.closest('button[onclick="toggleColumnDropdown_' + componentId + '()"]');
-        if(!button && dropdown && !dropdown.contains(e.target)) {
-            dropdown.style.display = 'none';
-        }
-    });
+    // Listeners document/window : une seule fois par composant (l'init se
+    // ré-exécute à chaque navigation htmx ; sans garde ils s'empileraient).
+    window.__urlTableDocWired = window.__urlTableDocWired || {};
+    if (!window.__urlTableDocWired['rdcol_' + componentId]) {
+        window.__urlTableDocWired['rdcol_' + componentId] = true;
+        document.addEventListener('click', function(e) {
+            const dropdown = document.getElementById('columnDropdown_' + componentId);
+            const button = e.target.closest('button[onclick="toggleColumnDropdown_' + componentId + '()"]');
+            if(!button && dropdown && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+            }
+        });
+    }
 
     // Toggle dropdown perPage
     window['togglePerPageDropdown_' + componentId] = function() {
@@ -660,16 +666,19 @@ $scopeItems = ['redirect_chains'];
         window['changePerPage_' + componentId](value);
     };
 
-    document.addEventListener('click', function(e) {
-        const dropdown = document.getElementById('perPageDropdown_' + componentId);
-        const button = document.getElementById('perPageBtn_' + componentId);
-        if(button && !button.contains(e.target) && dropdown && !dropdown.contains(e.target)) {
-            dropdown.style.display = 'none';
-            dropdown.classList.remove('show');
-            const icon = button.querySelector('.material-symbols-outlined');
-            if(icon) icon.style.transform = 'rotate(0deg)';
-        }
-    });
+    if (!window.__urlTableDocWired['rdpp_' + componentId]) {
+        window.__urlTableDocWired['rdpp_' + componentId] = true;
+        document.addEventListener('click', function(e) {
+            const dropdown = document.getElementById('perPageDropdown_' + componentId);
+            const button = document.getElementById('perPageBtn_' + componentId);
+            if(button && !button.contains(e.target) && dropdown && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+                dropdown.classList.remove('show');
+                const icon = button.querySelector('.material-symbols-outlined');
+                if(icon) icon.style.transform = 'rotate(0deg)';
+            }
+        });
+    }
 
     // Tri par colonne en AJAX
     window['sortByColumn_' + componentId] = function(column) {
@@ -779,11 +788,14 @@ $scopeItems = ['redirect_chains'];
 
     window['initScrollbarSync_' + componentId]();
 
-    window.addEventListener('resize', function() {
-        const topScrollbarContent = document.getElementById('topScrollbarContent_' + componentId);
-        const table = document.getElementById('urlTable_' + componentId);
-        if (table && topScrollbarContent) topScrollbarContent.style.width = table.offsetWidth + 'px';
-    });
+    if (!window.__urlTableDocWired['rdrz_' + componentId]) {
+        window.__urlTableDocWired['rdrz_' + componentId] = true;
+        window.addEventListener('resize', function() {
+            const topScrollbarContent = document.getElementById('topScrollbarContent_' + componentId);
+            const table = document.getElementById('urlTable_' + componentId);
+            if (table && topScrollbarContent) topScrollbarContent.style.width = table.offsetWidth + 'px';
+        });
+    }
 
     // Scope modal
     window['showTableScope_' + componentId] = function() {

@@ -37,6 +37,11 @@
         hasActive: false, // un export en attente/en cours → poll plus agressif
 
         init() {
+            // Ré-exécution sous hx-boost (navigation hub) : le centre de
+            // téléchargements est préservé via hx-preserve avec ses listeners et
+            // son polling ; on ne ré-initialise pas (anti-empilement/doublon).
+            if (window.__dlCenterWired) return;
+            window.__dlCenterWired = true;
             this.el.bell     = document.getElementById('dlBell');
             this.el.btn      = document.getElementById('dlBellBtn');
             this.el.dropdown = document.getElementById('dlDropdown');

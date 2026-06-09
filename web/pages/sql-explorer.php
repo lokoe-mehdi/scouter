@@ -2419,23 +2419,23 @@ LIMIT 20;</code></pre>
 
 <script>
 // Préparer les données d'autocomplétion
-const sqlHintData = {
+var sqlHintData = {
     tables: <?= json_encode(array_keys($tables)) ?>,
     defaultTable: <?= json_encode($tables) ?>
 };
 
 // Requêtes sauvegardées
-const savedQueries = <?= json_encode($savedQueries) ?>;
+var savedQueries = <?= json_encode($savedQueries) ?>;
 
 // Système d'onglets
-let tabs = [
+var tabs = [
     { id: 0, title: '<?= __('sql_explorer.query_tab') ?> 1', query: <?= json_encode($initialQuery) ?>, editor: null }
 ];
-let activeTabId = 0;
-let nextTabId = 1;
+var activeTabId = 0;
+var nextTabId = 1;
 
 // Créer un objet avec toutes les colonnes pour l'autocomplétion
-const allColumns = {};
+var allColumns = {};
 <?php foreach ($tables as $tableName => $columns): ?>
 allColumns['<?= $tableName ?>'] = [
     <?php foreach ($columns as $column): ?>
@@ -2541,7 +2541,7 @@ function customSQLHint(editor, options) {
 }
 
 // Initialiser CodeMirror
-let sqlEditor;
+var sqlEditor;
 if (typeof CodeMirror !== 'undefined') {
     sqlEditor = CodeMirror.fromTextArea(document.getElementById('sqlEditor'), {
         mode: 'text/x-sql',
@@ -2820,8 +2820,8 @@ function toggleSqAccordion(headerEl) {
 // ============================================================================
 // USER SAVED QUERIES — gestion complète (load list, render, CRUD via API)
 // ============================================================================
-let userQueries = [];    // populé via API
-let sqEditingId = null;  // id de la query en édition (null = mode create)
+var userQueries = [];    // populé via API
+var sqEditingId = null;  // id de la query en édition (null = mode create)
 
 async function loadUserQueries() {
     try {
@@ -3071,7 +3071,7 @@ async function deleteUserQuery(id) {
 }
 
 // Charge la liste user au démarrage
-document.addEventListener('DOMContentLoaded', loadUserQueries);
+htmxOnReady(loadUserQueries);
 
 // Charger une requête sauvegardée
 function loadSavedQuery(index) {
@@ -3181,7 +3181,7 @@ function executeQuery() {
 }
 
 // Variable globale pour stocker les données actuelles
-let currentResultData = null;
+var currentResultData = null;
 
 // Afficher les résultats
 function displayResults(data) {
@@ -3519,7 +3519,7 @@ async function generateSqlFromNaturalLanguage() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', function () {
+htmxOnReady(function () {
     // If we landed here with ?run=1 (typically from a Dr. Brief deeplink),
     // auto-execute the prefilled query once the editor is initialised.
     // We strip the param from the URL afterwards so a refresh doesn't re-run.
@@ -3552,7 +3552,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Global shortcuts: Ctrl+K / Cmd+K opens the popover, Esc closes it.
-    document.addEventListener('keydown', function (e) {
+    htmxPageListener(document, 'keydown', function (e) {
         // Open with Ctrl+K / Cmd+K (skip when typing in another text input
         // that might already use it — but our use here is benign).
         if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
@@ -3573,7 +3573,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Click outside the popover closes it (skip clicks on the open button
     // itself — toggling is already handled by the button's onclick).
-    document.addEventListener('mousedown', function (e) {
+    htmxPageListener(document, 'mousedown', function (e) {
         if (!popover || popover.style.display !== 'flex') return;
         if (popover.contains(e.target)) return;
         if (openBtn && openBtn.contains(e.target)) return;
@@ -3582,15 +3582,15 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 // Fermer les modales avec Escape
-document.addEventListener('keydown', function(e) {
+htmxPageListener(document, 'keydown', function(e) {
     if (e.key === 'Escape') {
         hideSQLHelp();
     }
 });
 
 // Variables pour le graphique
-let currentChart = null;
-let currentChartType = 'doughnut';
+var currentChart = null;
+var currentChartType = 'doughnut';
 
 function changeChartType(type) {
     currentChartType = type;

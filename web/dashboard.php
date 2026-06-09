@@ -334,6 +334,21 @@ function isSectionCollapsed($sectionName) {
     return isset($_COOKIE[$cookieName]) && $_COOKIE[$cookieName] === 'collapsed';
 }
 
+// ============================================
+// htmx — navigation fragment (Zone A, voir htmx.md §4)
+// ============================================
+// Placé APRÈS tout le bootstrap : le contenu a besoin de $crawlRecord, $page,
+// des catégories et des scorecards de comparaison déjà calculés ci-dessus.
+// On ne rend alors QUE l'intérieur de #main-content (le reste de la chrome
+// — header, sidebar, widgets — reste en place côté client).
+// On exclut la restauration d'historique (htmx veut alors la page pleine).
+$isHtmxFragment = !empty($_SERVER['HTTP_HX_REQUEST'])
+    && empty($_SERVER['HTTP_HX_HISTORY_RESTORE_REQUEST']);
+if ($isHtmxFragment) {
+    require __DIR__ . '/partials/main-content.php';
+    exit;
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="<?= I18n::getInstance()->getLang() ?>">
@@ -376,6 +391,7 @@ function isSectionCollapsed($sectionName) {
     <script src="assets/vendor/codemirror/addon/show-hint.min.js"></script>
     <script src="assets/vendor/codemirror/addon/sql-hint.min.js"></script>
     <link rel="stylesheet" href="assets/vendor/codemirror/addon/show-hint.min.css">
+    <?php include __DIR__ . '/partials/head-assets.php'; ?>
 </head>
 <body>
     <!-- Header -->
@@ -409,161 +425,8 @@ function isSectionCollapsed($sectionName) {
         <?php include 'components/sidebar-navigation.php'; ?>
 
         <!-- Main Content -->
-        <main class="main-content">
-            <?php
-            // Vérifier si le crawl est vide (aucune page indexable)
-            $crawlIsEmpty = ($crawlRecord->compliant ?? 0) == 0;
-            $pagesNeedingData = ['inlinks', 'outlinks', 'seo-tags', 'response-time', 'codes', 'depth', 'headings', 'duplication', 'content-richness', 'pagerank', 'pagerank-leak', 'accessibility', 'extractions', 'structured-data'];
-            
-            if ($crawlIsEmpty && in_array($page, $pagesNeedingData)) {
-                // Afficher un message d'erreur pour les pages nécessitant des données
-                ?>
-                <div class="empty-crawl-message" style="padding: 3rem; text-align: center; max-width: 600px; margin: 2rem auto;">
-                    <div style="font-size: 4rem; margin-bottom: 1rem;">⚠️</div>
-                    <h2 style="margin-bottom: 1rem; color: var(--text-primary);"><?= __('dashboard.no_indexable_pages') ?></h2>
-                    <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
-                        <?= __('dashboard.no_indexable_pages_desc') ?>
-                    </p>
-                    <p style="color: var(--text-tertiary); font-size: 0.9rem;">
-                        <?= __('dashboard.no_indexable_pages_causes') ?>
-                    </p>
-                    <a href="?crawl=<?= $crawlId ?>&page=home" class="btn btn-primary" style="margin-top: 1.5rem; display: inline-block; padding: 0.75rem 1.5rem; background: var(--primary-color); color: white; border-radius: 8px; text-decoration: none;">
-                        <?= __('common.back_home') ?>
-                    </a>
-                </div>
-                <?php
-            } else {
-            // Inclusion de la page demandée
-            switch($page) {
-                case 'home':
-                    include 'pages/home.php';
-                    break;
-                case 'url-explorer':
-                    include 'pages/url-explorer.php';
-                    break;
-                case 'link-explorer':
-                    include 'pages/link-explorer.php';
-                    break;
-                case 'sql-explorer':
-                    include 'pages/sql-explorer.php';
-                    break;
-                case 'depth':
-                    include 'pages/depth.php';
-                    break;
-                case 'codes':
-                    include 'pages/codes.php';
-                    break;
-                case 'seo-tags':
-                    include 'pages/seo-tags.php';
-                    break;
-                case 'headings':
-                    include 'pages/headings.php';
-                    break;
-                case 'redirect-chains':
-                    include 'pages/redirect-chains.php';
-                    break;
-                case 'sitemap':
-                    include 'pages/sitemap.php';
-                    break;
-                case 'duplication':
-                    include 'pages/duplication.php';
-                    break;
-                case 'extractions':
-                    include 'pages/extractions.php';
-                    break;
-                case 'structured-data':
-                    include 'pages/structured-data.php';
-                    break;
-                case 'content-richness':
-                    include 'pages/content-richness.php';
-                    break;
-                case 'accessibility':
-                    include 'pages/accessibility.php';
-                    break;
-                case 'pagerank':
-                    include 'pages/pagerank.php';
-                    break;
-                case 'pagerank-leak':
-                    include 'pages/pagerank-leak.php';
-                    break;
-                case 'inlinks':
-                    include 'pages/inlinks.php';
-                    break;
-                case 'outlinks':
-                    include 'pages/outlinks.php';
-                    break;
-                case 'response-time':
-                    include 'pages/response-time.php';
-                    break;
-                case 'categorize':
-                    // SÉCURITÉ: Vérifier les droits de gestion
-                    if (!$canManageCurrentProject) {
-                        echo '<div class="error-page" style="padding: 2rem; text-align: center;"><h1>' . __('dashboard.access_denied') . '</h1><p>' . __('dashboard.access_denied_desc') . '</p></div>';
-                    } else {
-                        include 'pages/categorize.php';
-                    }
-                    break;
-                case 'comparison-overview':
-                    include 'pages/comparison-overview.php';
-                    break;
-                case 'new-urls':
-                    include 'pages/new-urls.php';
-                    break;
-                case 'lost-urls':
-                    include 'pages/lost-urls.php';
-                    break;
-                case 'code-changes':
-                    include 'pages/code-changes.php';
-                    break;
-                case 'depth-comparison':
-                    include 'pages/depth-comparison.php';
-                    break;
-                case 'sitemap-comparison':
-                    include 'pages/sitemap-comparison.php';
-                    break;
-                case 'accessibility-comparison':
-                    include 'pages/accessibility-comparison.php';
-                    break;
-                case 'seo-tags-comparison':
-                    include 'pages/seo-tags-comparison.php';
-                    break;
-                case 'headings-comparison':
-                    include 'pages/headings-comparison.php';
-                    break;
-                case 'content-richness-comparison':
-                    include 'pages/content-richness-comparison.php';
-                    break;
-                case 'duplication-comparison':
-                    include 'pages/duplication-comparison.php';
-                    break;
-                case 'structured-data-comparison':
-                    include 'pages/structured-data-comparison.php';
-                    break;
-                case 'inlinks-comparison':
-                    include 'pages/inlinks-comparison.php';
-                    break;
-                case 'outlinks-comparison':
-                    include 'pages/outlinks-comparison.php';
-                    break;
-                case 'pagerank-comparison':
-                    include 'pages/pagerank-comparison.php';
-                    break;
-                case 'pagerank-leak-comparison':
-                    include 'pages/pagerank-leak-comparison.php';
-                    break;
-                case 'config':
-                    // SÉCURITÉ: Vérifier les droits de gestion
-                    if (!$canManageCurrentProject) {
-                        echo '<div class="error-page" style="padding: 2rem; text-align: center;"><h1>' . __('dashboard.access_denied') . '</h1><p>' . __('dashboard.access_denied_desc') . '</p></div>';
-                    } else {
-                        include 'pages/config.php';
-                    }
-                    break;
-                default:
-                    include 'pages/home.php';
-            }
-            } // fin du else (crawl non vide)
-            ?>
+        <main class="main-content" id="main-content">
+            <?php require __DIR__ . '/partials/main-content.php'; ?>
         </main>
     </div>
 

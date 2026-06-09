@@ -83,13 +83,18 @@ function toggleCompareDropdown(e) {
     dropdown.classList.toggle('show');
 }
 
-document.addEventListener('click', function(e) {
-    const dropdown = document.getElementById('compareDropdown');
-    const btn = document.getElementById('compareSelectorBtn');
-    if (dropdown && btn && !btn.contains(e.target) && !dropdown.contains(e.target)) {
-        dropdown.classList.remove('show');
-    }
-});
+// Enregistré une seule fois (ids fixes) : la barre de comparaison se ré-affiche
+// à chaque navigation htmx ; sans ce garde le listener s'empilerait.
+if (!window.__compareBarWired) {
+    window.__compareBarWired = true;
+    document.addEventListener('click', function(e) {
+        const dropdown = document.getElementById('compareDropdown');
+        const btn = document.getElementById('compareSelectorBtn');
+        if (dropdown && btn && !btn.contains(e.target) && !dropdown.contains(e.target)) {
+            dropdown.classList.remove('show');
+        }
+    });
+}
 
 function changeCompareCrawl(compareId) {
     const url = new URL(window.location);

@@ -357,8 +357,10 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
     .mon-store-pill.is-ch { background: rgba(255,204,0,0.16); color: #b8860b; }
     .mon-store-pill.is-pg { background: rgba(51,103,145,0.12); color: #336791; }
     </style>
+    <?php $assetBase = '../'; include __DIR__ . '/../partials/head-assets.php'; ?>
 </head>
-<body>
+<!-- hx-boost : navigation hub sans rechargement (voir htmx.md §4bis) -->
+<body hx-boost="true">
     <?php $headerContext = 'admin'; $isInSubfolder = true; include(__DIR__ . '/../components/top-header.php'); ?>
 
     <div class="mon-page">
