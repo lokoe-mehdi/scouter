@@ -136,7 +136,7 @@ foreach ($categoryStatsData as $cat) {
         'icon' => 'title',
         'title' => __('seo_tags.card_title_fix'),
         'value' => number_format($titleStats['empty'] + $titleStats['duplicate']),
-        'desc' => round((($titleStats['empty'] + $titleStats['duplicate']) / $titleStats['total']) * 100, 1).'% '.__('common.of_total')
+        'desc' => ($titleStats['total'] > 0 ? round((($titleStats['empty'] + $titleStats['duplicate']) / $titleStats['total']) * 100, 1) : 0).'% '.__('common.of_total')
     ]);
     
     Component::card([
@@ -144,7 +144,7 @@ foreach ($categoryStatsData as $cat) {
         'icon' => 'format_h1',
         'title' => __('seo_tags.card_h1_fix'),
         'value' => number_format($h1Stats['empty'] + $h1Stats['duplicate']),
-        'desc' => round((($h1Stats['empty'] + $h1Stats['duplicate']) / $h1Stats['total']) * 100, 1).'% '.__('common.of_total')
+        'desc' => ($h1Stats['total'] > 0 ? round((($h1Stats['empty'] + $h1Stats['duplicate']) / $h1Stats['total']) * 100, 1) : 0).'% '.__('common.of_total')
     ]);
     
     Component::card([
@@ -152,7 +152,7 @@ foreach ($categoryStatsData as $cat) {
         'icon' => 'description',
         'title' => __('seo_tags.card_metadesc_fix'),
         'value' => number_format($metaDescStats['empty'] + $metaDescStats['duplicate']),
-        'desc' => round((($metaDescStats['empty'] + $metaDescStats['duplicate']) / $metaDescStats['total']) * 100, 1).'% '.__('common.of_total')
+        'desc' => ($metaDescStats['total'] > 0 ? round((($metaDescStats['empty'] + $metaDescStats['duplicate']) / $metaDescStats['total']) * 100, 1) : 0).'% '.__('common.of_total')
     ]);
     
     ?>

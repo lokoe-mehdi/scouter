@@ -134,7 +134,7 @@ foreach ($indexabilityByCategoryRaw as $row) {
         'icon' => 'check_circle',
         'title' => __('accessibility.card_crawled'),
         'value' => number_format($globalStats->crawled),
-        'desc' => round(($globalStats->crawled/$globalStats->urls)*100, 1).'% '.__('common.of_total')
+        'desc' => ($globalStats->urls > 0 ? round(($globalStats->crawled/$globalStats->urls)*100, 1) : 0).'% '.__('common.of_total')
     ]);
     
     Component::card([
@@ -142,7 +142,7 @@ foreach ($indexabilityByCategoryRaw as $row) {
         'icon' => 'verified',
         'title' => __('accessibility.card_indexable'),
         'value' => number_format($globalStats->compliant),
-        'desc' => round(($globalStats->compliant/$globalStats->crawled)*100, 1).'% '.__('accessibility.card_indexable_pct')
+        'desc' => ($globalStats->crawled > 0 ? round(($globalStats->compliant/$globalStats->crawled)*100, 1) : 0).'% '.__('accessibility.card_indexable_pct')
     ]);
     
     Component::card([
