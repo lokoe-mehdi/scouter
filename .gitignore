@@ -4,10 +4,10 @@
 /logs/
 /crawls/
 /storage/
-composer.lock
 .env
 .claude
 .phpunit.cache/
+tests/validation/*.log
 # Composer binary — le build Docker utilise l'image composer:latest, pas ce phar
 composer.phar
 .env.autosize
