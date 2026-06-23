@@ -1,10 +1,23 @@
 <?php
 /**
- * Crée l'utilisateur demo/demo par défaut
- * Usage: php create-demo-user.php
+ * Crée l'utilisateur demo/demo par défaut.
+ *
+ * Disabled by default to avoid accidentally creating a known admin account.
+ * Usage: SCOUTER_ALLOW_DEMO_USER=true php scripts/create-demo-user.php
  */
 
-require("vendor/autoload.php");
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
+$allowDemo = strtolower((string)getenv('SCOUTER_ALLOW_DEMO_USER'));
+if (!in_array($allowDemo, ['1', 'true', 'yes'], true)) {
+    fwrite(STDERR, "Refusing to create demo admin. Set SCOUTER_ALLOW_DEMO_USER=true to enable this dev-only script.\n");
+    exit(1);
+}
+
+require(__DIR__ . "/../vendor/autoload.php");
 
 use App\Database\UserRepository;
 
