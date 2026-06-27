@@ -284,6 +284,14 @@ if (!empty($crawlRecord->config)) {
             <?php
             // Support both old nested format (respect.robots) and new flat format (respect_robots)
             $adv = $configData['advanced'];
+            $httpAuth = $adv['http_auth'] ?? $adv['httpAuth'] ?? null;
+            $customHeaders = $adv['custom_headers'] ?? $adv['customHeaders'] ?? [];
+            $sensitiveHeaderNames = ['authorization', 'cookie', 'x-api-key', 'api-key', 'proxy-authorization'];
+            $displayHeaderValue = function ($name, $value) use ($sensitiveHeaderNames) {
+                return in_array(strtolower((string)$name), $sensitiveHeaderNames, true)
+                    ? '••••••••'
+                    : (string)$value;
+            };
             $rules = [
                 ['key' => 'respect_robots',    'old' => $adv['respect']['robots'] ?? null,    'new' => $adv['respect_robots'] ?? null,    'label' => __('config.respect_robots'),    'icon' => 'smart_toy'],
                 ['key' => 'respect_canonical', 'old' => $adv['respect']['canonical'] ?? null, 'new' => $adv['respect_canonical'] ?? null, 'label' => __('config.respect_canonical'), 'icon' => 'content_copy'],
@@ -323,31 +331,34 @@ if (!empty($crawlRecord->config)) {
             </table>
             <?php endif; ?>
 
-            <?php if (isset($configData['advanced']['httpAuth'])): ?>
+            <?php if (is_array($httpAuth)): ?>
+            <?php
+            $authEnabled = ($httpAuth['enabled'] ?? false) === true || !empty($httpAuth['username']);
+            ?>
             <h3 style="margin: 1.5rem 0 1rem 0; color: var(--text-primary); font-size: 1.1rem;"><?= __('config.http_auth') ?></h3>
             <table class="data-table" style="margin-bottom: 2rem;">
                 <tbody>
                     <tr>
                         <td style="width: 300px;"><?= __('config.auth_enabled') ?></td>
                         <td>
-                            <span class="config-value boolean <?= ($configData['advanced']['httpAuth']['enabled'] === true) ? 'true' : 'false' ?>">
+                            <span class="config-value boolean <?= $authEnabled ? 'true' : 'false' ?>">
                                 <span class="material-symbols-outlined">
-                                    <?= ($configData['advanced']['httpAuth']['enabled'] === true) ? 'check_circle' : 'cancel' ?>
+                                    <?= $authEnabled ? 'check_circle' : 'cancel' ?>
                                 </span>
-                                <?= ($configData['advanced']['httpAuth']['enabled'] === true) ? __('common.yes') : __('common.no') ?>
+                                <?= $authEnabled ? __('common.yes') : __('common.no') ?>
                             </span>
                         </td>
                     </tr>
-                    <?php if ($configData['advanced']['httpAuth']['enabled'] === true): ?>
+                    <?php if ($authEnabled): ?>
                     <tr>
                         <td style="width: 300px;">Login</td>
-                        <td><code class="config-code"><?= htmlspecialchars($configData['advanced']['httpAuth']['username'] ?? '') ?></code></td>
+                        <td><code class="config-code"><?= htmlspecialchars($httpAuth['username'] ?? '') ?></code></td>
                     </tr>
                     <tr>
                         <td style="width: 300px;"><?= __('config.password') ?></td>
                         <td>
                             <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                <code class="config-code" id="passwordField" data-password="<?= htmlspecialchars($configData['advanced']['httpAuth']['password'] ?? '') ?>">••••••••</code>
+                                <code class="config-code" id="passwordField" data-password="<?= htmlspecialchars($httpAuth['password'] ?? '') ?>">••••••••</code>
                                 <button onclick="togglePassword()" style="background: none; border: none; cursor: pointer; padding: 0.25rem; color: var(--text-secondary);">
                                     <span class="material-symbols-outlined" id="eyeIcon" style="font-size: 20px;">visibility</span>
                                 </button>
@@ -359,7 +370,7 @@ if (!empty($crawlRecord->config)) {
             </table>
             <?php endif; ?>
 
-            <?php if (isset($configData['advanced']['customHeaders']) && is_array($configData['advanced']['customHeaders']) && !empty($configData['advanced']['customHeaders'])): ?>
+            <?php if (is_array($customHeaders) && !empty($customHeaders)): ?>
             <h3 style="margin: 1.5rem 0 1rem 0; color: var(--text-primary); font-size: 1.1rem;"><?= __('config.custom_headers') ?></h3>
             <table class="data-table" style="margin-bottom: 2rem;">
                 <thead>
@@ -369,10 +380,10 @@ if (!empty($crawlRecord->config)) {
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($configData['advanced']['customHeaders'] as $name => $value): ?>
+                    <?php foreach ($customHeaders as $name => $value): ?>
                     <tr>
                         <td><strong style="color: var(--primary-color);"><?= htmlspecialchars($name) ?></strong></td>
-                        <td><code class="config-code"><?= htmlspecialchars($value) ?></code></td>
+                        <td><code class="config-code"><?= htmlspecialchars($displayHeaderValue($name, $value)) ?></code></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
