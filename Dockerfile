@@ -37,8 +37,9 @@ WORKDIR /app
 # Copy application files
 COPY . /app
 
-# Install PHP dependencies
-RUN composer update --no-interaction --prefer-dist --optimize-autoloader
+# Install PHP dependencies from the lock file only. Builds must be reproducible;
+# generate composer.lock locally with `composer update` when dependencies change.
+RUN composer install --no-interaction --prefer-dist --optimize-autoloader
 
 # Configure Nginx
 COPY docker/nginx.conf /etc/nginx/sites-available/default

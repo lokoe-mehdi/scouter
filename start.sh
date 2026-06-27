@@ -1,6 +1,15 @@
 #!/bin/bash
+set -e
 
-# 1. Detect Docker Compose command
+# 1. Require Docker. Do not install privileged software from this project script.
+if ! command -v docker &> /dev/null; then
+    echo "Docker is not installed."
+    echo "Install Docker or Podman manually, then rerun ./start.sh."
+    echo "Docker docs: https://docs.docker.com/engine/install/"
+    exit 1
+fi
+
+# 2. Detect Docker Compose command
 if docker compose version >/dev/null 2>&1; then
     DOCKER_COMPOSE="docker compose"
 elif docker-compose version >/dev/null 2>&1; then
@@ -9,25 +18,12 @@ else
     DOCKER_COMPOSE=""
 fi
 
-# 2. Auto-install Docker if missing
-if ! command -v docker &> /dev/null; then
-    echo "⚠️ Docker is not installed. Attempting automatic installation..."
-    # Uses the official Docker install script (supports Debian, Ubuntu, CentOS, Fedora)
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sudo sh get-docker.sh
-    sudo usermod -aG docker $USER
-    rm get-docker.sh
-    echo "✅ Docker installed. Note: You may need to restart your session to use Docker without sudo."
-
-    # If Docker was just installed, set the default command
-    DOCKER_COMPOSE="docker compose"
-fi
-
-# 3. Final check for the Compose plugin
+# 3. Require Compose. Do not run sudo package managers from this project script.
 if [ -z "$DOCKER_COMPOSE" ]; then
-    echo "❌ Docker is present but Compose is missing. Installing plugin..."
-    sudo apt-get update && sudo apt-get install -y docker-compose-plugin
-    DOCKER_COMPOSE="docker compose"
+    echo "Docker is present but Docker Compose is missing."
+    echo "Install the Compose plugin manually, then rerun ./start.sh."
+    echo "Compose docs: https://docs.docker.com/compose/install/"
+    exit 1
 fi
 
 echo "================================"
