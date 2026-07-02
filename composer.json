@@ -1,4 +1,7 @@
 {
+    "name": "lokoe-mehdi/scouter",
+    "description": "SEO crawler and analysis dashboard.",
+    "license": "MIT",
     "require": {
         "chuyskywalker/rolling-curl": "^3.1",
         "xparse/element-finder": "^3.0",
@@ -25,6 +28,9 @@
         "pestphp/pest": "^4.3"
     },
     "config": {
+        "platform": {
+            "php": "8.3.0"
+        },
         "allow-plugins": {
             "pestphp/pest-plugin": true
         }
