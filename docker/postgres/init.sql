@@ -126,6 +126,35 @@ CREATE INDEX idx_crawls_project_id ON crawls(project_id);
 CREATE INDEX idx_crawls_domain ON crawls(domain);
 CREATE INDEX idx_crawls_status ON crawls(status);
 
+-- File de jobs asynchrones (crawls, exports, suppressions, batch jobs).
+-- Aussi créée en migration pour les volumes existants.
+CREATE TABLE jobs (
+    id SERIAL PRIMARY KEY,
+    project_dir TEXT NOT NULL,
+    project_name TEXT NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending',
+    progress INTEGER DEFAULT 0,
+    pid INTEGER DEFAULT NULL,
+    command TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP DEFAULT NULL,
+    finished_at TIMESTAMP DEFAULT NULL,
+    error TEXT DEFAULT NULL
+);
+
+CREATE TABLE job_logs (
+    id SERIAL PRIMARY KEY,
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    message TEXT,
+    type VARCHAR(20) DEFAULT 'info',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_jobs_project_dir ON jobs(project_dir);
+CREATE INDEX idx_jobs_status ON jobs(status);
+CREATE INDEX idx_job_logs_job_id ON job_logs(job_id);
+CREATE INDEX idx_jobs_status_created ON jobs(status, created_at);
+
 -- Configuration de catégorisation par crawl (contenu YAML du cat.yml)
 CREATE TABLE categorization_config (
     id SERIAL PRIMARY KEY,
@@ -599,5 +628,6 @@ INSERT INTO migrations (name) VALUES
     ('2026-05-24-16-00-crawl-critical-errors'),
     ('2026-05-25-10-00-report-precompute-cache'),
     ('2026-05-25-12-00-report-cache-query-columns'),
-    ('2026-05-27-12-00-crawl-health-score')
+    ('2026-05-27-12-00-crawl-health-score'),
+    ('2026-05-28-09-00-jobs-table')
 ON CONFLICT (name) DO NOTHING;

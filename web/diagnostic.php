@@ -1,6 +1,9 @@
 <?php
 /**
- * Script de diagnostic et d'auto-réparation pour Scouter
+ * Script de diagnostic et d'auto-réparation pour Scouter.
+ *
+ * CLI only. This file lives under web/ for historical reasons, but it must not
+ * expose instance details over HTTP.
  * 
  * Vérifie:
  * 1. La connexion base de données
@@ -10,7 +13,14 @@
  * 5. La configuration PHP
  */
 
-require_once __DIR__ . '/vendor/autoload.php';
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
+$root = dirname(__DIR__);
+
+require_once $root . '/vendor/autoload.php';
 
 use App\Database\PostgresDatabase;
 
@@ -73,8 +83,8 @@ if (!empty($missingTables)) {
 // 4. Directory Permissions
 echo "\n4. Checking Directories...\n";
 $dirs = [
-    'logs' => __DIR__ . '/logs',
-    'web/assets' => __DIR__ . '/web/assets'
+    'logs' => $root . '/logs',
+    'web/assets' => $root . '/web/assets'
 ];
 
 foreach ($dirs as $name => $path) {

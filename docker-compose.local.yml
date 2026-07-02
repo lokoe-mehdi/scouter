@@ -17,7 +17,7 @@ services:
       - POSTGRES_PASSWORD=scouter
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro,Z
     restart: unless-stopped
     networks:
       - scouter-net
@@ -47,7 +47,7 @@ services:
       # Source unique partagée avec le schéma embarqué du crawler (EnsureSchema),
       # comme en prod (docker-compose.yml). L'ancien chemin ./docker/clickhouse/init.sql
       # n'existe pas et faisait échouer/diverger l'install locale à neuf.
-      - ./crawler-go/internal/db/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./crawler-go/internal/db/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro,z
     restart: unless-stopped
     networks:
       - scouter-net
@@ -67,12 +67,12 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./web:/app/web
-      - ./app:/app/app
-      - ./crawls:/var/www/crawls
-      - ./logs:/app/logs
+      - ./web:/app/web:z
+      - ./app:/app/app:z
+      - ./crawls:/var/www/crawls:z
+      - ./logs:/app/logs:z
       # Page-HTML blobs (local backend) shared with the worker + crawler-go.
-      - ./storage:/app/storage
+      - ./storage:/app/storage:z
     environment:
       - PHP_CLI_SERVER_WORKERS=8
       - RENDERER_URL=http://renderer-1:3000,http://renderer-2:3000,http://renderer-3:3000
@@ -155,10 +155,10 @@ services:
       - S3_PREFIX=${S3_PREFIX:-}
       - S3_USE_PATH_STYLE=${S3_USE_PATH_STYLE:-false}
     volumes:
-      - ./web:/app/web
-      - ./app:/app/app
-      - ./logs:/app/logs
-      - ./storage:/app/storage
+      - ./web:/app/web:z
+      - ./app:/app/app:z
+      - ./logs:/app/logs:z
+      - ./storage:/app/storage:z
     networks:
       - scouter-net
     depends_on:
@@ -222,13 +222,13 @@ services:
       - S3_PREFIX=${S3_PREFIX:-}
       - S3_USE_PATH_STYLE=${S3_USE_PATH_STYLE:-false}
     volumes:
-      - ./crawler-go:/src
+      - ./crawler-go:/src:z
       - go-build-cache:/root/.cache/go-build
       - go-mod-cache:/go/pkg/mod
       # Shared with the scouter container so the UI live console can tail logs.
-      - ./logs:/app/logs
+      - ./logs:/app/logs:z
       # Page-HTML blobs (local backend) — shared with scouter so it can read them.
-      - ./storage:/app/storage
+      - ./storage:/app/storage:z
     networks:
       - scouter-net
     depends_on:
