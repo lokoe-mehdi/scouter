@@ -259,6 +259,7 @@ while ($running) {
             $isPrecomputeProject = strpos($command, 'precompute-reports-project:') === 0;
             $isPrecompute = !$isPrecomputeProject && strpos($command, 'precompute-reports:') === 0;
             $isExport = strpos($command, 'export:') === 0;
+            $isGsc = strpos($command, 'gsc-') === 0; // gsc-backfill: / gsc-sync: / gsc-delete:
             $isResume = ($command === 'resume');
 
             // Blob-store env (S3/local) forwarded to children that touch storage:
@@ -293,6 +294,9 @@ while ($running) {
             } elseif ($isExport) {
                 $jobManager->addLog($job->id, "Worker $workerId starting CSV export", 'info');
                 file_put_contents($logFile, "\n⬇️ CSV export\n=== WORKER STARTED JOB ===\n", FILE_APPEND);
+            } elseif ($isGsc) {
+                $jobManager->addLog($job->id, "Worker $workerId starting GSC job", 'info');
+                file_put_contents($logFile, "\n🔎 Google Search Console\n=== WORKER STARTED JOB ===\n", FILE_APPEND);
             } else {
                 $jobManager->addLog($job->id, "Worker $workerId started processing", 'info');
                 file_put_contents($logFile, "\n=== WORKER STARTED CRAWL ===\n", FILE_APPEND);
@@ -345,6 +349,33 @@ while ($running) {
                 ], fn($v) => $v !== false), $storageEnv);
                 $process = proc_open(
                     [$phpBin, $scouterScript, 'export', $command],
+                    $descriptors,
+                    $pipes,
+                    $basePath,
+                    $env
+                );
+            } elseif ($isGsc) {
+                // GSC backfill/sync/delete. Needs SCOUTER_ENCRYPTION_KEY (decrypt
+                // the refresh token), CLICKHOUSE_* (write/purge the data tables)
+                // and GOOGLE_OAUTH_* (refresh the access token). proc_open with an
+                // explicit $env does NOT inherit the parent's environment.
+                $gscModule = explode(':', $command)[0]; // gsc-backfill | gsc-sync | gsc-delete
+                echo "[Worker $workerId] Executing GSC job: $command\n";
+                $env = array_filter([
+                    'DATABASE_URL'             => getenv('DATABASE_URL'),
+                    'PATH'                     => getenv('PATH'),
+                    'JOB_ID'                   => $job->id,
+                    'SCOUTER_ENCRYPTION_KEY'   => getenv('SCOUTER_ENCRYPTION_KEY'),
+                    'CLICKHOUSE_URL'           => getenv('CLICKHOUSE_URL'),
+                    'CLICKHOUSE_DB'            => getenv('CLICKHOUSE_DB'),
+                    'CLICKHOUSE_USER'          => getenv('CLICKHOUSE_USER'),
+                    'CLICKHOUSE_PASSWORD'      => getenv('CLICKHOUSE_PASSWORD'),
+                    'GOOGLE_OAUTH_CLIENT_ID'     => getenv('GOOGLE_OAUTH_CLIENT_ID'),
+                    'GOOGLE_OAUTH_CLIENT_SECRET' => getenv('GOOGLE_OAUTH_CLIENT_SECRET'),
+                    'GOOGLE_OAUTH_REDIRECT_URI'  => getenv('GOOGLE_OAUTH_REDIRECT_URI'),
+                ], fn($v) => $v !== false);
+                $process = proc_open(
+                    [$phpBin, $scouterScript, $gscModule, $command],
                     $descriptors,
                     $pipes,
                     $basePath,

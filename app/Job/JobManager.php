@@ -134,6 +134,7 @@ class JobManager
             && strpos($jobRow->command, 'batch-') !== 0
             && strpos($jobRow->command, 'delete-') !== 0
             && strpos($jobRow->command, 'precompute-') !== 0
+            && strpos($jobRow->command, 'gsc-') !== 0
             && strpos($jobRow->command, 'export:') !== 0) {
             $crawlStatusMap = [
                 'queued' => 'queued',

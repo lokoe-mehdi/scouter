@@ -114,6 +114,12 @@ services:
       # the `:?…(…)` syntax.) Losing this value makes encrypted settings unrecoverable —
       # back it up alongside your DB credentials.
       - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY}
+      # --- Google Search Console OAuth (connecteur GSC) ------------------------
+      # App OAuth client (console.cloud.google.com). Le refresh token de chaque
+      # connecteur est chiffré au repos avec SCOUTER_ENCRYPTION_KEY ci-dessus.
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID:-}
+      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      - GOOGLE_OAUTH_REDIRECT_URI=${GOOGLE_OAUTH_REDIRECT_URI:-}
       # --- Page-HTML blob storage (kept OUT of the database) --------------------
       # The crawler writes each page's gzip'd HTML to a blob store; the UI/API/MCP
       # /chatbot read it back from here. If S3 credentials are set the data goes to
@@ -193,6 +199,11 @@ services:
       # used by the Bulk AI Generator + any future background AI job).
       # Same env var as the scouter service above (no `:?` — Coolify-safe).
       - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY}
+      # Google Search Console OAuth — the worker runs the backfill/sync/delete jobs
+      # (refreshes the access token from the stored refresh token).
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID:-}
+      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      - GOOGLE_OAUTH_REDIRECT_URI=${GOOGLE_OAUTH_REDIRECT_URI:-}
       # Page-HTML blob storage — the worker handles crawl/project deletion, which
       # purges the crawl's HTML prefix, so it needs the same backend config.
       - STORAGE_PATH=/app/storage

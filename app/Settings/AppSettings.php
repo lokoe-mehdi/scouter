@@ -3,6 +3,7 @@
 namespace App\Settings;
 
 use App\Database\PostgresDatabase;
+use App\Util\SecretCrypto;
 use PDO;
 
 /**
@@ -26,7 +27,8 @@ class AppSettings
     /** @var array<string, string|null> in-process cache, key => decrypted value */
     private static array $cache = [];
 
-    private const SENSITIVE_PREFIX = 'enc:v1:';
+    /** @deprecated kept for BC; the canonical constant is SecretCrypto::PREFIX. */
+    private const SENSITIVE_PREFIX = SecretCrypto::PREFIX;
 
     /**
      * Keys whose value must be encrypted at rest.
@@ -100,7 +102,7 @@ class AppSettings
      */
     public static function hasEncryptionKey(): bool
     {
-        return self::deriveKey() !== null;
+        return SecretCrypto::hasKey();
     }
 
     /**
@@ -108,11 +110,7 @@ class AppSettings
      */
     public static function maskSecret(?string $value): string
     {
-        if ($value === null || $value === '') {
-            return '';
-        }
-        $tail = substr($value, -4);
-        return str_repeat('•', 20) . $tail;
+        return SecretCrypto::mask($value);
     }
 
     /** Clear the in-process cache (testing only). */
@@ -130,66 +128,13 @@ class AppSettings
         return in_array($key, self::sensitiveKeys(), true);
     }
 
-    private static function deriveKey(): ?string
-    {
-        $raw = getenv('SCOUTER_ENCRYPTION_KEY');
-        if (!is_string($raw) || $raw === '') {
-            return null;
-        }
-        // 32-byte key derived deterministically from the env var so admins
-        // can rotate by changing the env var (existing values stay readable
-        // only with the previous value).
-        return hash('sha256', $raw, true);
-    }
-
     private static function encrypt(string $plaintext): ?string
     {
-        $key = self::deriveKey();
-        if ($key === null) {
-            return null;
-        }
-        $iv = random_bytes(12);
-        $tag = '';
-        $ciphertext = openssl_encrypt(
-            $plaintext,
-            'aes-256-gcm',
-            $key,
-            OPENSSL_RAW_DATA,
-            $iv,
-            $tag
-        );
-        if ($ciphertext === false) {
-            return null;
-        }
-        return self::SENSITIVE_PREFIX . base64_encode($iv . $tag . $ciphertext);
+        return SecretCrypto::encrypt($plaintext);
     }
 
     private static function decrypt(string $stored): ?string
     {
-        if (strpos($stored, self::SENSITIVE_PREFIX) !== 0) {
-            // Legacy/unencrypted value — return as-is rather than crash. This
-            // would only happen if someone hand-edited the DB.
-            return $stored;
-        }
-        $key = self::deriveKey();
-        if ($key === null) {
-            return null;
-        }
-        $blob = base64_decode(substr($stored, strlen(self::SENSITIVE_PREFIX)), true);
-        if ($blob === false || strlen($blob) < 28) {
-            return null;
-        }
-        $iv = substr($blob, 0, 12);
-        $tag = substr($blob, 12, 16);
-        $ciphertext = substr($blob, 28);
-        $plaintext = openssl_decrypt(
-            $ciphertext,
-            'aes-256-gcm',
-            $key,
-            OPENSSL_RAW_DATA,
-            $iv,
-            $tag
-        );
-        return $plaintext === false ? null : $plaintext;
+        return SecretCrypto::decrypt($stored);
     }
 }

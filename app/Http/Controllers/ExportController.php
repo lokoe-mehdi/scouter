@@ -26,7 +26,7 @@ use PDO;
  */
 class ExportController extends Controller
 {
-    private const TYPES = ['urls', 'links', 'redirects', 'sql'];
+    private const TYPES = ['urls', 'links', 'redirects', 'sql', 'gsc'];
 
     private PDO $db;
 
@@ -45,6 +45,39 @@ class ExportController extends Controller
         $type = (string)$request->get('type', '');
         if (!in_array($type, self::TYPES, true)) {
             $this->error('Type d\'export invalide');
+        }
+
+        // GSC exports are project-scoped (no crawl). Access is checked against the
+        // project, then a dedicated async export job streams the Search-Analytics CSV.
+        if ($type === 'gsc') {
+            $projectId = (int)$request->get('project', 0);
+            if (!$projectId) {
+                $this->error('Projet non spécifié');
+            }
+            $this->auth->requireProjectAccess($projectId);
+            $repo = new \App\Database\ProjectRepository();
+            $project = $repo->getById($projectId);
+            if (!$project) {
+                Response::notFound('Projet non trouvé');
+            }
+            $params = [
+                'mode'         => (string)$request->get('mode', 'keywords'),
+                'from'         => (string)$request->get('from', ''),
+                'to'           => (string)$request->get('to', ''),
+                'filters'      => $request->get('filters', []),
+                'include_anon' => (string)$request->get('include_anon', '1') !== '0',
+                'metrics'      => $request->get('metrics', ['clicks', 'impressions', 'ctr', 'position']),
+                'compare'      => (string)$request->get('compare', 'none'),
+                'cfrom'        => (string)$request->get('cfrom', ''),
+                'cto'          => (string)$request->get('cto', ''),
+            ];
+            $export = (new ExportService())->createGsc((int)$this->userId, $projectId, (string)($project->name ?? 'project'), $params);
+            $this->success([
+                'export_id' => (int)$export['id'],
+                'status'    => $export['status'],
+                'label'     => $export['label'],
+            ]);
+            return;
         }
 
         $crawl = $this->resolveCrawl($request);

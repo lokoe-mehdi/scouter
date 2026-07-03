@@ -45,7 +45,7 @@ RUN composer install --no-interaction --prefer-dist --optimize-autoloader
 COPY docker/nginx.conf /etc/nginx/sites-available/default
 
 # Setup Cron
-RUN printf "0 * * * * root . /etc/environment; /usr/local/bin/php /app/scripts/watchdog.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n* * * * * root . /etc/environment; /usr/local/bin/php /app/app/bin/scheduler.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n" > /etc/cron.d/scouter-cron && \
+RUN printf "0 * * * * root . /etc/environment; /usr/local/bin/php /app/scripts/watchdog.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n* * * * * root . /etc/environment; /usr/local/bin/php /app/app/bin/scheduler.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n15 5 * * * root . /etc/environment; /usr/local/bin/php /app/app/bin/gsc-sync-scheduler.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n" > /etc/cron.d/scouter-cron && \
     chmod 0644 /etc/cron.d/scouter-cron && \
     crontab /etc/cron.d/scouter-cron
 

@@ -34,7 +34,7 @@ class ExportService
     /** Exports stay downloadable for this long, then they're swept. */
     public const TTL_SECONDS = 86400; // 24h
 
-    private const TYPES = ['urls', 'links', 'redirects', 'sql'];
+    private const TYPES = ['urls', 'links', 'redirects', 'sql', 'gsc'];
 
     private PDO $db;
 
@@ -90,6 +90,45 @@ class ExportService
     }
 
     /**
+     * Create a project-scoped GSC (Search Analytics) export — no crawl involved.
+     * $params: mode, from, to, filters (JSON groups), include_anon.
+     *
+     * @param array<string,mixed> $params
+     * @return array<string,mixed>
+     */
+    public function createGsc(int $userId, int $projectId, string $domain, array $params): array
+    {
+        $mode = (string)($params['mode'] ?? 'keywords');
+        $filename = $this->safeName($domain) . '_gsc-' . $mode . '_' . date('Y-m-d_His') . '.csv';
+        $label = $domain . ' - Search Analytics';
+
+        $stmt = $this->db->prepare("
+            INSERT INTO exports (user_id, project_id, crawl_id, type, label, params, status, filename, created_at, expires_at)
+            VALUES (:uid, :pid, NULL, 'gsc', :label, :params, 'pending', :filename, NOW(), NOW() + INTERVAL '" . self::TTL_SECONDS . " seconds')
+            RETURNING *
+        ");
+        $stmt->execute([
+            ':uid'      => $userId,
+            ':pid'      => $projectId,
+            ':label'    => $label,
+            ':params'   => json_encode($params),
+            ':filename' => $filename,
+        ]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $jm = new JobManager();
+        $jobId = $jm->createJob('gsc-export-' . $projectId, 'Export Search Analytics', "export:{$row['id']}");
+        $jm->updateJobStatus($jobId, 'queued');
+        $jm->addLog($jobId, "Queued GSC export #{$row['id']} for {$domain}", 'info');
+
+        $this->db->prepare("UPDATE exports SET job_id = :jid WHERE id = :id")
+            ->execute([':jid' => $jobId, ':id' => $row['id']]);
+        $row['job_id'] = $jobId;
+
+        return $row;
+    }
+
+    /**
      * Worker side: regenerate the CSV for export #$id, upload it, mark it ready.
      * Throws on failure (the caller marks the export + job failed).
      */
@@ -104,6 +143,13 @@ class ExportService
 
         $this->db->prepare("UPDATE exports SET status = 'running' WHERE id = :id")
             ->execute([':id' => $id]);
+
+        // GSC exports are project-scoped (no crawl): stream ClickHouse's CSV output
+        // for the built Search-Analytics query straight to disk.
+        if (($export['type'] ?? '') === 'gsc') {
+            $this->runGsc($id, $export);
+            return;
+        }
 
         $crawlId = (int)$export['crawl_id'];
         $type = $export['type'];
@@ -162,6 +208,68 @@ class ExportService
                 SET status = 'ready', object_key = :key, row_count = :rc, size_bytes = :sz, ready_at = NOW()
                 WHERE id = :id
             ")->execute([':key' => $key, ':rc' => $rowCount, ':sz' => $size, ':id' => $id]);
+        } finally {
+            @unlink($tmp);
+        }
+    }
+
+    /**
+     * Worker side of a GSC export: build the Search-Analytics SELECT for the
+     * stored (project, mode, date-range, filters) and stream ClickHouse's
+     * CSVWithNames output to disk, then upload — zero PHP row buffering.
+     *
+     * @param array<string,mixed> $export the exports row
+     */
+    private function runGsc(int $id, array $export): void
+    {
+        $projectId = (int)$export['project_id'];
+        $params = json_decode($export['params'] ?? '{}', true) ?: [];
+        $mode = (string)($params['mode'] ?? 'keywords');
+        $from = (string)($params['from'] ?? date('Y-m-d', strtotime('-30 days')));
+        $to   = (string)($params['to'] ?? date('Y-m-d', strtotime('-2 days')));
+        $includeAnon = (bool)($params['include_anon'] ?? true);
+        $filters = $params['filters'] ?? [];
+        if (is_string($filters)) {
+            $filters = json_decode($filters, true) ?: [];
+        }
+        // Comparison + visible-metrics, so the CSV mirrors the on-screen grid.
+        $metrics = $params['metrics'] ?? ['clicks', 'impressions', 'ctr', 'position'];
+        if (is_string($metrics)) {
+            $metrics = json_decode($metrics, true) ?: ['clicks', 'impressions', 'ctr', 'position'];
+        }
+        $comparing = ($params['compare'] ?? 'none') !== 'none';
+        $cfrom = $comparing ? (string)($params['cfrom'] ?? '') : null;
+        $cto   = $comparing ? (string)($params['cto'] ?? '') : null;
+
+        $built = (new \App\Gsc\GscQueryService($projectId))
+            ->exportSelect($mode, $from, $to, is_array($filters) ? $filters : [], $includeAnon,
+                is_array($metrics) ? $metrics : ['clicks', 'impressions', 'ctr', 'position'], $cfrom, $cto);
+
+        $tmp = tempnam(sys_get_temp_dir(), 'scouter-export-');
+        if ($tmp === false) {
+            throw new \RuntimeException('Cannot create temp file for export');
+        }
+        try {
+            $fh = fopen($tmp, 'w+b');
+            fwrite($fh, chr(0xEF) . chr(0xBB) . chr(0xBF)); // UTF-8 BOM (Excel)
+            ClickHouseDatabase::getInstance()->streamSelectToFile(
+                $built['sql'] . "\nFORMAT CSVWithNames",
+                $fh,
+                ['format_csv_delimiter' => ';'],
+                $built['params']
+            );
+            fclose($fh);
+
+            $size = filesize($tmp) ?: 0;
+            $key = "export/{$id}/" . $export['filename'];
+            if (!Storage::instance()->putFile($key, $tmp, 'text/csv; charset=utf-8')) {
+                throw new \RuntimeException('Failed to upload export to storage');
+            }
+            $this->db->prepare("
+                UPDATE exports
+                SET status = 'ready', object_key = :key, size_bytes = :sz, ready_at = NOW()
+                WHERE id = :id
+            ")->execute([':key' => $key, ':sz' => $size, ':id' => $id]);
         } finally {
             @unlink($tmp);
         }

@@ -344,6 +344,13 @@ class ChPdo
             'redirect_chains'    => $this->simpleSourceFor('redirect_chains', $this->crawlIds),
             'html'               => $this->simpleSourceFor('html', $this->crawlIds),
             'crawl_categories'   => $this->crawlCategoriesSource,
+            // Google Search Console — project-scoped (NOT crawl-scoped). FINAL
+            // dedups the ReplacingMergeTree. Longest names first so a shorter
+            // name isn't a prefix issue (they aren't substrings, but keep it tidy).
+            'gsc_page_query_daily' => "(SELECT * FROM {$this->db}.gsc_page_query_daily FINAL WHERE project_id = {$this->projectId})",
+            'gsc_site_daily'       => "(SELECT * FROM {$this->db}.gsc_site_daily FINAL WHERE project_id = {$this->projectId})",
+            'gsc_page_daily'       => "(SELECT * FROM {$this->db}.gsc_page_daily FINAL WHERE project_id = {$this->projectId})",
+            'gsc_query_daily'      => "(SELECT * FROM {$this->db}.gsc_query_daily FINAL WHERE project_id = {$this->projectId})",
         ];
         foreach ($sources as $name => $src) {
             $sql = preg_replace_callback(

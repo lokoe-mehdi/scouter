@@ -8,6 +8,9 @@ use App\Job\JobManager;
 use App\Database\ProjectRepository;
 use App\Database\CrawlRepository;
 use App\Auth\Auth;
+use App\Gsc\ConnectorRepository;
+use App\Gsc\GscQueryService;
+use App\Database\ClickHouseDatabase;
 
 $jobManager = new JobManager();
 $projects = new ProjectRepository();
@@ -26,6 +29,28 @@ if (!$project) { header('Location: index.php'); exit; }
 $canManage = $auth->canManageProject($projectId);
 $isOwner = ($project->user_id ?? 0) == $currentUserId;
 $domainName = $project->domain ?? $project->name ?? 'Unknown';
+
+// Google Search Console overview (shown below the crawl overview, if connected).
+// 28-day summary anchored on the last day WITH data (like GSC). Best-effort:
+// any failure (CH down, no data yet) simply hides the block.
+$gscConnector = null; $gscKpis = null; $gscSpark = [];
+try {
+    $gscConnector = (new ConnectorRepository())->getByProject($projectId);
+    if ($gscConnector && ClickHouseDatabase::enabled()) {
+        $gscTo   = $gscConnector->last_synced_date ?: date('Y-m-d', strtotime('-2 days'));
+        $gscFrom = date('Y-m-d', strtotime($gscTo . ' -27 days'));
+        $gscSvc  = new GscQueryService($projectId);
+        $gscKpis = $gscSvc->kpis('keywords', $gscFrom, $gscTo, [], true);
+        foreach ($gscSvc->timeseries('keywords', $gscFrom, $gscTo, [], true) as $row) {
+            $gscSpark['clicks'][]      = (float) ($row['clicks'] ?? 0);
+            $gscSpark['impressions'][] = (float) ($row['impressions'] ?? 0);
+            $gscSpark['ctr'][]         = (float) ($row['ctr'] ?? 0) * 100;
+            $gscSpark['position'][]    = (float) ($row['position'] ?? 0);
+        }
+    }
+} catch (\Throwable $e) {
+    $gscConnector = null; $gscKpis = null;
+}
 
 // Crawls
 $projectCrawls = $crawlRepo->getByProjectId($projectId);
@@ -250,7 +275,9 @@ if (!empty($crawlIds)) {
         try {
             $ch = \App\Database\ClickHouseDatabase::getInstance();
             $wanted = array_flip($crawlIds);
-            foreach ($ch->select("SELECT partition AS crawl_id, sum(bytes_on_disk) AS bytes FROM system.parts WHERE database = {db:String} AND active = 1 GROUP BY partition", ['db' => $ch->getDatabase()]) as $row) {
+            // Exclut les tables gsc_* (partitionnées par project_id, comptées à part
+            // ci-dessous) pour ne pas polluer la taille par crawl.
+            foreach ($ch->select("SELECT partition AS crawl_id, sum(bytes_on_disk) AS bytes FROM system.parts WHERE database = {db:String} AND active = 1 AND NOT startsWith(table, 'gsc_') GROUP BY partition", ['db' => $ch->getDatabase()]) as $row) {
                 $cid = (int)$row['crawl_id'];
                 if (isset($wanted[$cid])) {
                     $crawlSizeBytes[$cid] = ($crawlSizeBytes[$cid] ?? 0) + (int)($row['bytes'] ?? 0);
@@ -259,7 +286,20 @@ if (!empty($crawlIds)) {
         } catch (\Throwable $e) {}
     }
 }
-$projectSize = pjxFormatBytes(array_sum($crawlSizeBytes));                       // tous les crawls
+
+// Poids des données Google Search Console de CE projet (tables gsc_*
+// partitionnées par project_id) — ajouté au total projet, pas à un crawl.
+$gscSizeBytes = 0;
+if (\App\Database\ClickHouseDatabase::enabled()) {
+    try {
+        $ch = \App\Database\ClickHouseDatabase::getInstance();
+        $gscSizeBytes = (int) $ch->selectValue(
+            "SELECT sum(bytes_on_disk) FROM system.parts WHERE database = {db:String} AND active = 1 AND startsWith(table, 'gsc_') AND partition = {pid:String}",
+            ['db' => $ch->getDatabase(), 'pid' => (string) $projectId]
+        );
+    } catch (\Throwable $e) {}
+}
+$projectSize = pjxFormatBytes(array_sum($crawlSizeBytes) + $gscSizeBytes);       // tous les crawls + GSC
 $lastCrawlSize = $lastFinished ? pjxFormatBytes($crawlSizeBytes[(int)$lastFinished->crawl_id] ?? 0) : '—';  // dernier crawl
 
 // Load shares & admins
@@ -348,6 +388,10 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                         <?= __('project.new_crawl') ?>
                     </button>
                 <?php endif; ?>
+                <a class="pj-btn-newcrawl" href="search-analytics.php?project=<?= $projectId ?>" title="Search Analytics (Google Search Console)">
+                    <span class="material-symbols-outlined">search_insights</span>
+                    Search Analytics
+                </a>
             </div>
 
             <!-- Automation (owner or admin only) -->
@@ -591,6 +635,45 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                 <p class="pj-empty-text"><?= __('project.no_crawl_yet') ?></p>
                 <?php } ?>
             </div>
+
+            <!-- Google Search Console overview (only if connected + has data) -->
+            <?php if ($gscKpis && (($gscKpis['impressions'] ?? 0) > 0 || ($gscKpis['clicks'] ?? 0) > 0)): ?>
+            <div class="pj-card pjx-overview pjx-gsc">
+                <div class="pjx-ov-head">
+                    <h2 class="pjx-ov-title"><span class="material-symbols-outlined" style="vertical-align:-4px;color:#4ECDC4">search_insights</span> <?= __('gsc.overview_title') ?></h2>
+                    <span class="pc-badge" style="background:#E8F8F5;color:#1ABC9C">Search Console</span>
+                    <span class="pjx-ov-date"><?= __('gsc.range_28d') ?> · <?= date('d/m/Y', strtotime($gscFrom)) ?> → <?= date('d/m/Y', strtotime($gscTo)) ?></span>
+                </div>
+                <div class="pjx-kpis" style="grid-template-columns:repeat(4,1fr)">
+                    <div class="pjx-kpi">
+                        <span class="pjx-kpi-label"><?= __('gsc.metric_clicks') ?></span>
+                        <div class="pjx-kpi-val"><?= number_format((int)$gscKpis['clicks']) ?></div>
+                        <?= pcSparklineSvg($gscSpark['clicks'] ?? [], '#4ECDC4') ?>
+                    </div>
+                    <div class="pjx-kpi">
+                        <span class="pjx-kpi-label"><?= __('gsc.metric_impressions') ?></span>
+                        <div class="pjx-kpi-val"><?= number_format((int)$gscKpis['impressions']) ?></div>
+                        <?= pcSparklineSvg($gscSpark['impressions'] ?? [], '#3498DB') ?>
+                    </div>
+                    <div class="pjx-kpi">
+                        <span class="pjx-kpi-label"><?= __('gsc.metric_ctr') ?></span>
+                        <div class="pjx-kpi-val"><?= number_format($gscKpis['ctr'] * 100, 2) ?> %</div>
+                        <?= pcSparklineSvg($gscSpark['ctr'] ?? [], '#2ECC71') ?>
+                    </div>
+                    <div class="pjx-kpi">
+                        <span class="pjx-kpi-label"><?= __('gsc.metric_position_avg') ?></span>
+                        <div class="pjx-kpi-val"><?= $gscKpis['position'] > 0 ? number_format($gscKpis['position'], 2) : '—' ?></div>
+                        <?= pcSparklineSvg($gscSpark['position'] ?? [], '#F39C12') ?>
+                    </div>
+                </div>
+                <div class="pjx-cta">
+                    <a href="search-analytics.php?project=<?= $projectId ?>" class="pjx-cta-primary">
+                        <?= __('gsc.cta_view') ?>
+                        <span class="material-symbols-outlined">arrow_forward</span>
+                    </a>
+                </div>
+            </div>
+            <?php endif; ?>
 
             <!-- Crawl History -->
             <div class="pj-card pjx-history">

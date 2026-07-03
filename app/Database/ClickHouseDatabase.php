@@ -213,18 +213,28 @@ class ClickHouseDatabase
      * write a BOM first and have the CSV follow it.
      *
      * @param array<string,string> $settings extra query-string settings
+     * @param array<string,mixed>  $params   server-side bound params ({name:Type}
+     *        in the SQL), passed as `param_<name>` — injection-safe, same as
+     *        select()/exec(). Values with a [value, 'Type'] shape use the value.
      */
-    public function streamSelectToFile(string $sql, $fh, array $settings = []): void
+    public function streamSelectToFile(string $sql, $fh, array $settings = [], array $params = []): void
     {
         $query = [
             'database'                    => $this->db,
             'prefer_column_name_to_alias' => '1',
         ];
         foreach ($settings as $k => $v) {
-            if ($k === 'database' || $k === 'prefer_column_name_to_alias') {
+            if ($k === 'database' || $k === 'prefer_column_name_to_alias' || strncmp($k, 'param_', 6) === 0) {
                 continue;
             }
             $query[$k] = (string) $v;
+        }
+        foreach ($params as $name => $val) {
+            $value = is_array($val) ? ($val[0] ?? '') : $val;
+            if (is_bool($value)) {
+                $value = $value ? '1' : '0';
+            }
+            $query['param_' . $name] = (string) $value;
         }
 
         $startPos = ftell($fh);
