@@ -108,6 +108,33 @@ switch($page) {
             include $__pagesDir . 'categorize.php';
         }
         break;
+    case 'performance-overview':
+        include $__pagesDir . 'performance-overview.php';
+        break;
+    case 'performance-indexability':
+        include $__pagesDir . 'performance-indexability.php';
+        break;
+    case 'performance-codes':
+        include $__pagesDir . 'performance-codes.php';
+        break;
+    case 'performance-response-time':
+        include $__pagesDir . 'performance-response-time.php';
+        break;
+    case 'performance-depth':
+        include $__pagesDir . 'performance-depth.php';
+        break;
+    case 'performance-content':
+        include $__pagesDir . 'performance-content.php';
+        break;
+    case 'performance-inlinks':
+        include $__pagesDir . 'performance-inlinks.php';
+        break;
+    case 'performance-pagerank':
+        include $__pagesDir . 'performance-pagerank.php';
+        break;
+    case 'performance-seo-tags':
+        include $__pagesDir . 'performance-seo-tags.php';
+        break;
     case 'comparison-overview':
         include $__pagesDir . 'comparison-overview.php';
         break;

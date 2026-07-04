@@ -114,6 +114,11 @@ try {
     $router->get( '/gsc/status',     [GscController::class, 'status'],     ['auth' => true]);
     $router->post('/gsc/query',      [GscController::class, 'query'],      ['auth' => true]);
     $router->post('/gsc/timeseries', [GscController::class, 'timeseries'], ['auth' => true]);
+    // Custom timeline events (project-scoped annotations on the chart).
+    $router->get(  '/gsc/events',        [GscController::class, 'events'],      ['auth' => true]);
+    $router->post( '/gsc/events',        [GscController::class, 'createEvent'], ['auth' => true]);
+    $router->post( '/gsc/events/update', [GscController::class, 'updateEvent'], ['auth' => true]);
+    $router->post( '/gsc/events/delete', [GscController::class, 'deleteEvent'], ['auth' => true]);
     // CSV export is handled by the shared async export system (type 'gsc') via
     // POST /api/exports → download center. See ExportController::create.
 

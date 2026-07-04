@@ -6,6 +6,7 @@ use App\Http\Controller;
 use App\Http\Request;
 use App\Google\GoogleOAuthClient;
 use App\Gsc\ConnectorRepository;
+use App\Gsc\EventRepository;
 use App\Gsc\GscQueryService;
 
 /**
@@ -100,6 +101,93 @@ class GscController extends Controller
         [$mode, $from, $to, $filters, $includeAnon] = $this->commonParams($request);
         $svc = new GscQueryService($projectId);
         $this->json(['series' => $svc->timeseries($mode, $from, $to, $filters, $includeAnon)]);
+    }
+
+    // -- Custom timeline events -----------------------------------------------
+
+    /** List a project's timeline events (optionally within a from/to window). */
+    public function events(Request $request): void
+    {
+        $projectId = (int) $request->get('project', 0);
+        $this->guard($projectId);
+
+        $from = (string) $request->get('from', '');
+        $to   = (string) $request->get('to', '');
+        $events = (new EventRepository())->listByProject(
+            $projectId,
+            $from !== '' ? $from : null,
+            $to !== '' ? $to : null
+        );
+        $this->json(['events' => $events]);
+    }
+
+    /** Create a timeline event ({date, title, optional description}). */
+    public function createEvent(Request $request): void
+    {
+        $projectId = (int) $request->json('project', 0);
+        $this->guard($projectId);
+
+        try {
+            $clean = EventRepository::sanitize(
+                (string) $request->json('date', ''),
+                (string) $request->json('title', ''),
+                $request->json('description', null) !== null ? (string) $request->json('description', '') : null
+            );
+        } catch (\InvalidArgumentException $e) {
+            $this->error($this->eventErrorMessage($e->getMessage()), 422);
+            return;
+        }
+
+        $event = (new EventRepository())->create($projectId, $clean, $this->userId);
+        $this->json(['event' => $event]);
+    }
+
+    /** Update an existing timeline event. */
+    public function updateEvent(Request $request): void
+    {
+        $projectId = (int) $request->json('project', 0);
+        $this->guard($projectId);
+        $id = (int) $request->json('id', 0);
+        if ($id <= 0) {
+            $this->error('Missing event id', 422);
+            return;
+        }
+
+        try {
+            $clean = EventRepository::sanitize(
+                (string) $request->json('date', ''),
+                (string) $request->json('title', ''),
+                $request->json('description', null) !== null ? (string) $request->json('description', '') : null
+            );
+        } catch (\InvalidArgumentException $e) {
+            $this->error($this->eventErrorMessage($e->getMessage()), 422);
+            return;
+        }
+
+        $ok = (new EventRepository())->update($projectId, $id, $clean);
+        $this->json(['ok' => $ok, 'event' => array_merge(['id' => $id], $clean)]);
+    }
+
+    /** Delete a timeline event (scoped to its project). */
+    public function deleteEvent(Request $request): void
+    {
+        $projectId = (int) $request->json('project', 0);
+        $this->guard($projectId);
+        $id = (int) $request->json('id', 0);
+        if ($id <= 0) {
+            $this->error('Missing event id', 422);
+            return;
+        }
+        $ok = (new EventRepository())->delete($projectId, $id);
+        $this->json(['ok' => $ok]);
+    }
+
+    /** Map a sanitize() error code to a translated, user-facing message. */
+    private function eventErrorMessage(string $code): string
+    {
+        $key = $code === 'invalid_date' ? 'gsc.event_err_date'
+             : ($code === 'empty_title' ? 'gsc.event_err_title' : 'gsc.event_err_generic');
+        return function_exists('__') ? __($key) : $code;
     }
 
     // -------------------------------------------------------------------------

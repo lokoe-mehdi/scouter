@@ -36,6 +36,12 @@
     return '<span class="gsc-cat-badge" style="background:' + color + ';color:' + textColorFor(color) + '">' + esc(n) + '</span>';
   }
 
+  // Custom-events accent colour — violet, deliberately outside the metric
+  // palette (clicks #4ECDC4 / impressions #3498DB / ctr #2ECC71 / position
+  // #F39C12) so event lines & flags never blend into a series. Mirrors the
+  // #8E44AD used in gsc.css for the flags/panel.
+  var EVENT_COLOR = '#8E44AD';
+
   // Chart metrics — toggled by clicking the KPI cards (GSC-style).
   var METRICS = {
     clicks:      { label: t('gsc.metric_clicks'),      color: '#4ECDC4', type: 'area' },
@@ -50,7 +56,8 @@
     sort: 'clicks', dir: 'desc', page: 1, perPage: 10, total: 0,
     gran: 'day', lastSeries: [],
     metrics: { clicks: true, impressions: true, ctr: false, position: false },
-    compare: 'none', compareSeries: [], curKpis: null, dateBaseLabel: t('gsc.range_28d')
+    compare: 'none', compareSeries: [], curKpis: null, dateBaseLabel: t('gsc.range_28d'),
+    events: []
   };
 
   // ---- helpers -------------------------------------------------------------
@@ -297,17 +304,19 @@
       return o;
     }
     if (gran === 'day') {
+      // _from/_to = the calendar span a bar covers, so a custom event's date can
+      // be mapped to the right category index (see computeEventPlots).
       return series.map(function (r) {
         var impr = +r.impressions || 0, pos = +r.position || 0;
-        return { label: fmtFr(r.date), clicks: +r.clicks || 0, impressions: impr, ctr: +r.ctr || 0, position: pos };
+        return { label: fmtFr(r.date), clicks: +r.clicks || 0, impressions: impr, ctr: +r.ctr || 0, position: pos, _from: r.date, _to: r.date };
       });
     }
     var buckets = {}, order = [];
     series.forEach(function (r) {
-      var d = parseYmd(r.date), key, label;
-      if (gran === 'month') { key = r.date.slice(0, 7); label = _fMonthShort.format(d) + ' ' + d.getFullYear(); }
-      else { var day = (d.getDay() + 6) % 7; var mon = new Date(d); mon.setDate(d.getDate() - day); key = ymd(mon); label = t('gsc.week_prefix') + mon.getDate() + '/' + (mon.getMonth() + 1); }
-      if (!buckets[key]) { buckets[key] = { label: label, clicks: 0, impressions: 0, _posw: 0, _pw: 0 }; order.push(key); }
+      var d = parseYmd(r.date), key, label, bfrom, bto;
+      if (gran === 'month') { key = r.date.slice(0, 7); label = _fMonthShort.format(d) + ' ' + d.getFullYear(); bfrom = key + '-01'; bto = ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0)); }
+      else { var day = (d.getDay() + 6) % 7; var mon = new Date(d); mon.setDate(d.getDate() - day); key = ymd(mon); label = t('gsc.week_prefix') + mon.getDate() + '/' + (mon.getMonth() + 1); bfrom = ymd(mon); var sun = new Date(mon); sun.setDate(mon.getDate() + 6); bto = ymd(sun); }
+      if (!buckets[key]) { buckets[key] = { label: label, clicks: 0, impressions: 0, _posw: 0, _pw: 0, _from: bfrom, _to: bto }; order.push(key); }
       var b = buckets[key], impr = +r.impressions || 0, pos = +r.position || 0;
       b.clicks += +r.clicks || 0; b.impressions += impr;
       if (pos > 0 && impr > 0) { b._posw += pos * impr; b._pw += impr; }
@@ -350,13 +359,144 @@
       }
     });
 
-    Highcharts.chart('gscChart', {
-      chart: { spacingTop: 12 }, title: { text: null }, credits: { enabled: false },
+    // Map custom events → category indices for this aggregation, then draw them
+    // as vertical plot-lines + an HTML flag overlay (title + hover description).
+    var evPlot = computeEventPlots(data);
+    var chart = Highcharts.chart('gscChart', {
+      chart: {
+        // Room at the top for the event title flags.
+        spacingTop: evPlot.length ? 34 : 12,
+        // redraw fires on reflow/resize → keep the flags aligned.
+        events: { redraw: function () { drawEventOverlay(this, evPlot); } }
+      },
+      title: { text: null }, credits: { enabled: false },
       xAxis: { categories: cats, tickPixelInterval: 90, lineColor: '#E1E8ED' },
       yAxis: axes, legend: { enabled: true }, tooltip: { shared: true },
       series: series
     });
+    // Draw the title flags synchronously (the chart is fully laid out here) —
+    // don't rely solely on the render event, which is what made them go missing.
+    drawEventOverlay(chart, evPlot);
   }
+
+  // ---- custom events on the chart ------------------------------------------
+  // For each event whose date falls in the visible range, find the category
+  // index of the bucket that covers it (nearest bucket as a fallback when the
+  // exact day has no data point). Multiple events can share an index (stacked).
+  function eventIndexForDate(data, d) {
+    for (var i = 0; i < data.length; i++) { if (d >= data[i]._from && d <= data[i]._to) return i; }
+    var best = -1, bestDiff = Infinity; // nearest bucket by start date
+    for (var j = 0; j < data.length; j++) {
+      var diff = Math.abs(parseYmd(data[j]._from) - parseYmd(d));
+      if (diff < bestDiff) { bestDiff = diff; best = j; }
+    }
+    return best;
+  }
+  // Group events that fall on the SAME bar (same date in day view, same week/month
+  // bucket otherwise) → one flag per bar, so overlapping events don't stack.
+  function computeEventPlots(data) {
+    if (!data.length || !state.events.length) return [];
+    var byIndex = {};
+    state.events.forEach(function (ev) {
+      var d = ev.event_date;
+      if (d < state.from || d > state.to) return;
+      var idx = eventIndexForDate(data, d);
+      if (idx < 0) return;
+      (byIndex[idx] = byIndex[idx] || []).push(ev);
+    });
+    return Object.keys(byIndex).map(function (k) {
+      var evs = byIndex[k].slice().sort(function (a, b) { return a.event_date < b.event_date ? -1 : (a.event_date > b.event_date ? 1 : a.id - b.id); });
+      return { index: parseInt(k, 10), events: evs };
+    });
+  }
+
+  function drawEventOverlay(chart, evPlot) {
+    var host = chart.renderTo;
+    var old = host.querySelector('.gsc-event-layer');
+    if (old) old.parentNode.removeChild(old);
+    if (!evPlot.length) return;
+
+    var layer = document.createElement('div');
+    layer.className = 'gsc-event-layer';
+    var plotLeft = chart.plotLeft, plotRight = chart.plotLeft + chart.plotWidth;
+    var plotTop = chart.plotTop, plotH = chart.plotHeight;
+    var GAP = 6, EDGE = 130, flagTop = Math.max(0, plotTop - 22);
+    var placed = [];
+
+    evPlot.forEach(function (g) {
+      var px;
+      try { px = chart.xAxis[0].toPixels(g.index); } catch (_) { return; }
+      if (px == null || isNaN(px)) return;
+      px = Math.max(plotLeft, Math.min(plotRight, px));
+
+      // Vertical line drawn by us → always spans the FULL plot height (top→bottom).
+      var line = document.createElement('div');
+      line.className = 'gsc-event-line';
+      line.style.left = px + 'px'; line.style.top = plotTop + 'px'; line.style.height = plotH + 'px';
+      layer.appendChild(line);
+
+      var multi = g.events.length > 1;
+      var flag = document.createElement('div');
+      flag.className = 'gsc-event-flag' + (multi ? ' multi' : '');
+      // ALWAYS centered on the line (CSS translateX(-50%)) → the pill sits above
+      // the line and the pointer stays exactly under it, at every x position.
+      flag.style.left = px + 'px';
+      flag.style.top = flagTop + 'px';
+      // Only the TOOLTIP flips near the edges so it never leaves the chart — the
+      // pill/pointer are never shifted (that's what used to look detached).
+      if (px > plotRight - EDGE) flag.classList.add('tip-right');
+      else if (px < plotLeft + EDGE) flag.classList.add('tip-left');
+
+      // Tooltip lists EVERY event on this bar (date + title + description).
+      var items = g.events.map(function (ev) {
+        return '<span class="gsc-event-pop-item">'
+          + '<span class="gsc-event-pop-date">' + esc(fmtFr(ev.event_date)) + '</span>'
+          + '<span class="gsc-event-pop-title">' + esc(ev.title) + '</span>'
+          + (ev.description ? '<span class="gsc-event-pop-desc">' + esc(ev.description) + '</span>' : '')
+          + '</span>';
+      }).join('');
+      var pop = '<span class="gsc-event-pop">' + (multi ? '<span class="gsc-event-pop-scroll">' + items + '</span>' : items) + '</span>';
+      // Label: the single title, or "N événements" when several share the bar.
+      var label = multi ? t('gsc.event_count', { n: g.events.length }) : g.events[0].title;
+      flag.innerHTML = '<span class="material-symbols-outlined">flag</span>'
+        + '<span class="gsc-event-flag-label">' + esc(label) + '</span>' + pop;
+      if (multi) {
+        flag.style.cursor = 'default'; // ambiguous which to edit → manage via the list
+      } else {
+        flag.addEventListener('click', function (ev2) { ev2.stopPropagation(); openEventEditor(g.events[0], flag); });
+      }
+      layer.appendChild(flag);
+      placed.push({ el: flag, px: px });
+    });
+    host.appendChild(layer);
+    if (!placed.length) return;
+
+    // ---- de-overlap ---------------------------------------------------------
+    placed.sort(function (a, b) { return a.px - b.px; });
+    var hostRect = host.getBoundingClientRect();
+    // (1) A flag keeps its TITLE only when it neither reaches a neighbour NOR
+    //     overflows the chart edge; otherwise it collapses to the drapeau icon
+    //     (full detail stays on hover). The icon is small and stays centered, so
+    //     the pointer is always right under it.
+    placed.forEach(function (p, i) {
+      var r = p.el.getBoundingClientRect(), half = r.width / 2;
+      var roomL = p.px - (i > 0 ? placed[i - 1].px : -1e9);
+      var roomR = (i < placed.length - 1 ? placed[i + 1].px : 1e9) - p.px;
+      var tight = Math.min(roomL, roomR) < half + GAP;
+      var overflow = r.left < hostRect.left + 1 || r.right > hostRect.right - 1;
+      if (tight || overflow) p.el.classList.add('icon-only');
+    });
+    // (2) Anything that STILL overlaps horizontally (dense clusters) is stacked
+    //     into extra rows so the drapeaux never sit on top of each other.
+    var rowsRight = [], ROW_H = 20;
+    placed.forEach(function (p) {
+      var r = p.el.getBoundingClientRect(), row = 0;
+      while (row < rowsRight.length && r.left < rowsRight[row] + GAP) row++;
+      rowsRight[row] = r.right;
+      if (row > 0) p.el.style.top = (flagTop + row * ROW_H) + 'px';
+    });
+  }
+  function findEvent(id) { for (var i = 0; i < state.events.length; i++) { if (state.events[i].id === id) return state.events[i]; } return null; }
 
   function renderKpiActive() {
     Object.keys(METRICS).forEach(function (m) {
@@ -576,9 +716,178 @@
     }).catch(noop);
   }
 
+  // ---- custom events: editor popover + CRUD --------------------------------
+  var evState = { view: null, sel: null, editingId: null };
+
+  function loadEvents() {
+    fetch('/api/gsc/events?project=' + state.projectId, { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        state.events = (res && res.events) || [];
+        renderEventList();
+        if (state.lastSeries.length) renderChart(); // refresh flags
+      }).catch(noop);
+  }
+
+  function openEventEditor(ev, anchor) {
+    var form = $('gscEvForm'); if (!form) return;
+    setEvError('');
+    if (ev) {
+      evState.editingId = ev.id; evState.sel = ev.event_date;
+      $('gscEvTitle').value = ev.title; $('gscEvDesc').value = ev.description || '';
+      $('gscEvFormTitle').textContent = t('gsc.event_edit');
+      $('gscEvSave').textContent = t('gsc.event_update');
+    } else {
+      evState.editingId = null; evState.sel = state.to || ymd(new Date());
+      $('gscEvTitle').value = ''; $('gscEvDesc').value = '';
+      $('gscEvFormTitle').textContent = t('gsc.event_add');
+      $('gscEvSave').textContent = t('gsc.event_save');
+    }
+    var d = parseYmd(evState.sel); evState.view = new Date(d.getFullYear(), d.getMonth(), 1);
+    renderEvCalendar();
+    positionEvPopover(anchor || $('gscEvAdd'));  // floats out of flow, under the trigger
+    $('gscEvTitle').focus();
+  }
+  // Place the fixed popover just under its trigger, clamped to the viewport
+  // (flips above if there isn't room below).
+  function positionEvPopover(anchor) {
+    var pop = $('gscEvForm'); if (!pop || !anchor) return;
+    pop.style.visibility = 'hidden'; pop.style.display = 'block';
+    var r = anchor.getBoundingClientRect();
+    var pw = pop.offsetWidth, ph = pop.offsetHeight, vw = window.innerWidth, vh = window.innerHeight, gap = 6, m = 8;
+    var left = r.left;
+    if (left + pw > vw - m) left = Math.max(m, r.right - pw); // right-align to the trigger
+    if (left < m) left = m;
+    var top = r.bottom + gap;
+    if (top + ph > vh - m) { var above = r.top - gap - ph; top = above > m ? above : Math.max(m, vh - ph - m); }
+    pop.style.left = left + 'px'; pop.style.top = top + 'px';
+    pop.style.visibility = '';
+  }
+  function closeEventForm() { var f = $('gscEvForm'); if (f) f.style.display = 'none'; }
+
+  function renderEvCalendar() {
+    if (!evState.view) evState.view = new Date();
+    var y = evState.view.getFullYear(), m = evState.view.getMonth();
+    var mn = _fMonthLong.format(new Date(y, m, 1));
+    $('gscEvMonth').textContent = mn.charAt(0).toUpperCase() + mn.slice(1) + ' ' + y;
+    // Days that already carry event(s) → light-violet + a small flag marker (adding
+    // a second event on the same day stays allowed; this is purely informative).
+    var evOnDay = {};
+    state.events.forEach(function (ev) { evOnDay[ev.event_date] = (evOnDay[ev.event_date] || 0) + 1; });
+    var startWd = (new Date(y, m, 1).getDay() + 6) % 7, days = new Date(y, m + 1, 0).getDate();
+    var html = WD.map(function (d) { return '<span class="gsc-dp-wd">' + d + '</span>'; }).join('');
+    for (var i = 0; i < startWd; i++) html += '<span class="gsc-dp-day empty"></span>';
+    for (var day = 1; day <= days; day++) {
+      var ds = y + '-' + String(m + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+      var n = evOnDay[ds] || 0;
+      var cls = 'gsc-dp-day' + (ds === evState.sel ? ' sel' : '') + (n ? ' has-ev' : '');
+      // A day that already has event(s): light-violet cell + a small dot UNDER the
+      // number (CSS ::after, absolutely placed) so nothing overlaps the digit.
+      var titleAttr = n ? ' title="' + esc(t('gsc.events') + ' (' + n + ')') + '"' : '';
+      html += '<button type="button" class="' + cls + '"' + titleAttr + ' data-d="' + ds + '">' + day + '</button>';
+    }
+    $('gscEvGrid').innerHTML = html;
+    $('gscEvSelected').textContent = evState.sel ? fmtFr(evState.sel) : '—';
+  }
+
+  function renderEventList() {
+    var box = $('gscEvList'); if (!box) return;
+    if (!state.events.length) { box.innerHTML = '<div class="gsc-ev-empty">' + esc(t('gsc.event_none')) + '</div>'; return; }
+    // Newest → oldest (state.events comes back oldest-first for the chart).
+    var sorted = state.events.slice().sort(function (a, b) {
+      return a.event_date < b.event_date ? 1 : (a.event_date > b.event_date ? -1 : b.id - a.id);
+    });
+    box.innerHTML = sorted.map(function (e) {
+      return '<div class="gsc-ev-item" data-id="' + e.id + '">'
+        + '<div class="gsc-ev-item-main" data-edit="' + e.id + '">'
+        +   '<div class="gsc-ev-item-date"><span class="material-symbols-outlined">event</span>' + esc(fmtFr(e.event_date)) + '</div>'
+        +   '<div class="gsc-ev-item-title" title="' + esc(e.title) + '">' + esc(e.title) + '</div>'
+        +   (e.description ? '<div class="gsc-ev-item-desc" title="' + esc(e.description) + '">' + esc(e.description) + '</div>' : '')
+        + '</div>'
+        + '<div class="gsc-ev-item-actions">'
+        +   '<button type="button" class="gsc-ev-act" data-edit="' + e.id + '" title="' + esc(t('gsc.event_edit')) + '"><span class="material-symbols-outlined">edit</span></button>'
+        +   '<button type="button" class="gsc-ev-act del" data-del="' + e.id + '" title="' + esc(t('gsc.event_delete')) + '"><span class="material-symbols-outlined">delete</span></button>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function setEvError(msg) { var e = $('gscEvError'); if (!e) return; e.textContent = msg || ''; e.style.display = msg ? 'block' : 'none'; }
+
+  function saveEvent() {
+    var title = ($('gscEvTitle').value || '').trim();
+    if (!evState.sel) { setEvError(t('gsc.event_err_date')); return; }
+    if (!title) { setEvError(t('gsc.event_err_title')); return; }
+    setEvError('');
+    var body = { project: state.projectId, date: evState.sel, title: title, description: ($('gscEvDesc').value || '').trim() };
+    var url = '/api/gsc/events';
+    if (evState.editingId) { url = '/api/gsc/events/update'; body.id = evState.editingId; }
+    $('gscEvSave').disabled = true;
+    postJson(url, body).then(function (res) {
+      $('gscEvSave').disabled = false;
+      if (res && res.error) { setEvError(res.error); return; }
+      closeEventForm();
+      loadEvents();
+    }).catch(function () { $('gscEvSave').disabled = false; setEvError(t('gsc.event_err_generic')); });
+  }
+
+  // Ask before deleting — reuses the app's styled confirm modal (same as the
+  // GSC disconnect action), with a plain-confirm fallback.
+  function confirmDelete(id) {
+    var ev = findEvent(id);
+    var msg = t('gsc.event_delete_confirm', { title: ev ? ev.title : '' });
+    if (typeof window.customConfirm === 'function') {
+      window.customConfirm(msg, t('gsc.event_delete_title'), t('gsc.event_delete'), 'danger')
+        .then(function (ok) { if (ok) deleteEvent(id); });
+    } else if (window.confirm(msg)) { deleteEvent(id); }
+  }
+
+  function deleteEvent(id) {
+    postJson('/api/gsc/events/delete', { project: state.projectId, id: id }).then(function () {
+      if (evState.editingId === id) { evState.editingId = null; closeEventForm(); }
+      loadEvents();
+    }).catch(noop);
+  }
+
+  function initEvents() {
+    var add = $('gscEvAdd'); if (!add) return;
+    // Toggle: "+ Add" opens a blank editor under the button (or closes it).
+    add.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var f = $('gscEvForm');
+      if (f.style.display === 'block' && !evState.editingId) closeEventForm();
+      else openEventEditor(null, add);
+    });
+    // Clicks inside the popover stay inside (don't reach the outside-close handler;
+    // day clicks re-render the grid so their target detaches, but bubbling still
+    // passes through this container).
+    $('gscEvForm').addEventListener('click', function (e) { e.stopPropagation(); });
+    $('gscEvClose').addEventListener('click', closeEventForm);
+    $('gscEvCancel').addEventListener('click', closeEventForm);
+    $('gscEvPrev').addEventListener('click', function () { evState.view = new Date(evState.view.getFullYear(), evState.view.getMonth() - 1, 1); renderEvCalendar(); });
+    $('gscEvNext').addEventListener('click', function () { evState.view = new Date(evState.view.getFullYear(), evState.view.getMonth() + 1, 1); renderEvCalendar(); });
+    $('gscEvGrid').addEventListener('click', function (e) { var b = e.target.closest('.gsc-dp-day[data-d]'); if (b) { evState.sel = b.getAttribute('data-d'); renderEvCalendar(); } });
+    $('gscEvSave').addEventListener('click', saveEvent);
+    $('gscEvTitle').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); saveEvent(); } });
+    // List: edit (row or pencil) / delete (delegated; the list re-renders often).
+    // stopPropagation so opening the editor isn't immediately closed by the
+    // document handler below.
+    $('gscEvList').addEventListener('click', function (e) {
+      var del = e.target.closest('[data-del]');
+      if (del) { e.stopPropagation(); confirmDelete(parseInt(del.getAttribute('data-del'), 10)); return; }
+      var ed = e.target.closest('[data-edit]');
+      if (ed) { e.stopPropagation(); var ev = findEvent(parseInt(ed.getAttribute('data-edit'), 10)); if (ev) openEventEditor(ev, ed); }
+    });
+    // Close the floating editor on outside click / Escape / resize.
+    document.addEventListener('click', closeEventForm);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeEventForm(); });
+    window.addEventListener('resize', closeEventForm);
+  }
+
   // ---- boot ----------------------------------------------------------------
-  initFilterBar(); initDate(); initControls(); initToolbarEvents();
+  initFilterBar(); initDate(); initControls(); initToolbarEvents(); initEvents();
   renderKpiActive();
   reload();
+  loadEvents();
   if (window.GSC.status === 'backfilling' || window.GSC.status === 'connecting') setTimeout(pollStatus, 8000);
 })();

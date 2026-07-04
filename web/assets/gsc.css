@@ -192,3 +192,119 @@
 .gsc-cat-badge { display:inline-block; padding:.15rem .55rem; border-radius:20px; font-size:.72rem; font-weight:700; line-height:1.4; }
 
 @media (max-width:900px){ .gsc-kpis { grid-template-columns:repeat(2,1fr); } }
+
+/* ============================================================================
+   Custom timeline events — side panel + on-chart flags
+   Dedicated event colour = violet #8E44AD (distinct from clicks/impr/ctr/pos).
+   ============================================================================ */
+.gsc-evo-row { display:flex; gap:1.25rem; align-items:stretch; }
+.gsc-evo-chart { flex:1 1 auto; min-width:0; }               /* min-width:0 → chart can shrink */
+.gsc-evo-chart .gsc-chart { height:340px; position:relative; }
+
+/* Fixed height (= chart) with a scrollable body: opening the edit form scrolls
+   inside the panel, it never grows the card. */
+.gsc-evpanel { flex:0 0 26%; max-width:330px; min-width:250px; height:340px; display:flex; flex-direction:column;
+  border-left:1px solid var(--border-color,#E1E8ED); padding-left:1.25rem; }
+.gsc-evpanel-body { flex:1 1 auto; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:.35rem;
+  padding-right:.3rem; scrollbar-width:thin; scrollbar-color:#CBD5DC transparent; }
+.gsc-evpanel-body::-webkit-scrollbar { width:8px; }
+.gsc-evpanel-body::-webkit-scrollbar-thumb { background:#CBD5DC; border-radius:8px; }
+.gsc-evpanel-body::-webkit-scrollbar-thumb:hover { background:#AAB4BC; }
+@media (max-width:900px){
+  .gsc-evo-row { flex-direction:column; }
+  .gsc-evpanel { flex-basis:auto; max-width:none; height:auto; border-left:none; border-top:1px solid var(--border-color,#E1E8ED); padding-left:0; padding-top:1rem; }
+  .gsc-evpanel-body { max-height:420px; }
+}
+.gsc-evpanel-head { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.75rem; }
+.gsc-evpanel-title { display:inline-flex; align-items:center; gap:.4rem; font-weight:700; font-size:.95rem; color:var(--text-primary,#2C3E50); }
+.gsc-evpanel-title .material-symbols-outlined { font-size:1.15rem; color:#8E44AD; }
+.gsc-evpanel-head .gsc-btn--primary { background:#8E44AD; }
+.gsc-evpanel-head .gsc-btn--primary:hover { background:#7D3C98; }
+
+/* add / edit editor — floating popover, out of flow (position set in JS) */
+.gsc-evpop { position:fixed; z-index:90; width:290px; max-height:calc(100vh - 24px); overflow-y:auto;
+  background:#fff; border:1px solid #E7D9F0; border-radius:12px; box-shadow:0 14px 40px rgba(108,52,131,.22);
+  padding:.85rem; scrollbar-width:thin; scrollbar-color:#CBD5DC transparent; }
+.gsc-evpop-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:.6rem; }
+.gsc-evpop-close { border:none; background:none; cursor:pointer; color:var(--text-secondary,#7F8C8D); display:inline-flex; padding:.15rem; border-radius:6px; }
+.gsc-evpop-close:hover { background:#F3EAF9; color:#6C3483; }
+.gsc-evpop-close .material-symbols-outlined { font-size:1.15rem; }
+.gsc-evform-title { font-weight:700; font-size:.88rem; color:#6C3483; }
+.gsc-evcal { background:#fff; border:1px solid var(--border-color,#E1E8ED); border-radius:9px; padding:.55rem; margin-bottom:.6rem; }
+.gsc-evcal .gsc-dp-day { position:relative; }
+.gsc-evcal .gsc-dp-day.sel { background:#8E44AD; }
+.gsc-evcal .gsc-dp-day:not(.disabled):not(.sel):hover { background:#F3EAF9; }
+.gsc-evcal .gsc-dp-nav:hover { border-color:#8E44AD; color:#7D3C98; }
+/* day that already has event(s): light-violet cell + a small dot under the number */
+.gsc-evcal .gsc-dp-day.has-ev:not(.sel) { background:#F1E4FA; color:#6C3483; font-weight:700; }
+.gsc-evcal .gsc-dp-day.has-ev::after { content:''; position:absolute; bottom:2px; left:50%; transform:translateX(-50%);
+  width:4px; height:4px; border-radius:50%; background:#8E44AD; pointer-events:none; }
+.gsc-evcal .gsc-dp-day.has-ev.sel::after { background:#fff; }
+
+.gsc-ev-field { display:flex; flex-direction:column; gap:.25rem; margin-bottom:.55rem; }
+.gsc-ev-field > span { font-size:.72rem; font-weight:700; color:var(--text-secondary,#7F8C8D); text-transform:uppercase; letter-spacing:.3px; }
+.gsc-ev-field > span em { font-style:normal; font-weight:500; text-transform:none; letter-spacing:0; color:#AAB4BC; }
+.gsc-ev-field input, .gsc-ev-field textarea { width:100%; box-sizing:border-box; padding:.5rem .6rem;
+  border:1px solid var(--border-color,#E1E8ED); border-radius:8px; font-family:inherit; font-size:.85rem;
+  color:var(--text-primary,#2C3E50); background:#fff; resize:vertical; }
+.gsc-ev-field input:focus, .gsc-ev-field textarea:focus { outline:none; border-color:#8E44AD; box-shadow:0 0 0 3px rgba(142,68,173,.15); }
+.gsc-ev-error { background:#FDEDED; color:#C0392B; border-radius:8px; padding:.45rem .6rem; font-size:.8rem; margin-bottom:.55rem; }
+.gsc-ev-foot { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+.gsc-ev-selected { font-size:.8rem; color:#6C3483; font-weight:700; }
+.gsc-ev-foot-btns { display:flex; gap:.4rem; }
+.gsc-ev-foot .gsc-btn--primary { background:#8E44AD; }
+.gsc-ev-foot .gsc-btn--primary:hover { background:#7D3C98; }
+
+/* list (newest → oldest) — scrolls via .gsc-evpanel-body */
+.gsc-ev-list { display:flex; flex-direction:column; gap:.35rem; }
+.gsc-ev-empty { font-size:.82rem; color:#AAB4BC; padding:.6rem .2rem; text-align:center; }
+.gsc-ev-item { display:flex; align-items:center; gap:.5rem; padding:.5rem .6rem; border:1px solid var(--border-color,#E1E8ED);
+  border-radius:9px; background:#fff; transition:border-color .12s, box-shadow .12s; }
+.gsc-ev-item:hover { border-color:#D7BDE9; box-shadow:0 2px 8px rgba(0,0,0,.05); }
+.gsc-ev-item-main { flex:1; min-width:0; cursor:pointer; }
+.gsc-ev-item-date { display:inline-flex; align-items:center; gap:.25rem; font-size:.7rem; font-weight:700; color:#8E44AD; }
+.gsc-ev-item-date .material-symbols-outlined { font-size:.85rem; }
+.gsc-ev-item-title { font-size:.84rem; color:var(--text-primary,#2C3E50); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gsc-ev-item-desc { font-size:.72rem; color:var(--text-secondary,#7F8C8D); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gsc-ev-item-actions { display:flex; gap:.1rem; flex-shrink:0; }
+.gsc-ev-act { border:none; background:none; cursor:pointer; color:#AAB4BC; padding:.25rem; border-radius:6px; display:inline-flex; }
+.gsc-ev-act .material-symbols-outlined { font-size:1.05rem; }
+.gsc-ev-act:hover { background:#F0F3F6; color:var(--text-primary,#2C3E50); }
+.gsc-ev-act.del:hover { background:#FDEDED; color:#C0392B; }
+
+/* On-chart flags (HTML overlay over the plot area) */
+.gsc-event-layer { position:absolute; inset:0; pointer-events:none; z-index:5; }
+/* full-height vertical line (drawn by us so it always spans top→bottom of the plot) */
+.gsc-event-line { position:absolute; width:0; border-left:2px dashed #8E44AD; opacity:.85; pointer-events:none; z-index:1; }
+.gsc-event-flag { position:absolute; z-index:3; transform:translateX(-50%); pointer-events:auto; display:inline-flex; align-items:center;
+  gap:.22rem; max-width:160px; padding:.14rem .5rem; background:#8E44AD; color:#fff; border-radius:6px; font-size:.72rem;
+  font-weight:700; line-height:1.5; cursor:pointer; white-space:nowrap; box-shadow:0 2px 6px rgba(108,52,131,.35);
+  border:1px solid #7D3C98; }
+/* pointer is ALWAYS centered under the pill (which is centered on the line) */
+.gsc-event-flag::after { content:''; position:absolute; top:100%; left:50%; transform:translateX(-50%);
+  border:5px solid transparent; border-top-color:#8E44AD; }
+.gsc-event-flag .material-symbols-outlined { font-size:.9rem; }
+.gsc-event-flag-label { overflow:hidden; text-overflow:ellipsis; }
+/* collapsed (too close to a neighbour) → drapeau only, title stays on hover */
+.gsc-event-flag.icon-only { padding:.14rem .28rem; gap:0; }
+.gsc-event-flag.icon-only .gsc-event-flag-label { display:none; }
+.gsc-event-flag:hover { background:#7D3C98; z-index:12; }
+.gsc-event-pop { position:absolute; top:calc(100% + 8px); left:50%; transform:translateX(-50%); min-width:160px; max-width:250px;
+  background:#2C3E50; color:#fff; border-radius:8px; padding:.55rem .7rem; font-size:.75rem; font-weight:500; line-height:1.4;
+  white-space:normal; opacity:0; visibility:hidden; transition:opacity .16s, visibility .16s; z-index:20;
+  box-shadow:0 8px 22px rgba(0,0,0,.28); }
+.gsc-event-pop::before { content:''; position:absolute; bottom:100%; left:50%; transform:translateX(-50%);
+  border:5px solid transparent; border-bottom-color:#2C3E50; }
+.gsc-event-pop-date { display:block; color:#C9A9E0; font-size:.68rem; font-weight:700; margin-bottom:.2rem; }
+.gsc-event-pop-title { display:block; font-weight:700; margin-bottom:.15rem; }
+.gsc-event-pop-desc { display:block; color:#D6DEE3; }
+/* multiple events on the same bar → one block per event in the tooltip */
+.gsc-event-pop-item { display:block; }
+.gsc-event-pop-item + .gsc-event-pop-item { margin-top:.45rem; padding-top:.45rem; border-top:1px solid rgba(255,255,255,.16); }
+.gsc-event-pop-scroll { display:block; max-height:240px; overflow-y:auto; scrollbar-width:thin; scrollbar-color:#6b5b7a transparent; }
+.gsc-event-flag:hover .gsc-event-pop { opacity:1; visibility:visible; }
+/* only the tooltip flips near the edges (the pill/pointer never move) */
+.gsc-event-flag.tip-right .gsc-event-pop { left:auto; right:0; transform:none; }
+.gsc-event-flag.tip-right .gsc-event-pop::before { left:auto; right:12px; }
+.gsc-event-flag.tip-left .gsc-event-pop { left:0; transform:none; }
+.gsc-event-flag.tip-left .gsc-event-pop::before { left:12px; }

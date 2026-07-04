@@ -220,7 +220,7 @@ $flashMsg = $_GET['gsc_msg'] ?? '';
                 <div class="gsc-kpi" data-kpi="position"><span class="gsc-kpi-label"><?= __('gsc.metric_position_avg') ?></span><span class="gsc-kpi-val">—</span><span class="gsc-kpi-delta" style="display:none"></span></div>
             </div>
 
-            <!-- Time series -->
+            <!-- Time series + events side panel -->
             <div class="gsc-card">
                 <div class="gsc-card-head">
                     <h2><?= __('gsc.evolution') ?></h2>
@@ -230,7 +230,60 @@ $flashMsg = $_GET['gsc_msg'] ?? '';
                         <button type="button" data-gran="month"><?= __('gsc.gran_month') ?></button>
                     </div>
                 </div>
-                <div id="gscChart" class="gsc-chart"></div>
+                <div class="gsc-evo-row">
+                    <div class="gsc-evo-chart">
+                        <div id="gscChart" class="gsc-chart"></div>
+                    </div>
+
+                    <!-- Events side panel (~1/4 width) -->
+                    <aside class="gsc-evpanel" id="gscEvPanel">
+                        <div class="gsc-evpanel-head">
+                            <span class="gsc-evpanel-title"><span class="material-symbols-outlined">flag</span> <?= __('gsc.events') ?></span>
+                            <button type="button" class="gsc-btn gsc-btn--primary gsc-btn--sm" id="gscEvAdd">
+                                <span class="material-symbols-outlined">add</span> <?= __('gsc.event_add_short') ?>
+                            </button>
+                        </div>
+
+                        <!-- List only (scrolls); the editor floats over, out of flow. -->
+                        <div class="gsc-evpanel-body">
+                            <div class="gsc-ev-list" id="gscEvList"></div>
+                        </div>
+
+                        <!-- Add / edit editor — floating popover (position:fixed, set in JS),
+                             anchored just under the trigger button so it never pushes the flow. -->
+                        <div class="gsc-evpop" id="gscEvForm" style="display:none">
+                            <div class="gsc-evpop-head">
+                                <span class="gsc-evform-title" id="gscEvFormTitle"><?= __('gsc.event_add') ?></span>
+                                <button type="button" class="gsc-evpop-close" id="gscEvClose"><span class="material-symbols-outlined">close</span></button>
+                            </div>
+                            <!-- single-date mini calendar (styled, no native input) -->
+                            <div class="gsc-evcal">
+                                <div class="gsc-dp-head">
+                                    <button type="button" class="gsc-dp-nav" id="gscEvPrev"><span class="material-symbols-outlined">chevron_left</span></button>
+                                    <span class="gsc-dp-month" id="gscEvMonth"></span>
+                                    <button type="button" class="gsc-dp-nav" id="gscEvNext"><span class="material-symbols-outlined">chevron_right</span></button>
+                                </div>
+                                <div class="gsc-dp-grid" id="gscEvGrid"></div>
+                            </div>
+                            <label class="gsc-ev-field">
+                                <span><?= __('gsc.event_field_title') ?></span>
+                                <input type="text" id="gscEvTitle" maxlength="120" placeholder="<?= htmlspecialchars(__('gsc.event_title_ph')) ?>">
+                            </label>
+                            <label class="gsc-ev-field">
+                                <span><?= __('gsc.event_field_desc') ?> <em><?= __('gsc.event_optional') ?></em></span>
+                                <textarea id="gscEvDesc" rows="2" maxlength="1000" placeholder="<?= htmlspecialchars(__('gsc.event_desc_ph')) ?>"></textarea>
+                            </label>
+                            <div class="gsc-ev-error" id="gscEvError" style="display:none"></div>
+                            <div class="gsc-ev-foot">
+                                <span class="gsc-ev-selected" id="gscEvSelected">—</span>
+                                <div class="gsc-ev-foot-btns">
+                                    <button type="button" class="gsc-btn gsc-btn--ghost gsc-btn--sm" id="gscEvCancel"><?= __('gsc.event_cancel') ?></button>
+                                    <button type="button" class="gsc-btn gsc-btn--primary gsc-btn--sm" id="gscEvSave"><?= __('gsc.event_save') ?></button>
+                                </div>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
             </div>
 
             <!-- Data table (dashboard look) -->

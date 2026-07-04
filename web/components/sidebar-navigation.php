@@ -32,6 +32,14 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
             <span class="icon-rail-label"><?= __('sidebar.report') ?></span>
         </div>
 
+        <!-- Performance (Crawl × Search Console) -->
+        <div class="icon-rail-item <?= $activeSection === 'performance' ? 'active' : '' ?>"
+             data-section="performance"
+             data-tooltip="<?= __('sidebar.performance') ?>">
+            <span class="material-symbols-outlined">query_stats</span>
+            <span class="icon-rail-label"><?= __('sidebar.performance_short') ?></span>
+        </div>
+
         <!-- Crawl Comparison -->
         <div class="icon-rail-item <?= $activeSection === 'comparison' ? 'active' : '' ?>"
              data-section="comparison"
@@ -194,6 +202,81 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
         </div>
     </div>
     
+    <!-- Section Performance (Crawl × Search Console) -->
+    <div class="sidebar-panel-section" data-section="performance" style="<?= $activeSection !== 'performance' ? 'display: none;' : '' ?>">
+        <div class="sidebar-panel-header">
+            <span class="material-symbols-outlined">query_stats</span>
+            <span><?= __('sidebar.performance') ?></span>
+            <button class="sidebar-panel-close" onclick="closeSidebarPanel()">
+                <span class="material-symbols-outlined">chevron_left</span>
+            </button>
+        </div>
+
+        <!-- Vue d'ensemble -->
+        <div class="sidebar-panel-group">
+            <a href="?crawl=<?= $crawlId ?>&page=performance-overview"
+               class="sidebar-panel-item <?= $page === 'performance-overview' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">dashboard</span>
+                <span><?= __('sidebar.overview') ?></span>
+            </a>
+        </div>
+
+        <!-- Accessibilité & Moteur -->
+        <div class="sidebar-panel-group">
+            <div class="sidebar-panel-group-title"><?= __('sidebar.engine_accessibility') ?></div>
+            <a href="?crawl=<?= $crawlId ?>&page=performance-indexability"
+               class="sidebar-panel-item <?= $page === 'performance-indexability' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">folder</span>
+                <span><?= __('sidebar.indexability') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=performance-codes"
+               class="sidebar-panel-item <?= $page === 'performance-codes' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">http</span>
+                <span><?= __('sidebar.response_codes') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=performance-response-time"
+               class="sidebar-panel-item <?= $page === 'performance-response-time' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">speed</span>
+                <span><?= __('sidebar.response_time') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=performance-depth"
+               class="sidebar-panel-item <?= $page === 'performance-depth' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">layers</span>
+                <span><?= __('sidebar.depth_levels') ?></span>
+            </a>
+        </div>
+
+        <!-- Contenu -->
+        <div class="sidebar-panel-group">
+            <div class="sidebar-panel-group-title"><?= __('sidebar.content') ?></div>
+            <a href="?crawl=<?= $crawlId ?>&page=performance-seo-tags"
+               class="sidebar-panel-item <?= $page === 'performance-seo-tags' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">label</span>
+                <span><?= __('sidebar.seo_tags') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=performance-content"
+               class="sidebar-panel-item <?= $page === 'performance-content' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">format_size</span>
+                <span><?= __('sidebar.content_richness') ?></span>
+            </a>
+        </div>
+
+        <!-- Maillage -->
+        <div class="sidebar-panel-group">
+            <div class="sidebar-panel-group-title"><?= __('sidebar.linking') ?></div>
+            <a href="?crawl=<?= $crawlId ?>&page=performance-inlinks"
+               class="sidebar-panel-item <?= $page === 'performance-inlinks' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">link</span>
+                <span><?= __('sidebar.inlinks') ?></span>
+            </a>
+            <a href="?crawl=<?= $crawlId ?>&page=performance-pagerank"
+               class="sidebar-panel-item <?= $page === 'performance-pagerank' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">star</span>
+                <span><?= __('sidebar.pagerank') ?></span>
+            </a>
+        </div>
+    </div>
+
     <!-- Section Crawl Comparison -->
     <div class="sidebar-panel-section" data-section="comparison" style="<?= $activeSection !== 'comparison' ? 'display: none;' : '' ?>">
         <div class="sidebar-panel-header">
