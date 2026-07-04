@@ -9,7 +9,7 @@ if (!$perf['available']) { \App\Gsc\PerformanceReport::renderUnavailable($perf);
 require_once __DIR__ . '/../partials/performance-helpers.php';
 
 $from = $perf['from']; $to = $perf['to'];
-$gscAgg = \App\Gsc\PerformanceReport::gscPageAgg();
+$gscAgg = \App\Gsc\PerformanceReport::gscPageAgg($from, $to);
 $wpos   = \App\Gsc\PerformanceReport::weightedPos('g');
 $pAll   = [':crawl_id' => (int) $crawlId, ':from' => $from, ':to' => $to];
 $base   = "FROM pages p LEFT JOIN ( {$gscAgg} ) g ON g.page = p.url WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.in_crawl = TRUE AND p.depth >= 0";
@@ -31,15 +31,6 @@ foreach ($raw as $i => $r) {
 }
 
 // Deep pages that still earn clicks (surface-higher opportunities).
-$sqlProblem = "
-    SELECT p.url AS url, p.category AS category, p.depth AS depth,
-           g.clicks AS clicks, g.impressions AS impressions,
-           if(g.impressions = 0, 0, g.clicks / g.impressions) AS ctr,
-           if(g.impressions = 0, 0, g.pos_num / g.impressions) AS position
-    FROM pages p INNER JOIN ( {$gscAgg} ) g ON g.page = p.url
-    WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.in_crawl = TRUE AND p.depth >= 3 AND g.clicks > 0
-    ORDER BY g.clicks DESC LIMIT 100";
-$stmt = $pdo->prepare($sqlProblem); $stmt->execute($pAll); $problem = $stmt->fetchAll();
 ?>
 
 <h1 class="page-title"><?= __('performance.depth_title') ?></h1>
@@ -55,20 +46,13 @@ $stmt = $pdo->prepare($sqlProblem); $stmt->execute($pAll); $problem = $stmt->fet
         'tableTitle' => __('performance.depth_table_title'), 'tableSubtitle' => __('performance.depth_table_subtitle'),
     ]);
 
-    $prows = [];
-    foreach ($problem as $r) {
-        $prows[] = [
-            'url' => perf_url_cell($r->url),
-            'category' => ($r->category ?? '') !== '' ? $r->category : __('common.uncategorized'),
-            'category_color' => getCategoryColor(($r->category ?? '') !== '' ? $r->category : ''),
-            'depth' => (string) $r->depth,
-            'clicks' => perf_num($r->clicks), 'impressions' => perf_num($r->impressions),
-            'ctr' => perf_ctr($r->ctr), 'position' => perf_pos($r->position),
-        ];
-    }
-    perf_render_url_table($prows, [
-        'title' => __('performance.depth_problem_title'), 'subtitle' => __('performance.depth_problem_subtitle'),
-        'maxLines' => 15, 'extraColumns' => [['key' => 'depth', 'label' => __('performance.col_depth'), 'type' => 'badge-info']],
+    perf_url_table([
+        'id' => 'perf_depth_problem',
+        'title' => __('performance.depth_problem_title'),
+        'whereClause' => "WHERE c.crawled = true AND c.in_crawl = TRUE AND c.depth >= 3 AND g.clicks > 0",
+        'orderBy' => 'ORDER BY g.clicks DESC',
+        'extraColumns' => ['depth'],
+        'gscJoin' => $gscAgg, 'pdo' => $pdo, 'crawlId' => (int) $crawlId,
     ]);
     ?>
 </div>

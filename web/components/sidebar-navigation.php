@@ -259,6 +259,11 @@ $isDirectPage = in_array($activeSection, ['categorize', 'config']);
                 <span class="material-symbols-outlined">format_size</span>
                 <span><?= __('sidebar.content_richness') ?></span>
             </a>
+            <a href="?crawl=<?= $crawlId ?>&page=performance-orphans"
+               class="sidebar-panel-item <?= $page === 'performance-orphans' ? 'active' : '' ?>">
+                <span class="material-symbols-outlined">link_off</span>
+                <span><?= __('sidebar.orphan_pages') ?></span>
+            </a>
         </div>
 
         <!-- Maillage -->

@@ -402,7 +402,7 @@ if ($isHtmxFragment) {
     $activeSection = null; // Pas de défaut, on détermine précisément
     $reportPages = ['home', 'categories', 'codes', 'response-time', 'depth', 'redirect-chains', 'sitemap', 'inlinks', 'outlinks', 'pagerank', 'seo-tags', 'headings', 'duplication', 'extractions', 'structured-data'];
     $explorerPages = ['url-explorer', 'link-explorer', 'sql-explorer'];
-    $performancePages = ['performance-overview', 'performance-indexability', 'performance-codes', 'performance-response-time', 'performance-depth', 'performance-content', 'performance-inlinks', 'performance-pagerank', 'performance-seo-tags'];
+    $performancePages = ['performance-overview', 'performance-indexability', 'performance-orphans', 'performance-codes', 'performance-response-time', 'performance-depth', 'performance-content', 'performance-inlinks', 'performance-pagerank', 'performance-seo-tags'];
 
     if (in_array($page, $reportPages)) {
         $activeSection = 'report';

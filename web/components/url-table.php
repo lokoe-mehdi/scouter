@@ -106,15 +106,32 @@ $whereClause = $urlTableConfig['whereClause'] ?? 'WHERE c.crawled=1 AND c.in_cra
 $orderBy = $urlTableConfig['orderBy'] ?? 'ORDER BY c.url';
 $sqlParams = $urlTableConfig['sqlParams'] ?? [];
 $sqlQuery = $urlTableConfig['sqlQuery'] ?? null;
+// Optional Google Search Console join (Performance reports): a per-URL aggregate
+// subquery LEFT-JOIN-ed on page = c.url, exposing gsc_clicks / gsc_impressions /
+// gsc_ctr / gsc_position columns. Fully opt-in — when absent, the component is
+// byte-for-byte unchanged. The whereClause may then filter on those (e.g.
+// `AND (g.clicks = 0 OR isNull(g.clicks))`).
+$gscAggSql = $urlTableConfig['gscJoin'] ?? null;
+// GSC data can't be re-derived by the CSV export controller (it queries `pages`
+// only), so GSC-joined tables hide the export button (GSC CSV lives in the
+// Search Analytics view). Only meaningful together with gscJoin.
+$noExport = !empty($urlTableConfig['noExport']);
 
 // Extraire les conditions du WHERE pour le scope (fonction dans table-core.php)
 $scopeItems = extractScopeFromWhereClause($whereClause);
 
 // Construire la requête SQL pour le SQL Explorer
 // 1. Colonnes basées sur defaultColumns
-$sqlColumns = array_map(function($col) {
+$gscDisplayCols = [
+    'gsc_clicks'      => 'g.clicks AS gsc_clicks',
+    'gsc_impressions' => 'g.impressions AS gsc_impressions',
+    'gsc_ctr'         => 'if(g.impressions = 0, 0, g.clicks / g.impressions) AS gsc_ctr',
+    'gsc_position'    => 'if(g.impressions = 0, 0, g.pos_num / g.impressions) AS gsc_position',
+];
+$sqlColumns = array_map(function($col) use ($gscDisplayCols) {
     // Mapper les noms de colonnes
     if ($col === 'category') return 'category';
+    if (isset($gscDisplayCols[$col])) return $gscDisplayCols[$col];
     return $col;
 }, $defaultColumns);
 $sqlColumnsStr = implode(', ', $sqlColumns);
@@ -146,7 +163,16 @@ if ($compareCrawlId && !empty($compareColumns)) {
     $safeCompareIdForSql = intval($compareCrawlId);
     $tableSqlQuery = "SELECT " . $refColsStr . $cmpColsStr . "\nFROM pages a\nLEFT JOIN pages@{$safeCompareIdForSql} b ON b.url = a.url\n" . $cleanedWhere . "\n" . $cleanedOrderBy;
 } else {
-    $tableSqlQuery = "SELECT " . $sqlColumnsStr . "\nFROM pages\n" . $cleanedWhere . "\n" . $cleanedOrderBy;
+    // GSC deeplink: join the (project-scoped) per-URL aggregate so the copied SQL
+    // runs as-is in the SQL Explorer (gsc_page_daily is whitelisted there).
+    $gscDisplayJoin = $gscAggSql ? ("\nLEFT JOIN ( " . $gscAggSql . " ) g ON g.page = url") : '';
+    $tableSqlQuery = "SELECT " . $sqlColumnsStr . "\nFROM pages" . $gscDisplayJoin . "\n" . $cleanedWhere . "\n" . $cleanedOrderBy;
+}
+
+// A full custom sqlQuery (e.g. the GSC-only orphan table, which isn't a `pages`
+// query at all) IS the query — use it verbatim for the SQL-scope deeplink too.
+if (!empty($urlTableConfig['sqlQuery'])) {
+    $tableSqlQuery = $urlTableConfig['sqlQuery'];
 }
 
 // 5. Substituer les paramètres par leurs vraies valeurs (fonction dans table-core.php)
@@ -197,6 +223,15 @@ $availableColumns = [
     'headings_missing' => __('columns.bad_heading_structure'),
     'word_count' => __('columns.word_count')
 ];
+
+// Google Search Console metric columns: a gscJoin (pages ⋈ GSC) OR a GSC-only
+// custom sqlQuery (orphan pages, which aren't in `pages`) that opts in via gscColumns.
+if ($gscAggSql || !empty($urlTableConfig['gscColumns'])) {
+    $availableColumns['gsc_clicks']      = __('performance.metric_clicks');
+    $availableColumns['gsc_impressions'] = __('performance.metric_impressions');
+    $availableColumns['gsc_ctr']         = __('performance.metric_ctr');
+    $availableColumns['gsc_position']    = __('performance.metric_position');
+}
 
 // Ajout des colonnes d'extracteurs JSONB aux colonnes disponibles
 foreach($customExtractColumns as $columnName) {
@@ -332,6 +367,10 @@ $columnMapping = [
     'h1_status' => 'c.h1_status',
     'metadesc' => 'c.metadesc',
     'metadesc_status' => 'c.metadesc_status',
+    'gsc_clicks' => 'g.clicks',
+    'gsc_impressions' => 'g.impressions',
+    'gsc_ctr' => 'if(g.impressions = 0, 0, g.clicks / g.impressions)',
+    'gsc_position' => 'if(g.impressions = 0, 0, g.pos_num / g.impressions)',
     'category' => 'c.category',
     'h1_multiple' => 'c.h1_multiple',
     'headings_missing' => 'c.headings_missing',
@@ -406,6 +445,16 @@ if($useSimplifiedMode) {
         $compareJoin = " LEFT JOIN pages cmp ON cmp.url = c.url AND cmp.crawl_id = " . $safeCompareCrawlId . " AND cmp.in_crawl = TRUE";
     }
 
+    // GSC per-URL aggregate join (opt-in). Exposes gsc_clicks/impressions/ctr/position.
+    $gscSelect = '';
+    $gscJoin = '';
+    if ($gscAggSql) {
+        $gscSelect = ", g.clicks AS gsc_clicks, g.impressions AS gsc_impressions,"
+            . " if(g.impressions = 0, 0, g.clicks / g.impressions) AS gsc_ctr,"
+            . " if(g.impressions = 0, 0, g.pos_num / g.impressions) AS gsc_position";
+        $gscJoin = " LEFT JOIN ( " . $gscAggSql . " ) g ON g.page = c.url";
+    }
+
     // OPTIMISATION : Plus de jointure sur categories, on utilise le tableau PHP
     $sqlQuery = "SELECT
         c.id,
@@ -442,11 +491,29 @@ if($useSimplifiedMode) {
         c.headings_missing,
         c.word_count
         $jsonbColumns
+        $gscSelect
         $compareSelect
         FROM pages c
+        $gscJoin
         $compareJoin
         $whereClause
         $orderBy";
+}
+
+// Custom sqlQuery mode (e.g. the GSC-only orphan table): the header-click sort
+// can't use $columnMapping (which targets the `pages`/JOIN aliases that don't
+// exist here) — instead rewrite the query's own ORDER BY on the OUTPUT alias.
+// The column is whitelisted against the selected columns, so it's injection-safe.
+if(!$useSimplifiedMode && !empty($urlTableConfig['sqlQuery']) && !empty($sortColumn) && in_array($sortColumn, $selectedColumns, true)) {
+    $safeSort = preg_replace('/[^a-zA-Z0-9_]/', '', (string)$sortColumn);
+    if($safeSort !== '') {
+        $dir = (isset($sortDirection) && strtoupper($sortDirection) === 'DESC') ? 'DESC' : 'ASC';
+        if(preg_match('/\bORDER\s+BY\b/i', $sqlQuery)) {
+            $sqlQuery = preg_replace('/\bORDER\s+BY\b.*$/is', 'ORDER BY ' . $safeSort . ' ' . $dir, $sqlQuery);
+        } else {
+            $sqlQuery .= "\nORDER BY " . $safeSort . ' ' . $dir;
+        }
+    }
 }
 
 // Récupération du perPage depuis l'URL (compatibilité avec anciens paramètres)
@@ -542,10 +609,12 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                     <span class="material-symbols-outlined">content_copy</span>
                     <?= __('table.copy') ?>
                 </button>
+                <?php if(!$noExport): ?>
                 <button class="btn-table-action btn-export" onclick="exportToCSV_<?= $componentId ?>()">
                     <span class="material-symbols-outlined">download</span>
                     Export CSV
                 </button>
+                <?php endif; ?>
             </div>
             <?php endif; ?>
         </div>
@@ -729,6 +798,12 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
                             </td>
                         <?php elseif($renderCol === 'pri'): ?>
                             <td class="col-<?= $col ?>"><?= number_format(($url->$dataField ?? 0) * 100, 4) ?>%</td>
+                        <?php elseif($renderCol === 'gsc_clicks' || $renderCol === 'gsc_impressions'): ?>
+                            <td class="col-<?= $col ?>"><?= number_format((int)($url->$dataField ?? 0), 0, ',', ' ') ?></td>
+                        <?php elseif($renderCol === 'gsc_ctr'): ?>
+                            <td class="col-<?= $col ?>"><?= number_format(((float)($url->$dataField ?? 0)) * 100, 2, ',', ' ') ?> %</td>
+                        <?php elseif($renderCol === 'gsc_position'): ?>
+                            <td class="col-<?= $col ?>"><?= ((float)($url->$dataField ?? 0) > 0) ? number_format((float)$url->$dataField, 1, ',', ' ') : '—' ?></td>
                         <?php elseif($renderCol === 'response_time'): ?>
                             <td class="col-<?= $col ?>"><?= round($url->$dataField ?? 0, 2) ?> ms</td>
                         <?php elseif($renderCol === 'schemas'): ?>

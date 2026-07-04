@@ -114,6 +114,9 @@ switch($page) {
     case 'performance-indexability':
         include $__pagesDir . 'performance-indexability.php';
         break;
+    case 'performance-orphans':
+        include $__pagesDir . 'performance-orphans.php';
+        break;
     case 'performance-codes':
         include $__pagesDir . 'performance-codes.php';
         break;

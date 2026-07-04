@@ -10,7 +10,7 @@ if (!$perf['available']) { \App\Gsc\PerformanceReport::renderUnavailable($perf);
 require_once __DIR__ . '/../partials/performance-helpers.php';
 
 $from = $perf['from']; $to = $perf['to'];
-$gscAgg = \App\Gsc\PerformanceReport::gscPageAgg();
+$gscAgg = \App\Gsc\PerformanceReport::gscPageAgg($from, $to);
 $wpos   = \App\Gsc\PerformanceReport::weightedPos('g');
 $pAll   = [':crawl_id' => (int) $crawlId, ':from' => $from, ':to' => $to];
 $base   = "FROM pages p LEFT JOIN ( {$gscAgg} ) g ON g.page = p.url WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.in_crawl = TRUE AND p.code = 200 AND p.is_html = true";
@@ -39,17 +39,6 @@ $statusRows = function (string $col) use ($pdo, $metrics, $base, $pAll, $statusL
 [$metaRows, $sqlMeta]   = $statusRows('metadesc_status');
 
 // Visible pages with a missing/duplicate title (worst CTR offenders first).
-$sqlProblem = "
-    SELECT p.url AS url, p.category AS category,
-           multiIf(p.title_status = 'duplicate', 'duplicate', 'missing') AS title_issue,
-           g.clicks AS clicks, g.impressions AS impressions,
-           if(g.impressions = 0, 0, g.clicks / g.impressions) AS ctr,
-           if(g.impressions = 0, 0, g.pos_num / g.impressions) AS position
-    FROM pages p INNER JOIN ( {$gscAgg} ) g ON g.page = p.url
-    WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.in_crawl = TRUE AND p.code = 200 AND p.is_html = true
-      AND (p.title_status = 'duplicate' OR p.title_status = 'empty' OR p.title_status = '') AND g.impressions > 0
-    ORDER BY g.impressions DESC LIMIT 100";
-$stmt = $pdo->prepare($sqlProblem); $stmt->execute($pAll); $problem = $stmt->fetchAll();
 ?>
 
 <h1 class="page-title"><?= __('performance.seo_tags_title') ?></h1>
@@ -76,20 +65,13 @@ $stmt = $pdo->prepare($sqlProblem); $stmt->execute($pAll); $problem = $stmt->fet
         'tableTitle' => __('performance.meta_table_title'), 'tableSubtitle' => __('performance.meta_table_subtitle'),
     ]);
 
-    $prows = [];
-    foreach ($problem as $r) {
-        $prows[] = [
-            'url' => perf_url_cell($r->url),
-            'category' => ($r->category ?? '') !== '' ? $r->category : __('common.uncategorized'),
-            'category_color' => getCategoryColor(($r->category ?? '') !== '' ? $r->category : ''),
-            'title_issue' => $r->title_issue === 'duplicate' ? __('performance.tag_duplicate') : __('performance.tag_missing'),
-            'clicks' => perf_num($r->clicks), 'impressions' => perf_num($r->impressions),
-            'ctr' => perf_ctr($r->ctr), 'position' => perf_pos($r->position),
-        ];
-    }
-    perf_render_url_table($prows, [
-        'title' => __('performance.seo_problem_title'), 'subtitle' => __('performance.seo_problem_subtitle'),
-        'maxLines' => 15, 'extraColumns' => [['key' => 'title_issue', 'label' => __('performance.col_title_issue'), 'type' => 'badge-warning']],
+    perf_url_table([
+        'id' => 'perf_seo_problem',
+        'title' => __('performance.seo_problem_title'),
+        'whereClause' => "WHERE c.crawled = true AND c.in_crawl = TRUE AND c.code = 200 AND c.is_html = true AND (c.title_status = 'duplicate' OR c.title_status = 'empty' OR c.title_status = '') AND g.impressions > 0",
+        'orderBy' => 'ORDER BY g.impressions DESC',
+        'extraColumns' => ['title_status'],
+        'gscJoin' => $gscAgg, 'pdo' => $pdo, 'crawlId' => (int) $crawlId,
     ]);
     ?>
 </div>

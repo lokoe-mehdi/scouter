@@ -72,7 +72,8 @@ export const TOOLS = [
     name: 'get_crawl_schema',
     description:
       'Get the queryable tables and columns for a crawl. ALWAYS the first call when auditing a crawl. ' +
-      "Right after it, run a categories query (SELECT c.cat, COUNT(*) FROM pages p JOIN crawl_categories c ON p.cat_id=c.id WHERE p.crawled AND p.in_crawl GROUP BY c.cat ORDER BY 2 DESC) — categories are the unit of analysis and every audit must start there.",
+      "Right after it, run a categories query (SELECT c.cat, COUNT(*) FROM pages p JOIN crawl_categories c ON p.cat_id=c.id WHERE p.crawled AND p.in_crawl GROUP BY c.cat ORDER BY 2 DESC) — categories are the unit of analysis and every audit must start there. " +
+      "The response also reports Google Search Console availability in meta.gsc: {connected, status, site_url, last_synced_date, date_range}. If meta.gsc.connected is false (or date_range is null) there is NO GSC data for this project — do not expect rows from the gsc_* tables.",
     inputSchema: {
       type: 'object',
       properties: { crawl_id: { type: 'integer' } },
@@ -112,8 +113,10 @@ export const TOOLS = [
   {
     name: 'run_sql',
     description:
-      "Run ONE read-only ClickHouse SELECT/WITH over a crawl (whitelisted tables: pages, links, crawl_categories, duplicate_clusters, page_schemas, redirect_chains), paginated (page, page_size, count). " +
+      "Run ONE read-only ClickHouse SELECT/WITH over a crawl (whitelisted tables: pages, links, crawl_categories, duplicate_clusters, page_schemas, redirect_chains, and — when Google Search Console is connected — gsc_site_daily, gsc_page_daily, gsc_query_daily, gsc_page_query_daily), paginated (page, page_size, count). " +
+      "The gsc_* tables are Search Console data auto-scoped to THIS crawl's project (you CANNOT read another project's data; project_id is injected server-side). They carry a `date` column: filter with WHERE date >= 'YYYY-MM-DD'. Cross crawl↔GSC by joining gsc_page_daily on page = pages.url. clicks/impressions are additive (SUM); average position must be impression-weighted (SUM(position*impressions)/SUM(impressions)). Rows tagged is_anon=1 are Google's anonymized-query bucket (exclude with is_anon=0 for keyword lists). If get_crawl_schema's meta.gsc.connected is false, the gsc_* tables are empty (no GSC connected) — an empty result is not an error. " +
       "SQL dialect is ClickHouse (RE2 regex via match(col,'(?i)pat'), Map access extracts['k'], conditional counts countIf(cond), live `category` column instead of cat_id); common PostgreSQL syntax (~*, ::casts, COUNT(*) FILTER, ->>) is auto-translated, but call get_crawl_schema for the exact ClickHouse columns/types. " +
+      "GOTCHA: the executor sets prefer_column_name_to_alias=1, so never reuse a source column name as an aggregate alias in ORDER BY (e.g. `SUM(clicks) AS clicks ... ORDER BY clicks` fails) — alias distinctly (`AS clk`) or `ORDER BY 2`. " +
       'METHODOLOGY (follow it): (1) For an audit, FIRST query the categories, then run ONE consolidated "site overview" query with COUNT(*) FILTER(WHERE …) GROUP BY category to get many KPIs at once — do NOT fire 50 tiny queries. ' +
       '(2) ALWAYS split distributions/KPIs BY CATEGORY (GROUP BY the category), not only globally — category is the level that localizes problems to a template. ' +
       '(3) Scope real pages with "crawled = true AND in_crawl = true". (4) Never end the SQL with ";" (the server appends LIMIT/OFFSET). Use the get_crawl_schema output for exact column names.',

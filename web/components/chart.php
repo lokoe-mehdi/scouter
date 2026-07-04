@@ -40,6 +40,11 @@ $xAxisTitle = $chartConfig['xAxisTitle'] ?? '';
 $yAxisTitle = $chartConfig['yAxisTitle'] ?? '';
 $stacking = $chartConfig['stacking'] ?? null; // null, 'normal', 'percent'
 $yAxisMax = $chartConfig['yAxisMax'] ?? null;
+// Optional secondary value axis (bar / horizontalBar): pass
+// ['primary'=>'Label', 'secondary'=>'Label'] + a per-series 'yAxis'=>0|1. Lets a
+// small-magnitude series (e.g. clicks) sit on its own scale next to a big one
+// (impressions) so its bars stay visible.
+$dualAxis = $chartConfig['dualAxis'] ?? null;
 $logarithmic = $chartConfig['logarithmic'] ?? false; // Échelle logarithmique pour l'axe Y
 $xAxisMin = $chartConfig['xAxisMin'] ?? null;
 $xAxisMax = $chartConfig['xAxisMax'] ?? null;
@@ -554,6 +559,9 @@ Highcharts.chart('<?= $chartId ?>', {
         if (isset($s['linkedTo'])) {
             $serie['linkedTo'] = $s['linkedTo'];
         }
+        if (isset($s['yAxis'])) {
+            $serie['yAxis'] = (int) $s['yAxis'];
+        }
 
         return $serie;
     }, $series)) ?>,
@@ -585,6 +593,12 @@ Highcharts.chart('<?= $chartId ?>', {
         title: { text: '<?= addslashes($xAxisTitle) ?>' }
         <?php endif; ?>
     },
+    <?php if ($dualAxis): ?>
+    yAxis: [
+        { title: { text: '<?= addslashes($dualAxis['primary'] ?? $yAxisTitle) ?>' }, min: 0 },
+        { title: { text: '<?= addslashes($dualAxis['secondary'] ?? '') ?>' }, min: 0, opposite: true }
+    ],
+    <?php else: ?>
     yAxis: {
         title: { text: '<?= addslashes($yAxisTitle) ?>' }
         <?php if ($yAxisMax !== null): ?>
@@ -596,7 +610,8 @@ Highcharts.chart('<?= $chartId ?>', {
         }
         <?php endif; ?>
     },
-    legend: { 
+    <?php endif; ?>
+    legend: {
         enabled: true,
         navigation: {
             activeColor: '#5a6c7d',
@@ -659,6 +674,9 @@ Highcharts.chart('<?= $chartId ?>', {
         }
         if (isset($s['linkedTo'])) {
             $serie['linkedTo'] = $s['linkedTo'];
+        }
+        if (isset($s['yAxis'])) {
+            $serie['yAxis'] = (int) $s['yAxis'];
         }
 
         return $serie;

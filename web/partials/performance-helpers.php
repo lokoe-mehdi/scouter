@@ -128,36 +128,75 @@ if (!function_exists('perf_render_buckets')) {
     }
 }
 
-if (!function_exists('perf_render_url_table')) {
+if (!function_exists('perf_url_table')) {
     /**
-     * A "top URLs" table (server-rendered, static) for a Performance page — used
-     * for the per-report "opportunity / problem" lists that need the GSC join,
-     * which the AJAX urlTable component can't express.
+     * The standard PAGINATED url-table (Component::urlTable) for the Performance
+     * "problem / opportunity" lists — same component as every other report, with
+     * the project-scoped GSC per-URL aggregate joined in (gscJoin). You get real
+     * pagination, sortable headers, the column picker and the URL-details modal,
+     * plus the gsc_clicks / gsc_impressions / gsc_ctr / gsc_position columns. CSV
+     * export is hidden (per-URL GSC export lives in the Search Analytics view).
      *
-     * $rows: each ['url','category','extra'=>['label'=>,'value'=>,'type'=>], 'clicks','impressions','ctr','position']
-     * $cfg:  title, subtitle, extraColumns (list of ['key','label','type']).
+     * $cfg:
+     *   id            unique table id
+     *   title         heading (the component appends the URL count)
+     *   whereClause   `WHERE …` using `c.` for crawl columns + `g.` for the GSC
+     *                 aggregate (e.g. "WHERE c.crawled = true AND c.in_crawl = TRUE
+     *                 AND c.compliant = 1 AND (g.clicks = 0 OR isNull(g.clicks))").
+     *                 crawl_id is injected by the component — never add it.
+     *   orderBy       e.g. "ORDER BY g.impressions DESC" (default) / "ORDER BY c.pri DESC"
+     *   extraColumns  pages column keys shown between url/category and the GSC metrics
+     *   gscJoin       PerformanceReport::gscPageAgg($from, $to)
+     *   pdo, crawlId  from the page scope
+     *   perPage       default 20
      */
-    function perf_render_url_table(array $rows, array $cfg): void
+    function perf_url_table(array $cfg): void
     {
-        $extraCols = $cfg['extraColumns'] ?? [];
-        $columns = [
-            ['key' => 'url',      'label' => __('performance.col_url'),      'type' => 'html'],
-            ['key' => 'category', 'label' => __('performance.col_category'), 'type' => 'category'],
-        ];
-        foreach ($extraCols as $c) {
-            $columns[] = $c;
-        }
-        $columns[] = ['key' => 'clicks',      'label' => __('performance.metric_clicks'),      'type' => 'default'];
-        $columns[] = ['key' => 'impressions', 'label' => __('performance.metric_impressions'), 'type' => 'default'];
-        $columns[] = ['key' => 'ctr',         'label' => __('performance.metric_ctr'),         'type' => 'default'];
-        $columns[] = ['key' => 'position',    'label' => __('performance.metric_position'),    'type' => 'default'];
+        $cols = array_merge(
+            ['url', 'category'],
+            $cfg['extraColumns'] ?? [],
+            ['gsc_clicks', 'gsc_impressions', 'gsc_ctr', 'gsc_position']
+        );
+        Component::urlTable([
+            'title'          => $cfg['title'] ?? '',
+            'id'             => $cfg['id'],
+            'whereClause'    => $cfg['whereClause'],
+            'orderBy'        => $cfg['orderBy'] ?? 'ORDER BY g.impressions DESC',
+            'defaultColumns' => $cols,
+            'gscJoin'        => $cfg['gscJoin'],
+            'noExport'       => true,
+            'pdo'            => $cfg['pdo'],
+            'crawlId'        => $cfg['crawlId'],
+            'perPage'        => $cfg['perPage'] ?? 10,
+            'projectDir'     => $_GET['project'] ?? '',
+        ]);
+    }
+}
 
-        Component::simpleTable([
-            'title'    => $cfg['title'] ?? '',
-            'subtitle' => $cfg['subtitle'] ?? '',
-            'maxLines' => $cfg['maxLines'] ?? 10,
-            'columns'  => $columns,
-            'data'     => $rows,
+if (!function_exists('perf_gsc_url_table')) {
+    /**
+     * The SAME paginated url-table component, but for GSC-ONLY URLs that don't
+     * exist in the crawl `pages` (orphan pages). It drives the component with a
+     * full custom `sqlQuery` (columns aliased to url / gsc_clicks / gsc_impressions
+     * / gsc_ctr / gsc_position) instead of a `pages` whereClause. Same look,
+     * pagination, sorting and column picker.
+     *
+     * $cfg: id, title, sqlQuery (SELECT … aliased as above), pdo, crawlId, perPage.
+     */
+    function perf_gsc_url_table(array $cfg): void
+    {
+        Component::urlTable([
+            'title'          => $cfg['title'] ?? '',
+            'id'             => $cfg['id'],
+            'sqlQuery'       => $cfg['sqlQuery'],
+            'sqlParams'      => $cfg['sqlParams'] ?? [],
+            'defaultColumns' => $cfg['defaultColumns'] ?? ['url', 'gsc_clicks', 'gsc_impressions', 'gsc_ctr', 'gsc_position'],
+            'gscColumns'     => true,
+            'noExport'       => true,
+            'pdo'            => $cfg['pdo'],
+            'crawlId'        => $cfg['crawlId'],
+            'perPage'        => $cfg['perPage'] ?? 10,
+            'projectDir'     => $_GET['project'] ?? '',
         ]);
     }
 }

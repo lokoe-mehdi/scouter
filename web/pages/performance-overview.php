@@ -17,7 +17,7 @@ require_once __DIR__ . '/../partials/performance-helpers.php';
 
 $from = $perf['from'];
 $to   = $perf['to'];
-$gscAgg = \App\Gsc\PerformanceReport::gscPageAgg();
+$gscAgg = \App\Gsc\PerformanceReport::gscPageAgg($from, $to);
 $wpos   = \App\Gsc\PerformanceReport::weightedPos('g');
 $pRange = [':from' => $from, ':to' => $to];
 $pAll   = [':crawl_id' => (int) $crawlId, ':from' => $from, ':to' => $to];
@@ -30,7 +30,7 @@ $sqlKpis = "
         if(sum(impressions) = 0, 0, sum(clicks) / sum(impressions)) AS ctr,
         if(sum(impressions) = 0, 0, sum(position * impressions) / sum(impressions)) AS position
     FROM gsc_site_daily
-    WHERE date >= toDate(:from) AND date <= toDate(:to)
+    WHERE date >= toDate('{$from}') AND date <= toDate('{$to}')
 ";
 $stmt = $pdo->prepare($sqlKpis); $stmt->execute($pRange); $kpis = $stmt->fetch();
 
@@ -38,7 +38,7 @@ $stmt = $pdo->prepare($sqlKpis); $stmt->execute($pRange); $kpis = $stmt->fetch()
 $sqlTrend = "
     SELECT toString(date) AS d, sum(clicks) AS clicks, sum(impressions) AS impressions
     FROM gsc_site_daily
-    WHERE date >= toDate(:from) AND date <= toDate(:to)
+    WHERE date >= toDate('{$from}') AND date <= toDate('{$to}')
     GROUP BY date ORDER BY date ASC
 ";
 $stmt = $pdo->prepare($sqlTrend); $stmt->execute($pRange); $trend = $stmt->fetchAll();
@@ -60,7 +60,7 @@ $stmt = $pdo->prepare($sqlCoverage); $stmt->execute($pAll); $cov = $stmt->fetch(
 $sqlOrphans = "
     SELECT count() AS n FROM (
         SELECT page FROM gsc_page_daily
-        WHERE date >= toDate(:from) AND date <= toDate(:to)
+        WHERE date >= toDate('{$from}') AND date <= toDate('{$to}')
         GROUP BY page HAVING sum(impressions) > 0
     ) g
     WHERE g.page NOT IN (
@@ -85,19 +85,6 @@ $sqlByCat = "
 ";
 $stmt = $pdo->prepare($sqlByCat); $stmt->execute($pAll); $byCat = $stmt->fetchAll();
 
-// --- Top pages by clicks -----------------------------------------------------
-$sqlTop = "
-    SELECT p.url AS url, p.category AS category, p.code AS code,
-           g.clicks AS clicks, g.impressions AS impressions,
-           if(g.impressions = 0, 0, g.clicks / g.impressions) AS ctr,
-           if(g.impressions = 0, 0, g.pos_num / g.impressions) AS position
-    FROM pages p
-    INNER JOIN ( {$gscAgg} ) g ON g.page = p.url
-    WHERE p.crawl_id = :crawl_id AND p.crawled = true AND p.in_crawl = TRUE
-    ORDER BY g.clicks DESC
-    LIMIT 50
-";
-$stmt = $pdo->prepare($sqlTop); $stmt->execute($pAll); $topPages = $stmt->fetchAll();
 ?>
 
 <h1 class="page-title"><?= __('performance.overview_title') ?></h1>
@@ -214,22 +201,14 @@ $stmt = $pdo->prepare($sqlTop); $stmt->execute($pAll); $topPages = $stmt->fetchA
         'data' => $catTable,
     ]);
 
-    // Top pages by clicks.
-    $topRows = [];
-    foreach ($topPages as $r) {
-        $topRows[] = [
-            'url'            => perf_url_cell($r->url),
-            'category'       => ($r->category ?? '') !== '' ? $r->category : __('common.uncategorized'),
-            'category_color' => getCategoryColor(($r->category ?? '') !== '' ? $r->category : ''),
-            'clicks'         => perf_num($r->clicks),
-            'impressions'    => perf_num($r->impressions),
-            'ctr'            => perf_ctr($r->ctr),
-            'position'       => perf_pos($r->position),
-        ];
-    }
-    perf_render_url_table($topRows, [
-        'title' => __('performance.top_pages_title'), 'subtitle' => __('performance.top_pages_subtitle'),
-        'maxLines' => 15,
+    // Top pages by clicks — standard paginated component.
+    perf_url_table([
+        'id' => 'perf_overview_top',
+        'title' => __('performance.top_pages_title'),
+        'whereClause' => "WHERE c.crawled = true AND c.in_crawl = TRUE AND g.clicks > 0",
+        'orderBy' => 'ORDER BY g.clicks DESC',
+        'extraColumns' => ['code'],
+        'gscJoin' => $gscAgg, 'pdo' => $pdo, 'crawlId' => (int) $crawlId,
     ]);
     ?>
 </div>

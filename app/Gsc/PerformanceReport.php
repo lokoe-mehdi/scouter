@@ -28,11 +28,12 @@ use App\Database\PostgresDatabase;
  */
 class PerformanceReport
 {
-    /** Presets offered by the date-range control (in days ending on the last
-     *  day that actually has data — like GSC anchors on last-synced, not today). */
-    public const PRESETS = [7, 28, 90, 180, 365];
+    /** Presets offered by the date-range control, in MONTHS *before the crawl
+     *  date*. The window is always relative to the crawl and never extends past
+     *  it — comparing a crawl to data collected after it is meaningless. */
+    public const PRESETS = [1, 3, 6, 12];
 
-    public const DEFAULT_PRESET = 28;
+    public const DEFAULT_PRESET = 3;
 
     /**
      * Resolve everything a Performance page needs: availability, the connector,
@@ -46,10 +47,11 @@ class PerformanceReport
      */
     public static function context(int $crawlId, bool $useCh): array
     {
-        $projectId = self::projectIdOf($crawlId);
+        [$projectId, $crawlDate] = self::crawlInfo($crawlId);
         $ctx = [
             'available' => false, 'reason' => '', 'projectId' => $projectId,
             'connector' => null, 'minDate' => null, 'maxDate' => null,
+            'crawlDate' => $crawlDate, 'maxAllowed' => null,
             'from' => '', 'to' => '', 'preset' => (string) self::DEFAULT_PRESET, 'label' => '',
         ];
 
@@ -83,7 +85,20 @@ class PerformanceReport
             return $ctx;
         }
 
-        [$from, $to, $preset, $label] = self::resolveRange($minDate ?: $maxDate, $maxDate);
+        // The selectable window is RELATIVE TO THE CRAWL DATE and never extends
+        // past it. The latest selectable day = the crawl date, itself capped by
+        // the latest day GSC actually holds (data can lag behind a fresh crawl).
+        $crawlDate  = $crawlDate ?: $maxDate;
+        $maxAllowed = min($crawlDate, $maxDate);
+        $minDate    = $minDate ?: $maxAllowed;
+        if ($minDate > $maxAllowed) {
+            // All GSC data is AFTER the crawl → nothing to compare against.
+            $ctx['reason'] = 'no_data_before_crawl';
+            return $ctx;
+        }
+        $ctx['maxAllowed'] = $maxAllowed;
+
+        [$from, $to, $preset, $label] = self::resolveRange($minDate, $maxAllowed, $crawlDate);
         $ctx['available'] = true;
         $ctx['from'] = $from;
         $ctx['to'] = $to;
@@ -92,16 +107,22 @@ class PerformanceReport
         return $ctx;
     }
 
-    /** project_id for a crawl (light PG lookup — mirrors ChPdo). */
-    private static function projectIdOf(int $crawlId): int
+    /** project_id + crawl date (YYYY-MM-DD) for a crawl (light PG lookup). */
+    private static function crawlInfo(int $crawlId): array
     {
         try {
             $pg = PostgresDatabase::getInstance()->getConnection();
-            $stmt = $pg->prepare("SELECT project_id FROM crawls WHERE id = :id");
+            $stmt = $pg->prepare(
+                "SELECT project_id, to_char(COALESCE(finished_at, started_at), 'YYYY-MM-DD') AS crawl_date "
+                . "FROM crawls WHERE id = :id"
+            );
             $stmt->execute([':id' => $crawlId]);
-            return (int) $stmt->fetchColumn();
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+            $cd  = $row['crawl_date'] ?? null;
+            $cd  = ($cd && preg_match('/^\d{4}-\d{2}-\d{2}$/', $cd)) ? $cd : null;
+            return [(int) ($row['project_id'] ?? 0), $cd];
         } catch (\Throwable $e) {
-            return 0;
+            return [0, null];
         }
     }
 
@@ -127,20 +148,23 @@ class PerformanceReport
     }
 
     /**
-     * Turn the request ($_GET pf/pfrom/pto) into a concrete range, clamped to
-     * the available data window.
+     * Resolve the requested window (this request's $_GET, else the persisted
+     * cookie, else the default) into a concrete range. Presets are N months
+     * BEFORE the crawl date; the range is clamped to [minDate, maxAllowed] and
+     * never runs past the crawl (= maxAllowed).
      *
      * @return array{0:string,1:string,2:string,3:string} [from, to, preset, label]
      */
-    private static function resolveRange(string $minDate, string $maxDate): array
+    private static function resolveRange(string $minDate, string $maxAllowed, string $crawlDate): array
     {
-        $pf   = isset($_GET['pf']) ? (string) $_GET['pf'] : (string) self::DEFAULT_PRESET;
-        $to   = $maxDate;
+        $req  = self::requestedWindow();
+        $pf   = $req['pf'];
+        $to   = $maxAllowed;
         $from = null;
 
         if ($pf === 'custom') {
-            $cf = self::safeDate($_GET['pfrom'] ?? '');
-            $ct = self::safeDate($_GET['pto'] ?? '');
+            $cf = self::safeDate($req['from']);
+            $ct = self::safeDate($req['to']);
             if ($cf && $ct) {
                 $from = $cf;
                 $to   = $ct;
@@ -150,21 +174,46 @@ class PerformanceReport
         }
 
         if ($from === null) {
-            $days = in_array((int) $pf, self::PRESETS, true) ? (int) $pf : self::DEFAULT_PRESET;
-            $pf   = (string) $days;
-            $from = date('Y-m-d', strtotime($maxDate . " -" . ($days - 1) . " days"));
+            $months = in_array((int) $pf, self::PRESETS, true) ? (int) $pf : self::DEFAULT_PRESET;
+            $pf     = (string) $months;
+            $to     = $maxAllowed;
+            $from   = date('Y-m-d', strtotime($crawlDate . " -{$months} months"));
         }
 
-        // Clamp to the data window.
-        if ($from < $minDate) { $from = $minDate; }
-        if ($to > $maxDate)   { $to = $maxDate; }
-        if ($from > $to)      { $from = $to; }
+        // Clamp: never past the crawl (maxAllowed), never before the earliest data.
+        if ($to > $maxAllowed) { $to = $maxAllowed; }
+        if ($to < $minDate)    { $to = $minDate; }
+        if ($from < $minDate)  { $from = $minDate; }
+        if ($from > $to)       { $from = $to; }
 
-        $label = ($pf === 'custom' || !in_array((int) $pf, self::PRESETS, true))
-            ? ($from . ' → ' . $to)
-            : \__('performance.range_' . $pf);
+        $label = ($pf === 'custom') ? ($from . ' → ' . $to) : \__('performance.range_' . $pf);
 
         return [$from, $to, $pf, $label];
+    }
+
+    /**
+     * The window the user asked for: explicit $_GET this request, else the
+     * `perf_win` cookie (so the choice PERSISTS across page navigations), else
+     * the default preset. Cookie format: "3" (preset months) or "custom|from|to".
+     *
+     * @return array{pf:string,from:string,to:string}
+     */
+    private static function requestedWindow(): array
+    {
+        if (isset($_GET['pf'])) {
+            return ['pf' => (string) $_GET['pf'], 'from' => (string) ($_GET['pfrom'] ?? ''), 'to' => (string) ($_GET['pto'] ?? '')];
+        }
+        $c = (string) ($_COOKIE['perf_win'] ?? '');
+        if ($c !== '') {
+            $p = explode('|', $c);
+            if (($p[0] ?? '') === 'custom' && count($p) >= 3) {
+                return ['pf' => 'custom', 'from' => $p[1], 'to' => $p[2]];
+            }
+            if (in_array((int) ($p[0] ?? 0), self::PRESETS, true)) {
+                return ['pf' => (string) (int) $p[0], 'from' => '', 'to' => ''];
+            }
+        }
+        return ['pf' => (string) self::DEFAULT_PRESET, 'from' => '', 'to' => ''];
     }
 
     /** A same-page URL with the date-range params swapped (preserves crawl/page). */
@@ -191,13 +240,19 @@ class PerformanceReport
      * Uses the `:from`/`:to` bound params — every Performance query passes them.
      * `gsc_page_daily` is rewritten by ChPdo into the project-scoped source.
      */
-    public static function gscPageAgg(): string
+    public static function gscPageAgg(string $from, string $to): string
     {
+        // Dates inlined as validated literals (safeDate → strict YYYY-MM-DD, so
+        // injection-safe) rather than bound params: this way the SQL shown on
+        // each chart's "view SQL" icon is copy-paste runnable as-is in the SQL
+        // Explorer (which can't bind the report's :from/:to).
+        $f = self::safeDate($from);
+        $t = self::safeDate($to);
         return "SELECT page, "
              . "sum(clicks) AS clicks, sum(impressions) AS impressions, "
              . "sum(position * impressions) AS pos_num "
              . "FROM gsc_page_daily "
-             . "WHERE date >= toDate(:from) AND date <= toDate(:to) "
+             . "WHERE date >= toDate('{$f}') AND date <= toDate('{$t}') "
              . "GROUP BY page";
     }
 

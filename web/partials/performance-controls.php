@@ -16,8 +16,14 @@ $perfPreset = $perf['preset'];
 $perfFrom   = $perf['from'];
 $perfTo     = $perf['to'];
 $perfMin    = $perf['minDate'] ?: $perfFrom;
-$perfMax    = $perf['maxDate'] ?: $perfTo;
+// The window is relative to the crawl date and never past it → cap the picker at
+// maxAllowed = min(crawl date, last GSC day).
+$perfMax    = $perf['maxAllowed'] ?: ($perf['maxDate'] ?: $perfTo);
+$perfCrawl  = $perf['crawlDate'] ?? '';
 $perfProp   = $perf['connector']->site_url ?? '';
+$perfLocale = class_exists('I18n') ? I18n::getInstance()->getLocale() : 'en-US';
+// Cookie value persisted client-side so the window survives page navigation.
+$perfCookie = ($perfPreset === 'custom') ? ('custom|' . $perfFrom . '|' . $perfTo) : $perfPreset;
 
 /** Build a preset link URL (helper is namespaced). */
 $perfUrl = fn(string $pf) => \App\Gsc\PerformanceReport::url((int) $crawlId, $perfPage, $pf);
@@ -41,13 +47,27 @@ static $perfCssAdded = false;
 .perf-dp-preset:hover{background:var(--background);}
 .perf-dp-preset.active{background:var(--primary-color);color:#fff;font-weight:600;}
 .perf-dp-sep{height:1px;background:var(--border-color);margin:.5rem 0;}
+.perf-dp-menu-head{font-size:.72rem;color:var(--text-secondary);font-weight:600;padding:.1rem .2rem .5rem;border-bottom:1px solid var(--border-color);margin-bottom:.5rem;display:flex;align-items:center;gap:.35rem;}
 .perf-dp-custom-title{font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);font-weight:600;margin-bottom:.5rem;}
-.perf-dp-custom{display:flex;flex-direction:column;gap:.5rem;}
-.perf-dp-dates{display:flex;gap:.5rem;}
-.perf-dp-dates label{display:flex;flex-direction:column;gap:.2rem;font-size:.7rem;color:var(--text-secondary);flex:1;}
-.perf-dp-dates input{padding:.4rem .5rem;border:1px solid var(--border-color);border-radius:8px;background:var(--background);color:var(--text-primary);font-size:.85rem;}
-.perf-dp-apply{align-self:flex-end;padding:.45rem .9rem;background:var(--primary-color);color:#fff;border:none;border-radius:8px;font-weight:600;font-size:.85rem;cursor:pointer;}
+.perf-dp-apply{padding:.45rem .9rem;background:var(--primary-color);color:#fff;border:none;border-radius:8px;font-weight:600;font-size:.85rem;cursor:pointer;}
 .perf-dp-apply:hover{filter:brightness(1.05);}
+/* custom range calendar */
+.perf-cal{width:252px;}
+.perf-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:.45rem;}
+.perf-cal-month{font-weight:700;font-size:.85rem;color:var(--text-primary);text-transform:capitalize;}
+.perf-cal-nav{border:1px solid var(--border-color);background:#fff;border-radius:6px;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-secondary);}
+.perf-cal-nav:hover{border-color:var(--primary-color);color:var(--primary-color);}
+.perf-cal-nav .material-symbols-outlined{font-size:1.05rem;}
+.perf-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;}
+.perf-cal-wd{text-align:center;font-size:.64rem;color:var(--text-secondary);font-weight:700;padding:.15rem 0;text-transform:uppercase;}
+.perf-cal-day{border:none;background:none;aspect-ratio:1;border-radius:6px;cursor:pointer;font-size:.78rem;color:var(--text-primary);display:flex;align-items:center;justify-content:center;font-family:inherit;padding:0;}
+.perf-cal-day.empty{visibility:hidden;}
+.perf-cal-day:not(.disabled):not(.sel):hover{background:#EAF7F6;}
+.perf-cal-day.inrange{background:#E8F8F5;border-radius:0;}
+.perf-cal-day.sel{background:var(--primary-color);color:#fff;font-weight:700;}
+.perf-cal-day.disabled{color:#C9D2D9;cursor:default;}
+.perf-cal-foot{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-top:.5rem;padding-top:.5rem;border-top:1px solid var(--border-color);}
+.perf-cal-range{font-size:.72rem;color:var(--text-secondary);font-weight:600;}
 .perf-unavailable{max-width:640px;margin:3rem auto;text-align:center;background:var(--card-bg);border:1px solid var(--border-color);border-radius:16px;padding:3rem 2rem;}
 .perf-unavailable-icon .material-symbols-outlined{font-size:3.5rem;color:var(--primary-color);}
 .perf-unavailable h2{margin:1rem 0 .5rem;color:var(--text-primary);}
@@ -61,9 +81,9 @@ static $perfCssAdded = false;
 
 <div class="perf-toolbar">
     <div class="perf-toolbar-info">
-        <span class="material-symbols-outlined">insights</span>
+        <span class="material-symbols-outlined">event_available</span>
         <?php if ($perfProp): ?><code><?= htmlspecialchars($perfProp) ?></code><?php endif; ?>
-        <span><?= __('performance.data_until', ['date' => htmlspecialchars($perfMax)]) ?></span>
+        <span><?= __('performance.window_relative', ['date' => htmlspecialchars($perfCrawl ?: $perfMax)]) ?></span>
     </div>
     <div class="perf-daterange" id="perfDaterange">
         <button type="button" class="perf-daterange-btn" onclick="perfToggleDateMenu(event)">
@@ -72,38 +92,38 @@ static $perfCssAdded = false;
             <span class="material-symbols-outlined perf-caret">expand_more</span>
         </button>
         <div class="perf-datemenu" id="perfDateMenu">
+            <div class="perf-dp-menu-head"><?= __('performance.window_before_crawl', ['date' => htmlspecialchars($perfCrawl ?: $perfMax)]) ?></div>
             <div class="perf-dp-presets">
-                <?php foreach (\App\Gsc\PerformanceReport::PRESETS as $days): ?>
-                    <a class="perf-dp-preset <?= ($perfPreset === (string) $days) ? 'active' : '' ?>"
-                       href="<?= htmlspecialchars($perfUrl((string) $days)) ?>"><?= __('performance.range_' . $days) ?></a>
+                <?php foreach (\App\Gsc\PerformanceReport::PRESETS as $months): ?>
+                    <a class="perf-dp-preset <?= ($perfPreset === (string) $months) ? 'active' : '' ?>"
+                       href="<?= htmlspecialchars($perfUrl((string) $months)) ?>"><?= __('performance.range_' . $months) ?></a>
                 <?php endforeach; ?>
             </div>
             <div class="perf-dp-sep"></div>
             <div class="perf-dp-custom-title"><?= __('performance.custom_range') ?></div>
-            <form class="perf-dp-custom" method="get" action="">
-                <input type="hidden" name="crawl" value="<?= (int) $crawlId ?>">
-                <input type="hidden" name="page" value="<?= htmlspecialchars($perfPage) ?>">
-                <?php if (!empty($_GET['project'])): ?>
-                    <input type="hidden" name="project" value="<?= htmlspecialchars((string) $_GET['project']) ?>">
-                <?php endif; ?>
-                <input type="hidden" name="pf" value="custom">
-                <div class="perf-dp-dates">
-                    <label><?= __('performance.from') ?>
-                        <input type="date" name="pfrom" value="<?= htmlspecialchars($perfFrom) ?>"
-                               min="<?= htmlspecialchars($perfMin) ?>" max="<?= htmlspecialchars($perfMax) ?>">
-                    </label>
-                    <label><?= __('performance.to') ?>
-                        <input type="date" name="pto" value="<?= htmlspecialchars($perfTo) ?>"
-                               min="<?= htmlspecialchars($perfMin) ?>" max="<?= htmlspecialchars($perfMax) ?>">
-                    </label>
+            <!-- Styled range calendar (no native input), bounded [first GSC day … crawl date] -->
+            <div class="perf-cal" id="perfCal">
+                <div class="perf-cal-head">
+                    <button type="button" class="perf-cal-nav" id="perfCalPrev"><span class="material-symbols-outlined">chevron_left</span></button>
+                    <span class="perf-cal-month" id="perfCalMonth"></span>
+                    <button type="button" class="perf-cal-nav" id="perfCalNext"><span class="material-symbols-outlined">chevron_right</span></button>
                 </div>
-                <button type="submit" class="perf-dp-apply"><?= __('performance.apply') ?></button>
-            </form>
+                <div class="perf-cal-grid" id="perfCalGrid"></div>
+                <div class="perf-cal-foot">
+                    <span class="perf-cal-range" id="perfCalRange">—</span>
+                    <button type="button" class="perf-dp-apply" id="perfCalApply"><?= __('performance.apply') ?></button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
 <script>
+// Persist the chosen window so it survives page navigation (the sidebar links
+// don't carry the params). PerformanceReport reads this `perf_win` cookie when
+// no ?pf is present. Runs on every render → always reflects the current window.
+document.cookie = 'perf_win=' + encodeURIComponent(<?= json_encode($perfCookie) ?>) + ';path=/;max-age=' + (86400 * 180) + ';SameSite=Lax';
+
 // Toggle the date menu (registered once; safe across htmx swaps).
 if (typeof window.perfToggleDateMenu === 'undefined') {
     window.perfToggleDateMenu = function(e){
@@ -117,4 +137,60 @@ if (typeof window.perfToggleDateMenu === 'undefined') {
         if (m && dr && !dr.contains(e.target)) m.classList.remove('open');
     });
 }
+
+// Custom-range calendar (styled, bounded [first GSC day … crawl date]). Re-init
+// each render since the menu DOM is rebuilt on every (htmx) navigation.
+(function(){
+    var grid = document.getElementById('perfCalGrid');
+    var menu = document.getElementById('perfDateMenu');
+    if (!grid || !menu) return;
+    // Clicks inside the menu must not bubble to the outside-close handler — a day
+    // click re-renders the grid so its target detaches and would wrongly close it.
+    menu.addEventListener('click', function(e){ e.stopPropagation(); });
+
+    var cfg = <?= json_encode(['min' => $perfMin, 'max' => $perfMax, 'from' => $perfFrom, 'to' => $perfTo, 'locale' => $perfLocale]) ?>;
+    function ymd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+    function parse(s){ return new Date(s+'T00:00:00'); }
+    var fMonth = new Intl.DateTimeFormat(cfg.locale, {month:'long', year:'numeric'});
+    var WD = []; for (var i=0;i<7;i++){ WD.push(new Intl.DateTimeFormat(cfg.locale,{weekday:'narrow'}).format(new Date(2024,0,1+i))); } // 2024-01-01 = Monday
+    var st = { start: cfg.from || null, end: cfg.to || null, view: parse(cfg.to || cfg.max) };
+    st.view = new Date(st.view.getFullYear(), st.view.getMonth(), 1);
+
+    function render(){
+        var y=st.view.getFullYear(), m=st.view.getMonth();
+        var mn = fMonth.format(new Date(y,m,1));
+        document.getElementById('perfCalMonth').textContent = mn.charAt(0).toUpperCase()+mn.slice(1);
+        var startWd=(new Date(y,m,1).getDay()+6)%7, days=new Date(y,m+1,0).getDate();
+        var html = WD.map(function(d){return '<span class="perf-cal-wd">'+d+'</span>';}).join('');
+        for (var i=0;i<startWd;i++) html+='<span class="perf-cal-day empty"></span>';
+        for (var day=1; day<=days; day++){
+            var ds=y+'-'+String(m+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+            var off = (ds<cfg.min || ds>cfg.max);
+            var cls='perf-cal-day';
+            if (off) cls+=' disabled';
+            else if (ds===st.start || ds===st.end) cls+=' sel';
+            else if (st.start && st.end && ds>st.start && ds<st.end) cls+=' inrange';
+            html+='<button type="button" class="'+cls+'" data-d="'+ds+'"'+(off?' disabled':'')+'>'+day+'</button>';
+        }
+        grid.innerHTML=html;
+        document.getElementById('perfCalRange').textContent = st.start ? (st.start+(st.end?(' → '+st.end):' → …')) : '—';
+    }
+    function pick(ds){
+        if (!st.start || (st.start && st.end)) { st.start=ds; st.end=null; }
+        else if (ds>=st.start) { st.end=ds; }
+        else { st.end=st.start; st.start=ds; }
+        render();
+    }
+    grid.addEventListener('click', function(e){ var b=e.target.closest('.perf-cal-day[data-d]'); if (b && !b.disabled) pick(b.getAttribute('data-d')); });
+    document.getElementById('perfCalPrev').addEventListener('click', function(){ st.view=new Date(st.view.getFullYear(),st.view.getMonth()-1,1); render(); });
+    document.getElementById('perfCalNext').addEventListener('click', function(){ st.view=new Date(st.view.getFullYear(),st.view.getMonth()+1,1); render(); });
+    document.getElementById('perfCalApply').addEventListener('click', function(){
+        if (!st.start) return;
+        var from=st.start, to=st.end||st.start;
+        var u=new URL(window.location);
+        u.searchParams.set('pf','custom'); u.searchParams.set('pfrom',from); u.searchParams.set('pto',to);
+        window.location = u.toString();
+    });
+    render();
+})();
 </script>
