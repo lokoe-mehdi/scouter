@@ -51,6 +51,10 @@ class ClickHouseSqlExecutor
         // Project-level category values table (id/cat/color) built live from the
         // YAML rules — lets PG-style `JOIN crawl_categories ON p.cat_id = c.id` run.
         'crawl_categories',
+        // Google Search Console tables. Project-scoped (not crawl-scoped): ChPdo
+        // rewrites them to a subquery filtered by the current crawl's project_id.
+        // Query a date range with `WHERE date BETWEEN …`.
+        'gsc_site_daily', 'gsc_page_daily', 'gsc_query_daily', 'gsc_page_query_daily',
     ];
 
     private const HARD_ROW_CAP    = 10000;

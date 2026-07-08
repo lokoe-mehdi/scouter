@@ -111,6 +111,84 @@ body { background: #F4F6FA; }
 .pjx-cta-secondary:hover { border-color: var(--primary-color); color: var(--primary-dark, #3DB8AF); }
 .pjx-cta .material-symbols-outlined { font-size: 18px; }
 
+/* --- View tabs (Overview · Crawl report · Search Analytics) --------------- */
+.pjx-tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border-color, #E1E8ED); margin-bottom: 1.25rem; }
+.pjx-tab { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.6rem 0.9rem; font-size: 0.9rem;
+    font-weight: 600; color: var(--text-secondary, #7F8C8D); text-decoration: none; background: none; border: none;
+    border-bottom: 2px solid transparent; margin-bottom: -1px; border-radius: 6px 6px 0 0; cursor: pointer; font-family: inherit; }
+.pjx-tab .material-symbols-outlined { font-size: 1.1rem; }
+.pjx-tab:hover { color: var(--text-primary, #2C3E50); background: rgba(0,0,0,0.02); }
+.pjx-tab.active { color: var(--primary-dark, #3DB8AF); border-bottom-color: var(--primary-color, #4ECDC4); }
+.pjx-tab--disabled { opacity: 0.45; }
+.pjx-tab--disabled:hover { color: var(--text-secondary, #7F8C8D); background: none; }
+
+/* --- Section labels (semantic: technical health vs field performance) ----- */
+.pjx-sec { display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-secondary, #7F8C8D); margin: 0 0 0.9rem 0.15rem; }
+.pjx-sec .material-symbols-outlined { font-size: 1rem; }
+
+/* --- "Current state" welded card: crawl + GSC as ONE card, 1px hairline ---- */
+.pjx-state { background: var(--card-bg, #fff); border-radius: 16px; border: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.02); display: flex; flex-direction: column; overflow: hidden; }
+.pjx-state-part { padding: 1.4rem 1.6rem; }
+.pjx-state-part--gsc { border-top: 1px solid #EEF1F5; }          /* the hairline between crawl & GSC */
+.pjx-state .pjx-overview { padding: 0; }                          /* content already inset by the part */
+.pjx-state .pjx-gsc-compact { padding: 0; }
+.pjx-state .pjx-sec--gsc { margin-top: 0; }
+
+/* --- GSC compact block (connected — subordinated to the crawl) ------------- */
+.pjx-gsc-compact { padding: 1.1rem 1.5rem; }
+.pjx-gsc-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.9rem; }
+.pjx-gsc-period { font-size: 0.8rem; color: var(--text-secondary, #7F8C8D); display: inline-flex; align-items: center; gap: 0.35rem; }
+.pjx-gsc-syncing { font-size: 1rem; }
+.pjx-gsc-detail { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.82rem; font-weight: 600;
+    color: var(--primary-dark, #3DB8AF); text-decoration: none; white-space: nowrap; }
+.pjx-gsc-detail .material-symbols-outlined { font-size: 1rem; }
+.pjx-gsc-detail:hover { text-decoration: underline; }
+/* 4 metric cards on surface-1, with a sparkline + delta each (like the crawl,
+   but a notch smaller so it stays subordinate). */
+.pjx-gsc-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.85rem; }
+.pjx-gsc-kpi { display: flex; flex-direction: column; gap: 0.3rem;
+    background: var(--surface-1, #F8FAFB); border: 1px solid var(--border-color, #E1E8ED); border-radius: 10px; padding: 0.75rem 0.85rem; }
+.pjx-gsc-kpi-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-secondary, #7F8C8D); font-weight: 600; }
+.pjx-gsc-kpi-val { font-size: 1.45rem; font-weight: 700; color: var(--text-primary, #2C3E50); line-height: 1; }
+.pjx-gsc-kpi-sub { font-size: 0.74rem; display: flex; align-items: center; gap: 0.3rem; min-height: 1em; }
+.pjx-gsc-kpi .pc-spark { max-width: 100%; height: 26px; opacity: 0.9; margin-top: 0.1rem; }
+.pjx-gsc-d { font-weight: 700; }
+.pjx-gsc-d--up { color: #2ECC71; }
+.pjx-gsc-d--down { color: #E0816F; }
+.pjx-gsc-d--flat { color: var(--text-secondary, #7F8C8D); }
+
+/* --- GSC empty-state (not connected) — single horizontal row -------------- */
+/* icon (round pill) · title+subtitle stacked left · CTA right, all centered on
+   ONE line. Height follows content: no fixed height, no vertical centering in a
+   tall box. Calm, low-saturation surface — invite, don't shout. ~70px tall. */
+/* White, lifted card so the invitation stands out on the section; the colourful
+   Google Search Console logo carries the visual accent. */
+.pjx-gsc-empty { display: flex; flex-direction: row; align-items: center; gap: 14px; padding: 12px 16px;
+    background: #fff; border: 1px solid var(--border-color, #E1E8ED); border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
+.pjx-gsc-empty-logo { flex-shrink: 0; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
+.pjx-gsc-empty-body { flex: 1; min-width: 0; text-align: left; }
+.pjx-gsc-empty-title { font-size: 0.92rem; font-weight: 700; color: var(--text-primary, #2C3E50); margin: 0 0 2px; }
+.pjx-gsc-empty-text { font-size: 0.82rem; color: var(--text-secondary, #7F8C8D); margin: 0; line-height: 1.35; }
+/* Official "Sign in with Google" button (Google branding: white, #747775 border,
+   4-colour G, Roboto Medium) so the Google connector reads instantly. */
+.gsi-btn { flex-shrink: 0; display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px;
+    background: #fff; border: 1px solid #dadce0; border-radius: 4px; text-decoration: none; white-space: nowrap;
+    font-family: 'Roboto', arial, sans-serif; font-size: 14px; font-weight: 500; letter-spacing: 0.25px; color: #1f1f1f; cursor: pointer;
+    transition: background-color .2s, box-shadow .2s, border-color .2s; }
+.gsi-btn:hover { background: #f8faff; border-color: #d2e3fc; box-shadow: 0 1px 2px 0 rgba(60,64,67,.30), 0 1px 3px 1px rgba(60,64,67,.15); }
+.gsi-btn:active { background: #f1f5ff; }
+.gsi-btn-icon { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; }
+
+@media (max-width: 760px) {
+    .pjx-gsc-kpis { grid-template-columns: repeat(2, 1fr); }
+    .pjx-gsc-empty { flex-wrap: wrap; }
+    .pjx-gsc-empty-body { flex-basis: 100%; }
+    .pjx-tab span:not(.material-symbols-outlined) { display: none; } /* icon-only tabs on narrow screens */
+}
+
 /* ---- History table -------------------------------------------------------- */
 .pjx-history { padding: 1.25rem 1.5rem; }
 .pjx-hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
@@ -191,6 +269,16 @@ body { background: #F4F6FA; }
 }
 .pjx-see-all:hover { text-decoration: underline; }
 .pjx-see-all .material-symbols-outlined { font-size: 16px; }
+
+/* Crawl-history paginator (same look as the dashboard urlTable pager) */
+.pjx-pager { display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem; margin-top: 0.75rem; }
+.pjx-pager-info { font-size: 0.85rem; color: var(--text-secondary); }
+.pjx-pager-ctrls { display: flex; align-items: center; gap: 0.5rem; }
+.pjx-pager-ctrls button { padding: 0.35rem; border: 1px solid #dee2e6; background: #fff; border-radius: 4px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; color: var(--text-primary); }
+.pjx-pager-ctrls button:hover:not(:disabled) { background: #f8f9fa; border-color: #adb5bd; }
+.pjx-pager-ctrls button:disabled { opacity: 0.4; cursor: default; }
+.pjx-pager-ctrls button .material-symbols-outlined { font-size: 20px; }
 
 /* ACTIONS RAPIDES (colonne droite) */
 .pjx-quick-card { padding: 1.25rem 1.25rem 0.75rem; }

@@ -247,6 +247,16 @@ body { background: #F4F6FA; margin: 0; overflow: hidden; }
     border-left: 3px solid var(--pc-muted); white-space: nowrap; cursor: pointer;
 }
 .pc-favicon { width: 16px; height: 16px; border-radius: 3px; flex-shrink: 0; }
+/* Search Console connected badge */
+.pc-gsc-badge {
+    display: inline-flex; align-items: center; gap: 0.2rem; flex-shrink: 0;
+    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.02em;
+    color: #1a7f5a; background: rgba(61, 190, 139, 0.14);
+    border: 1px solid rgba(61, 190, 139, 0.35); border-radius: 6px;
+    padding: 0.08rem 0.36rem; line-height: 1; cursor: default;
+}
+.pc-gsc-badge .material-symbols-outlined { font-size: 0.9rem; }
+.pc-gsc-badge-txt { font-size: 0.64rem; }
 .pc-name {
     font-size: 0.95rem; font-weight: 700; color: var(--text-primary);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0;

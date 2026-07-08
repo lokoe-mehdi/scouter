@@ -85,6 +85,10 @@ services:
       # Master key used to encrypt secrets stored in app_settings (Gemini API key, etc.).
       # Read from .env (gitignored). Generate one with `openssl rand -hex 32`.
       - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY}
+      # Google Search Console OAuth (connecteur GSC) — lu depuis .env (gitignored).
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID:-}
+      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      - GOOGLE_OAUTH_REDIRECT_URI=${GOOGLE_OAUTH_REDIRECT_URI:-}
       # Page-HTML blob storage: local dir by default; set S3_* to use a bucket.
       - STORAGE_PATH=/app/storage
       - S3_BUCKET=${S3_BUCKET:-}
@@ -145,6 +149,10 @@ services:
       # returns null and jobs fail with "API key not configured".
       # Read from .env (gitignored) — same key as the scouter service above.
       - SCOUTER_ENCRYPTION_KEY=${SCOUTER_ENCRYPTION_KEY}
+      # Google Search Console OAuth — the worker runs the backfill/sync/delete jobs.
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID:-}
+      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      - GOOGLE_OAUTH_REDIRECT_URI=${GOOGLE_OAUTH_REDIRECT_URI:-}
       # Page-HTML blob storage — the worker purges a crawl's HTML on deletion.
       - STORAGE_PATH=/app/storage
       - S3_BUCKET=${S3_BUCKET:-}

@@ -160,6 +160,44 @@ switch($module){
     }
   break;
 
+  // Connecteur Google Search Console : backfill initial (16 mois), sync
+  // quotidienne (fenêtre glissante 7j) et suppression (purge ClickHouse +
+  // révocation du token). Lancés par le worker PHP ("gsc-backfill:<id>" etc).
+  case "gsc-backfill":
+  case "gsc-sync":
+  case "gsc-delete":
+    $arg = (isset($argv[2])) ? $argv[2] : "none";
+    $jobManager = new \App\Job\JobManager();
+    $connectorId = (int) (explode(':', $arg)[1] ?? 0);
+    try {
+        if ($connectorId <= 0) {
+            throw new \RuntimeException("Invalid GSC connector id: {$arg}");
+        }
+        $runner = new \App\Gsc\GscJobRunner();
+        if ($module === 'gsc-backfill') {
+            $runner->runBackfill($connectorId);
+        } elseif ($module === 'gsc-sync') {
+            $runner->runSync($connectorId);
+        } else {
+            $runner->runDelete($connectorId);
+        }
+
+        $jobId = getenv('JOB_ID');
+        if ($jobId) {
+            $jobManager->updateJobStatus($jobId, 'completed');
+            $jobManager->addLog($jobId, ucfirst(str_replace('gsc-', 'GSC ', $module)) . " #{$connectorId} completed", 'success');
+        }
+    } catch (\Throwable $e) {
+        $jobId = getenv('JOB_ID');
+        if ($jobId) {
+            $jobManager->updateJobStatus($jobId, 'failed');
+            $jobManager->setJobError($jobId, $e->getMessage());
+            $jobManager->addLog($jobId, "{$module} failed: " . $e->getMessage(), 'error');
+        }
+        echo "\n\nERROR: " . $e->getMessage() . "\n";
+    }
+  break;
+
   case "dashboard":
     Cmder::dashboard();
   break;

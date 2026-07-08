@@ -199,3 +199,94 @@ CREATE TABLE IF NOT EXISTS scouter.page_generation
 ENGINE = ReplacingMergeTree(version)
 PARTITION BY crawl_id
 ORDER BY (crawl_id, id);
+
+-- ===========================================================================
+-- Google Search Console (connecteur GSC).
+--
+-- Contrairement aux tables de crawl (partitionnées par crawl_id), la donnée GSC
+-- est scopée par PROJET et par DATE. On stocke 4 niveaux d'agrégat car
+-- l'anonymisation des requêtes GSC fait que Somme(mots-cles) < total reel :
+--   - gsc_site_daily        [date]              -> vrais totaux (anonyme inclus)
+--   - gsc_page_daily        [date,page]         -> total par URL (source cross-analyse)
+--   - gsc_query_daily       [date,query]        -> total par mot-cle + lignes '(anonyme)'
+--   - gsc_page_query_daily  [date,query,page]   -> joint + lignes '(anonyme)' par URL
+--
+-- ReplacingMergeTree(version) : la sync quotidienne re-recupere une fenetre
+-- glissante et re-insere avec un version plus recent -> pas de doublon, pas de
+-- DELETE. Lecture dedupliquee via LIMIT 1 BY (...cles...) ORDER BY version DESC.
+-- PARTITION BY project_id -> suppression d'un connecteur = DROP PARTITION.
+-- ---------------------------------------------------------------------------
+-- country + device: LowCardinality dims on the site / page / query marginals
+-- (full geo/device segmentation). NOT on the joint page×query table (volume).
+-- page URLs are fragment-stripped at ingestion (url and url#x collapse to url).
+CREATE TABLE IF NOT EXISTS scouter.gsc_site_daily
+(
+    project_id  Int32,
+    site        String,
+    search_type LowCardinality(String) DEFAULT 'web',
+    date        Date,
+    country     LowCardinality(String) DEFAULT '',
+    device      LowCardinality(String) DEFAULT '',
+    clicks      Int64 DEFAULT 0,
+    impressions Int64 DEFAULT 0,
+    position    Float32 DEFAULT 0,
+    version     UInt64 DEFAULT toUnixTimestamp(now())
+)
+ENGINE = ReplacingMergeTree(version)
+PARTITION BY project_id
+ORDER BY (project_id, search_type, date, country, device);
+
+CREATE TABLE IF NOT EXISTS scouter.gsc_page_daily
+(
+    project_id  Int32,
+    site        String,
+    search_type LowCardinality(String) DEFAULT 'web',
+    date        Date,
+    page        String,
+    country     LowCardinality(String) DEFAULT '',
+    device      LowCardinality(String) DEFAULT '',
+    clicks      Int64 DEFAULT 0,
+    impressions Int64 DEFAULT 0,
+    position    Float32 DEFAULT 0,
+    version     UInt64 DEFAULT toUnixTimestamp(now())
+)
+ENGINE = ReplacingMergeTree(version)
+PARTITION BY project_id
+ORDER BY (project_id, search_type, date, page, country, device);
+
+CREATE TABLE IF NOT EXISTS scouter.gsc_query_daily
+(
+    project_id  Int32,
+    site        String,
+    search_type LowCardinality(String) DEFAULT 'web',
+    date        Date,
+    query       String,
+    country     LowCardinality(String) DEFAULT '',
+    device      LowCardinality(String) DEFAULT '',
+    clicks      Int64 DEFAULT 0,
+    impressions Int64 DEFAULT 0,
+    position    Float32 DEFAULT 0,
+    is_anon     UInt8 DEFAULT 0,
+    version     UInt64 DEFAULT toUnixTimestamp(now())
+)
+ENGINE = ReplacingMergeTree(version)
+PARTITION BY project_id
+ORDER BY (project_id, search_type, date, query, country, device);
+
+CREATE TABLE IF NOT EXISTS scouter.gsc_page_query_daily
+(
+    project_id  Int32,
+    site        String,
+    search_type LowCardinality(String) DEFAULT 'web',
+    date        Date,
+    page        String,
+    query       String,
+    clicks      Int64 DEFAULT 0,
+    impressions Int64 DEFAULT 0,
+    position    Float32 DEFAULT 0,
+    is_anon     UInt8 DEFAULT 0,
+    version     UInt64 DEFAULT toUnixTimestamp(now())
+)
+ENGINE = ReplacingMergeTree(version)
+PARTITION BY project_id
+ORDER BY (project_id, search_type, date, page, query);

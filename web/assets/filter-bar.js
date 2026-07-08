@@ -234,6 +234,12 @@ class FilterBar {
                 return prefix + (names.length > 2 ? names.slice(0,2).join(', ') + '...' : names.join(', '));
             }
             return chip.value;
+        } else if (config.type === 'enum') {
+            const opts = config.options || [];
+            const arr = Array.isArray(chip.value) ? chip.value : [chip.value];
+            const names = arr.map(v => { const o = opts.find(x => String(x.value) === String(v)); return o ? o.label : v; });
+            const prefix = chip.operator === 'not_in' ? '≠ ' : '';
+            return prefix + (names.length > 2 ? names.slice(0, 2).join(', ') + '...' : names.join(', '));
         } else if (config.type === 'text') {
             const op = this.operatorLabels[chip.operator] || '';
             return `${op} "${chip.value}"`;
@@ -497,6 +503,14 @@ class FilterBar {
                 this.closeAllPopovers();
                 return;
             }
+        } else if (config.type === 'enum') {
+            operator = document.getElementById('configOperator')?.value || 'in';
+            const checked = document.querySelectorAll('.enum-checkbox:checked');
+            value = Array.from(checked).map(cb => cb.value);
+            if (value.length === 0) {
+                this.closeAllPopovers();
+                return;
+            }
         } else if (config.type === 'schemas') {
             const mode = document.getElementById('configSchemasMode')?.value || 'count';
             if (mode === 'count') {
@@ -622,6 +636,8 @@ class FilterBar {
             html += this._generateSeoConfigHtml(config, existingChip);
         } else if (config.type === 'category') {
             html += this._generateCategoryConfigHtml(config, existingChip);
+        } else if (config.type === 'enum') {
+            html += this._generateEnumConfigHtml(config, existingChip);
         } else if (config.type === 'schemas') {
             html += this._generateSchemasConfigHtml(config, existingChip);
         }
@@ -866,6 +882,43 @@ class FilterBar {
                             <span class="checkbox-label">${cat.cat}</span>
                         </label>
                     `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    /** Generic multi-select of predefined options (config.options = [{value,label}]),
+     *  with in / not_in operators. Used for enum dimensions like device / country. */
+    _generateEnumConfigHtml(config, existingChip) {
+        const op = existingChip?.operator || 'in';
+        const selected = Array.isArray(existingChip?.value) ? existingChip.value.map(String) : [];
+        const opts = config.options || [];
+
+        return `
+            <div class="popover-row">
+                <label class="popover-label">${__('filter.label_mode')}</label>
+                <div class="styled-select-wrapper">
+                    <input type="hidden" id="configOperator" value="${op}">
+                    <div class="styled-select-btn" onclick="toggleStyledSelect(this)">
+                        <span class="select-value">${op === 'in' ? __('filter.is_in') : __('filter.is_not_in')}</span>
+                        <span class="material-symbols-outlined">expand_more</span>
+                    </div>
+                    <div class="styled-select-menu">
+                        <div class="styled-select-item ${op === 'in' ? 'active' : ''}" data-value="in" onclick="selectStyledOption(this, 'configOperator')">${__('filter.is_in')}</div>
+                        <div class="styled-select-item ${op === 'not_in' ? 'active' : ''}" data-value="not_in" onclick="selectStyledOption(this, 'configOperator')">${__('filter.is_not_in')}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="popover-row">
+                <label class="popover-label">${config.label}</label>
+                <div class="styled-checkbox-list" style="max-height: 220px;">
+                    ${opts.length ? opts.map(o => `
+                        <label class="styled-checkbox-item">
+                            <input type="checkbox" class="enum-checkbox" value="${o.value}" ${selected.includes(String(o.value)) ? 'checked' : ''}>
+                            <span class="checkbox-box"><span class="material-symbols-outlined">check</span></span>
+                            <span class="checkbox-label">${o.label}</span>
+                        </label>
+                    `).join('') : `<div style="padding:.5rem;color:var(--text-secondary,#7F8C8D);font-size:.85rem">${__('filter.no_options')}</div>`}
                 </div>
             </div>
         `;

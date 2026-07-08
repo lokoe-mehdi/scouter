@@ -6,7 +6,9 @@ use App\Http\Controller;
 use App\Http\Request;
 use App\Http\Response;
 use App\Database\PostgresDatabase;
+use App\Database\ClickHouseDatabase;
 use App\Database\ProjectRepository;
+use App\Gsc\ConnectorRepository;
 use App\Database\CrawlRepository;
 use App\AI\SqlExecutor;
 use App\AI\ClickHouseSqlExecutor;
@@ -133,18 +135,26 @@ class ApiV1Controller extends Controller
         $cid = (int)$crawl->id;
 
         if (CrawlStore::usesClickHouse($cid)) {
+            $gsc = self::gscAvailability((int) $crawl->project_id);
+            $gscNote = $gsc['connected']
+                ? 'Google Search Console IS connected for this project'
+                    . ($gsc['date_range'] ? (' (data ' . $gsc['date_range']['from'] . ' → ' . $gsc['date_range']['to'] . ')') : ' (no data yet — backfill in progress)')
+                    . ': the `gsc_site_daily` / `gsc_page_daily` / `gsc_query_daily` / `gsc_page_query_daily` tables are queryable and auto-scoped to THIS project. '
+                    . 'gsc_site/page/query carry `country` (ISO) + `device` (DESKTOP|MOBILE|TABLET) dims — always aggregate over them (GROUP BY page) unless segmenting, since a page has one row per country×device. `page` URLs are fragment-stripped (url and url#x are merged). '
+                    . 'Cross crawl↔GSC by joining `gsc_page_daily` on page = pages.url. clicks/impressions are additive (SUM); avg position weight by impressions.'
+                : 'Google Search Console is NOT connected for this project — the `gsc_*` tables exist but are empty (an empty result there means no GSC data, not an error).';
             Response::json([
                 'data' => [
                     'tables' => self::clickHouseVirtualSchema(),
                     'notes'  => 'ClickHouse data store. Use virtual names (`pages`, `links`, '
-                              . '`duplicate_clusters`, `page_schemas`, `redirect_chains`). '
+                              . '`duplicate_clusters`, `page_schemas`, `redirect_chains`, `gsc_*`). '
                               . '`pages.category` is computed live from the project rules (no cat_id). '
                               . 'inlinks/pri/title_status/h1_status/metadesc_status/in_sitemap come from '
                               . 'post-processing. ClickHouse SQL dialect (RE2 regex via match(), '
                               . 'Map access extracts[\'k\']). Query other crawls of the SAME project with '
-                              . '`pages@<id>`. SELECT / WITH … SELECT only.',
+                              . '`pages@<id>`. SELECT / WITH … SELECT only. ' . $gscNote,
                 ],
-                'meta' => ['crawl_id' => $cid, 'data_store' => 'clickhouse'],
+                'meta' => ['crawl_id' => $cid, 'data_store' => 'clickhouse', 'gsc' => $gsc],
             ]);
             return;
         }
@@ -200,11 +210,50 @@ class ApiV1Controller extends Controller
      *
      * @return array<string,array<int,array{name:string,type:string}>>
      */
+    /**
+     * Whether Google Search Console is connected for a project + its data window,
+     * so API/MCP callers know if the `gsc_*` tables hold anything (an empty result
+     * there means "not connected", not an error). Always project-scoped.
+     *
+     * @return array{connected:bool,status:?string,site_url:?string,last_synced_date:?string,date_range:?array{from:string,to:string}}
+     */
+    private static function gscAvailability(int $projectId): array
+    {
+        $out = ['connected' => false, 'status' => null, 'site_url' => null, 'last_synced_date' => null, 'date_range' => null];
+        try {
+            $connector = (new ConnectorRepository())->getByProject($projectId);
+            if (!$connector) {
+                return $out;
+            }
+            $out['connected']        = true;
+            $out['status']           = $connector->status ?? null;
+            $out['site_url']         = $connector->site_url ?? null;
+            $out['last_synced_date'] = $connector->last_synced_date ?? null;
+
+            $r = ClickHouseDatabase::getInstance()->select(
+                "SELECT toString(min(date)) AS mn, toString(max(date)) AS mx FROM scouter.gsc_site_daily WHERE project_id = {pid:Int32}",
+                ['pid' => $projectId]
+            );
+            $mn = $r[0]['mn'] ?? ''; $mx = $r[0]['mx'] ?? '';
+            $mn = ($mn && $mn !== '1970-01-01') ? $mn : null;
+            $mx = ($mx && $mx !== '1970-01-01') ? $mx : null;
+            if ($mn && $mx) {
+                $out['date_range'] = ['from' => $mn, 'to' => $mx];
+            }
+        } catch (\Throwable $e) {
+            // best-effort
+        }
+        return $out;
+    }
+
     public static function clickHouseVirtualSchema(): array
     {
         $col = fn(string $n, string $t) => ['name' => $n, 'type' => $t];
-        $tables = ['pages', 'links', 'duplicate_clusters', 'page_schemas', 'redirect_chains'];
-        $hidden = ['crawl_id'];
+        $tables = ['pages', 'links', 'duplicate_clusters', 'page_schemas', 'redirect_chains',
+            // Google Search Console — project-scoped (ChPdo injects project_id).
+            'gsc_site_daily', 'gsc_page_daily', 'gsc_query_daily', 'gsc_page_query_daily'];
+        // crawl_id (pages/links) + project_id/version (gsc_*) are auto-scoped/internal.
+        $hidden = ['crawl_id', 'project_id', 'version'];
 
         try {
             $ch = ClickHouseDatabase::getInstance();
@@ -279,6 +328,29 @@ class ApiV1Controller extends Controller
                 $col('final_id', 'String'), $col('final_url', 'String'), $col('final_code', 'Int32'),
                 $col('final_compliant', 'UInt8'), $col('hops', 'Int32'), $col('is_loop', 'UInt8'),
                 $col('chain_ids', 'Array(String)'),
+            ],
+            // Google Search Console — project-scoped (project_id/version auto-scoped, hidden).
+            // country + device are ISO geo / DESKTOP|MOBILE|TABLET (empty on the joint page×query table).
+            'gsc_site_daily' => [
+                $col('site', 'String'), $col('search_type', 'LowCardinality(String)'), $col('date', 'Date'),
+                $col('country', 'LowCardinality(String)'), $col('device', 'LowCardinality(String)'),
+                $col('clicks', 'Int64'), $col('impressions', 'Int64'), $col('position', 'Float32'),
+            ],
+            'gsc_page_daily' => [
+                $col('site', 'String'), $col('search_type', 'LowCardinality(String)'), $col('date', 'Date'),
+                $col('page', 'String'), $col('country', 'LowCardinality(String)'), $col('device', 'LowCardinality(String)'),
+                $col('clicks', 'Int64'), $col('impressions', 'Int64'), $col('position', 'Float32'),
+            ],
+            'gsc_query_daily' => [
+                $col('site', 'String'), $col('search_type', 'LowCardinality(String)'), $col('date', 'Date'),
+                $col('query', 'String'), $col('country', 'LowCardinality(String)'), $col('device', 'LowCardinality(String)'),
+                $col('clicks', 'Int64'), $col('impressions', 'Int64'),
+                $col('position', 'Float32'), $col('is_anon', 'UInt8'),
+            ],
+            'gsc_page_query_daily' => [
+                $col('site', 'String'), $col('search_type', 'LowCardinality(String)'), $col('date', 'Date'),
+                $col('page', 'String'), $col('query', 'String'), $col('clicks', 'Int64'),
+                $col('impressions', 'Int64'), $col('position', 'Float32'), $col('is_anon', 'UInt8'),
             ],
         ];
     }

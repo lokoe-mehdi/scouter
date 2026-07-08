@@ -194,10 +194,29 @@ try {
         }
         return $max;
     };
+    // Search Console connected projects float to the TOP of each list, then the
+    // usual last-crawl-desc order. One query builds the set of connected project IDs.
+    try {
+        $gscConnectedIds = array_flip((new \App\Gsc\ConnectorRepository())->getConnectedProjectIds());
+    } catch (\Throwable $e) {
+        $gscConnectedIds = [];
+    }
+    $tagGscConnected = function($p) use ($gscConnectedIds) {
+        $p->gsc_connected = isset($gscConnectedIds[(int) $p->id]);
+        return $p;
+    };
+    foreach ($myProjects as $p)     { $tagGscConnected($p); }
+    foreach ($sharedProjects as $p) { $tagGscConnected($p); }
+    foreach ($otherProjects as $p)  { $tagGscConnected($p); }
+
+    // Sort: GSC-connected first, then most recent crawl first.
     $sortByLastCrawl = function($a, $b) use ($projectLastCrawlTs) {
+        $ga = !empty($a->gsc_connected) ? 1 : 0;
+        $gb = !empty($b->gsc_connected) ? 1 : 0;
+        if ($ga !== $gb) return $gb <=> $ga;
         return $projectLastCrawlTs($b) <=> $projectLastCrawlTs($a);
     };
-    
+
     if (!empty($myProjects)) usort($myProjects, $sortByLastCrawl);
     if (!empty($sharedProjects)) usort($sharedProjects, $sortByLastCrawl);
     if (!empty($otherProjects)) usort($otherProjects, $sortByLastCrawl);
@@ -1733,9 +1752,15 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                 const domainCards = Array.from(domainsList.querySelectorAll('.domain-card'));
                 
                 domainCards.sort((a, b) => {
+                    // Search Console connected projects ALWAYS float to the top,
+                    // whatever the chosen sort — then the selected criterion applies.
+                    const gscA = a.getAttribute('data-gsc') === '1' ? 1 : 0;
+                    const gscB = b.getAttribute('data-gsc') === '1' ? 1 : 0;
+                    if (gscA !== gscB) return gscB - gscA;
+
                     let valueA, valueB;
                     const [type, direction] = currentSortOption.split('-');
-                    
+
                     if (type === 'date') {
                         // Sort by the last-crawl timestamp carried on the card.
                         valueA = parseInt(a.getAttribute('data-ts') || '0', 10);

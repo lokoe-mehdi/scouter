@@ -339,6 +339,19 @@ CREATE TABLE page_schemas (...);
 --   is_loop     UInt8           chain ends back at a URL it already visited
 --   chain_ids   Array(String)   pages.id values in order
 CREATE TABLE redirect_chains (...);
+
+-- Google Search Console performance data. PROJECT-scoped (NOT crawl-scoped) and
+-- keyed by DATE: always add a date filter, e.g. WHERE date >= today() - 90.
+-- clicks/impressions are additive → SUM them; CTR = SUM(clicks)/SUM(impressions);
+-- avg position is impression-weighted: SUM(position*impressions)/SUM(impressions).
+-- Four granularities (query rows are anonymized by Google, so a synthetic
+-- '(anonyme)' row / is_anon=1 carries the missing clicks so totals reconcile):
+--   gsc_site_daily (date, clicks, impressions, position)          -- true daily totals
+--   gsc_page_daily (date, page, clicks, impressions, position)    -- per-URL totals
+--   gsc_query_daily (date, query, is_anon, clicks, impressions, position)      -- per-keyword
+--   gsc_page_query_daily (date, page, query, is_anon, clicks, impressions, position) -- joint
+-- Exclude the anonymized bucket with `WHERE is_anon = 0` when you only want named rows.
+CREATE TABLE gsc_query_daily (...);
 </schema>
 
 ## Scouter-specific conventions (ClickHouse)

@@ -39,6 +39,7 @@ use App\Http\Controllers\BulkGenerateController;
 use App\Http\Controllers\ApiV1Controller;
 use App\Http\Controllers\ApiKeyController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\GscController;
 
 $request = new Request();
 
@@ -106,6 +107,21 @@ try {
     // =============================================================================
     $router->get('/notifications', [NotificationController::class, 'index'], ['auth' => true]);
     $router->post('/notifications/read', [NotificationController::class, 'markRead'], ['auth' => true]);
+
+    // =============================================================================
+    // GSC — Search Analytics (données Search Console, scopées par projet)
+    // =============================================================================
+    $router->get( '/gsc/status',     [GscController::class, 'status'],     ['auth' => true]);
+    $router->post('/gsc/query',      [GscController::class, 'query'],      ['auth' => true]);
+    $router->post('/gsc/timeseries', [GscController::class, 'timeseries'], ['auth' => true]);
+    $router->get( '/gsc/countries',  [GscController::class, 'countries'],  ['auth' => true]);
+    // Custom timeline events (project-scoped annotations on the chart).
+    $router->get(  '/gsc/events',        [GscController::class, 'events'],      ['auth' => true]);
+    $router->post( '/gsc/events',        [GscController::class, 'createEvent'], ['auth' => true]);
+    $router->post( '/gsc/events/update', [GscController::class, 'updateEvent'], ['auth' => true]);
+    $router->post( '/gsc/events/delete', [GscController::class, 'deleteEvent'], ['auth' => true]);
+    // CSV export is handled by the shared async export system (type 'gsc') via
+    // POST /api/exports → download center. See ExportController::create.
 
     // =============================================================================
     // QUERIES
