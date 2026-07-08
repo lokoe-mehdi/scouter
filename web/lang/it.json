@@ -2497,5 +2497,7 @@
   "project.gsc_empty_title": "Collega Search Console per vedere la performance reale",
   "project.gsc_empty_text": "La scansione misura la tecnica. Search Console mostra clic, impressioni, CTR e posizioni reali su Google.",
   "project.gsc_connect_cta": "Collega Search Console",
-  "project.gsc_sign_in_google": "Accedi con Google"
+  "project.gsc_sign_in_google": "Accedi con Google",
+  "table.prev_page": "Pagina precedente",
+  "table.next_page": "Pagina successiva"
 }

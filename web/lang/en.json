@@ -2497,5 +2497,7 @@
   "project.gsc_empty_title": "Connect Search Console to see real performance",
   "project.gsc_empty_text": "The crawl measures the tech. Search Console shows real clicks, impressions, CTR and positions on Google.",
   "project.gsc_connect_cta": "Connect Search Console",
-  "project.gsc_sign_in_google": "Sign in with Google"
+  "project.gsc_sign_in_google": "Sign in with Google",
+  "table.prev_page": "Previous page",
+  "table.next_page": "Next page"
 }
