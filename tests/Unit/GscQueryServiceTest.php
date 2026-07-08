@@ -124,6 +124,50 @@ it('negates a not_in category filter and drops it when page column is absent', f
     expect($noPage)->toBe('');
 });
 
+it('accepts the country and device modes', function () {
+    expect(GscQueryService::normalizeMode('country'))->toBe('country');
+    expect(GscQueryService::normalizeMode('device'))->toBe('device');
+});
+
+it('builds a country/device filter as an IN of bound params', function () {
+    $params = [];
+    $sql = GscQueryService::buildFilterSql(
+        [['logic' => 'AND', 'items' => [['field' => 'country', 'operator' => 'in', 'value' => ['fra', 'usa']]]]],
+        ['country', 'device'],
+        $params
+    );
+    expect($sql)->toContain('country IN ({f0:String}, {f1:String})');
+    expect($params)->toBe(['f0' => 'fra', 'f1' => 'usa']);
+
+    $p2 = [];
+    $dev = GscQueryService::buildFilterSql(
+        [['logic' => 'AND', 'items' => [['field' => 'device', 'operator' => '=', 'value' => 'MOBILE']]]],
+        ['page', 'country', 'device'],
+        $p2
+    );
+    expect($dev)->toContain('device IN ({f0:String})');
+    expect($p2)->toBe(['f0' => 'MOBILE']);
+});
+
+it('negates a not_in country filter and drops it when the column is absent', function () {
+    $params = [];
+    $sql = GscQueryService::buildFilterSql(
+        [['logic' => 'OR', 'items' => [['field' => 'country', 'operator' => 'not_in', 'value' => ['fra']]]]],
+        ['country', 'device'],
+        $params
+    );
+    expect($sql)->toContain('NOT (country IN ({f0:String}))');
+
+    // The joint page×query table has no country/device column → dropped.
+    $p2 = [];
+    $dropped = GscQueryService::buildFilterSql(
+        [['logic' => 'OR', 'items' => [['field' => 'device', 'operator' => 'in', 'value' => ['MOBILE']]]]],
+        ['page', 'query'],
+        $p2
+    );
+    expect($dropped)->toBe('');
+});
+
 it('ignores empty-value chips', function () {
     $params = [];
     $sql = GscQueryService::buildFilterSql(

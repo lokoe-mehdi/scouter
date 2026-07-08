@@ -2474,5 +2474,17 @@
   "performance.orph_cat_title": "Impressions orphelines par catégorie",
   "performance.orph_cat_subtitle": "Quels modèles Google indexe que le crawl ne voit pas",
   "performance.orph_table_title": "Pages orphelines",
-  "performance.orph_table_subtitle": "Top :n URLs vues sur Google mais absentes du crawl (par impressions)"
+  "performance.orph_table_subtitle": "Top :n URLs vues sur Google mais absentes du crawl (par impressions)",
+  "index.gsc_connected": "Search Console connecté",
+  "gsc.mode_country": "Pays",
+  "gsc.mode_device": "Appareil",
+  "gsc.col_country": "Pays",
+  "gsc.col_device": "Appareil",
+  "gsc.device_all": "Appareil : tous",
+  "gsc.device_desktop": "Ordinateur",
+  "gsc.device_mobile": "Mobile",
+  "gsc.device_tablet": "Tablette",
+  "gsc.country_all": "Pays : tous",
+  "filter.no_options": "Aucune option disponible",
+  "gsc.impr_abbr": "imp."
 }

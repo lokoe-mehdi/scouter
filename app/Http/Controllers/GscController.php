@@ -103,6 +103,18 @@ class GscController extends Controller
         $this->json(['series' => $svc->timeseries($mode, $from, $to, $filters, $includeAnon)]);
     }
 
+    /** Distinct country codes present over the range — for the country filter dropdown. */
+    public function countries(Request $request): void
+    {
+        $projectId = (int) $request->get('project', 0);
+        $this->guard($projectId);
+
+        $from = (string) $request->get('from', date('Y-m-d', strtotime('-90 days')));
+        $to   = (string) $request->get('to', date('Y-m-d'));
+        $svc  = new GscQueryService($projectId);
+        $this->json(['countries' => $svc->countries($from, $to)]);
+    }
+
     // -- Custom timeline events -----------------------------------------------
 
     /** List a project's timeline events (optionally within a from/to window). */

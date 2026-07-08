@@ -114,6 +114,7 @@ try {
     $router->get( '/gsc/status',     [GscController::class, 'status'],     ['auth' => true]);
     $router->post('/gsc/query',      [GscController::class, 'query'],      ['auth' => true]);
     $router->post('/gsc/timeseries', [GscController::class, 'timeseries'], ['auth' => true]);
+    $router->get( '/gsc/countries',  [GscController::class, 'countries'],  ['auth' => true]);
     // Custom timeline events (project-scoped annotations on the chart).
     $router->get(  '/gsc/events',        [GscController::class, 'events'],      ['auth' => true]);
     $router->post( '/gsc/events',        [GscController::class, 'createEvent'], ['auth' => true]);

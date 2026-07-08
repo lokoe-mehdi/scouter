@@ -140,6 +140,7 @@ class ApiV1Controller extends Controller
                 ? 'Google Search Console IS connected for this project'
                     . ($gsc['date_range'] ? (' (data ' . $gsc['date_range']['from'] . ' → ' . $gsc['date_range']['to'] . ')') : ' (no data yet — backfill in progress)')
                     . ': the `gsc_site_daily` / `gsc_page_daily` / `gsc_query_daily` / `gsc_page_query_daily` tables are queryable and auto-scoped to THIS project. '
+                    . 'gsc_site/page/query carry `country` (ISO) + `device` (DESKTOP|MOBILE|TABLET) dims — always aggregate over them (GROUP BY page) unless segmenting, since a page has one row per country×device. `page` URLs are fragment-stripped (url and url#x are merged). '
                     . 'Cross crawl↔GSC by joining `gsc_page_daily` on page = pages.url. clicks/impressions are additive (SUM); avg position weight by impressions.'
                 : 'Google Search Console is NOT connected for this project — the `gsc_*` tables exist but are empty (an empty result there means no GSC data, not an error).';
             Response::json([
@@ -329,17 +330,21 @@ class ApiV1Controller extends Controller
                 $col('chain_ids', 'Array(String)'),
             ],
             // Google Search Console — project-scoped (project_id/version auto-scoped, hidden).
+            // country + device are ISO geo / DESKTOP|MOBILE|TABLET (empty on the joint page×query table).
             'gsc_site_daily' => [
                 $col('site', 'String'), $col('search_type', 'LowCardinality(String)'), $col('date', 'Date'),
+                $col('country', 'LowCardinality(String)'), $col('device', 'LowCardinality(String)'),
                 $col('clicks', 'Int64'), $col('impressions', 'Int64'), $col('position', 'Float32'),
             ],
             'gsc_page_daily' => [
                 $col('site', 'String'), $col('search_type', 'LowCardinality(String)'), $col('date', 'Date'),
-                $col('page', 'String'), $col('clicks', 'Int64'), $col('impressions', 'Int64'), $col('position', 'Float32'),
+                $col('page', 'String'), $col('country', 'LowCardinality(String)'), $col('device', 'LowCardinality(String)'),
+                $col('clicks', 'Int64'), $col('impressions', 'Int64'), $col('position', 'Float32'),
             ],
             'gsc_query_daily' => [
                 $col('site', 'String'), $col('search_type', 'LowCardinality(String)'), $col('date', 'Date'),
-                $col('query', 'String'), $col('clicks', 'Int64'), $col('impressions', 'Int64'),
+                $col('query', 'String'), $col('country', 'LowCardinality(String)'), $col('device', 'LowCardinality(String)'),
+                $col('clicks', 'Int64'), $col('impressions', 'Int64'),
                 $col('position', 'Float32'), $col('is_anon', 'UInt8'),
             ],
             'gsc_page_query_daily' => [

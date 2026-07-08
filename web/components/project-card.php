@@ -67,7 +67,8 @@ foreach (array_reverse(array_slice($kpiCrawls, 0, 12)) as $c) {
 // Tendance en vert doux si stable/en hausse, rouge doux si dégradation nette.
 $trendColor = (count($trend) > 1 && $trend[count($trend)-1] < $trend[0] - 3) ? '#E0816F' : '#3DBE8B';
 ?>
-<div class="domain-card pc-row" data-category="<?= $firstCategory ? $firstCategory->id : 'uncategorized' ?>" data-project-id="<?= $projectId ?>" data-ts="<?= (int)$lastTs ?>">
+<?php $gscConnected = !empty($project->gsc_connected); ?>
+<div class="domain-card pc-row" data-category="<?= $firstCategory ? $firstCategory->id : 'uncategorized' ?>" data-project-id="<?= $projectId ?>" data-ts="<?= (int)$lastTs ?>" data-gsc="<?= $gscConnected ? 1 : 0 ?>">
     <div class="pc-main" onclick="toggleDomain('project-<?= $projectId ?>')">
         <!-- Identité -->
         <div class="pc-identity">
@@ -86,6 +87,12 @@ $trendColor = (count($trend) > 1 && $trend[count($trend)-1] < $trend[0] - 3) ? '
                 <img src="https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://<?= htmlspecialchars($domainName) ?>&size=16"
                      alt="" class="pc-favicon domain-favicon" onerror="this.style.display='none'">
                 <h3 class="domain-name pc-name"><?= htmlspecialchars($domainName) ?></h3>
+                <?php if($gscConnected): ?>
+                    <span class="pc-gsc-badge" title="<?= __('index.gsc_connected') ?>" onclick="event.stopPropagation();">
+                        <span class="material-symbols-outlined">query_stats</span>
+                        <span class="pc-gsc-badge-txt">GSC</span>
+                    </span>
+                <?php endif; ?>
             </div>
             <div class="domain-meta pc-sub">
                 <span><?= __('index.last_crawl') ?> · <?= $latestCrawl ? $latestCrawl->date : 'N/A' ?></span>

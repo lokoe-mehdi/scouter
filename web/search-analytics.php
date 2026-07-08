@@ -186,12 +186,14 @@ $flashMsg = $_GET['gsc_msg'] ?? '';
                     <?php if ($canManage): ?><a href="/gsc/connect?project=<?= $projectId ?>"><?= __('gsc.reconnect') ?></a><?php endif; ?></div>
             <?php endif; ?>
 
-            <!-- Mode toggle + anon toggle -->
+            <!-- Mode toggle + device/country segment filters + anon toggle -->
             <div class="gsc-controls">
                 <div class="gsc-segmented" id="gscModes">
                     <button type="button" data-mode="keywords" class="active"><?= __('gsc.mode_keywords') ?></button>
                     <button type="button" data-mode="urls"><?= __('gsc.mode_urls') ?></button>
                     <button type="button" data-mode="both"><?= __('gsc.mode_both') ?></button>
+                    <button type="button" data-mode="country"><?= __('gsc.mode_country') ?></button>
+                    <button type="button" data-mode="device"><?= __('gsc.mode_device') ?></button>
                 </div>
                 <label class="gsc-switch" title="<?= htmlspecialchars(__('gsc.include_anon_title')) ?>">
                     <input type="checkbox" id="gscIncludeAnon" checked>
@@ -316,6 +318,12 @@ $flashMsg = $_GET['gsc_msg'] ?? '';
                     </div>
                     <div class="popover-field-item" onclick="selectField('url')">
                         <span class="material-symbols-outlined">link</span> <?= __('gsc.col_url') ?>
+                    </div>
+                    <div class="popover-field-item" onclick="selectField('device')">
+                        <span class="material-symbols-outlined">devices</span> <?= __('gsc.col_device') ?>
+                    </div>
+                    <div class="popover-field-item" onclick="selectField('country')">
+                        <span class="material-symbols-outlined">public</span> <?= __('gsc.col_country') ?>
                     </div>
                     <?php if (!empty($gscCategories)): ?>
                     <div class="popover-field-item" onclick="selectField('category')">

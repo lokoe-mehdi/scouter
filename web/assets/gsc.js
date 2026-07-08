@@ -170,10 +170,12 @@
     ];
     var metrics = ALL.filter(function (m) { return state.metrics[m.key]; });
     if (!metrics.length) metrics = [ALL[0]];
-    // First column = coloured category badge in the URL views (if rules exist).
-    var cat = (HAS_CATS && state.mode !== 'keywords') ? [{ key: 'category', label: t('url_explorer.field_category'), catcol: true }] : [];
+    // First column = coloured category badge, only in the URL views (page dim).
+    var cat = (HAS_CATS && (state.mode === 'urls' || state.mode === 'both')) ? [{ key: 'category', label: t('url_explorer.field_category'), catcol: true }] : [];
     if (state.mode === 'urls') return cat.concat([{ key: 'page', label: t('gsc.col_url'), dim: true, url: true }]).concat(metrics);
     if (state.mode === 'both') return cat.concat([{ key: 'page', label: t('gsc.col_url'), dim: true, url: true }, { key: 'query', label: t('gsc.col_keyword'), dim: true }]).concat(metrics);
+    if (state.mode === 'country') return [{ key: 'country', label: t('gsc.col_country'), dim: true }].concat(metrics);
+    if (state.mode === 'device') return [{ key: 'device', label: t('gsc.col_device'), dim: true }].concat(metrics);
     return [{ key: 'query', label: t('gsc.col_keyword'), dim: true }].concat(metrics);
   }
 
@@ -224,7 +226,8 @@
           var raw = r[c.key] || '';
           // The anon row's query value is the stored sentinel — display the localized label.
           var disp = (raw === ANON) ? t('gsc.anon_label') : raw;
-          var drill = (drillable && c.dim && !isAnon)
+          // Drill only on page/query dims (country/device have no sub-dimension).
+          var drill = (drillable && c.dim && (c.key === 'page' || c.key === 'query') && !isAnon)
             ? ' gsc-drill" data-drill-field="' + (c.url ? 'url' : 'query') + '" data-drill-value="' + esc(raw) + '"'
             : '"';
           if (c.catcol) {
@@ -513,7 +516,14 @@
     var cats = (window.GSC && window.GSC.categories) || [];
     var fieldConfig = {
       query: { label: t('gsc.col_keyword'), type: 'text', operators: TEXT_OPS },
-      url:   { label: t('gsc.col_url'), type: 'text', operators: TEXT_OPS }
+      url:   { label: t('gsc.col_url'), type: 'text', operators: TEXT_OPS },
+      // Device = fixed enum; country = enum populated from the data (below).
+      device: { label: t('gsc.col_device'), type: 'enum', operators: ['in', 'not_in'], options: [
+        { value: 'DESKTOP', label: t('gsc.device_desktop') },
+        { value: 'MOBILE', label: t('gsc.device_mobile') },
+        { value: 'TABLET', label: t('gsc.device_tablet') }
+      ] },
+      country: { label: t('gsc.col_country'), type: 'enum', operators: ['in', 'not_in'], options: [] }
     };
     // The project's URL categorization rules become a "category" filter on URLs.
     if (cats.length) {
@@ -525,6 +535,18 @@
       initialFilters: [],
       onApply: function () { state.filters = fbGroupsToFilters(fb.filterGroups); state.page = 1; reload(); }
     });
+
+    // Populate the country filter options from the data (only real countries),
+    // over a wide 1-year window so the list is comprehensive. FilterBar holds
+    // fieldConfig by reference, so mutating options updates it in place.
+    var wf = new Date(maxDate()); wf.setDate(wf.getDate() - 365);
+    fetch('/api/gsc/countries?project=' + state.projectId + '&from=' + ymd(wf) + '&to=' + ymd(maxDate()), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        fieldConfig.country.options = ((res && res.countries) || []).map(function (c) {
+          return { value: c.country, label: c.country.toUpperCase() + '  ·  ' + fmtInt(c.impressions) + ' ' + t('gsc.impr_abbr') };
+        });
+      }).catch(noop);
   }
   function fbGroupsToFilters(groups) {
     return (groups || []).map(function (group) { return { type: 'group', logic: 'OR', items: group.map(function (c) { return { field: c.field, operator: c.operator, value: c.value }; }) }; });

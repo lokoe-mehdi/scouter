@@ -2474,5 +2474,17 @@
   "performance.orph_cat_title": "Impressões órfãs por categoria",
   "performance.orph_cat_subtitle": "Que modelos o Google indexa que o rastreio não vê",
   "performance.orph_table_title": "Páginas órfãs",
-  "performance.orph_table_subtitle": "Top :n URLs no Google mas ausentes do rastreio (por impressões)"
+  "performance.orph_table_subtitle": "Top :n URLs no Google mas ausentes do rastreio (por impressões)",
+  "index.gsc_connected": "Search Console ligado",
+  "gsc.mode_country": "Países",
+  "gsc.mode_device": "Dispositivos",
+  "gsc.col_country": "País",
+  "gsc.col_device": "Dispositivo",
+  "gsc.device_all": "Dispositivo: todos",
+  "gsc.device_desktop": "Computador",
+  "gsc.device_mobile": "Telemóvel",
+  "gsc.device_tablet": "Tablet",
+  "gsc.country_all": "País: todos",
+  "filter.no_options": "Nenhuma opção disponível",
+  "gsc.impr_abbr": "impr."
 }

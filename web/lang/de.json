@@ -2474,5 +2474,17 @@
   "performance.orph_cat_title": "Verwaiste Impressionen nach Kategorie",
   "performance.orph_cat_subtitle": "Welche Templates Google indexiert, die der Crawl verpasst",
   "performance.orph_table_title": "Verwaiste Seiten",
-  "performance.orph_table_subtitle": "Top :n URLs bei Google, aber nicht im Crawl (nach Impressionen)"
+  "performance.orph_table_subtitle": "Top :n URLs bei Google, aber nicht im Crawl (nach Impressionen)",
+  "index.gsc_connected": "Search Console verbunden",
+  "gsc.mode_country": "Länder",
+  "gsc.mode_device": "Geräte",
+  "gsc.col_country": "Land",
+  "gsc.col_device": "Gerät",
+  "gsc.device_all": "Gerät: alle",
+  "gsc.device_desktop": "Desktop",
+  "gsc.device_mobile": "Mobil",
+  "gsc.device_tablet": "Tablet",
+  "gsc.country_all": "Land: alle",
+  "filter.no_options": "Keine Optionen verfügbar",
+  "gsc.impr_abbr": "Impr."
 }

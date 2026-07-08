@@ -2474,5 +2474,17 @@
   "performance.orph_cat_title": "Orphan impressions by category",
   "performance.orph_cat_subtitle": "Which templates Google indexes that the crawl misses",
   "performance.orph_table_title": "Orphan pages",
-  "performance.orph_table_subtitle": "Top :n URLs on Google but absent from the crawl (by impressions)"
+  "performance.orph_table_subtitle": "Top :n URLs on Google but absent from the crawl (by impressions)",
+  "index.gsc_connected": "Search Console connected",
+  "gsc.mode_country": "Countries",
+  "gsc.mode_device": "Devices",
+  "gsc.col_country": "Country",
+  "gsc.col_device": "Device",
+  "gsc.device_all": "Device: all",
+  "gsc.device_desktop": "Desktop",
+  "gsc.device_mobile": "Mobile",
+  "gsc.device_tablet": "Tablet",
+  "gsc.country_all": "Country: all",
+  "filter.no_options": "No options available",
+  "gsc.impr_abbr": "impr."
 }

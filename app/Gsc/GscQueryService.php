@@ -35,7 +35,7 @@ use App\Database\ClickHouseDatabase;
  */
 class GscQueryService
 {
-    public const MODES = ['keywords', 'urls', 'both'];
+    public const MODES = ['keywords', 'urls', 'both', 'country', 'device'];
 
     /** Tables that carry the is_anon column (for position weighting / anon toggle). */
     private const ANON_TABLES = ['gsc_query_daily', 'gsc_page_query_daily'];
@@ -64,15 +64,31 @@ class GscQueryService
         $mode = self::normalizeMode($mode);
         $qFilter = self::filtersReference($filters, 'query');
         $uFilter = self::filtersReference($filters, 'url') || self::filtersReference($filters, 'page') || self::filtersReference($filters, 'category');
+        $cdFilter = self::filtersReference($filters, 'country') || self::filtersReference($filters, 'device');
+        $cdNeeded = in_array($mode, ['country', 'device'], true) || $cdFilter;
 
+        // The joint page×query table is the ONLY one holding both page AND query,
+        // but it has no country/device. The site/page/query marginals carry
+        // country+device but only one of page/query. The grouping dim must always
+        // exist in the chosen table; when a combination is impossible (needs page
+        // AND query AND country/device), country/device + the mode's own dimension
+        // win and the cross-dimension filter is dropped (its column isn't in cols).
         if ($mode === 'both') {
+            // Intrinsically the joint table → no country/device here.
             $table = 'gsc_page_query_daily'; $dims = ['page', 'query']; $cols = ['page', 'query'];
         } elseif ($mode === 'urls') {
-            if ($qFilter) { $table = 'gsc_page_query_daily'; $dims = ['page']; $cols = ['page', 'query']; }
-            else          { $table = 'gsc_page_daily';       $dims = ['page']; $cols = ['page']; }
-        } else { // keywords
-            if ($uFilter) { $table = 'gsc_page_query_daily'; $dims = ['query']; $cols = ['page', 'query']; }
-            else          { $table = 'gsc_query_daily';      $dims = ['query']; $cols = ['query']; }
+            if ($qFilter && !$cdNeeded) { $table = 'gsc_page_query_daily'; $dims = ['page']; $cols = ['page', 'query']; }
+            else                        { $table = 'gsc_page_daily';       $dims = ['page']; $cols = ['page', 'country', 'device']; }
+        } elseif ($mode === 'keywords') {
+            if ($uFilter && !$cdNeeded) { $table = 'gsc_page_query_daily'; $dims = ['query']; $cols = ['page', 'query']; }
+            else                        { $table = 'gsc_query_daily';      $dims = ['query']; $cols = ['query', 'country', 'device']; }
+        } else { // country / device — grouped by the geo/device dimension
+            $dim = $mode; // 'country' | 'device'
+            if ($uFilter && !$qFilter)      { $table = 'gsc_page_daily';  $cols = ['page', 'country', 'device']; }
+            elseif ($qFilter && !$uFilter)  { $table = 'gsc_query_daily'; $cols = ['query', 'country', 'device']; }
+            elseif ($uFilter && $qFilter)   { $table = 'gsc_page_daily';  $cols = ['page', 'country', 'device']; } // query filter dropped
+            else                            { $table = 'gsc_site_daily';  $cols = ['country', 'device']; }
+            $dims = [$dim];
         }
 
         return ['table' => $table, 'dims' => $dims, 'cols' => $cols, 'hasAnon' => in_array($table, self::ANON_TABLES, true)];
@@ -116,7 +132,7 @@ class GscQueryService
                . self::buildFilterSql($filters, $r['cols'], $params, $this->catConds($filters))
                . $this->anonClause($r['hasAnon'], $includeAnon);
 
-        $sort = in_array($sort, ['clicks', 'impressions', 'ctr', 'position', 'query', 'page'], true) ? $sort : 'clicks';
+        $sort = in_array($sort, ['clicks', 'impressions', 'ctr', 'position', 'query', 'page', 'country', 'device'], true) ? $sort : 'clicks';
         $dir  = strtolower($dir) === 'asc' ? 'ASC' : 'DESC';
         $perPage = max(1, min(500, $perPage));
         $offset  = max(0, ($page - 1)) * $perPage;
@@ -166,7 +182,7 @@ class GscQueryService
                . self::buildFilterSql($filters, $r['cols'], $params, $this->catConds($filters))
                . $this->anonClause($r['hasAnon'], $includeAnon);
 
-        $sort = in_array($sort, ['clicks', 'impressions', 'ctr', 'position', 'query', 'page'], true) ? $sort : 'clicks';
+        $sort = in_array($sort, ['clicks', 'impressions', 'ctr', 'position', 'query', 'page', 'country', 'device'], true) ? $sort : 'clicks';
         $dir  = strtolower($dir) === 'asc' ? 'ASC' : 'DESC';
         $perPage = max(1, min(500, $perPage));
         $offset  = max(0, ($page - 1)) * $perPage;
@@ -271,7 +287,7 @@ class GscQueryService
         if (empty($metrics)) {
             $metrics = $known;
         }
-        $dimHead = ['query' => 'mot_cle', 'page' => 'url'];
+        $dimHead = ['query' => 'mot_cle', 'page' => 'url', 'country' => 'pays', 'device' => 'appareil'];
 
         if (!$comparing) {
             $params = [];
@@ -326,6 +342,26 @@ class GscQueryService
             'position'    => "round(position{$s},2) AS {$h}",
             default       => "clicks{$s} AS {$h}",
         };
+    }
+
+    /**
+     * Distinct country codes present in the project's GSC data over the range,
+     * ordered by impressions desc — powers the country filter dropdown (the user
+     * picks among countries that actually exist).
+     *
+     * @return array<int,array{country:string,clicks:int,impressions:int}>
+     */
+    public function countries(string $from, string $to): array
+    {
+        $params = [];
+        $where = $this->baseWhere($from, $to, $params);
+        // ORDER BY sum(impressions) (not the alias): the shim forces
+        // prefer_column_name_to_alias=1, so `ORDER BY impressions` would bind to
+        // the raw column → NOT_AN_AGGREGATE.
+        $sql = "SELECT country, sum(clicks) AS clicks, sum(impressions) AS impressions "
+             . "FROM scouter.gsc_site_daily FINAL WHERE {$where} AND country != '' "
+             . "GROUP BY country ORDER BY sum(impressions) DESC";
+        return ClickHouseDatabase::getInstance()->select($sql, $params);
     }
 
     // -------------------------------------------------------------------------
@@ -409,6 +445,29 @@ class GscQueryService
             }
             $joined = '(' . implode(' OR ', $parts) . ')';
             return ($op === 'not_in') ? "NOT {$joined}" : $joined;
+        }
+
+        // country / device = exact-match dimensions (single value or IN list).
+        if ($field === 'country' || $field === 'device') {
+            if (!in_array($field, $cols, true)) {
+                return null;
+            }
+            $vals = $chip['value'] ?? [];
+            if (!is_array($vals)) {
+                $vals = [$vals];
+            }
+            $vals = array_values(array_filter(array_map('strval', $vals), fn($v) => $v !== ''));
+            if (empty($vals)) {
+                return null;
+            }
+            $refs = [];
+            foreach ($vals as $v) {
+                $p = 'f' . count($params);
+                $params[$p] = $v;
+                $refs[] = '{' . $p . ':String}';
+            }
+            $in = "{$field} IN (" . implode(', ', $refs) . ")";
+            return in_array($op, ['not_in', 'not_equals', 'not_contains', '!='], true) ? "NOT ({$in})" : $in;
         }
 
         $value = (string) ($chip['value'] ?? '');

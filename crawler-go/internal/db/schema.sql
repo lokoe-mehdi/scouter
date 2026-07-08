@@ -216,12 +216,17 @@ ORDER BY (crawl_id, id);
 -- DELETE. Lecture dedupliquee via LIMIT 1 BY (...cles...) ORDER BY version DESC.
 -- PARTITION BY project_id -> suppression d'un connecteur = DROP PARTITION.
 -- ---------------------------------------------------------------------------
+-- country + device: LowCardinality dims on the site / page / query marginals
+-- (full geo/device segmentation). NOT on the joint page×query table (volume).
+-- page URLs are fragment-stripped at ingestion (url and url#x collapse to url).
 CREATE TABLE IF NOT EXISTS scouter.gsc_site_daily
 (
     project_id  Int32,
     site        String,
     search_type LowCardinality(String) DEFAULT 'web',
     date        Date,
+    country     LowCardinality(String) DEFAULT '',
+    device      LowCardinality(String) DEFAULT '',
     clicks      Int64 DEFAULT 0,
     impressions Int64 DEFAULT 0,
     position    Float32 DEFAULT 0,
@@ -229,7 +234,7 @@ CREATE TABLE IF NOT EXISTS scouter.gsc_site_daily
 )
 ENGINE = ReplacingMergeTree(version)
 PARTITION BY project_id
-ORDER BY (project_id, search_type, date);
+ORDER BY (project_id, search_type, date, country, device);
 
 CREATE TABLE IF NOT EXISTS scouter.gsc_page_daily
 (
@@ -238,6 +243,8 @@ CREATE TABLE IF NOT EXISTS scouter.gsc_page_daily
     search_type LowCardinality(String) DEFAULT 'web',
     date        Date,
     page        String,
+    country     LowCardinality(String) DEFAULT '',
+    device      LowCardinality(String) DEFAULT '',
     clicks      Int64 DEFAULT 0,
     impressions Int64 DEFAULT 0,
     position    Float32 DEFAULT 0,
@@ -245,7 +252,7 @@ CREATE TABLE IF NOT EXISTS scouter.gsc_page_daily
 )
 ENGINE = ReplacingMergeTree(version)
 PARTITION BY project_id
-ORDER BY (project_id, search_type, date, page);
+ORDER BY (project_id, search_type, date, page, country, device);
 
 CREATE TABLE IF NOT EXISTS scouter.gsc_query_daily
 (
@@ -254,6 +261,8 @@ CREATE TABLE IF NOT EXISTS scouter.gsc_query_daily
     search_type LowCardinality(String) DEFAULT 'web',
     date        Date,
     query       String,
+    country     LowCardinality(String) DEFAULT '',
+    device      LowCardinality(String) DEFAULT '',
     clicks      Int64 DEFAULT 0,
     impressions Int64 DEFAULT 0,
     position    Float32 DEFAULT 0,
@@ -262,7 +271,7 @@ CREATE TABLE IF NOT EXISTS scouter.gsc_query_daily
 )
 ENGINE = ReplacingMergeTree(version)
 PARTITION BY project_id
-ORDER BY (project_id, search_type, date, query);
+ORDER BY (project_id, search_type, date, query, country, device);
 
 CREATE TABLE IF NOT EXISTS scouter.gsc_page_query_daily
 (

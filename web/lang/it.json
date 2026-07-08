@@ -2474,5 +2474,17 @@
   "performance.orph_cat_title": "Impressioni orfane per categoria",
   "performance.orph_cat_subtitle": "Quali template Google indicizza che la scansione non vede",
   "performance.orph_table_title": "Pagine orfane",
-  "performance.orph_table_subtitle": "Prime :n URL su Google ma assenti dalla scansione (per impressioni)"
+  "performance.orph_table_subtitle": "Prime :n URL su Google ma assenti dalla scansione (per impressioni)",
+  "index.gsc_connected": "Search Console connesso",
+  "gsc.mode_country": "Paesi",
+  "gsc.mode_device": "Dispositivi",
+  "gsc.col_country": "Paese",
+  "gsc.col_device": "Dispositivo",
+  "gsc.device_all": "Dispositivo: tutti",
+  "gsc.device_desktop": "Desktop",
+  "gsc.device_mobile": "Mobile",
+  "gsc.device_tablet": "Tablet",
+  "gsc.country_all": "Paese: tutti",
+  "filter.no_options": "Nessuna opzione disponibile",
+  "gsc.impr_abbr": "impr."
 }

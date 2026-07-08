@@ -2474,5 +2474,17 @@
   "performance.orph_cat_title": "Impresiones huérfanas por categoría",
   "performance.orph_cat_subtitle": "Qué plantillas indexa Google que el rastreo no ve",
   "performance.orph_table_title": "Páginas huérfanas",
-  "performance.orph_table_subtitle": "Top :n URLs en Google pero ausentes del rastreo (por impresiones)"
+  "performance.orph_table_subtitle": "Top :n URLs en Google pero ausentes del rastreo (por impresiones)",
+  "index.gsc_connected": "Search Console conectado",
+  "gsc.mode_country": "Países",
+  "gsc.mode_device": "Dispositivos",
+  "gsc.col_country": "País",
+  "gsc.col_device": "Dispositivo",
+  "gsc.device_all": "Dispositivo: todos",
+  "gsc.device_desktop": "Ordenador",
+  "gsc.device_mobile": "Móvil",
+  "gsc.device_tablet": "Tableta",
+  "gsc.country_all": "País: todos",
+  "filter.no_options": "No hay opciones disponibles",
+  "gsc.impr_abbr": "impr."
 }

@@ -47,6 +47,35 @@ class ConnectorRepository
     }
 
     /**
+     * Project IDs with an established Search Console connector (active or still
+     * backfilling). Used to badge + float GSC-connected projects on the home
+     * list. One cheap query for the whole page.
+     *
+     * @return int[]
+     */
+    public function getConnectedProjectIds(): array
+    {
+        $stmt = $this->db->query("SELECT project_id FROM gsc_connectors WHERE status IN ('active', 'backfilling')");
+        return array_map(static fn($r) => (int) $r->project_id, $stmt->fetchAll(PDO::FETCH_OBJ));
+    }
+
+    /**
+     * Reset a connector so a full backfill restarts from scratch: clears the
+     * resumable cursor + the last-synced watermark and flags it backfilling.
+     * Used after a schema rebuild (e.g. adding country/device).
+     */
+    public function resetBackfill(int $id): void
+    {
+        $stmt = $this->db->prepare(
+            "UPDATE gsc_connectors
+                SET status = 'backfilling', backfill_cursor = NULL, last_synced_date = NULL,
+                    backfill_started_at = CURRENT_TIMESTAMP, last_error = NULL, updated_at = CURRENT_TIMESTAMP
+              WHERE id = :id"
+        );
+        $stmt->execute([':id' => $id]);
+    }
+
+    /**
      * Create (or replace) the connector for a project after OAuth. Because a
      * project has at most one connector (UNIQUE project_id), we upsert.
      *

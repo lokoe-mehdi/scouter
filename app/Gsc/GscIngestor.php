@@ -13,10 +13,20 @@ use App\Google\SearchConsoleClient;
  * requested, so Σ(query rows) < the true total. We fetch the marginals
  * (site total, per-URL total) that DON'T carry that loss, then materialise the
  * gap as explicit `is_anon=1` rows so every level reconciles:
- *   - gsc_site_daily        dimensions []            → true daily total
- *   - gsc_page_daily        dimensions [page]        → true per-URL total
- *   - gsc_query_daily       dimensions [query]       + one (anonyme) row/day
- *   - gsc_page_query_daily  dimensions [query,page]  + one (anonyme) row/page/day
+ *   - gsc_site_daily        dims [country,device]        → true daily total per geo/device
+ *   - gsc_page_daily        dims [page,country,device]   → true per-URL total per geo/device
+ *   - gsc_query_daily       dims [query,country,device]  + one (anonyme) row per geo/device
+ *   - gsc_page_query_daily  dims [query,page]            + one (anonyme) row/page
+ *
+ * Two design points added in this revision:
+ *   1. country + device are requested and stored on the site / page / query
+ *      marginals. The anonymized bucket is therefore reconciled PER (country,
+ *      device) for queries — GSC drops low-volume rows within each slice. The
+ *      joint page×query table stays geo/device-agnostic to cap its size.
+ *   2. URL fragments are stripped at ingestion: `url` and `url#section` collapse
+ *      into `url`, their metrics summed and position impression-weighted. This
+ *      matches the crawl (which never stores fragment URLs) and kills the
+ *      "#anchor" orphan noise.
  *
  * clicks/impressions are additive (so the subtraction is valid); position is
  * NOT — the (anonyme) rows carry position 0.
@@ -51,7 +61,8 @@ class GscIngestor
      */
     public function ingestDay(string $date, string $dataState = 'final'): array
     {
-        $siteRes = SearchConsoleClient::queryAll($this->accessToken, $this->site, $date, [], $this->searchType, $dataState);
+        // Marginals now carry country + device.
+        $siteRes = SearchConsoleClient::queryAll($this->accessToken, $this->site, $date, ['country', 'device'], $this->searchType, $dataState);
         $this->assertOk($siteRes, $date, 'site');
         $siteRows = $siteRes['rows'];
 
@@ -59,72 +70,86 @@ class GscIngestor
             return ['hadData' => false, 'site' => 0, 'page' => 0, 'query' => 0, 'pageQuery' => 0];
         }
 
-        $pageRes = SearchConsoleClient::queryAll($this->accessToken, $this->site, $date, ['page'], $this->searchType, $dataState);
+        $pageRes = SearchConsoleClient::queryAll($this->accessToken, $this->site, $date, ['page', 'country', 'device'], $this->searchType, $dataState);
         $this->assertOk($pageRes, $date, 'page');
-        $queryRes = SearchConsoleClient::queryAll($this->accessToken, $this->site, $date, ['query'], $this->searchType, $dataState);
+        $queryRes = SearchConsoleClient::queryAll($this->accessToken, $this->site, $date, ['query', 'country', 'device'], $this->searchType, $dataState);
         $this->assertOk($queryRes, $date, 'query');
         $pqRes = SearchConsoleClient::queryAll($this->accessToken, $this->site, $date, ['query', 'page'], $this->searchType, $dataState);
         $this->assertOk($pqRes, $date, 'query+page');
 
         $version = time();
 
-        // (1) site
-        $siteRow = $siteRows[0];
-        $this->insert('gsc_site_daily', [$this->baseRow($date, $version) + [
-            'clicks'      => self::int($siteRow['clicks'] ?? 0),
-            'impressions' => self::int($siteRow['impressions'] ?? 0),
-            'position'    => self::pos($siteRow['position'] ?? 0),
-        ]]);
+        // Fragment-strip + merge the URL-bearing datasets (page key at index 0 / 1).
+        $pageRows = self::mergeFragments($pageRes['rows'], 0);   // keys=[page,country,device]
+        $pqRows   = self::mergeFragments($pqRes['rows'], 1);     // keys=[query,page]
 
-        // (2) page
-        $pageRows = [];
-        foreach ($pageRes['rows'] as $r) {
-            $pageRows[] = $this->baseRow($date, $version) + [
-                'page'        => (string) ($r['keys'][0] ?? ''),
+        // (1) site per (country, device)
+        $siteInsert = [];
+        foreach ($siteRows as $r) {
+            $siteInsert[] = $this->baseRow($date, $version) + [
+                'country'     => (string) ($r['keys'][0] ?? ''),
+                'device'      => (string) ($r['keys'][1] ?? ''),
                 'clicks'      => self::int($r['clicks'] ?? 0),
                 'impressions' => self::int($r['impressions'] ?? 0),
                 'position'    => self::pos($r['position'] ?? 0),
             ];
         }
-        $this->insert('gsc_page_daily', $pageRows);
+        $this->insert('gsc_site_daily', $siteInsert);
 
-        // (3) query + one (anonyme) row for the whole day
-        $queryRows = [];
+        // (2) page per (page, country, device) — fragment-merged
+        $pageInsert = [];
+        foreach ($pageRows as $r) {
+            $pageInsert[] = $this->baseRow($date, $version) + [
+                'page'        => (string) ($r['keys'][0] ?? ''),
+                'country'     => (string) ($r['keys'][1] ?? ''),
+                'device'      => (string) ($r['keys'][2] ?? ''),
+                'clicks'      => $r['clicks'],
+                'impressions' => $r['impressions'],
+                'position'    => self::pos($r['position']),
+            ];
+        }
+        $this->insert('gsc_page_daily', $pageInsert);
+
+        // (3) query per (query, country, device) + one (anonyme) row PER (country, device)
+        $queryInsert = [];
         foreach ($queryRes['rows'] as $r) {
-            $queryRows[] = $this->baseRow($date, $version) + [
+            $queryInsert[] = $this->baseRow($date, $version) + [
                 'query'       => (string) ($r['keys'][0] ?? ''),
+                'country'     => (string) ($r['keys'][1] ?? ''),
+                'device'      => (string) ($r['keys'][2] ?? ''),
                 'clicks'      => self::int($r['clicks'] ?? 0),
                 'impressions' => self::int($r['impressions'] ?? 0),
                 'position'    => self::pos($r['position'] ?? 0),
                 'is_anon'     => 0,
             ];
         }
-        $qAnon = self::computeQueryAnon($siteRow, $queryRes['rows']);
-        if ($qAnon !== null) {
-            $queryRows[] = $this->baseRow($date, $version) + [
+        foreach (self::computeQueryAnonByCd($siteRows, $queryRes['rows']) as $a) {
+            $queryInsert[] = $this->baseRow($date, $version) + [
                 'query'       => self::ANON_LABEL,
-                'clicks'      => $qAnon['clicks'],
-                'impressions' => $qAnon['impressions'],
+                'country'     => $a['country'],
+                'device'      => $a['device'],
+                'clicks'      => $a['clicks'],
+                'impressions' => $a['impressions'],
                 'position'    => 0,
                 'is_anon'     => 1,
             ];
         }
-        $this->insert('gsc_query_daily', $queryRows);
+        $this->insert('gsc_query_daily', $queryInsert);
 
-        // (4) query×page joint + one (anonyme) row per URL
-        $pqRows = [];
-        foreach ($pqRes['rows'] as $r) {
-            $pqRows[] = $this->baseRow($date, $version) + [
+        // (4) query×page joint (no country/device) + one (anonyme) row per URL
+        $pqInsert = [];
+        foreach ($pqRows as $r) {
+            $pqInsert[] = $this->baseRow($date, $version) + [
                 'query'       => (string) ($r['keys'][0] ?? ''),
                 'page'        => (string) ($r['keys'][1] ?? ''),
-                'clicks'      => self::int($r['clicks'] ?? 0),
-                'impressions' => self::int($r['impressions'] ?? 0),
-                'position'    => self::pos($r['position'] ?? 0),
+                'clicks'      => $r['clicks'],
+                'impressions' => $r['impressions'],
+                'position'    => self::pos($r['position']),
                 'is_anon'     => 0,
             ];
         }
-        foreach (self::computePageAnon($pageRes['rows'], $pqRes['rows']) as $page => $delta) {
-            $pqRows[] = $this->baseRow($date, $version) + [
+        foreach (self::computePageAnon($pageRows, $pqRows) as $page => $delta) {
+            $pqInsert[] = $this->baseRow($date, $version) + [
                 'query'       => self::ANON_LABEL,
                 'page'        => (string) $page,
                 'clicks'      => $delta['clicks'],
@@ -133,14 +158,14 @@ class GscIngestor
                 'is_anon'     => 1,
             ];
         }
-        $this->insert('gsc_page_query_daily', $pqRows);
+        $this->insert('gsc_page_query_daily', $pqInsert);
 
         return [
             'hadData'   => true,
-            'site'      => 1,
-            'page'      => count($pageRows),
-            'query'     => count($queryRows),
-            'pageQuery' => count($pqRows),
+            'site'      => count($siteInsert),
+            'page'      => count($pageInsert),
+            'query'     => count($queryInsert),
+            'pageQuery' => count($pqInsert),
         ];
     }
 
@@ -148,56 +173,129 @@ class GscIngestor
     // Pure computation (unit-tested)
     // -------------------------------------------------------------------------
 
-    /**
-     * Anonymized bucket for the whole day = site total − Σ(named query rows).
-     * Returns null when there's nothing to attribute. Clamped at 0.
-     *
-     * @param array<string,mixed> $siteRow
-     * @param array<int,array<string,mixed>> $queryRows
-     * @return array{clicks:int,impressions:int}|null
-     */
-    public static function computeQueryAnon(array $siteRow, array $queryRows): ?array
+    /** Strip a URL fragment (everything from the first '#'). */
+    public static function stripFragment(string $url): string
     {
-        $sumClicks = 0;
-        $sumImpr   = 0;
-        foreach ($queryRows as $r) {
-            $sumClicks += self::int($r['clicks'] ?? 0);
-            $sumImpr   += self::int($r['impressions'] ?? 0);
-        }
-        $clicks = max(0, self::int($siteRow['clicks'] ?? 0) - $sumClicks);
-        $impr   = max(0, self::int($siteRow['impressions'] ?? 0) - $sumImpr);
-        if ($clicks === 0 && $impr === 0) {
-            return null;
-        }
-        return ['clicks' => $clicks, 'impressions' => $impr];
+        $h = strpos($url, '#');
+        return $h === false ? $url : substr($url, 0, $h);
     }
 
     /**
-     * Per-URL anonymized bucket = page total − Σ(named query rows for that page).
-     * Only pages with a positive remainder are returned.
+     * Collapse rows that become identical once the URL fragment is stripped:
+     * clicks/impressions summed, position impression-weighted. `$pageKeyIndex` is
+     * the position of the URL within each row's `keys`.
      *
-     * @param array<int,array<string,mixed>> $pageRows       dimensions [page]
-     * @param array<int,array<string,mixed>> $pageQueryRows  dimensions [query,page]
+     * @param array<int,array<string,mixed>> $rows  raw GSC rows (['keys'=>[...], clicks, impressions, position])
+     * @return array<int,array{keys:array<int,string>,clicks:int,impressions:int,position:float}>
+     */
+    public static function mergeFragments(array $rows, int $pageKeyIndex): array
+    {
+        $acc = [];
+        foreach ($rows as $r) {
+            $keys = array_values($r['keys'] ?? []);
+            if (isset($keys[$pageKeyIndex])) {
+                $keys[$pageKeyIndex] = self::stripFragment((string) $keys[$pageKeyIndex]);
+            }
+            $keys = array_map('strval', $keys);
+            $sig = implode("\x1f", $keys);
+            if (!isset($acc[$sig])) {
+                $acc[$sig] = ['keys' => $keys, 'clicks' => 0, 'impressions' => 0, 'posw' => 0.0, 'imprw' => 0];
+            }
+            $clicks = self::int($r['clicks'] ?? 0);
+            $impr   = self::int($r['impressions'] ?? 0);
+            $pos    = (float) ($r['position'] ?? 0);
+            $acc[$sig]['clicks']      += $clicks;
+            $acc[$sig]['impressions'] += $impr;
+            if ($impr > 0 && $pos > 0) {
+                $acc[$sig]['posw']  += $pos * $impr;
+                $acc[$sig]['imprw'] += $impr;
+            }
+        }
+
+        $out = [];
+        foreach ($acc as $a) {
+            $out[] = [
+                'keys'        => $a['keys'],
+                'clicks'      => $a['clicks'],
+                'impressions' => $a['impressions'],
+                'position'    => $a['imprw'] > 0 ? round($a['posw'] / $a['imprw'], 4) : 0.0,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Anonymized query bucket PER (country, device): site total − Σ(named query
+     * rows) within that slice. GSC drops low-volume query rows independently in
+     * each geo/device slice, so the gap must be reconciled per slice.
+     *
+     * @param array<int,array<string,mixed>> $siteRows   dims [country,device]
+     * @param array<int,array<string,mixed>> $queryRows  dims [query,country,device]
+     * @return array<int,array{country:string,device:string,clicks:int,impressions:int}>
+     */
+    public static function computeQueryAnonByCd(array $siteRows, array $queryRows): array
+    {
+        $qByCd = [];
+        foreach ($queryRows as $r) {
+            $cd = ((string) ($r['keys'][1] ?? '')) . "\x1f" . ((string) ($r['keys'][2] ?? ''));
+            if (!isset($qByCd[$cd])) {
+                $qByCd[$cd] = ['clicks' => 0, 'impressions' => 0];
+            }
+            $qByCd[$cd]['clicks']      += self::int($r['clicks'] ?? 0);
+            $qByCd[$cd]['impressions'] += self::int($r['impressions'] ?? 0);
+        }
+
+        $out = [];
+        foreach ($siteRows as $r) {
+            $country = (string) ($r['keys'][0] ?? '');
+            $device  = (string) ($r['keys'][1] ?? '');
+            $cd      = $country . "\x1f" . $device;
+            $sum     = $qByCd[$cd] ?? ['clicks' => 0, 'impressions' => 0];
+            $clicks  = max(0, self::int($r['clicks'] ?? 0) - $sum['clicks']);
+            $impr    = max(0, self::int($r['impressions'] ?? 0) - $sum['impressions']);
+            if ($clicks > 0 || $impr > 0) {
+                $out[] = ['country' => $country, 'device' => $device, 'clicks' => $clicks, 'impressions' => $impr];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Per-URL anonymized bucket = page total (summed over country/device) −
+     * Σ(named query rows for that page). Only pages with a positive remainder
+     * are returned. Both inputs are already fragment-merged.
+     *
+     * @param array<int,array{keys:array<int,string>,clicks:int,impressions:int,position:float}> $pageRows       keys=[page,country,device]
+     * @param array<int,array{keys:array<int,string>,clicks:int,impressions:int,position:float}> $pageQueryRows  keys=[query,page]
      * @return array<string,array{clicks:int,impressions:int}>
      */
     public static function computePageAnon(array $pageRows, array $pageQueryRows): array
     {
-        $sumByPage = [];
+        $pageTotal = [];
+        foreach ($pageRows as $r) {
+            $page = (string) ($r['keys'][0] ?? '');
+            if (!isset($pageTotal[$page])) {
+                $pageTotal[$page] = ['clicks' => 0, 'impressions' => 0];
+            }
+            $pageTotal[$page]['clicks']      += self::int($r['clicks'] ?? 0);
+            $pageTotal[$page]['impressions'] += self::int($r['impressions'] ?? 0);
+        }
+
+        $pqSum = [];
         foreach ($pageQueryRows as $r) {
             $page = (string) ($r['keys'][1] ?? '');
-            if (!isset($sumByPage[$page])) {
-                $sumByPage[$page] = ['clicks' => 0, 'impressions' => 0];
+            if (!isset($pqSum[$page])) {
+                $pqSum[$page] = ['clicks' => 0, 'impressions' => 0];
             }
-            $sumByPage[$page]['clicks']      += self::int($r['clicks'] ?? 0);
-            $sumByPage[$page]['impressions'] += self::int($r['impressions'] ?? 0);
+            $pqSum[$page]['clicks']      += self::int($r['clicks'] ?? 0);
+            $pqSum[$page]['impressions'] += self::int($r['impressions'] ?? 0);
         }
 
         $out = [];
-        foreach ($pageRows as $r) {
-            $page = (string) ($r['keys'][0] ?? '');
-            $sum  = $sumByPage[$page] ?? ['clicks' => 0, 'impressions' => 0];
-            $clicks = max(0, self::int($r['clicks'] ?? 0) - $sum['clicks']);
-            $impr   = max(0, self::int($r['impressions'] ?? 0) - $sum['impressions']);
+        foreach ($pageTotal as $page => $t) {
+            $sum    = $pqSum[$page] ?? ['clicks' => 0, 'impressions' => 0];
+            $clicks = max(0, $t['clicks'] - $sum['clicks']);
+            $impr   = max(0, $t['impressions'] - $sum['impressions']);
             if ($clicks > 0 || $impr > 0) {
                 $out[$page] = ['clicks' => $clicks, 'impressions' => $impr];
             }
