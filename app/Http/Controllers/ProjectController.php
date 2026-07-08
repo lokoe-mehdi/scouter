@@ -271,22 +271,57 @@ class ProjectController extends Controller
             'project_id' => $projectId
         ]);
         
-        // Appliquer le template de catégorisation par défaut (cat.yml)
-        $catYmlPath = dirname(__DIR__, 3) . '/cat.yml';
-        if (file_exists($catYmlPath)) {
-            $catYaml = file_get_contents($catYmlPath);
-            if ($catYaml) {
-                // Remplacer {dom} par le vrai domaine
-                $catYaml = str_replace('{dom}', $domain, $catYaml);
-                
-                $db = \App\Database\PostgresDatabase::getInstance()->getConnection();
-                $stmt = $db->prepare("
-                    INSERT INTO categorization_config (crawl_id, config) 
-                    VALUES (:crawl_id, :config)
-                    ON CONFLICT (crawl_id) DO UPDATE SET config = :config2
-                ");
-                $stmt->execute([':crawl_id' => $crawlId, ':config' => $catYaml, ':config2' => $catYaml]);
+        // Catégorisation du nouveau crawl : si le projet a déjà un historique, on
+        // HÉRITE de la config du dernier crawl (categorization_config est stockée
+        // par crawl, et l'édition la met à jour là) — sinon fallback sur la config
+        // par défaut du projet, puis sur le template cat.yml (tout premier crawl).
+        $db = \App\Database\PostgresDatabase::getInstance()->getConnection();
+        $catYaml = null;
+
+        // 1) Dernier crawl du même projet qui possède une catégorisation.
+        $prev = $db->prepare("
+            SELECT cc.config
+            FROM categorization_config cc
+            JOIN crawls c ON c.id = cc.crawl_id
+            WHERE c.project_id = :pid AND cc.crawl_id <> :cid
+              AND cc.config IS NOT NULL AND cc.config <> ''
+            ORDER BY c.id DESC
+            LIMIT 1
+        ");
+        $prev->execute([':pid' => $projectId, ':cid' => $crawlId]);
+        $prevRow = $prev->fetch(\PDO::FETCH_OBJ);
+        if ($prevRow && !empty($prevRow->config)) {
+            $catYaml = $prevRow->config;
+        }
+
+        // 2) Fallback : config de catégorisation par défaut du projet.
+        if ($catYaml === null) {
+            $pstmt = $db->prepare("SELECT categorization_config FROM projects WHERE id = :pid");
+            $pstmt->execute([':pid' => $projectId]);
+            $prow = $pstmt->fetch(\PDO::FETCH_OBJ);
+            if ($prow && !empty($prow->categorization_config)) {
+                $catYaml = $prow->categorization_config;
             }
+        }
+
+        // 3) Fallback : template cat.yml (tout premier crawl d'un nouveau projet).
+        if ($catYaml === null) {
+            $catYmlPath = dirname(__DIR__, 3) . '/cat.yml';
+            if (file_exists($catYmlPath)) {
+                $tpl = file_get_contents($catYmlPath);
+                if ($tpl) {
+                    $catYaml = str_replace('{dom}', $domain, $tpl);
+                }
+            }
+        }
+
+        if ($catYaml !== null && $catYaml !== '') {
+            $stmt = $db->prepare("
+                INSERT INTO categorization_config (crawl_id, config)
+                VALUES (:crawl_id, :config)
+                ON CONFLICT (crawl_id) DO UPDATE SET config = :config2
+            ");
+            $stmt->execute([':crawl_id' => $crawlId, ':config' => $catYaml, ':config2' => $catYaml]);
         }
         
         $this->success([
