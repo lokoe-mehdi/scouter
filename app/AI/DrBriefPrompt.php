@@ -55,7 +55,19 @@ class DrBriefPrompt
         $template = ($stored !== null && trim($stored) !== '') ? $stored : self::defaultTemplate();
 
         $vars = self::computeVariables($crawl, $pageContext, $uiLanguage, $projectCrawls);
-        return strtr($template, $vars);
+        $prompt = strtr($template, $vars);
+
+        // Robustness: a STORED custom template (admin-saved in AppSettings) can
+        // predate a schema addition and omit {gsc_block}. Ensure the Search
+        // Console section is always present so Dr Brief knows it can query GSC —
+        // otherwise it (wrongly) tells the user it can't answer clicks/impressions.
+        if (strpos($prompt, '## Google Search Console data') === false) {
+            $gsc = $vars['{gsc_block}'] ?? '';
+            if ($gsc !== '') {
+                $prompt .= "\n\n" . $gsc;
+            }
+        }
+        return $prompt;
     }
 
     /**
@@ -109,6 +121,7 @@ class DrBriefPrompt
             ['name' => 'project_crawls_block', 'description' => 'Pre-formatted section listing the OTHER crawls of the same project + multi-crawl SQL syntax doc. Empty when the project has a single crawl.', 'example' => '## Other crawls in this project … (★ = current) …'],
             ['name' => 'language_block',       'description' => 'Pre-formatted section telling the model to reply in the user’s UI language. Empty if the language could not be detected.', 'example' => '## Language\nThe user’s interface is currently set to **French**. Always reply in French…'],
             ['name' => 'page_context_block',   'description' => 'Pre-formatted section with a DOM digest of what the user is looking at right now (KPI cards, charts, tables). Empty when no snapshot is available.', 'example' => '## Current page snapshot\n<page_snapshot> … </page_snapshot>'],
+            ['name' => 'gsc_block',            'description' => 'Pre-formatted Google Search Console schema + availability section (whether GSC is connected for this project + the covered date range + the gsc_* tables and their aggregation rules). Empty on a PostgreSQL-only deployment.', 'example' => '## Google Search Console data (project-scoped)\n**Search Console IS connected** — data from 2024-06-01 to 2026-07-06 …'],
         ];
     }
 
@@ -137,7 +150,65 @@ class DrBriefPrompt
             '{page_context_block}'   => ($pageContext === null || trim($pageContext) === '') ? '' : self::pageContextBlock($pageContext),
             '{sql_engine}'           => \App\Database\ClickHouseDatabase::enabled() ? 'ClickHouse' : 'PostgreSQL',
             '{sql_conventions_block}'=> self::sqlConventionsBlock(),
+            '{gsc_block}'            => self::gscBlock($crawl),
         ];
+    }
+
+    /**
+     * The Google Search Console schema + availability section. GSC data lives in
+     * project-scoped ClickHouse tables, so this is empty on a PG-only deployment.
+     * We probe gsc_site_daily for THIS crawl's project so the model knows upfront
+     * whether it has data to query (and the covered date range) — the reason
+     * Dr Brief previously said it "can't" answer clicks/impressions questions.
+     */
+    private static function gscBlock(object $crawl): string
+    {
+        if (!\App\Database\ClickHouseDatabase::enabled()) {
+            return '';
+        }
+        $projectId = (int) ($crawl->project_id ?? 0);
+        $connected = false; $from = null; $to = null;
+        if ($projectId > 0) {
+            try {
+                $rows = \App\Database\ClickHouseDatabase::getInstance()->select(
+                    "SELECT count() AS n, toString(min(date)) AS mn, toString(max(date)) AS mx "
+                    . "FROM scouter.gsc_site_daily WHERE project_id = {pid:Int32}",
+                    ['pid' => $projectId]
+                );
+                $row = $rows[0] ?? null;
+                if ($row && (int) ($row['n'] ?? 0) > 0) {
+                    $connected = true; $from = $row['mn'] ?? null; $to = $row['mx'] ?? null;
+                }
+            } catch (\Throwable $e) {
+                // Tables may not exist yet on a fresh deployment — treat as not connected.
+            }
+        }
+
+        $status = $connected
+            ? "**Search Console IS connected for this project** — data available from **{$from}** to **{$to}**. Use it freely to answer any clicks / impressions / CTR / position / keyword / country / device question."
+            : "**Search Console is NOT connected for this project** — the `gsc_*` tables exist but are EMPTY. If asked about clicks/impressions/keywords, say GSC isn't connected (it can be connected from the Search Analytics page); do not invent numbers.";
+
+        return <<<GSC
+## Google Search Console data (project-scoped)
+
+{$status}
+
+Four ClickHouse tables hold Search Console performance data for THIS crawl's PROJECT (auto-scoped — you can never see another project). They are NOT crawl-scoped: they span whatever date range GSC has, independent of when the crawl ran, so ALWAYS filter by date, e.g. `WHERE date >= '2026-01-01'`.
+
+- **gsc_site_daily** (date, country, device, clicks, impressions, position) — daily site totals per country/device.
+- **gsc_page_daily** (date, page, country, device, clicks, impressions, position) — per-URL totals per country/device.
+- **gsc_query_daily** (date, query, country, device, clicks, impressions, position, is_anon) — per-keyword totals per country/device.
+- **gsc_page_query_daily** (date, page, query, clicks, impressions, position, is_anon) — the page×keyword join (NO country/device here).
+
+Rules (get these right or the numbers are wrong):
+- clicks & impressions are ADDITIVE → `SUM`. CTR = `SUM(clicks)/SUM(impressions)`. Average position is impression-weighted: `SUM(position*impressions)/SUM(impressions)` (a plain AVG is wrong).
+- `country` (ISO-3, e.g. 'fra') + `device` ('DESKTOP'/'MOBILE'/'TABLET'): a page/keyword has ONE ROW PER country×device, so aggregate over them (`GROUP BY page`) UNLESS the user asks to segment by geo/device.
+- `page` URLs are fragment-stripped (`url` and `url#section` are merged), so they match `pages.url` exactly.
+- `is_anon = 1` rows are Google's anonymized-query bucket (low-volume keywords Google withholds). KEEP them for correct clicks/impressions totals; add `AND is_anon = 0` only when listing actual keyword strings.
+- Cross the crawl × GSC on the URL — aggregate GSC per page first, then LEFT JOIN:
+  `FROM pages p LEFT JOIN (SELECT page, sum(clicks) AS clicks, sum(impressions) AS impressions FROM gsc_page_daily WHERE date >= '2026-04-01' GROUP BY page) g ON g.page = p.url`
+  → e.g. clicks by crawl category, high-PageRank pages with no clicks, orphan GSC URLs not in the crawl, etc.
+GSC;
     }
 
     /**
@@ -214,6 +285,10 @@ Scouter-specific:
   `page_schemas`, `redirect_chains` WITHOUT any suffix — the server scopes them to
   the current crawl automatically (don't add `crawl_id = …`). Other crawls of the
   same project: `pages@<id>`.
+- Google Search Console: `gsc_site_daily`, `gsc_page_daily`, `gsc_query_daily`,
+  `gsc_page_query_daily` are also queryable, auto-scoped to THIS crawl's PROJECT
+  (not the crawl) — filter by `date`. See the "Google Search Console data" section
+  in the schema for columns + rules (clicks/impressions, country/device, is_anon).
 - Joins: `pages.id = links.src` (or `links.target`).
 CH;
     }
@@ -882,6 +957,8 @@ pretend you saw markup that wasn't returned to you.
 **redirect_chains** — pre-computed chains
   - source_id, source_url, final_id, final_url, final_code, final_compliant
   - hops (int), is_loop (bool), chain_ids (text[])
+
+{gsc_block}
 
 ## The tool: run_sql(query, purpose)
 

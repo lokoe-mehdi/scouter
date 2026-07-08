@@ -139,6 +139,19 @@ func (p *SitemapParser) visit(url string, depth int) {
 			if loc == "" {
 				continue
 			}
+			// Tolerate a malformed sitemap index: some sites (e.g. tinder.com)
+			// list child sitemaps as <url> inside a <urlset> instead of <sitemap>
+			// inside a <sitemapindex>. When a loc clearly points to a sitemap file
+			// (*.xml.gz, or a "sitemap*" .xml/.gz), recurse into it rather than
+			// treating it as a page URL — so its URLs are discovered and the
+			// sitemap files don't pollute the URL list. Real page URLs pass through.
+			if depth < maxIndexDepth && looksLikeSitemapLoc(loc) {
+				p.visit(loc, depth+1)
+				if len(p.urlSet) >= maxSitemapURLs || p.sitemapsFetched >= maxChildSitemaps {
+					return
+				}
+				continue
+			}
 			if !p.addURL(loc) {
 				return
 			}
@@ -221,6 +234,27 @@ func (p *SitemapParser) fetch(url string) []byte {
 		return nil
 	}
 	return body
+}
+
+// looksLikeSitemapLoc reports whether a <loc> found inside a <urlset> is almost
+// certainly a nested sitemap file rather than a page URL — used to tolerate
+// sitemap indexes mislabelled as urlsets. Conservative on purpose (only *.xml.gz
+// or a "sitemap"-named .xml/.gz) so genuine page URLs are never swallowed.
+func looksLikeSitemapLoc(loc string) bool {
+	l := strings.ToLower(loc)
+	if i := strings.IndexAny(l, "?#"); i >= 0 {
+		l = l[:i]
+	}
+	if i := strings.LastIndex(l, "/"); i >= 0 {
+		l = l[i+1:]
+	}
+	if strings.HasSuffix(l, ".xml.gz") {
+		return true
+	}
+	if strings.Contains(l, "sitemap") && (strings.HasSuffix(l, ".xml") || strings.HasSuffix(l, ".gz")) {
+		return true
+	}
+	return false
 }
 
 func looksLikeText(url string, body []byte) bool {
