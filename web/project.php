@@ -33,7 +33,7 @@ $domainName = $project->domain ?? $project->name ?? 'Unknown';
 // Google Search Console overview (shown below the crawl overview, if connected).
 // 28-day summary anchored on the last day WITH data (like GSC). Best-effort:
 // any failure (CH down, no data yet) simply hides the block.
-$gscConnector = null; $gscKpis = null; $gscSpark = [];
+$gscConnector = null; $gscKpis = null; $gscKpisPrev = null; $gscSpark = [];
 try {
     $gscConnector = (new ConnectorRepository())->getByProject($projectId);
     if ($gscConnector && ClickHouseDatabase::enabled()) {
@@ -47,10 +47,32 @@ try {
             $gscSpark['ctr'][]         = (float) ($row['ctr'] ?? 0) * 100;
             $gscSpark['position'][]    = (float) ($row['position'] ?? 0);
         }
+        // Previous 28-day window → per-metric deltas under each KPI.
+        $gscPTo   = date('Y-m-d', strtotime($gscFrom . ' -1 day'));
+        $gscPFrom = date('Y-m-d', strtotime($gscPTo . ' -27 days'));
+        $gscKpisPrev = $gscSvc->kpis('keywords', $gscPFrom, $gscPTo, [], true);
     }
 } catch (\Throwable $e) {
-    $gscConnector = null; $gscKpis = null;
+    $gscConnector = null; $gscKpis = null; $gscKpisPrev = null;
 }
+// "Connected" = an established connector exists (active/backfilling), regardless
+// of whether data has landed yet. Drives the compact-block vs empty-state choice.
+$gscConnected = (bool) ($gscConnector && in_array($gscConnector->status ?? '', ['active', 'backfilling'], true));
+$gscHasData   = $gscConnected && $gscKpis && ((($gscKpis['impressions'] ?? 0) > 0) || (($gscKpis['clicks'] ?? 0) > 0));
+
+// Per-metric signed delta vs the previous 28-day window (arrow by direction,
+// colour by better/worse). $fmt: 'int' | 'pct' (CTR, points) | 'pos' (position).
+$gscDelta = function ($cur, $prev, bool $higherBetter, string $fmt = 'int'): string {
+    if ($prev === null) { return ''; }
+    $diff = (float) $cur - (float) $prev;
+    if (abs($diff) < 1e-9) { return '<span class="pjx-gsc-d pjx-gsc-d--flat">–</span>'; }
+    $cls   = ($higherBetter ? $diff > 0 : $diff < 0) ? 'up' : 'down';
+    $arrow = $diff > 0 ? '▲' : '▼';
+    if ($fmt === 'pct')      { $txt = ($diff >= 0 ? '+' : '') . number_format($diff * 100, 2) . ' pt'; }
+    elseif ($fmt === 'pos')  { $txt = ($diff >= 0 ? '+' : '') . number_format($diff, 1); }
+    else                     { $txt = ($diff >= 0 ? '+' : '') . number_format($diff); }
+    return '<span class="pjx-gsc-d pjx-gsc-d--' . $cls . '">' . $arrow . ' ' . $txt . '</span>';
+};
 
 // Crawls
 $projectCrawls = $crawlRepo->getByProjectId($projectId);
@@ -388,10 +410,6 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                         <?= __('project.new_crawl') ?>
                     </button>
                 <?php endif; ?>
-                <a class="pj-btn-newcrawl" href="search-analytics.php?project=<?= $projectId ?>" title="Search Analytics (Google Search Console)">
-                    <span class="material-symbols-outlined">search_insights</span>
-                    Search Analytics
-                </a>
             </div>
 
             <!-- Automation (owner or admin only) -->
@@ -543,8 +561,30 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
           </div>
 
           <div class="pj-col-center">
-<!-- Last Report -->
-            <div class="pj-card pjx-overview">
+            <!-- View tabs: Search Analytics is a VIEW (moved out of the sidebar),
+                 alongside Overview (current) and the crawl report. -->
+            <nav class="pjx-tabs" aria-label="<?= htmlspecialchars(__('project.tab_overview')) ?>">
+                <span class="pjx-tab active"><span class="material-symbols-outlined">space_dashboard</span><?= __('project.tab_overview') ?></span>
+                <?php if ($lastFinished): ?>
+                <a class="pjx-tab" href="dashboard.php?crawl=<?= $lastFinished->crawl_id ?>"><span class="material-symbols-outlined">description</span><?= __('project.tab_crawl_report') ?></a>
+                <?php else: ?>
+                <span class="pjx-tab pjx-tab--disabled"><span class="material-symbols-outlined">description</span><?= __('project.tab_crawl_report') ?></span>
+                <?php endif; ?>
+                <?php if ($gscConnected): ?>
+                <a class="pjx-tab" href="search-analytics.php?project=<?= $projectId ?>"><span class="material-symbols-outlined">search_insights</span><?= __('project.tab_search_analytics') ?></a>
+                <?php else: ?>
+                <a class="pjx-tab pjx-tab--disabled" href="/gsc/connect?project=<?= $projectId ?>" title="<?= htmlspecialchars(__('project.gsc_connect_cta')) ?>"><span class="material-symbols-outlined">search_insights</span><?= __('project.tab_search_analytics') ?></a>
+                <?php endif; ?>
+            </nav>
+
+            <!-- "Current state of the project": crawl + GSC welded into ONE card,
+                 separated by a 1px hairline. History is a distinct card below. -->
+            <div class="pjx-state">
+              <div class="pjx-state-part">
+                <!-- Section label: technical health (the hero block) -->
+                <div class="pjx-sec"><span class="material-symbols-outlined">monitoring</span><?= __('project.sec_technical') ?></div>
+                <!-- Last Report -->
+                <div class="pjx-overview">
                 <?php
                 if ($lastFinished) {
                     $ovStatus = $lastFinished->job_status;
@@ -565,7 +605,6 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                     $scoreLabel = $kpiHealth >= 75 ? __('project.score_excellent') : ($kpiHealth >= 50 ? __('project.score_watch') : __('project.score_critical'));
                 ?>
                 <div class="pjx-ov-head">
-                    <h2 class="pjx-ov-title"><?= __('project.overview_title') ?></h2>
                     <span class="pc-badge <?= $ovBadge ?>"><?= $ovBadgeText ?></span>
                     <span class="pjx-ov-date"><?= date('d/m/Y', $lastFinished->timestamp) . ' à ' . date('H:i', $lastFinished->timestamp) ?></span>
                 </div>
@@ -634,46 +673,82 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                 <div class="pjx-ov-head"><h2 class="pjx-ov-title"><?= __('project.overview_title') ?></h2></div>
                 <p class="pj-empty-text"><?= __('project.no_crawl_yet') ?></p>
                 <?php } ?>
-            </div>
+                </div><!-- /.pjx-overview -->
+              </div><!-- /.pjx-state-part (technical) -->
 
-            <!-- Google Search Console overview (only if connected + has data) -->
-            <?php if ($gscKpis && (($gscKpis['impressions'] ?? 0) > 0 || ($gscKpis['clicks'] ?? 0) > 0)): ?>
-            <div class="pj-card pjx-overview pjx-gsc">
-                <div class="pjx-ov-head">
-                    <h2 class="pjx-ov-title"><span class="material-symbols-outlined" style="vertical-align:-4px;color:#4ECDC4">search_insights</span> <?= __('gsc.overview_title') ?></h2>
-                    <span class="pc-badge" style="background:#E8F8F5;color:#1ABC9C">Search Console</span>
-                    <span class="pjx-ov-date"><?= __('gsc.range_28d') ?> · <?= date('d/m/Y', strtotime($gscFrom)) ?> → <?= date('d/m/Y', strtotime($gscTo)) ?></span>
+              <div class="pjx-state-part pjx-state-part--gsc">
+                <!-- Section label: field performance (Search Console) -->
+                <div class="pjx-sec pjx-sec--gsc"><span class="material-symbols-outlined">travel_explore</span><?= __('project.sec_performance') ?></div>
+                <?php if ($gscConnected): ?>
+                <!-- Connected: metric cards on surface-1 + sparkline & delta each; discreet "see detail". -->
+                <div class="pjx-gsc-compact">
+                    <div class="pjx-gsc-head">
+                        <span class="pjx-gsc-period">
+                            <?php if ($gscHasData): ?>
+                                <?= __('gsc.range_28d') ?> · <?= date('d/m/Y', strtotime($gscFrom)) ?> → <?= date('d/m/Y', strtotime($gscTo)) ?>
+                            <?php else: ?>
+                                <span class="material-symbols-outlined pjx-gsc-syncing">sync</span> <?= __('project.gsc_syncing') ?>
+                            <?php endif; ?>
+                        </span>
+                        <a href="search-analytics.php?project=<?= $projectId ?>" class="pjx-gsc-detail"><?= __('project.gsc_view_detail') ?> <span class="material-symbols-outlined">arrow_forward</span></a>
+                    </div>
+                    <div class="pjx-gsc-kpis">
+                        <div class="pjx-gsc-kpi">
+                            <span class="pjx-gsc-kpi-label"><?= __('gsc.metric_clicks') ?></span>
+                            <div class="pjx-gsc-kpi-val"><?= $gscHasData ? number_format((int) $gscKpis['clicks']) : '—' ?></div>
+                            <?php if ($gscHasData): ?><span class="pjx-gsc-kpi-sub"><?= $gscDelta($gscKpis['clicks'], $gscKpisPrev['clicks'] ?? null, true) ?></span><?php endif; ?>
+                            <?= pcSparklineSvg($gscSpark['clicks'] ?? [], '#4ECDC4') ?>
+                        </div>
+                        <div class="pjx-gsc-kpi">
+                            <span class="pjx-gsc-kpi-label"><?= __('gsc.metric_impressions') ?></span>
+                            <div class="pjx-gsc-kpi-val"><?= $gscHasData ? number_format((int) $gscKpis['impressions']) : '—' ?></div>
+                            <?php if ($gscHasData): ?><span class="pjx-gsc-kpi-sub"><?= $gscDelta($gscKpis['impressions'], $gscKpisPrev['impressions'] ?? null, true) ?></span><?php endif; ?>
+                            <?= pcSparklineSvg($gscSpark['impressions'] ?? [], '#3498DB') ?>
+                        </div>
+                        <div class="pjx-gsc-kpi">
+                            <span class="pjx-gsc-kpi-label"><?= __('gsc.metric_ctr') ?></span>
+                            <div class="pjx-gsc-kpi-val"><?= $gscHasData ? number_format($gscKpis['ctr'] * 100, 2) . ' %' : '—' ?></div>
+                            <?php if ($gscHasData): ?><span class="pjx-gsc-kpi-sub"><?= $gscDelta($gscKpis['ctr'], $gscKpisPrev['ctr'] ?? null, true, 'pct') ?></span><?php endif; ?>
+                            <?= pcSparklineSvg($gscSpark['ctr'] ?? [], '#2ECC71') ?>
+                        </div>
+                        <div class="pjx-gsc-kpi">
+                            <span class="pjx-gsc-kpi-label"><?= __('gsc.metric_position_avg') ?></span>
+                            <div class="pjx-gsc-kpi-val"><?= ($gscHasData && $gscKpis['position'] > 0) ? number_format($gscKpis['position'], 2) : '—' ?></div>
+                            <?php if ($gscHasData): ?><span class="pjx-gsc-kpi-sub"><?= $gscDelta($gscKpis['position'], $gscKpisPrev['position'] ?? null, false, 'pos') ?></span><?php endif; ?>
+                            <?= pcSparklineSvg($gscSpark['position'] ?? [], '#F39C12') ?>
+                        </div>
+                    </div>
                 </div>
-                <div class="pjx-kpis" style="grid-template-columns:repeat(4,1fr)">
-                    <div class="pjx-kpi">
-                        <span class="pjx-kpi-label"><?= __('gsc.metric_clicks') ?></span>
-                        <div class="pjx-kpi-val"><?= number_format((int)$gscKpis['clicks']) ?></div>
-                        <?= pcSparklineSvg($gscSpark['clicks'] ?? [], '#4ECDC4') ?>
+                <?php else: ?>
+                <!-- Not connected: HORIZONTAL invitation (icon · title+text · CTA), height follows content. -->
+                <div class="pjx-gsc-empty">
+                    <span class="pjx-gsc-empty-logo" aria-hidden="true">
+                        <svg viewBox="0 0 48 48" width="34" height="34">
+                            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                        </svg>
+                    </span>
+                    <div class="pjx-gsc-empty-body">
+                        <h3 class="pjx-gsc-empty-title"><?= __('project.gsc_empty_title') ?></h3>
+                        <p class="pjx-gsc-empty-text"><?= __('project.gsc_empty_text') ?></p>
                     </div>
-                    <div class="pjx-kpi">
-                        <span class="pjx-kpi-label"><?= __('gsc.metric_impressions') ?></span>
-                        <div class="pjx-kpi-val"><?= number_format((int)$gscKpis['impressions']) ?></div>
-                        <?= pcSparklineSvg($gscSpark['impressions'] ?? [], '#3498DB') ?>
-                    </div>
-                    <div class="pjx-kpi">
-                        <span class="pjx-kpi-label"><?= __('gsc.metric_ctr') ?></span>
-                        <div class="pjx-kpi-val"><?= number_format($gscKpis['ctr'] * 100, 2) ?> %</div>
-                        <?= pcSparklineSvg($gscSpark['ctr'] ?? [], '#2ECC71') ?>
-                    </div>
-                    <div class="pjx-kpi">
-                        <span class="pjx-kpi-label"><?= __('gsc.metric_position_avg') ?></span>
-                        <div class="pjx-kpi-val"><?= $gscKpis['position'] > 0 ? number_format($gscKpis['position'], 2) : '—' ?></div>
-                        <?= pcSparklineSvg($gscSpark['position'] ?? [], '#F39C12') ?>
-                    </div>
-                </div>
-                <div class="pjx-cta">
-                    <a href="search-analytics.php?project=<?= $projectId ?>" class="pjx-cta-primary">
-                        <?= __('gsc.cta_view') ?>
-                        <span class="material-symbols-outlined">arrow_forward</span>
+                    <a href="/gsc/connect?project=<?= $projectId ?>" class="gsi-btn" role="button" aria-label="<?= htmlspecialchars(__('project.gsc_sign_in_google')) ?>">
+                        <span class="gsi-btn-icon" aria-hidden="true">
+                            <svg viewBox="0 0 48 48" width="18" height="18">
+                                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                            </svg>
+                        </span>
+                        <span class="gsi-btn-text"><?= __('project.gsc_sign_in_google') ?></span>
                     </a>
                 </div>
-            </div>
-            <?php endif; ?>
+                <?php endif; ?>
+              </div><!-- /.pjx-state-part (performance) -->
+            </div><!-- /.pjx-state -->
 
             <!-- Crawl History -->
             <div class="pj-card pjx-history">
@@ -708,16 +783,25 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
                     </thead>
                     <tbody id="pjCrawlList">
                         <?php foreach ($crawls as $crawlIdx => $crawl) {
-                            echo pjxCrawlRow($crawl, $prevOf[(int)$crawl->crawl_id] ?? null, $canManage, $domainName, $crawlIdx, $crawlIdx >= 10, $pgResumable[(int)$crawl->crawl_id] ?? false);
+                            echo pjxCrawlRow($crawl, $prevOf[(int)$crawl->crawl_id] ?? null, $canManage, $domainName, $crawlIdx, $crawlIdx >= 3, $pgResumable[(int)$crawl->crawl_id] ?? false);
                         } ?>
                     </tbody>
                 </table>
                 </div>
-                <?php if (count($crawls) > 10): ?>
-                <button type="button" class="pjx-see-all" id="pjxSeeAll" onclick="pjxShowAllCrawls(this)">
+                <?php if (count($crawls) > 3): ?>
+                <!-- 3 latest by default → "see all" switches to a 10/page paginated
+                     view with the same prev/next UX as the dashboard urlTable. -->
+                <button type="button" class="pjx-see-all" id="pjxSeeAll" onclick="pjxShowAllCrawls()">
                     <?= __('index.view_all_crawls', ['count' => count($crawls)]) ?>
                     <span class="material-symbols-outlined">expand_more</span>
                 </button>
+                <div class="pjx-pager" id="pjxPager" style="display:none;">
+                    <span class="pjx-pager-info" id="pjxPageInfo"></span>
+                    <div class="pjx-pager-ctrls">
+                        <button type="button" id="pjxPrev" onclick="pjxChangePage(-1)" aria-label="<?= htmlspecialchars(__('table.prev_page') ?: 'Previous') ?>"><span class="material-symbols-outlined">chevron_left</span></button>
+                        <button type="button" id="pjxNext" onclick="pjxChangePage(1)" aria-label="<?= htmlspecialchars(__('table.next_page') ?: 'Next') ?>"><span class="material-symbols-outlined">chevron_right</span></button>
+                    </div>
+                </div>
                 <?php endif; ?>
                 <?php endif; ?>
             </div>
@@ -1443,15 +1527,18 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         if (e.key === 'Escape') closeHealthInfo();
     });
 
-    // Pagination
+    // Crawl-history pagination: 3 latest by default; "see all" → 10 per page with
+    // dynamic prev/next (same UX as the dashboard urlTable component).
+    const PJ_DEFAULT_VISIBLE = 3;
     const PJ_PER_PAGE = 10;
     let pjCurrentPage = 0;
-    const pjTotalPages = <?= ceil(count($crawls) / 10) ?>;
+    let pjPaged = false;
 
-    function pjChangePage(delta) {
+    function pjRows() { return document.querySelectorAll('#pjCrawlList .pjx-row'); }
+    function pjTotalPages() { return Math.max(1, Math.ceil(pjRows().length / PJ_PER_PAGE)); }
+
+    function pjxChangePage(delta) {
         pjCurrentPage += delta;
-        if (pjCurrentPage < 0) pjCurrentPage = 0;
-        if (pjCurrentPage >= pjTotalPages) pjCurrentPage = pjTotalPages - 1;
         pjApplyPage();
     }
 
@@ -1460,26 +1547,36 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         btn.closest('.pjx-accordion').classList.toggle('open');
     }
 
-    // "Voir tous les crawls" : révèle toutes les lignes masquées.
-    function pjxShowAllCrawls(btn) {
-        document.querySelectorAll('#pjCrawlList .pjx-row').forEach(r => { r.style.display = ''; });
+    // "Voir tous les crawls" → switch to the paginated view (10/page).
+    function pjxShowAllCrawls() {
+        pjPaged = true;
+        pjCurrentPage = 0;
+        const btn = document.getElementById('pjxSeeAll');
         if (btn) btn.style.display = 'none';
+        const pager = document.getElementById('pjxPager');
+        if (pager) pager.style.display = '';
+        pjApplyPage();
     }
 
+    // Single source of truth for row visibility: 3 rows collapsed, or 10/page once
+    // expanded. Called on load and after every history auto-refresh.
     function pjApplyPage() {
-        const rows = document.querySelectorAll('#pjCrawlList .pjx-row');
-        const start = pjCurrentPage * PJ_PER_PAGE;
-        const end = start + PJ_PER_PAGE;
-        rows.forEach(r => {
-            const idx = parseInt(r.dataset.index);
-            r.style.display = (idx >= start && idx < end) ? '' : 'none';
-        });
-        const info = document.getElementById('pjPageInfo');
-        if (info) info.textContent = (pjCurrentPage + 1) + ' / ' + pjTotalPages;
-        const prev = document.getElementById('pjPrevBtn');
-        const next = document.getElementById('pjNextBtn');
+        const rows = pjRows();
+        if (!pjPaged) {
+            rows.forEach((r, i) => { r.style.display = i < PJ_DEFAULT_VISIBLE ? '' : 'none'; });
+            return;
+        }
+        const tp = pjTotalPages();
+        if (pjCurrentPage >= tp) pjCurrentPage = tp - 1;
+        if (pjCurrentPage < 0) pjCurrentPage = 0;
+        const start = pjCurrentPage * PJ_PER_PAGE, end = start + PJ_PER_PAGE, total = rows.length;
+        rows.forEach((r, i) => { r.style.display = (i >= start && i < end) ? '' : 'none'; });
+        const info = document.getElementById('pjxPageInfo');
+        if (info) info.textContent = ScouterI18n.translate('table.pagination_short',
+            { start: (start + 1), end: Math.min(end, total), total: total });
+        const prev = document.getElementById('pjxPrev'), next = document.getElementById('pjxNext');
         if (prev) prev.disabled = pjCurrentPage === 0;
-        if (next) next.disabled = pjCurrentPage >= pjTotalPages - 1;
+        if (next) next.disabled = pjCurrentPage >= tp - 1;
     }
 
     // Auto-refresh crawl history every 20s (preserves current page)

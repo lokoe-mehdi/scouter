@@ -49,6 +49,13 @@ $repo      = new ConnectorRepository();
 $connector = $repo->getByProject($projectId);
 $configured = GoogleOAuthClient::isConfigured();
 
+// Most recent crawl of the project → target of the "Crawl report" nav tab.
+$saLastCrawlId = 0;
+try {
+    $saCrawls = (new \App\Database\CrawlRepository())->getByProjectId($projectId);
+    if (!empty($saCrawls)) { $saLastCrawlId = (int) $saCrawls[0]->id; }
+} catch (\Throwable $e) { $saLastCrawlId = 0; }
+
 // Project URL-categorization rules → reusable as a "category" URL filter + a
 // coloured badge column in the URL views (same rules as the crawl category).
 $gscCategories = $connector ? \App\Gsc\GscCategories::list($projectId) : [];
@@ -90,6 +97,17 @@ $flashMsg = $_GET['gsc_msg'] ?? '';
             <a href="project.php?id=<?= $projectId ?>"><?= htmlspecialchars($domainName) ?></a>
             <span class="material-symbols-outlined">chevron_right</span>
             <span class="pj-breadcrumb-current">Search Analytics</span>
+        </nav>
+
+        <!-- Same view tabs as the project page — Search Analytics is the active one. -->
+        <nav class="pjx-tabs" aria-label="Search Analytics">
+            <a class="pjx-tab" href="project.php?id=<?= $projectId ?>"><span class="material-symbols-outlined">space_dashboard</span><?= __('project.tab_overview') ?></a>
+            <?php if ($saLastCrawlId): ?>
+            <a class="pjx-tab" href="dashboard.php?crawl=<?= $saLastCrawlId ?>"><span class="material-symbols-outlined">description</span><?= __('project.tab_crawl_report') ?></a>
+            <?php else: ?>
+            <span class="pjx-tab pjx-tab--disabled"><span class="material-symbols-outlined">description</span><?= __('project.tab_crawl_report') ?></span>
+            <?php endif; ?>
+            <span class="pjx-tab active"><span class="material-symbols-outlined">search_insights</span><?= __('project.tab_search_analytics') ?></span>
         </nav>
 
         <?php if ($flash === 'error'): ?>

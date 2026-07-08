@@ -180,6 +180,11 @@ class GscJobRunner
             }
         }
 
+        // Custom timeline events live in Postgres (keyed by project_id), not in the
+        // ClickHouse partitions we just dropped — remove them too so a disconnect
+        // leaves no orphaned events behind.
+        (new EventRepository())->deleteForProject($projectId);
+
         // Only revoke on Google's side if NO other connector uses the same Google
         // account — revoking kills the whole (user, app) grant, which would break
         // every other project connected with that account.

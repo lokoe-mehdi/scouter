@@ -2486,5 +2486,16 @@
   "gsc.device_tablet": "Tablet",
   "gsc.country_all": "País: todos",
   "filter.no_options": "Nenhuma opção disponível",
-  "gsc.impr_abbr": "impr."
+  "gsc.impr_abbr": "impr.",
+  "project.tab_overview": "Visão geral",
+  "project.tab_crawl_report": "Relatório de rastreio",
+  "project.tab_search_analytics": "Search Analytics",
+  "project.sec_technical": "Saúde técnica · último rastreio",
+  "project.sec_performance": "Desempenho real · Search Console",
+  "project.gsc_view_detail": "Ver detalhe",
+  "project.gsc_syncing": "Sincronização…",
+  "project.gsc_empty_title": "Liga o Search Console para ver o desempenho real",
+  "project.gsc_empty_text": "O rastreio mede a técnica. O Search Console mostra cliques, impressões, CTR e posições reais no Google.",
+  "project.gsc_connect_cta": "Ligar o Search Console",
+  "project.gsc_sign_in_google": "Fazer login com o Google"
 }

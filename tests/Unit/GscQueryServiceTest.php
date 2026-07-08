@@ -168,6 +168,35 @@ it('negates a not_in country filter and drops it when the column is absent', fun
     expect($dropped)->toBe('');
 });
 
+it('resolves the source table + grouping dims from mode and filters', function () {
+    $svc = new GscQueryService(1);
+    $q  = fn($v) => [['logic' => 'OR', 'items' => [['field' => 'query', 'operator' => 'contains', 'value' => $v]]]];
+    $u  = fn($v) => [['logic' => 'OR', 'items' => [['field' => 'url', 'operator' => 'contains', 'value' => $v]]]];
+    $c  = fn($v) => [['logic' => 'OR', 'items' => [['field' => 'country', 'operator' => 'in', 'value' => [$v]]]]];
+
+    // keywords: query marginal, or the joint when a URL filter is added…
+    expect($svc->resolve('keywords', [])['table'])->toBe('gsc_query_daily');
+    expect($svc->resolve('keywords', $u('x'))['table'])->toBe('gsc_page_query_daily');
+    // …but a country/device filter forbids the joint (no cd there) → cd wins, url dropped.
+    $kc = $svc->resolve('keywords', array_merge($u('x'), $c('fra')));
+    expect($kc['table'])->toBe('gsc_query_daily');
+    expect($kc['cols'])->toContain('country');
+
+    // urls: page marginal, or the joint when a query filter is added.
+    expect($svc->resolve('urls', [])['table'])->toBe('gsc_page_daily');
+    expect($svc->resolve('urls', $q('x'))['table'])->toBe('gsc_page_query_daily');
+
+    // both is intrinsically the joint (no country/device).
+    expect($svc->resolve('both', [])['table'])->toBe('gsc_page_query_daily');
+    expect($svc->resolve('both', [])['dims'])->toBe(['page', 'query']);
+
+    // country / device views group by that dim, from the widest table that carries it.
+    expect($svc->resolve('country', []))->toMatchArray(['table' => 'gsc_site_daily', 'dims' => ['country']]);
+    expect($svc->resolve('country', $u('x'))['table'])->toBe('gsc_page_daily');   // page column needed
+    expect($svc->resolve('country', $q('x'))['table'])->toBe('gsc_query_daily');  // query column needed
+    expect($svc->resolve('device', [])['dims'])->toBe(['device']);
+});
+
 it('ignores empty-value chips', function () {
     $params = [];
     $sql = GscQueryService::buildFilterSql(

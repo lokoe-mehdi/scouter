@@ -2486,5 +2486,16 @@
   "gsc.device_tablet": "Tablette",
   "gsc.country_all": "Pays : tous",
   "filter.no_options": "Aucune option disponible",
-  "gsc.impr_abbr": "imp."
+  "gsc.impr_abbr": "imp.",
+  "project.tab_overview": "Vue d'ensemble",
+  "project.tab_crawl_report": "Rapport crawl",
+  "project.tab_search_analytics": "Search Analytics",
+  "project.sec_technical": "Santé technique · dernier crawl",
+  "project.sec_performance": "Performance terrain · Search Console",
+  "project.gsc_view_detail": "Voir le détail",
+  "project.gsc_syncing": "Synchronisation en cours…",
+  "project.gsc_empty_title": "Connecte Search Console pour voir la performance réelle",
+  "project.gsc_empty_text": "Le crawl mesure la technique. Search Console montre les clics, impressions, CTR et positions réels sur Google.",
+  "project.gsc_connect_cta": "Connecter Search Console",
+  "project.gsc_sign_in_google": "Se connecter avec Google"
 }

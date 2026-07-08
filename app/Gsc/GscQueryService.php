@@ -56,10 +56,14 @@ class GscQueryService
      * Resolve the source table + grouping dims + filterable columns from the
      * mode AND the active filters.
      *
+     * Public (not just internal) so the table-selection matrix — the subtle part,
+     * especially the country/device × cross-dimension conflict resolution — can be
+     * unit-tested without hitting ClickHouse.
+     *
      * @param array<int,mixed> $filters
      * @return array{table:string,dims:array<int,string>,cols:array<int,string>,hasAnon:bool}
      */
-    private function resolve(string $mode, array $filters): array
+    public function resolve(string $mode, array $filters): array
     {
         $mode = self::normalizeMode($mode);
         $qFilter = self::filtersReference($filters, 'query');

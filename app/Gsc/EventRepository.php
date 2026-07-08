@@ -153,4 +153,13 @@ class EventRepository
         $stmt->execute([':id' => $id, ':pid' => $projectId]);
         return $stmt->rowCount() > 0;
     }
+
+    /** Delete ALL events of a project — used when disconnecting Search Console so
+     *  no orphaned timeline events survive the GSC data purge. Returns the count. */
+    public function deleteForProject(int $projectId): int
+    {
+        $stmt = $this->db->prepare("DELETE FROM gsc_events WHERE project_id = :pid");
+        $stmt->execute([':pid' => $projectId]);
+        return $stmt->rowCount();
+    }
 }
