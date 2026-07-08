@@ -2497,5 +2497,7 @@
   "project.gsc_empty_title": "Connecte Search Console pour voir la performance réelle",
   "project.gsc_empty_text": "Le crawl mesure la technique. Search Console montre les clics, impressions, CTR et positions réels sur Google.",
   "project.gsc_connect_cta": "Connecter Search Console",
-  "project.gsc_sign_in_google": "Se connecter avec Google"
+  "project.gsc_sign_in_google": "Se connecter avec Google",
+  "table.prev_page": "Page précédente",
+  "table.next_page": "Page suivante"
 }

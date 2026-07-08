@@ -395,6 +395,20 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             </span>
         </nav>
 
+        <?php
+        // Flash from the Search Console OAuth flow (e.g. bounced back from
+        // /gsc/connect). Without this, a config error looked like a silent reload.
+        $pjGscFlash = $_GET['gsc'] ?? null;
+        if ($pjGscFlash === 'error' || $pjGscFlash === 'disconnecting'):
+            $pjIsErr = $pjGscFlash === 'error';
+            $pjFlashMsg = $_GET['gsc_msg'] ?? ($pjIsErr ? __('gsc.error') : __('gsc.disconnecting'));
+        ?>
+        <div class="pj-gsc-flash <?= $pjIsErr ? 'pj-gsc-flash--error' : 'pj-gsc-flash--info' ?>">
+            <span class="material-symbols-outlined"><?= $pjIsErr ? 'error' : 'info' ?></span>
+            <span><?= htmlspecialchars($pjFlashMsg) ?></span>
+        </div>
+        <?php endif; ?>
+
         <div class="pj-bento">
           <div class="pj-col-left">
             <div class="pj-actions-float">

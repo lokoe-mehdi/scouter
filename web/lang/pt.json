@@ -2497,5 +2497,7 @@
   "project.gsc_empty_title": "Liga o Search Console para ver o desempenho real",
   "project.gsc_empty_text": "O rastreio mede a técnica. O Search Console mostra cliques, impressões, CTR e posições reais no Google.",
   "project.gsc_connect_cta": "Ligar o Search Console",
-  "project.gsc_sign_in_google": "Fazer login com o Google"
+  "project.gsc_sign_in_google": "Fazer login com o Google",
+  "table.prev_page": "Página anterior",
+  "table.next_page": "Página seguinte"
 }
