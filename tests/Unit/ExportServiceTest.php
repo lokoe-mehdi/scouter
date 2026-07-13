@@ -36,6 +36,19 @@ it('streams a file upload through the local backend', function () {
     expect(Storage::instance()->get('export/1/test.csv'))->toContain('1;2;3');
 });
 
+it('keeps renamed local uploads readable by the web server user', function () {
+    $src = tempnam(sys_get_temp_dir(), 'src');
+    file_put_contents($src, "a;b;c\n1;2;3\n");
+    chmod($src, 0600);
+
+    expect(Storage::instance()->putFile('export/1/private-source.csv', $src, 'text/csv'))->toBeTrue();
+
+    $dest = $this->root . '/export/1/private-source.csv';
+    $mode = fileperms($dest) & 0777;
+    expect(($mode & 0044))->toBe(0044);
+    expect(Storage::instance()->get('export/1/private-source.csv'))->toContain('1;2;3');
+});
+
 it('returns no presigned URL for the local backend (app streams instead)', function () {
     expect(Storage::instance()->presignedGetUrl('export/1/test.csv', 3600))->toBeNull();
 });
