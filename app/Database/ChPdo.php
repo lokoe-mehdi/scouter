@@ -176,7 +176,7 @@ class ChPdo
     private const PAGE_COLS = [
         'crawl_id', 'id', 'date', 'domain', 'url', 'depth', 'code', 'response_time',
         'outlinks', 'content_type', 'redirect_to', 'crawled', 'compliant', 'noindex',
-        'nofollow', 'canonical', 'canonical_value', 'external', 'blocked', 'title', 'h1',
+        'nofollow', 'canonical', 'canonical_value', 'external', 'blocked', 'in_crawl', 'title', 'h1',
         'metadesc', 'extracts', 'simhash', 'is_html', 'h1_multiple', 'headings_missing',
         'schemas', 'word_count',
     ];
@@ -219,7 +219,6 @@ class ChPdo
             $joins .= " LEFT JOIN (SELECT crawl_id AS _gcid, id AS _gid, generation "
                 . "FROM {$this->db}.page_generation WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id)) g ON g._gcid = p.crawl_id AND g._gid = p.id";
         }
-        $cols[] = "toUInt8(1) AS in_crawl";
         return "(SELECT " . implode(', ', $cols)
             . " FROM (SELECT * FROM {$this->db}.pages WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id)) p"
             . $joins . ")";
