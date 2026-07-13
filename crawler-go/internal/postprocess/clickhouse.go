@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"scouter-crawler/internal/analysis"
 	"scouter-crawler/internal/db"
 )
 
@@ -23,7 +24,14 @@ type CHRunner struct {
 	ch              *db.CH
 	crawlID         int
 	respectNofollow bool
+	config          []byte
+	domain          string
+	sitemapTable    string
 	logf            func(string, ...any)
+
+	// SitemapFetch, if set, fetches new in-scope sitemap-only URLs through a
+	// skip-link-extraction pass before metrics are built.
+	SitemapFetch func(ctx context.Context, urls, domains []string) error
 }
 
 // RespectNofollowFromConfig reads advanced.respect_nofollow (default true, like
@@ -33,14 +41,14 @@ func RespectNofollowFromConfig(raw []byte) bool {
 }
 
 // NewCHRunner returns a CH post-processor, or nil if ch is nil (CH disabled).
-func NewCHRunner(ch *db.CH, crawlID int, respectNofollow bool, logf func(string, ...any)) *CHRunner {
+func NewCHRunner(ch *db.CH, crawlID int, respectNofollow bool, config []byte, domain string, logf func(string, ...any)) *CHRunner {
 	if ch == nil {
 		return nil
 	}
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	return &CHRunner{ch: ch, crawlID: crawlID, respectNofollow: respectNofollow, logf: logf}
+	return &CHRunner{ch: ch, crawlID: crawlID, respectNofollow: respectNofollow, config: config, domain: domain, logf: logf}
 }
 
 func (r *CHRunner) t(name string) string { return r.ch.DB() + "." + name }
@@ -67,6 +75,7 @@ func (r *CHRunner) Run(ctx context.Context) []string {
 		name string
 		fn   func(context.Context) error
 	}{
+		{"ch-sitemap", r.sitemapAnalysis},
 		{"ch-pagerank+metrics", r.buildMetrics},
 		{"ch-duplicate", r.duplicateAnalysis},
 		{"ch-redirect", r.redirectChainAnalysis},
@@ -76,6 +85,11 @@ func (r *CHRunner) Run(ctx context.Context) []string {
 		{"ch-optimize", r.optimizeFinal},
 	}
 	var failed []string
+	defer func() {
+		if r.sitemapTable != "" {
+			_ = r.ch.Exec(context.Background(), "DROP TABLE IF EXISTS "+r.sitemapTable)
+		}
+	}()
 	for _, s := range steps {
 		if err := s.fn(ctx); err != nil {
 			r.logf("clickhouse post-processing error in %s: %v", s.name, err)
@@ -85,6 +99,155 @@ func (r *CHRunner) Run(ctx context.Context) []string {
 		}
 	}
 	return failed
+}
+
+// sitemapAnalysis is the ClickHouse equivalent of Runner.sitemapAnalysis. It
+// parses configured sitemaps, records their page IDs in a Memory table used by
+// buildMetrics, fetches new in-scope sitemap URLs, and inserts placeholders for
+// URLs that remain sitemap-only.
+func (r *CHRunner) sitemapAnalysis(ctx context.Context) error {
+	sitemapURLs := advancedStrings(r.config, "sitemap_urls")
+	clean := sitemapURLs[:0]
+	for _, u := range sitemapURLs {
+		if t := strings.TrimSpace(u); t != "" {
+			clean = append(clean, t)
+		}
+	}
+	if len(clean) == 0 {
+		return nil
+	}
+
+	result := analysis.NewSitemapParser().Parse(clean)
+	if len(result.URLs) == 0 {
+		return nil
+	}
+
+	idToURL := make(map[string]string, len(result.URLs))
+	ids := make([]string, 0, len(result.URLs))
+	for _, u := range result.URLs {
+		id := analysis.PageID(u)
+		if _, seen := idToURL[id]; seen {
+			continue
+		}
+		idToURL[id] = u
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	if err := r.createSitemapTable(ctx, ids); err != nil {
+		return err
+	}
+
+	existing, err := r.existingSitemapIDs(ctx)
+	if err != nil {
+		return err
+	}
+
+	allowed := generalStrings(r.config, "domains")
+	if len(allowed) == 0 && strings.TrimSpace(r.domain) != "" {
+		allowed = []string{r.domain}
+	}
+
+	var newInScopeURLs []string
+	for id, u := range idToURL {
+		if existing[id] {
+			continue
+		}
+		if urlInScope(u, allowed) {
+			newInScopeURLs = append(newInScopeURLs, u)
+		}
+	}
+
+	if len(newInScopeURLs) > 0 && r.SitemapFetch != nil {
+		if err := r.SitemapFetch(ctx, newInScopeURLs, allowed); err != nil {
+			r.logf("clickhouse sitemap fetch error: %v", err)
+		}
+		existing, err = r.existingSitemapIDs(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	inScopeOnly := map[string]string{}
+	outScopeOnly := map[string]string{}
+	for id, u := range idToURL {
+		if existing[id] {
+			continue
+		}
+		if urlInScope(u, allowed) {
+			inScopeOnly[id] = u
+		} else {
+			outScopeOnly[id] = u
+		}
+	}
+	if err := r.insertSitemapOnly(ctx, inScopeOnly, false); err != nil {
+		return err
+	}
+	return r.insertSitemapOnly(ctx, outScopeOnly, true)
+}
+
+func (r *CHRunner) createSitemapTable(ctx context.Context, ids []string) error {
+	r.sitemapTable = r.t("sitemap_ids_" + r.cid())
+	if err := r.ch.Exec(ctx, "DROP TABLE IF EXISTS "+r.sitemapTable); err != nil {
+		return err
+	}
+	if err := r.ch.Exec(ctx, "CREATE TABLE "+r.sitemapTable+" (id FixedString(8)) ENGINE = Memory"); err != nil {
+		return err
+	}
+	batch := make([]any, 0, 1000)
+	for _, id := range ids {
+		batch = append(batch, map[string]any{"id": id})
+		if len(batch) >= 1000 {
+			if err := r.ch.InsertJSONEachRow(ctx, r.sitemapTable, batch); err != nil {
+				return err
+			}
+			batch = batch[:0]
+		}
+	}
+	return r.ch.InsertJSONEachRow(ctx, r.sitemapTable, batch)
+}
+
+func (r *CHRunner) existingSitemapIDs(ctx context.Context) (map[string]bool, error) {
+	existing := map[string]bool{}
+	if r.sitemapTable == "" {
+		return existing, nil
+	}
+	rows, err := r.ch.QueryTSV(ctx, "SELECT toString(id) FROM "+r.pd()+" WHERE id IN (SELECT id FROM "+r.sitemapTable+")")
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if len(row) > 0 {
+			existing[strings.TrimSpace(row[0])] = true
+		}
+	}
+	return existing, nil
+}
+
+func (r *CHRunner) insertSitemapOnly(ctx context.Context, idToURL map[string]string, external bool) error {
+	if len(idToURL) == 0 {
+		return nil
+	}
+	batch := make([]any, 0, 1000)
+	for id, u := range idToURL {
+		batch = append(batch, map[string]any{
+			"crawl_id": r.crawlID, "id": id, "domain": smDomain(u), "url": truncate(u, 2083), "depth": -1,
+			"code": 0, "response_time": 0, "outlinks": 0, "content_type": "", "redirect_to": "",
+			"crawled": 0, "compliant": 0, "noindex": 0, "nofollow": 0, "canonical": 1, "canonical_value": "",
+			"external": b2iCH(external), "blocked": 0, "in_crawl": 0, "title": "", "h1": "", "metadesc": "",
+			"extracts": map[string]string{}, "simhash": nil, "is_html": 0, "h1_multiple": 0,
+			"headings_missing": 0, "schemas": []string{}, "word_count": 0,
+		})
+		if len(batch) >= 1000 {
+			if err := r.ch.InsertJSONEachRow(ctx, r.t("pages"), batch); err != nil {
+				return err
+			}
+			batch = batch[:0]
+		}
+	}
+	return r.ch.InsertJSONEachRow(ctx, r.t("pages"), batch)
 }
 
 // buildMetrics computes PageRank into a Memory table, then assembles page_metrics
@@ -114,9 +277,14 @@ func (r *CHRunner) buildMetrics(ctx context.Context) error {
 	inlinksSub := `(SELECT target AS tid, count() AS inlinks FROM ` + r.t("links") +
 		` WHERE crawl_id = ` + cid + ` GROUP BY target)`
 
+	inSitemapExpr := "0"
+	if r.sitemapTable != "" {
+		inSitemapExpr = `if(p.id IN (SELECT id FROM ` + r.sitemapTable + `), 1, 0)`
+	}
+
 	sql := `INSERT INTO ` + r.t("page_metrics") +
 		` (crawl_id, id, inlinks, pri, title_status, h1_status, metadesc_status, in_sitemap)
-		SELECT ` + cid + `, p.id, il.inlinks, pr.pr, st.title_status, st.h1_status, st.metadesc_status, 0
+		SELECT ` + cid + `, p.id, il.inlinks, pr.pr, st.title_status, st.h1_status, st.metadesc_status, ` + inSitemapExpr + `
 		FROM ` + r.pd() + ` p
 		LEFT JOIN ` + inlinksSub + ` il ON il.tid = p.id
 		LEFT JOIN ` + r.t("pr_cur_"+cid) + ` pr ON pr.id = p.id
@@ -155,7 +323,8 @@ func (r *CHRunner) computePageRank(ctx context.Context) error {
 		}
 	}
 
-	pagesCountStr, err := r.ch.QueryScalar(ctx, "SELECT count() FROM "+r.pd())
+	inCrawlPages := r.pd() + " WHERE in_crawl = 1"
+	pagesCountStr, err := r.ch.QueryScalar(ctx, "SELECT count() FROM "+inCrawlPages)
 	if err != nil {
 		return err
 	}
@@ -171,7 +340,7 @@ func (r *CHRunner) computePageRank(ctx context.Context) error {
 
 	if !hasLinks {
 		// No graph: pri stays 0 (matches PG, which skips the update entirely).
-		return r.ch.Exec(ctx, "INSERT INTO "+prCur+" SELECT id, 0, 0 FROM "+r.pd())
+		return r.ch.Exec(ctx, "INSERT INTO "+prCur+" SELECT id, 0, 0 FROM "+inCrawlPages)
 	}
 
 	initPR := 1.0 / float64(pagesCount)
@@ -179,7 +348,8 @@ func (r *CHRunner) computePageRank(ctx context.Context) error {
 	if err := r.ch.Exec(ctx, `INSERT INTO `+prCur+`
 		SELECT p.id, `+f(initPR)+`, ol.c
 		FROM `+r.pd()+` p
-		LEFT JOIN `+outlinksSub+` ol ON ol.sid = p.id`); err != nil {
+		LEFT JOIN `+outlinksSub+` ol ON ol.sid = p.id
+		WHERE p.in_crawl = 1`); err != nil {
 		return err
 	}
 

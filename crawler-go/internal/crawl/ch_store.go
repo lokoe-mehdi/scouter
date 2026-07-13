@@ -73,6 +73,7 @@ type chPageRow struct {
 	CanonicalValue  string            `json:"canonical_value"`
 	External        int               `json:"external"`
 	Blocked         int               `json:"blocked"`
+	InCrawl         int               `json:"in_crawl"`
 	Title           string            `json:"title"`
 	H1              string            `json:"h1"`
 	MetaDesc        string            `json:"metadesc"`
@@ -153,7 +154,7 @@ func (s *CHStore) AddExternalPage(id, domain, url string, depth int, blocked boo
 	s.seenExt[id] = struct{}{}
 	s.pages = append(s.pages, chPageRow{
 		CrawlID: s.crawlID, ID: id, Domain: domain, URL: url, Depth: depth,
-		Crawled: 0, External: 1, Blocked: b2i(blocked),
+		Crawled: 0, External: 1, Blocked: b2i(blocked), InCrawl: 1,
 		Extracts: map[string]string{}, Schemas: []string{},
 	})
 	flush := len(s.pages) >= chBatch

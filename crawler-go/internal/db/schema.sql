@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS scouter.pages
     canonical_value   String,
     external          UInt8,
     blocked           UInt8,
+    in_crawl          UInt8 DEFAULT 1,
     title             String,
     h1                String,
     metadesc          String,
@@ -69,6 +70,8 @@ CREATE TABLE IF NOT EXISTS scouter.pages
 ENGINE = ReplacingMergeTree(date)
 PARTITION BY crawl_id
 ORDER BY (crawl_id, id);
+
+ALTER TABLE scouter.pages ADD COLUMN IF NOT EXISTS in_crawl UInt8 DEFAULT 1;
 
 -- ---------------------------------------------------------------------------
 -- links — every <a>/redirect/canonical edge as it appears (no dedup).
