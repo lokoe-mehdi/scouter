@@ -53,7 +53,7 @@ class CrawlStats
 WITH per AS (
   SELECT crawl_id, countIf(compliant=1 AND is_html=1) AS idx
   FROM (SELECT crawl_id, id, compliant, is_html FROM pages WHERE crawl_id IN ($idList)
-        ORDER BY date DESC LIMIT 1 BY crawl_id, id)
+        ORDER BY crawled DESC, date DESC LIMIT 1 BY crawl_id, id)
   GROUP BY crawl_id
 ),
 thr AS (SELECT crawl_id, greatest(ceil(log((idx + 24) / 25.0) / log(5.0)), 1) AS max_depth FROM per)
@@ -68,7 +68,7 @@ SELECT p.crawl_id AS crawl_id,
     + countIf(p.compliant=1 AND p.is_html=1 AND p.depth <= t.max_depth)*100.0 / nullIf(countIf(p.compliant=1 AND p.is_html=1),0)
   ) / 5) AS score
 FROM (SELECT crawl_id, id, compliant, is_html, crawled, word_count, depth, code FROM pages WHERE crawl_id IN ($idList)
-      ORDER BY date DESC LIMIT 1 BY crawl_id, id) p
+      ORDER BY crawled DESC, date DESC LIMIT 1 BY crawl_id, id) p
 LEFT JOIN page_metrics m ON m.crawl_id = p.crawl_id AND m.id = p.id
 JOIN thr t ON t.crawl_id = p.crawl_id
 GROUP BY p.crawl_id, t.max_depth";
