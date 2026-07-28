@@ -6,6 +6,8 @@
 .gsc-flash .material-symbols-outlined { font-size:1.15rem; }
 .gsc-flash--error { background:#FDECEA; color:#C0392B; border:1px solid #F5C6CB; }
 .gsc-flash--info  { background:#EAF4FB; color:#1F6391; border:1px solid #BCE0F5; }
+/* Connector still serving data, but the last refresh attempt failed. */
+.gsc-flash--warning { background:#FEF6E7; color:#9A6700; border:1px solid #F5DFA8; }
 .gsc-flash a { color:inherit; font-weight:600; margin-left:.35rem; }
 
 /* Connect card */

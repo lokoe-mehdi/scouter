@@ -245,7 +245,7 @@ class AICategorizationController extends Controller
                 $excludeSql = ' AND url NOT IN (' . implode(',', $quoted) . ')';
             }
             $sql = "SELECT url, h1, title
-                FROM (SELECT url, h1, title, depth, external FROM {$db}.pages WHERE crawl_id = " . (int)$crawlId . " LIMIT 1 BY id)
+                FROM (SELECT url, h1, title, depth, external FROM {$db}.pages WHERE crawl_id = " . (int)$crawlId . " ORDER BY crawled DESC, date DESC LIMIT 1 BY id)
                 WHERE external = 0 AND {$where} {$excludeSql}
                 ORDER BY rand() LIMIT " . (int)$limit;
             return $ch->select($sql) ?: [];

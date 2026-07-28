@@ -10,13 +10,28 @@ use App\Job\JobManager;
  * Executes the three GSC background jobs (run by the PHP worker via scouter.php):
  *
  *   - gsc-backfill:<id>  — pull up to N months of history, day by day, resumable
- *                          via gsc_connectors.backfill_cursor.
- *   - gsc-sync:<id>      — daily: re-pull a rolling 7-day window (handles GSC's
- *                          2-3 day lag + late finalisation) with dataState=all.
- *                          ReplacingMergeTree supersedes prior rows by version →
- *                          no delete, no duplicate.
+ *                          via gsc_connectors.backfill_cursor, CHUNKED: a job
+ *                          stops after a bounded number of days / seconds and
+ *                          re-enqueues itself.
+ *   - gsc-sync:<id>      — incremental: re-pull the freshness window AND fill
+ *                          every day missing from ClickHouse (see GscCoverage),
+ *                          not a blind sliding window.
  *   - gsc-delete:<id>    — DROP PARTITION <project_id> on the 4 tables, revoke
  *                          the Google token, delete the connector row.
+ *
+ * Resilience rules, learned the hard way (a connector sat in "backfilling" for
+ * 20 days and three others silently stopped syncing for 8):
+ *
+ *   1. NOTHING is all-or-nothing. A day that fails is logged and skipped; the
+ *      run keeps going and whatever was ingested stays ingested. Only a run of
+ *      consecutive failures (or a fatal auth/permission error) stops the job.
+ *   2. Every job reports liveness (connector heartbeat + jobs.progress) after
+ *      every day, so a dead process is distinguishable from a slow one.
+ *   3. Every job is bounded in time. A 16-month backfill is a chain of small
+ *      jobs, each restartable, none of which can be mistaken for stuck.
+ *   4. Failures are recorded on the CONNECTOR (last_error / next_retry_at), not
+ *      only in a `jobs` row nobody reads — and never leave the connector in a
+ *      state no automatic path will ever pick up again.
  *
  * Jobs are enqueued as regular `jobs` rows (project_dir = "gsc-<id>") so the
  * existing worker picks them up. See enqueue*() below.
@@ -29,13 +44,31 @@ class GscJobRunner
     /** GSC's most recent day is incomplete; treat today-2 as the latest usable. */
     private const FRESHNESS_LAG_DAYS = 2;
 
-    /** Rolling window re-fetched by the daily sync (captures late finalisation). */
-    private const SYNC_WINDOW_DAYS = 7;
+    /** Days always re-fetched by a sync, so late finalisation lands. */
+    private const SYNC_REFRESH_WINDOW = 7;
+
+    /** Upper bound on the days one sync job handles (catch-up spans the rest). */
+    private const SYNC_MAX_DAYS_PER_RUN = 40;
+
+    /** Upper bound on the days one backfill chunk handles before re-enqueuing. */
+    private const BACKFILL_MAX_DAYS_PER_JOB = 60;
+
+    /** Wall-clock budget for a single job. Keeps every GSC job short-lived. */
+    private const MAX_JOB_SECONDS = 2700; // 45 min
+
+    /** Give up on a run after this many days failing back to back. */
+    private const MAX_CONSECUTIVE_DAY_FAILURES = 5;
 
     /** Refresh the Google access token when older than this (tokens last ~1h). */
     private const TOKEN_MAX_AGE = 3000; // 50 min
 
+    /** Backoff after an auth failure — retrying every 10 min is pointless. */
+    private const AUTH_RETRY_SECONDS = 21600; // 6 h
+
     private ConnectorRepository $repo;
+    private JobManager $jobs;
+    private ?int $jobId;
+    private int $startedAt;
 
     private string $accessToken = '';
     private int $tokenObtainedAt = 0;
@@ -43,11 +76,14 @@ class GscJobRunner
 
     public function __construct()
     {
-        $this->repo = new ConnectorRepository();
+        $this->repo      = new ConnectorRepository();
+        $this->jobs      = new JobManager();
+        $this->jobId     = ($j = getenv('JOB_ID')) ? (int) $j : null;
+        $this->startedAt = time();
     }
 
     // -------------------------------------------------------------------------
-    // Enqueue helpers (called from the controller / scheduler)
+    // Enqueue helpers (called from the controller / reconciler / self-chaining)
     // -------------------------------------------------------------------------
 
     public static function enqueueBackfill(int $connectorId, string $site): int
@@ -82,7 +118,15 @@ class GscJobRunner
     // Jobs
     // -------------------------------------------------------------------------
 
-    /** Initial backfill: N months of history, day by day, resumable. */
+    /**
+     * Initial backfill: N months of history, day by day, oldest-ward, resumable
+     * AND chunked — one job walks at most BACKFILL_MAX_DAYS_PER_JOB days (or
+     * MAX_JOB_SECONDS) then re-enqueues its successor.
+     *
+     * Chunking is the difference between "a 20-hour job that any restart, OOM or
+     * watchdog turns into a dead end" and "a chain of 45-minute jobs that always
+     * resumes from the cursor".
+     */
     public function runBackfill(int $connectorId): void
     {
         $c = $this->repo->getById($connectorId);
@@ -90,35 +134,116 @@ class GscJobRunner
             throw new \RuntimeException("GSC connector #{$connectorId} not found");
         }
         GscSchema::ensure();
+        $this->repo->markAttempt($connectorId);
         $this->initToken($c);
 
-        $end = $this->latestUsableDate();
+        $end    = $this->latestUsableDate();
         $months = max(1, (int) ($c->backfill_months ?? 16));
-        $start = $end->modify("-{$months} months");
+        $start  = $end->modify("-{$months} months");
 
-        // Resume from the cursor (last processed, oldest day so far) if present.
+        // Resume from the cursor (last processed = oldest day so far) if present.
         $cursor = !empty($c->backfill_cursor) ? new \DateTimeImmutable($c->backfill_cursor) : $end;
         if ($cursor > $end) {
             $cursor = $end;
         }
 
-        $ingestor = fn() => new GscIngestor((int) $c->project_id, (string) $c->site_url, $this->accessToken());
+        $total = (int) $start->diff($end)->days + 1;
+        $done  = (int) $cursor->diff($end)->days;
+        $this->repo->heartbeat($connectorId, $done, $total);
+
+        $projectId   = (int) $c->project_id;
+        $site        = (string) $c->site_url;
+        $processed   = 0;
+        $failures    = 0;
+        $consecutive = 0;
+        $lastError   = null;
+
+        // A 16-month backfill walks BACKWARDS from today-2, so the days that
+        // elapse while it runs are never picked up — on a multi-week backfill the
+        // dashboard slowly goes stale even though the job is perfectly healthy.
+        // Each chunk therefore starts by topping up the head.
+        $processed += $this->catchUpHead($connectorId, $projectId, $site, $end->format('Y-m-d'));
 
         $day = $cursor;
         while ($day >= $start) {
+            if ($processed >= self::BACKFILL_MAX_DAYS_PER_JOB || $this->outOfTime()) {
+                break;
+            }
             $dateStr = $day->format('Y-m-d');
-            $this->refreshTokenIfStale($c);
-            $ingestor()->ingestDay($dateStr, 'final');
-            $this->repo->setBackfillCursor($connectorId, $dateStr);
+            try {
+                $this->refreshTokenIfStale($c);
+                (new GscIngestor($projectId, $site, $this->accessToken))->ingestDay($dateStr, 'final');
+                $this->repo->setBackfillCursor($connectorId, $dateStr);
+                $consecutive = 0;
+            } catch (\Throwable $e) {
+                if ($this->isFatal($e)) {
+                    throw $e; // auth / permission — no point walking 400 more days
+                }
+                $failures++;
+                $consecutive++;
+                $lastError = $e->getMessage();
+                $this->log("Backfill {$dateStr} failed: {$lastError}", 'warning');
+                if ($consecutive >= self::MAX_CONSECUTIVE_DAY_FAILURES) {
+                    break;
+                }
+                // Move on: one bad day must not cost us the other 400.
+                $this->repo->setBackfillCursor($connectorId, $dateStr);
+            }
+
+            $processed++;
+            $done++;
+            $this->repo->heartbeat($connectorId, $done, $total);
+            $this->progress($done);
             $day = $day->modify('-1 day');
             usleep(150000); // ~150ms between days — stay well under 1200 req/min/site
         }
 
-        $this->repo->setLastSynced($connectorId, $end->format('Y-m-d'));
-        $this->repo->markActive($connectorId);
+        $this->syncWatermark($connectorId, $projectId);
+
+        $complete = $day < $start;
+        if ($complete) {
+            $this->repo->markActive($connectorId);
+            $this->repo->noteSuccess($connectorId);
+            $this->log("Backfill complete ({$total} days) — switching to incremental sync", 'success');
+            // The days that elapsed WHILE the backfill ran are still missing; the
+            // sync's gap detection picks them up. Kick it off now rather than
+            // waiting for the next reconciler tick.
+            self::enqueueSync($connectorId, $site);
+            return;
+        }
+
+        if ($processed > 0 && $consecutive < self::MAX_CONSECUTIVE_DAY_FAILURES) {
+            // Progress was made — chain the next chunk immediately. Skipped days
+            // stay visible as an error but must not arm a long backoff: the
+            // import is advancing, and the sync's gap detection will come back
+            // for them once the walk is done.
+            if ($failures > 0) {
+                $this->repo->noteFailure($connectorId, $lastError ?? 'partial backfill chunk', 60, 600);
+            } else {
+                $this->repo->noteSuccess($connectorId);
+            }
+            $remaining = (int) $start->diff($day)->days + 1;
+            $this->log("Backfill chunk done ({$processed} days, {$remaining} left) — chaining", 'info');
+            self::enqueueBackfill($connectorId, $site);
+            return;
+        }
+
+        // Nothing worked: arm the backoff and let the reconciler retry later.
+        $msg = $lastError ?? 'backfill made no progress';
+        $this->repo->noteFailure($connectorId, $msg);
+        throw new \RuntimeException("GSC backfill stalled: {$msg}");
     }
 
-    /** Daily incremental: rolling 7-day window, freshest data. */
+    /**
+     * Incremental sync: re-pull the freshness window AND every day ClickHouse is
+     * missing (head gap + interior holes), newest first.
+     *
+     * The old version re-fetched `last_synced_date - 6 … today-2` and only moved
+     * the watermark if EVERY day succeeded — so one failure froze the watermark,
+     * the window drifted, and the hole was never filled. Coverage is now read
+     * from the data itself, which makes catching up after N days of downtime the
+     * normal path rather than a special case.
+     */
     public function runSync(int $connectorId): void
     {
         $c = $this->repo->getById($connectorId);
@@ -126,37 +251,82 @@ class GscJobRunner
             throw new \RuntimeException("GSC connector #{$connectorId} not found");
         }
         GscSchema::ensure();
+        $this->repo->markAttempt($connectorId);
         $this->initToken($c);
 
-        $end = $this->latestUsableDate();
-        // Start from 7 days before the newest day we already have (or before the
-        // freshness horizon on a first sync), so late-finalised days get refreshed.
-        $anchor = !empty($c->last_synced_date) ? new \DateTimeImmutable($c->last_synced_date) : $end;
-        $start = $anchor->modify('-' . (self::SYNC_WINDOW_DAYS - 1) . ' days');
-        if ($start > $end) {
-            $start = $end;
+        $projectId = (int) $c->project_id;
+        $site      = (string) $c->site_url;
+        $end       = $this->latestUsableDate()->format('Y-m-d');
+
+        $plan = (new GscCoverage($projectId))
+            ->daysToSync($end, self::SYNC_REFRESH_WINDOW, self::SYNC_MAX_DAYS_PER_RUN);
+        $days = $plan['days'];
+
+        if (count($days) > self::SYNC_REFRESH_WINDOW) {
+            $this->log('Catching up ' . count($days) . ' day(s) of missing data'
+                . ($plan['remaining'] > 0 ? " ({$plan['remaining']} more queued for the next run)" : ''), 'info');
         }
 
-        $ingestor = fn() => new GscIngestor((int) $c->project_id, (string) $c->site_url, $this->accessToken());
+        $ok = 0;
+        $failures = 0;
+        $consecutive = 0;
+        $lastError = null;
 
-        $newest = null;
-        $day = $end;
-        while ($day >= $start) {
-            $dateStr = $day->format('Y-m-d');
-            $this->refreshTokenIfStale($c);
-            $res = $ingestor()->ingestDay($dateStr, 'all');
-            if ($res['hadData'] && $newest === null) {
-                $newest = $dateStr; // iterating newest-first, so first hit is the max
+        foreach ($days as $i => $dateStr) {
+            if ($this->outOfTime()) {
+                $plan['remaining'] += count($days) - $i;
+                $this->log('Time budget reached — remaining days deferred to the next run', 'info');
+                break;
             }
-            $day = $day->modify('-1 day');
+            try {
+                $this->refreshTokenIfStale($c);
+                (new GscIngestor($projectId, $site, $this->accessToken))->ingestDay($dateStr, 'all');
+                $ok++;
+                $consecutive = 0;
+            } catch (\Throwable $e) {
+                if ($this->isFatal($e)) {
+                    throw $e;
+                }
+                $failures++;
+                $consecutive++;
+                $lastError = $e->getMessage();
+                $this->log("Sync {$dateStr} failed: {$lastError}", 'warning');
+                if ($consecutive >= self::MAX_CONSECUTIVE_DAY_FAILURES) {
+                    break;
+                }
+            }
+            $this->repo->heartbeat($connectorId);
+            $this->progress($ok);
             usleep(150000);
         }
 
-        if ($newest !== null) {
-            $this->repo->setLastSynced($connectorId, $newest);
+        $this->syncWatermark($connectorId, $projectId);
+
+        if ($ok === 0 && $failures > 0) {
+            $msg = $lastError ?? 'sync made no progress';
+            $this->repo->noteFailure($connectorId, $msg);
+            throw new \RuntimeException("GSC sync failed: {$msg}");
         }
+
+        if ($failures > 0) {
+            // Partial success: keep what we got, surface the error, retry soon.
+            $this->repo->noteFailure($connectorId, $lastError ?? 'partial sync', 300, 3600);
+        } else {
+            $this->repo->noteSuccess($connectorId);
+        }
+
         // Recover from a transient error state on a successful sync.
-        $this->repo->setStatus($connectorId, 'active', null);
+        if ($c->status !== 'backfilling') {
+            $this->repo->setStatus($connectorId, 'active', $failures > 0 ? $lastError : null);
+        }
+
+        // Chain the catch-up ONLY when the run was clean. Self-enqueuing after a
+        // failure would spin: a day that always fails stays a gap, which would
+        // immediately justify another job, forever. On failure the backoff owns
+        // the retry — the reconciler comes back once next_retry_at has passed.
+        if ($plan['remaining'] > 0 && $failures === 0) {
+            self::enqueueSync($connectorId, $site);
+        }
     }
 
     /** Disconnect: purge ClickHouse, revoke the token, drop the row. */
@@ -197,6 +367,107 @@ class GscJobRunner
     }
 
     // -------------------------------------------------------------------------
+    // Bookkeeping
+    // -------------------------------------------------------------------------
+
+    /**
+     * Ingest the days more recent than everything we hold (capped), so a long
+     * backfill keeps the dashboard current instead of freezing it for weeks.
+     * Best-effort: a failure here must never abort the historical walk.
+     *
+     * @return int days actually attempted (counted against the chunk budget)
+     */
+    private function catchUpHead(int $connectorId, int $projectId, string $site, string $end): int
+    {
+        $days = (new GscCoverage($projectId))->headGapDays($end, 10);
+        if (empty($days)) {
+            return 0;
+        }
+        $this->log('Topping up ' . count($days) . ' recent day(s) before resuming history', 'info');
+        $n = 0;
+        foreach ($days as $dateStr) {
+            try {
+                (new GscIngestor($projectId, $site, $this->accessToken))->ingestDay($dateStr, 'all');
+            } catch (\Throwable $e) {
+                if ($this->isFatal($e)) {
+                    throw $e;
+                }
+                $this->log("Head catch-up {$dateStr} failed: " . $e->getMessage(), 'warning');
+            }
+            $n++;
+            $this->repo->heartbeat($connectorId);
+            usleep(150000);
+        }
+        return $n;
+    }
+
+    /**
+     * Realign the Postgres watermark with what ClickHouse actually holds.
+     *
+     * last_synced_date drives the whole Search Analytics UI (date presets, the
+     * calendar's upper bound). Deriving it from the data instead of from "the
+     * last run that happened to finish cleanly" is what guarantees a day that was
+     * ingested is a day the user can see.
+     */
+    private function syncWatermark(int $connectorId, int $projectId): void
+    {
+        try {
+            $max = (new GscCoverage($projectId))->maxDate();
+            if ($max !== null) {
+                $this->repo->setLastSynced($connectorId, $max);
+            }
+        } catch (\Throwable $e) {
+            $this->log('Could not refresh the data watermark: ' . $e->getMessage(), 'warning');
+        }
+    }
+
+    private function outOfTime(): bool
+    {
+        return (time() - $this->startedAt) >= self::MAX_JOB_SECONDS;
+    }
+
+    private function progress(int $days): void
+    {
+        if ($this->jobId !== null) {
+            try {
+                $this->jobs->updateJobProgress($this->jobId, $days);
+            } catch (\Throwable $e) {
+                // Progress is telemetry — never let it break the ingestion.
+            }
+        }
+    }
+
+    private function log(string $message, string $type = 'info'): void
+    {
+        echo "[GSC] {$message}\n";
+        if ($this->jobId !== null) {
+            try {
+                $this->jobs->addLog($this->jobId, $message, $type);
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
+    }
+
+    /**
+     * Errors that will hit EVERY day identically, so walking the calendar is a
+     * waste of quota: revoked/expired grant, property no longer readable by the
+     * connected account. They stop the run and surface on the connector.
+     */
+    private function isFatal(\Throwable $e): bool
+    {
+        if ($e instanceof GscAuthException) {
+            return true;
+        }
+        $m = strtolower($e->getMessage());
+        return str_contains($m, 'insufficient permission')
+            || str_contains($m, 'does not have sufficient permission')
+            || str_contains($m, 'user does not have')
+            || str_contains($m, 'invalid_grant')
+            || str_contains($m, 'unauthorized');
+    }
+
+    // -------------------------------------------------------------------------
     // Token management
     // -------------------------------------------------------------------------
 
@@ -205,7 +476,8 @@ class GscJobRunner
         $rt = $this->repo->decryptRefreshToken($c);
         if (!$rt) {
             $this->repo->setStatus((int) $c->id, 'error', 'Missing refresh token — please reconnect.');
-            throw new \RuntimeException('GSC connector has no usable refresh token');
+            $this->repo->deferRetry((int) $c->id, self::AUTH_RETRY_SECONDS);
+            throw new GscAuthException('GSC connector has no usable refresh token');
         }
         $this->refreshToken = $rt;
         $this->refreshAccessToken($c);
@@ -218,24 +490,28 @@ class GscJobRunner
         }
     }
 
+    /**
+     * A transient refresh failure (network hiccup, Google 5xx) used to flip the
+     * connector to 'error' — which removed it from every automatic path for good,
+     * since the scheduler only ever looked at status='active'. Only a genuinely
+     * revoked grant justifies that state now; everything else is a retryable
+     * failure with a backoff.
+     */
     private function refreshAccessToken(object $c): void
     {
         $res = GoogleOAuthClient::refreshAccessToken($this->refreshToken);
         if (!$res['ok']) {
+            $err = $res['error'] ?? 'unknown';
             if (!empty($res['invalid_grant'])) {
                 $this->repo->setStatus((int) $c->id, 'error', 'Google access revoked — please reconnect.');
-            } else {
-                $this->repo->setStatus((int) $c->id, 'error', 'Token refresh failed: ' . ($res['error'] ?? 'unknown'));
+                $this->repo->deferRetry((int) $c->id, self::AUTH_RETRY_SECONDS);
+                throw new GscAuthException('GSC token refresh failed (invalid_grant): ' . $err);
             }
-            throw new \RuntimeException('GSC token refresh failed: ' . ($res['error'] ?? 'unknown'));
+            $this->repo->noteFailure((int) $c->id, 'Token refresh failed: ' . $err);
+            throw new \RuntimeException('GSC token refresh failed: ' . $err);
         }
         $this->accessToken = $res['access_token'];
         $this->tokenObtainedAt = time();
-    }
-
-    private function accessToken(): string
-    {
-        return $this->accessToken;
     }
 
     private function latestUsableDate(): \DateTimeImmutable

@@ -21,7 +21,12 @@ find /app/logs -name "*.log" -exec chmod 666 {} \; 2>/dev/null || true
 echo ""
 php /app/migrations/migrate.php
 
-# Export env vars for cron jobs
-printenv | grep -E '^(DATABASE_URL|RENDERER_URL|MAX_|PHP_|APP_)' | sed 's/=\(.*\)/="\1"/' > /etc/environment
+# Export env vars for cron jobs.
+# CLICKHOUSE_* is required by app/bin/gsc-reconciler.php: it reads the gsc_*
+# tables to know which days are actually present before deciding what to
+# enqueue. Without them ClickHouseDatabase throws on construction and the
+# reconciler — the only thing that resurrects a stuck GSC connector — would die
+# on every tick.
+printenv | grep -E '^(DATABASE_URL|RENDERER_URL|CLICKHOUSE_|MAX_|PHP_|APP_)' | sed 's/=\(.*\)/="\1"/' > /etc/environment
 
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf

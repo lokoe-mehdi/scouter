@@ -43,6 +43,9 @@ class GscController extends Controller
             return;
         }
 
+        $done  = (int) ($c->backfill_days_done ?? 0);
+        $total = (int) ($c->backfill_days_total ?? 0);
+
         $this->json([
             'connected'        => true,
             'configured'       => GoogleOAuthClient::isConfigured(),
@@ -54,6 +57,15 @@ class GscController extends Controller
             'backfill_cursor'  => $c->backfill_cursor,
             'backfill_months'  => (int) $c->backfill_months,
             'last_error'       => $c->last_error,
+            // Liveness + progress: a "backfilling" badge alone can't be told apart
+            // from a dead import, which is the whole point of surfacing these.
+            'backfill_done'    => $done,
+            'backfill_total'   => $total,
+            'backfill_pct'     => $total > 0 ? (int) round($done * 100 / $total) : null,
+            'heartbeat_at'     => $c->heartbeat_at ?? null,
+            'last_attempt_at'  => $c->last_attempt_at ?? null,
+            'failures'         => (int) ($c->consecutive_failures ?? 0),
+            'next_retry_at'    => $c->next_retry_at ?? null,
         ]);
     }
 

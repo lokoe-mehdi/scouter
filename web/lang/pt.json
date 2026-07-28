@@ -2157,6 +2157,8 @@
   "gsc.disconnect": "Desconectar",
   "gsc.backfill_running": "Backfill em andamento — os dias mais recentes aparecem primeiro, a página é preenchida à medida que a importação avança.",
   "gsc.sync_error": "Erro de sincronização.",
+  "gsc.backfill_progress": "importação do histórico: :done/:total dias (:pct %)",
+  "gsc.sync_degraded": "A última tentativa de sincronização falhou (:err). Os dados apresentados continuam disponíveis; uma nova tentativa está agendada automaticamente.",
   "gsc.reconnect": "Reconectar",
   "gsc.error": "Erro",
   "gsc.disconnecting": "Desconectando…",

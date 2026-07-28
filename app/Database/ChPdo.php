@@ -225,8 +225,16 @@ class ChPdo
         // inverse of that sentinel. Hardcoding 1 here (before this fix) made every
         // sitemap-only URL look crawled, collapsing the sitemap report's buckets.
         $cols[] = "if(p.depth < 0, toUInt8(0), toUInt8(1)) AS in_crawl";
+        // Dedup MUST be deterministic and prefer the *crawled* row: a URL can have
+        // BOTH a "discovered as an outlink" row (external=1, crawled=0, code=0) and
+        // its real fetch row (external=0, crawled=1, code=200) under the same id.
+        // A bare `LIMIT 1 BY` returns an arbitrary row → ~half the crawled pages
+        // read back as uncrawled/external and vanish from every report. `crawled
+        // DESC` keeps the fetch when one exists; `date DESC` then wins among retries.
+        // (`date DESC` alone is NOT enough: some discovery rows are timestamped
+        // AFTER the fetch when the URL is re-linked later in the walk.)
         return "(SELECT " . implode(', ', $cols)
-            . " FROM (SELECT * FROM {$this->db}.pages WHERE crawl_id IN ({$in}) LIMIT 1 BY (crawl_id, id)) p"
+            . " FROM (SELECT * FROM {$this->db}.pages WHERE crawl_id IN ({$in}) ORDER BY crawled DESC, date DESC LIMIT 1 BY (crawl_id, id)) p"
             . $joins . ")";
     }
 

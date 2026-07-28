@@ -1444,6 +1444,10 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
         });
         const enableAuth = document.getElementById('enable_auth').checked;
         const formData = {
+            // On crawle DANS ce projet : sans cet id le backend re-déduit le projet
+            // du domaine de l'URL de départ, crée un projet vide dès que ça ne matche
+            // pas au caractère près, et la catégorisation repart du template.
+            project_id: <?= (int) $projectId ?>,
             crawl_type: crawlType,
             user_agent: document.getElementById('user_agent').value,
             allowed_domains: document.getElementById('allowed_domains').value.trim().split('\n').filter(d=>d.trim()),
