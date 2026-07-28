@@ -77,38 +77,50 @@ foreach ($sizeStmt->fetchAll(PDO::FETCH_OBJ) as $row) {
 }
 $pgCrawlDataSize = array_sum($partitionSizes); // total PG crawl-data (partitions)
 
-// ClickHouse storage (compressed, on-disk) per crawl + total, from system.parts.
-// PARTITION BY crawl_id → the part `partition` IS the crawl id.
-$chPartitionSizes = [];
+// ClickHouse storage (compressed, on-disk) from system.parts. Deux familles de
+// tables, partitionnées différemment :
+//   - tables de crawl  → PARTITION BY crawl_id   → `partition` EST le crawl id
+//   - tables gsc_*     → PARTITION BY project_id → `partition` EST le project id
+// Il faut donc les séparer : sinon les octets GSC d'un projet sont attribués au
+// crawl qui porte le même id.
+$chPartitionSizes = [];   // crawl_id   => bytes (tables de crawl)
+$gscProjectSizes  = [];   // project_id => bytes (tables gsc_*)
 $clickhouseSize = 0;
 $clickhouseEnabled = \App\Database\ClickHouseDatabase::enabled();
 if ($clickhouseEnabled) {
     try {
         $ch = \App\Database\ClickHouseDatabase::getInstance();
-        foreach ($ch->select("SELECT partition AS crawl_id, sum(bytes_on_disk) AS bytes FROM system.parts WHERE database = {db:String} AND active = 1 GROUP BY partition", ['db' => $ch->getDatabase()]) as $row) {
-            $cid = (int)($row['crawl_id'] ?? 0);
-            $chPartitionSizes[$cid] = ($chPartitionSizes[$cid] ?? 0) + (int)($row['bytes'] ?? 0);
-            $clickhouseSize += (int)($row['bytes'] ?? 0);
+        foreach ($ch->select("SELECT startsWith(table, 'gsc_') AS is_gsc, partition, sum(bytes_on_disk) AS bytes FROM system.parts WHERE database = {db:String} AND active = 1 GROUP BY is_gsc, partition", ['db' => $ch->getDatabase()]) as $row) {
+            $bytes = (int)($row['bytes'] ?? 0);
+            $key   = (int)($row['partition'] ?? 0);
+            if ((int)($row['is_gsc'] ?? 0) === 1) {
+                $gscProjectSizes[$key] = ($gscProjectSizes[$key] ?? 0) + $bytes;
+            } else {
+                $chPartitionSizes[$key] = ($chPartitionSizes[$key] ?? 0) + $bytes;
+            }
+            $clickhouseSize += $bytes;
         }
     } catch (\Throwable $e) {
         $clickhouseEnabled = false;
     }
 }
+$gscSize = array_sum($gscProjectSizes); // total GSC, toutes projets confondus
 
 // Storage totals: PG database + ClickHouse, and the combined global figure.
 $storageGlobal = $globalDbSize + $clickhouseSize;
 
 foreach ($projects as $proj) {
-    $proj->size_bytes = 0;     // combined (PG crawl data + ClickHouse)
+    $proj->size_bytes = 0;     // combined (PG crawl data + ClickHouse + GSC)
     $proj->size_pg = 0;
     $proj->size_ch = 0;
+    $proj->size_gsc = $gscProjectSizes[(int)$proj->id] ?? 0;
     $cids = $pdo->prepare("SELECT id FROM crawls WHERE project_id = :pid AND status != 'deleting'");
     $cids->execute([':pid' => $proj->id]);
     foreach ($cids->fetchAll(PDO::FETCH_COLUMN) as $cid) {
         $proj->size_pg += $partitionSizes[(int)$cid] ?? 0;
         $proj->size_ch += $chPartitionSizes[(int)$cid] ?? 0;
     }
-    $proj->size_bytes = $proj->size_pg + $proj->size_ch;
+    $proj->size_bytes = $proj->size_pg + $proj->size_ch + $proj->size_gsc;
 }
 usort($projects, fn($a, $b) => $b->size_bytes <=> $a->size_bytes);
 
@@ -120,7 +132,7 @@ usort($projects, fn($a, $b) => $b->size_bytes <=> $a->size_bytes);
 $migCh = 0; $migPg = 0;
 $storageGroups = [];   // project_id => group bucket (name, domain, crawls, sums)
 foreach ($pdo->query("
-    SELECT cr.id, cr.domain, COALESCE(cr.data_store,'pg') AS data_store, cr.status, cr.crawled,
+    SELECT cr.id, cr.domain, cr.path, COALESCE(cr.data_store,'pg') AS data_store, cr.status, cr.crawled,
            cr.project_id, p.name AS project_name
     FROM crawls cr
     LEFT JOIN projects p ON p.id = cr.project_id
@@ -140,6 +152,8 @@ foreach ($pdo->query("
             'crawls'       => [],
             'size_pg'      => 0,
             'size_ch'      => 0,
+            'size_crawl'   => 0,   // PG + CH = tout le poids issu des crawls
+            'size_gsc'     => $gscProjectSizes[$pid] ?? 0,
             'size_total'   => 0,
         ];
     }
@@ -147,7 +161,28 @@ foreach ($pdo->query("
     $g->crawls[] = $c;
     $g->size_pg += $c->size_pg;
     $g->size_ch += $c->size_ch;
-    $g->size_total = $g->size_pg + $g->size_ch;
+    $g->size_crawl = $g->size_pg + $g->size_ch;
+    $g->size_total = $g->size_crawl + $g->size_gsc;
+}
+
+// Un projet peut avoir des données GSC sans aucun crawl (connexion Search Console
+// seule) : sans ça son poids serait invisible dans le tableau.
+foreach ($gscProjectSizes as $pid => $bytes) {
+    if ($bytes > 0 && !isset($storageGroups[$pid])) {
+        $proj = null;
+        foreach ($projects as $p) { if ((int)$p->id === (int)$pid) { $proj = $p; break; } }
+        $storageGroups[$pid] = (object)[
+            'project_id'   => (int)$pid,
+            'project_name' => ($proj && $proj->name) ? $proj->name : ('#' . $pid),
+            'domain'       => '',
+            'crawls'       => [],
+            'size_pg'      => 0,
+            'size_ch'      => 0,
+            'size_crawl'   => 0,
+            'size_gsc'     => $bytes,
+            'size_total'   => $bytes,
+        ];
+    }
 }
 $storageGroups = array_values($storageGroups);
 usort($storageGroups, fn($a, $b) => $b->size_total <=> $a->size_total);
@@ -165,6 +200,10 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
     <link rel="stylesheet" href="../assets/responsive.css">
     <link rel="icon" type="image/png" href="/logo.png">
     <link rel="stylesheet" href="../assets/vendor/material-symbols/material-symbols.css" />
+    <!-- customConfirm() : même modal de confirmation que search analytics / project -->
+    <script src="../assets/i18n.js"></script>
+    <script>ScouterI18n.init(<?= I18n::getInstance()->getJsTranslations() ?>, <?= json_encode(I18n::getInstance()->getLang()) ?>);</script>
+    <script src="../assets/confirm-modal.js?v=<?= time() ?>"></script>
     <style>
     /* Bento Monitor Layout */
     .mon-page { max-width: 1200px; margin: 0 auto; padding: 1.5rem 2rem 3rem; }
@@ -301,7 +340,7 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
     .mon-store { display: flex; flex-direction: column; }
     .mon-store-grid {
         display: grid;
-        grid-template-columns: 22px 1fr 116px 96px 96px 100px;
+        grid-template-columns: 22px 1fr 116px 90px 90px 90px 90px 100px 34px;
         gap: 0.5rem; align-items: center;
         padding: 0.5rem 0.6rem;
     }
@@ -336,6 +375,8 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
     .mon-store-num { text-align: right; font-family: monospace; font-variant-numeric: tabular-nums; }
     .mon-store-pg    { color: #336791; font-weight: 700; }
     .mon-store-ch    { color: #b8860b; font-weight: 700; }
+    .mon-store-crawl-size { color: var(--primary-dark, #3DB8AF); font-weight: 700; }
+    .mon-store-gsc   { color: #3498DB; font-weight: 700; }
     .mon-store-total { color: var(--text-primary); font-weight: 800; }
     .mon-store-num.is-empty { color: var(--text-tertiary); font-weight: 500; }
 
@@ -356,6 +397,21 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
     .mon-store-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
     .mon-store-pill.is-ch { background: rgba(255,204,0,0.16); color: #b8860b; }
     .mon-store-pill.is-pg { background: rgba(51,103,145,0.12); color: #336791; }
+
+    /* Suppression : discrète au repos, rouge au survol de la ligne */
+    .mon-store-del {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 26px; height: 26px; padding: 0; margin-left: auto;
+        border: none; border-radius: 6px; background: transparent; cursor: pointer;
+        color: var(--text-tertiary); opacity: 0; transition: opacity 0.12s, background 0.12s, color 0.12s;
+    }
+    .mon-store-del .material-symbols-outlined { font-size: 17px; }
+    .mon-store-proj:hover .mon-store-del,
+    .mon-store-crawl:hover .mon-store-del,
+    .mon-store-del:focus-visible { opacity: 1; }
+    .mon-store-del:hover { background: rgba(231, 76, 60, 0.12); color: var(--danger, #E74C3C); }
+    .mon-store-del:focus-visible { outline: 2px solid var(--danger, #E74C3C); outline-offset: 1px; }
+    .mon-store-del[disabled] { opacity: 1; cursor: progress; color: var(--text-tertiary); }
     </style>
     <?php $assetBase = '../'; include __DIR__ . '/../partials/head-assets.php'; ?>
 </head>
@@ -433,6 +489,9 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
                         </div>
                         <div class="mon-db-hint" style="margin-top:0.6rem;">
                             Total = PostgreSQL (métadonnées + frontier) + ClickHouse (données de crawl). PG fond après migration/purge.
+                            <?php if ($clickhouseEnabled && $gscSize > 0): ?>
+                                <br>Dont <strong><?= monitorFormatBytes($gscSize) ?></strong> de données Search Console (tables <code>gsc_*</code>, incluses dans ClickHouse).
+                            <?php endif; ?>
                             <?php if ($diskKnown): ?>
                                 <br>
                                 <?= str_replace(':free', monitorFormatBytes($diskFreeSpace), __('monitor.disk_free_hint')) ?>
@@ -524,7 +583,10 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
             </div>
             <div style="margin-bottom: 0.75rem;">
                 <div class="mon-db-bar"><div class="mon-db-bar-fill" style="width: <?= $migPct ?>%; background: linear-gradient(90deg,#336791,#ffcc00);"></div></div>
-                <div class="mon-db-hint"><?= $migCh ?> sur ClickHouse, <?= $migPg ?> encore sur PostgreSQL (backfill en cours). PG = lecture des rapports lente ; CH = rapide.</div>
+                <div class="mon-db-hint">
+                    <?= $migCh ?> sur ClickHouse, <?= $migPg ?> encore sur PostgreSQL (backfill en cours). PG = lecture des rapports lente ; CH = rapide.
+                    <br>Crawl = PostgreSQL + ClickHouse. GSC = données Search Console (rattachées au projet, pas à un crawl). Total = Crawl + GSC.
+                </div>
             </div>
             <div class="mon-store">
                 <!-- Header -->
@@ -534,7 +596,10 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
                     <span style="text-align:center;">Store</span>
                     <span style="text-align:right;">PostgreSQL</span>
                     <span style="text-align:right;">ClickHouse</span>
+                    <span style="text-align:right;">Crawl</span>
+                    <span style="text-align:right;">GSC</span>
                     <span style="text-align:right;">Total</span>
+                    <span></span>
                 </div>
                 <div class="mon-store-body">
                     <?php foreach ($storageGroups as $gi => $g): ?>
@@ -549,7 +614,21 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
                             <span></span>
                             <span class="mon-store-num mon-store-pg<?= $g->size_pg > 0 ? '' : ' is-empty' ?>"><?= $g->size_pg > 0 ? monitorFormatBytes($g->size_pg) : '—' ?></span>
                             <span class="mon-store-num mon-store-ch<?= $g->size_ch > 0 ? '' : ' is-empty' ?>"><?= $g->size_ch > 0 ? monitorFormatBytes($g->size_ch) : '—' ?></span>
+                            <span class="mon-store-num mon-store-crawl-size<?= $g->size_crawl > 0 ? '' : ' is-empty' ?>"><?= $g->size_crawl > 0 ? monitorFormatBytes($g->size_crawl) : '—' ?></span>
+                            <span class="mon-store-num mon-store-gsc<?= $g->size_gsc > 0 ? '' : ' is-empty' ?>"><?= $g->size_gsc > 0 ? monitorFormatBytes($g->size_gsc) : '—' ?></span>
                             <span class="mon-store-num mon-store-total<?= $g->size_total > 0 ? '' : ' is-empty' ?>"><?= $g->size_total > 0 ? monitorFormatBytes($g->size_total) : '—' ?></span>
+                            <span>
+                                <button type="button" class="mon-store-del"
+                                        title="Supprimer le projet"
+                                        aria-label="Supprimer le projet <?= htmlspecialchars($g->project_name) ?>"
+                                        data-project-id="<?= $g->project_id ?>"
+                                        data-project-name="<?= htmlspecialchars($g->project_name) ?>"
+                                        data-crawl-count="<?= count($g->crawls) ?>"
+                                        data-size="<?= $g->size_total > 0 ? monitorFormatBytes($g->size_total) : '0 B' ?>"
+                                        data-gsc="<?= $g->size_gsc > 0 ? monitorFormatBytes($g->size_gsc) : '' ?>">
+                                    <span class="material-symbols-outlined">delete</span>
+                                </button>
+                            </span>
                         </div>
                         <!-- Crawl detail rows (hidden until expanded) -->
                         <div class="mon-store-crawls" style="display:none;">
@@ -567,9 +646,32 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
                                 </span>
                                 <span class="mon-store-num<?= $c->size_pg > 0 ? '' : ' is-empty' ?>" style="<?= $c->size_pg > 0 ? 'color:#336791;' : '' ?>"><?= $c->size_pg > 0 ? monitorFormatBytes($c->size_pg) : '—' ?></span>
                                 <span class="mon-store-num<?= $c->size_ch > 0 ? '' : ' is-empty' ?>" style="<?= $c->size_ch > 0 ? 'color:#b8860b;' : '' ?>"><?= $c->size_ch > 0 ? monitorFormatBytes($c->size_ch) : '—' ?></span>
+                                <span class="mon-store-num<?= $cTotal > 0 ? '' : ' is-empty' ?>"><?= $cTotal > 0 ? monitorFormatBytes($cTotal) : '—' ?></span>
+                                <!-- La GSC est rattachée au projet, pas au crawl -->
+                                <span class="mon-store-num is-empty" title="Données Search Console : rattachées au projet">—</span>
                                 <span class="mon-store-num mon-store-total<?= $cTotal > 0 ? '' : ' is-empty' ?>"><?= $cTotal > 0 ? monitorFormatBytes($cTotal) : '—' ?></span>
+                                <span>
+                                    <?php if (!empty($c->path)): // l'API de suppression identifie le crawl par son path ?>
+                                    <button type="button" class="mon-store-del"
+                                            title="Supprimer le crawl"
+                                            aria-label="Supprimer le crawl #<?= $c->id ?>"
+                                            data-crawl-path="<?= htmlspecialchars($c->path) ?>"
+                                            data-crawl-id="<?= $c->id ?>"
+                                            data-domain="<?= htmlspecialchars((string)$c->domain) ?>"
+                                            data-size="<?= $cTotal > 0 ? monitorFormatBytes($cTotal) : '0 B' ?>">
+                                        <span class="material-symbols-outlined">delete</span>
+                                    </button>
+                                    <?php endif; ?>
+                                </span>
                             </div>
                             <?php endforeach; ?>
+                            <?php if (empty($g->crawls)): ?>
+                            <div class="mon-store-grid mon-store-crawl">
+                                <span></span>
+                                <span class="mon-store-crawl-name">Aucun crawl — données Search Console uniquement</span>
+                                <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                            </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                     <?php endforeach; ?>
@@ -640,7 +742,66 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
     document.querySelectorAll('.mon-store-proj').forEach(row => {
         row.addEventListener('click', () => toggleStoreGroup(row));
         row.addEventListener('keydown', (e) => {
+            if (e.target !== row) return; // Enter/Espace sur le bouton Supprimer : ne pas replier la ligne
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleStoreGroup(row); }
+        });
+    });
+
+    // Suppression depuis le monitor. La confirmation passe par customConfirm()
+    // (assets/confirm-modal.js), la même modal que search analytics.
+    // Les deux endpoints font un soft-delete synchrone (status = 'deleting') puis
+    // planifient un job de purge → un simple reload fait disparaître la ligne.
+    function monStoreBusy(btn) {
+        btn.disabled = true;
+        btn.querySelector('.material-symbols-outlined').textContent = 'hourglass_top';
+    }
+    function monStoreIdle(btn) {
+        btn.disabled = false;
+        btn.querySelector('.material-symbols-outlined').textContent = 'delete';
+    }
+
+    async function monStoreDelete(btn, url, method, body, message, title) {
+        if (!await customConfirm(message, title, __('common.delete'), 'danger')) return;
+        monStoreBusy(btn);
+        try {
+            const resp = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const result = await resp.json();
+            if (!resp.ok || !result.success) throw new Error(result.error || __('config.delete_error'));
+            window.location.reload();
+        } catch (e) {
+            monStoreIdle(btn);
+            alert(__('common.error') + ' : ' + e.message);
+        }
+    }
+
+    document.querySelectorAll('.mon-store-del[data-project-id]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation(); // la ligne projet est elle-même cliquable (expand)
+            const n = parseInt(btn.dataset.crawlCount, 10) || 0;
+            const what = n > 0 ? ` et ses ${n} crawl${n > 1 ? 's' : ''}` : ' (aucun crawl)';
+            let msg = `Supprimer le projet « ${btn.dataset.projectName} »${what} ? `
+                    + `Cette action est irréversible et libérera ${btn.dataset.size}.`;
+            if (btn.dataset.gsc) {
+                msg += ` Les données Search Console (${btn.dataset.gsc}) seront elles aussi supprimées.`;
+            }
+            monStoreDelete(btn, '../api/projects', 'DELETE',
+                { project_id: parseInt(btn.dataset.projectId, 10) },
+                msg, __('index.confirm_delete_project_title'));
+        });
+    });
+
+    document.querySelectorAll('.mon-store-del[data-crawl-path]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const msg = `Supprimer le crawl #${btn.dataset.crawlId} (${btn.dataset.domain}) ? `
+                      + `Cette action est irréversible et libérera ${btn.dataset.size}.`;
+            monStoreDelete(btn, '../api/crawls/delete', 'POST',
+                { project_dir: btn.dataset.crawlPath },
+                msg, __('config.delete_crawl'));
         });
     });
     </script>

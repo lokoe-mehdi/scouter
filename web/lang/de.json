@@ -1314,6 +1314,8 @@
   "project.frequency": "Häufigkeit",
   "project.info": "Informationen",
   "project.info_size": "Projektgröße",
+  "project.size_crawls": "Crawl-Daten",
+  "project.size_gsc": "Search-Console-Daten",
   "project.info_total": "Crawls gesamt",
   "project.last_snapshot": "Letzter abgeschlossener Crawl",
   "project.launch_crawl": "Crawl starten",
