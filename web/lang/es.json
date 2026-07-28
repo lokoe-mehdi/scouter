@@ -1314,6 +1314,8 @@
   "project.frequency": "Frecuencia",
   "project.info": "Información",
   "project.info_size": "Tamaño del proyecto",
+  "project.size_crawls": "Datos de rastreo",
+  "project.size_gsc": "Datos de Search Console",
   "project.info_total": "Total rastreos",
   "project.last_snapshot": "Último rastreo completado",
   "project.launch_crawl": "Lanzar un rastreo",

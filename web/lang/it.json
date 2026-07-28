@@ -1314,6 +1314,8 @@
   "project.frequency": "Frequenza",
   "project.info": "Informazioni",
   "project.info_size": "Dimensione progetto",
+  "project.size_crawls": "Dati di scansione",
+  "project.size_gsc": "Dati Search Console",
   "project.info_total": "Totale scansioni",
   "project.last_snapshot": "Ultima scansione completata",
   "project.launch_crawl": "Avvia una scansione",

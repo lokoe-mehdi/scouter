@@ -1361,6 +1361,8 @@
   "project.frequency": "Fréquence",
   "project.info": "Informations",
   "project.info_size": "Taille du projet",
+  "project.size_crawls": "Données de crawl",
+  "project.size_gsc": "Données Search Console",
   "project.info_total": "Total crawls",
   "project.last_snapshot": "Dernier crawl terminé",
   "project.launch_crawl": "Lancer un crawl",

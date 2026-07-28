@@ -321,7 +321,11 @@ if (\App\Database\ClickHouseDatabase::enabled()) {
         );
     } catch (\Throwable $e) {}
 }
-$projectSize = pjxFormatBytes(array_sum($crawlSizeBytes) + $gscSizeBytes);       // tous les crawls + GSC
+$crawlsSizeBytes = array_sum($crawlSizeBytes);
+$projectSizeBytes = $crawlsSizeBytes + $gscSizeBytes;
+$projectSize = pjxFormatBytes($projectSizeBytes);                               // tous les crawls + GSC
+$crawlsSize = pjxFormatBytes($crawlsSizeBytes);
+$gscSize = pjxFormatBytes($gscSizeBytes);
 $lastCrawlSize = $lastFinished ? pjxFormatBytes($crawlSizeBytes[(int)$lastFinished->crawl_id] ?? 0) : '—';  // dernier crawl
 
 // Load shares & admins
@@ -568,9 +572,17 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             </div>
 
             <div class="pjx-projsize">
-                <span class="material-symbols-outlined">database</span>
-                <span><?= __('project.info_size') ?></span>
-                <strong><?= $projectSize ?></strong>
+                <div class="pjx-projsize-main">
+                    <span class="material-symbols-outlined">database</span>
+                    <span><?= __('project.info_size') ?></span>
+                    <strong><?= $projectSize ?></strong>
+                </div>
+                <?php if ($projectSizeBytes > 0): ?>
+                <div class="pjx-projsize-split">
+                    <div class="pjx-projsize-sub"><span><span class="pjx-projsize-dot pjx-projsize-dot--crawl"></span><?= __('project.size_crawls') ?></span><span><?= $crawlsSize ?></span></div>
+                    <div class="pjx-projsize-sub"><span><span class="pjx-projsize-dot pjx-projsize-dot--gsc"></span><?= __('project.size_gsc') ?></span><span><?= $gscSize ?></span></div>
+                </div>
+                <?php endif; ?>
             </div>
           </div>
 

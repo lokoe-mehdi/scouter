@@ -83,9 +83,16 @@ body { background: #F4F6FA; }
 .pjx-acc-row:first-child { border-top: none; }
 .pjx-acc-row b { color: var(--text-primary); font-weight: 600; }
 
-.pjx-projsize { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.6rem; padding: 0.8rem 1rem; background: #EEF1F5; border-radius: 10px; font-size: 0.82rem; color: var(--text-secondary); }
+.pjx-projsize { margin-top: 0.6rem; padding: 0.8rem 1rem; background: #EEF1F5; border-radius: 10px; font-size: 0.82rem; color: var(--text-secondary); }
+.pjx-projsize-main { display: flex; align-items: center; gap: 0.5rem; }
 .pjx-projsize .material-symbols-outlined { font-size: 18px; }
 .pjx-projsize strong { margin-left: auto; color: var(--text-primary); font-size: 0.9rem; }
+.pjx-projsize-split { margin-top: 0.6rem; padding-top: 0.55rem; border-top: 1px solid rgba(44,62,80,0.08); display: flex; flex-direction: column; gap: 0.3rem; }
+.pjx-projsize-sub { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.76rem; }
+.pjx-projsize-sub > span:first-child { display: flex; align-items: center; gap: 0.4rem; }
+.pjx-projsize-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.pjx-projsize-dot--crawl { background: var(--primary-color); }
+.pjx-projsize-dot--gsc { background: var(--info); }
 
 /* mini stats row — intégrée, sans bloc ni bordure */
 .pjx-ministats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; padding: 1.25rem 0; }
