@@ -2155,6 +2155,8 @@
   "gsc.disconnect": "Disconnect",
   "gsc.backfill_running": "Backfill in progress — the most recent days appear first, the page fills in as the import goes.",
   "gsc.sync_error": "Sync error.",
+  "gsc.backfill_progress": "history import: :done/:total days (:pct%)",
+  "gsc.sync_degraded": "Last sync attempt failed (:err). The data shown is still available; a retry is scheduled automatically.",
   "gsc.reconnect": "Reconnect",
   "gsc.error": "Error",
   "gsc.disconnecting": "Disconnecting…",

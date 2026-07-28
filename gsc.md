@@ -385,6 +385,41 @@ Tu veux pouvoir requêter keywords/urls sur une plage de dates depuis le SQL Exp
 
 ---
 
+## 10 bis. Révision « résilience » (2026-07-28) — ce qui remplace §5.2 / §5.3
+
+Le design initial supposait qu'un job qui échoue serait relancé. Il ne l'était pas :
+`getActive()` ne renvoyant que `status='active'`, un connecteur retombé en
+`backfilling` ou `error` sortait définitivement de tout chemin automatique. En
+production : une property bloquée 20 jours en backfill, trois autres arrêtées de
+se mettre à jour pendant 8 jours — badge vert, aucune erreur affichée.
+
+Ce qui change :
+
+| Avant | Maintenant |
+|---|---|
+| Cron 1×/jour, `status='active'` uniquement | **`app/bin/gsc-reconciler.php` toutes les 10 min, sur TOUS les connecteurs** (`getReconcilable()`) : il relance backfill, sync ou retry selon l'état réel |
+| Vitalité déduite d'une ligne `jobs` | **Heartbeat sur le connecteur** (`heartbeat_at`, écrit après chaque jour) : un job `running` sans heartbeat depuis 30 min est un process mort → reaped + relancé |
+| Fenêtre glissante `last_synced_date − 6` | **Couverture lue dans ClickHouse** (`GscCoverage`) : fenêtre de fraîcheur + trou de tête + trous intérieurs, du plus récent au plus ancien, plafonnée par run |
+| Watermark avancé seulement si TOUS les jours passent | **Watermark = `max(date)` réel en ClickHouse**, réaligné après chaque run, même partiel |
+| Un jour en échec ⇒ tout le job perdu | **Échec par jour toléré** ; seul un enchaînement de 5 échecs, ou une erreur d'auth/permission, arrête le run |
+| Backfill = 1 job de plusieurs heures | **Backfill chunké** (≤ 60 jours / ≤ 45 min par job) qui s'auto-enchaîne, et rattrape les jours récents au début de chaque chunk |
+| Échec invisible (`status` inchangé, `last_error` vide) | **`last_error` / `last_attempt_at` / `consecutive_failures` / `next_retry_at`** sur le connecteur + bandeau UI + progression `x/y jours` |
+| Watchdog tuait les jobs GSC (progression toujours à 0) | Watchdog **exclut** `gsc-%` ; le reconciler arbitre |
+| Reprise au boot du worker = tous les jobs `running` de tous les réplicas | GSC **exclu** de cette reprise globale (double exécution) ; le reconciler s'en charge sur heartbeat |
+
+Invariant visé : **aucun état d'où l'on ne ressort pas tout seul.** Toute panne
+(crash, OOM, redémarrage, 403/429, token expiré) se termine soit par une reprise
+automatique, soit par un connecteur en `error` explicitement affiché et retenté
+toutes les 6 h.
+
+Marqueur de jour vide : quand Google ne renvoie rien pour une date, on écrit une
+ligne à 0 dans `gsc_site_daily` — sans quoi ce jour serait un trou éternel. Et
+`gsc_site_daily` est écrite **en dernier** dans `ingestDay()` : la présence d'un
+jour y signifie « les 4 datasets ont été ingérés », donc un jour à moitié importé
+reste vu comme un trou et sera repris.
+
+---
+
 ## 11. Points ouverts / gardés pour plus tard (analyse croisée)
 
 - **Croisement crawl × GSC** (v2) : facilité par `gsc_page_daily` (total par URL déjà agrégé, pas de somme sur des milliers de mots-clés). Jointure clé = URL. On mappera l'URL GSC ↔ `pages.id` (hash 8 char) côté requête.
