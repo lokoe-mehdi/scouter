@@ -196,12 +196,32 @@ $flashMsg = $_GET['gsc_msg'] ?? '';
             </div>
 
             <?php if (in_array($connector->status, ['backfilling', 'connecting'], true)): ?>
+                <?php
+                // Show how far the backfill actually is. "Backfill en cours" with no
+                // number gave no way to tell a live import from a dead one — which
+                // is precisely the question users ended up asking.
+                $bfDone  = (int) ($connector->backfill_days_done ?? 0);
+                $bfTotal = (int) ($connector->backfill_days_total ?? 0);
+                ?>
                 <div class="gsc-flash gsc-flash--info"><span class="material-symbols-outlined">hourglass_top</span>
-                    <?= __('gsc.backfill_running') ?></div>
+                    <span id="gscBackfillMsg"><?= __('gsc.backfill_running') ?><?php
+                        if ($bfTotal > 0) {
+                            echo ' — ' . htmlspecialchars(__('gsc.backfill_progress', [
+                                'done'  => $bfDone,
+                                'total' => $bfTotal,
+                                'pct'   => (int) round($bfDone * 100 / max(1, $bfTotal)),
+                            ]));
+                        }
+                    ?></span></div>
             <?php elseif ($connector->status === 'error'): ?>
                 <div class="gsc-flash gsc-flash--error"><span class="material-symbols-outlined">error</span>
                     <?= htmlspecialchars($connector->last_error ?: __('gsc.sync_error')) ?>
                     <?php if ($canManage): ?><a href="/gsc/connect?project=<?= $projectId ?>"><?= __('gsc.reconnect') ?></a><?php endif; ?></div>
+            <?php elseif (!empty($connector->last_error)): ?>
+                <?php // Active but the last attempt failed: previously invisible — the
+                      // connector just stopped updating with a green badge on. ?>
+                <div class="gsc-flash gsc-flash--warning"><span class="material-symbols-outlined">warning</span>
+                    <?= htmlspecialchars(__('gsc.sync_degraded', ['err' => $connector->last_error])) ?></div>
             <?php endif; ?>
 
             <!-- Mode toggle + device/country segment filters + anon toggle -->

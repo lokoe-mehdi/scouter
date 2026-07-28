@@ -42,6 +42,14 @@ try {
 
     // 2. Récupérer tous les jobs en cours avec le vrai progrès depuis crawls
     // On prend le crawl le plus récent (id DESC) pour éviter de matcher un ancien crawl
+    // Les jobs GSC sont exclus : leur vitalité se juge sur le heartbeat du
+    // connecteur (gsc_connectors.heartbeat_at), pas sur crawls.crawled — qui vaut
+    // 0 pour eux par construction (aucune ligne `crawls` en face de
+    // project_dir='gsc-<id>'). Le watchdog les voyait donc TOUS figés à 0 URL et
+    // les passait en 'failed' au bout de 2 h : un backfill 16 mois, qui dépasse
+    // 2 h par nature, était tué à chaque fois — sans tuer le process — et devenait
+    // irrécupérable pour la reprise au boot (qui ne reprend que les 'running').
+    // C'est app/bin/gsc-reconciler.php qui arbitre leur vie et leur mort.
     $stmt = $db->query("
         SELECT j.id, j.project_dir, j.progress, j.started_at,
                COALESCE(c.crawled, 0) as crawl_progress,
@@ -53,6 +61,7 @@ try {
             ORDER BY id DESC LIMIT 1
         ) c ON true
         WHERE j.status = 'running'
+          AND COALESCE(j.command, '') NOT LIKE 'gsc-%'
     ");
     $runningJobs = $stmt->fetchAll(PDO::FETCH_OBJ);
 

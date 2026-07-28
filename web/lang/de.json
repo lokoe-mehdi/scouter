@@ -2155,6 +2155,8 @@
   "gsc.disconnect": "Trennen",
   "gsc.backfill_running": "Backfill läuft – die neuesten Tage erscheinen zuerst, die Seite füllt sich im Verlauf des Imports.",
   "gsc.sync_error": "Synchronisierungsfehler.",
+  "gsc.backfill_progress": "Verlaufsimport: :done/:total Tage (:pct %)",
+  "gsc.sync_degraded": "Letzter Synchronisierungsversuch fehlgeschlagen (:err). Die angezeigten Daten bleiben verfügbar, ein neuer Versuch wird automatisch geplant.",
   "gsc.reconnect": "Neu verbinden",
   "gsc.error": "Fehler",
   "gsc.disconnecting": "Wird getrennt…",

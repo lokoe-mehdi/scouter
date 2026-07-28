@@ -29,12 +29,21 @@ try {
 try {
     // 1. Re-queue running jobs (will be picked up again)
     // Utilisation de FOR UPDATE SKIP LOCKED pour éviter que tous les workers ne traitent le même orphelin
+    // NB : cette reprise est GLOBALE (elle ne distingue pas les jobs de CE worker
+    // de ceux des 3 autres réplicas). Avec restart: unless-stopped, le
+    // redémarrage d'un worker re-queue donc aussi les jobs que ses collègues sont
+    // en train d'exécuter → double exécution. C'est tolérable pour les jobs
+    // courts, mais pas pour les jobs GSC (longs, coûteux en quota Google, et
+    // partageant un curseur de reprise unique) : ils sont exclus ici et confiés
+    // à app/bin/gsc-reconciler.php, qui décide sur heartbeat et ne relance que
+    // les process réellement morts.
     $orphanStmt = $db->query("
         UPDATE jobs
         SET status = 'queued', started_at = NULL, pid = NULL
         WHERE id IN (
             SELECT id FROM jobs
             WHERE status = 'running' AND command <> 'crawl'
+              AND COALESCE(command, '') NOT LIKE 'gsc-%'
             FOR UPDATE SKIP LOCKED
         )
         RETURNING id, project_dir

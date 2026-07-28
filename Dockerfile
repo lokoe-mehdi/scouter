@@ -45,7 +45,11 @@ RUN composer install --no-interaction --prefer-dist --optimize-autoloader
 COPY docker/nginx.conf /etc/nginx/sites-available/default
 
 # Setup Cron
-RUN printf "0 * * * * root . /etc/environment; /usr/local/bin/php /app/scripts/watchdog.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n* * * * * root . /etc/environment; /usr/local/bin/php /app/app/bin/scheduler.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n15 5 * * * root . /etc/environment; /usr/local/bin/php /app/app/bin/gsc-sync-scheduler.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n" > /etc/cron.d/scouter-cron && \
+# The GSC reconciler runs every 10 min, not once a day: it is the only thing
+# that resurrects a connector whose job died (crash, OOM, container restart), so
+# its period IS the worst-case recovery delay. It is cheap and idempotent — it
+# enqueues nothing when everything is already up to date.
+RUN printf "0 * * * * root . /etc/environment; /usr/local/bin/php /app/scripts/watchdog.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n* * * * * root . /etc/environment; /usr/local/bin/php /app/app/bin/scheduler.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n*/10 * * * * root . /etc/environment; /usr/local/bin/php /app/app/bin/gsc-reconciler.php >> /proc/1/fd/1 2>> /proc/1/fd/2\n" > /etc/cron.d/scouter-cron && \
     chmod 0644 /etc/cron.d/scouter-cron && \
     crontab /etc/cron.d/scouter-cron
 

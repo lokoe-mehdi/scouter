@@ -734,6 +734,13 @@
       var badge = $('gscStatusBadge');
       if (badge && s.status) { badge.textContent = s.status; badge.className = 'gsc-badge gsc-badge--' + s.status; }
       if (s.last_synced_date) $('gscLastSync').textContent = t('gsc.data_until', { date: s.last_synced_date });
+      // Live backfill progress — so "en cours" is verifiable, not a leap of faith.
+      var msg = $('gscBackfillMsg');
+      if (msg && s.backfill_total > 0) {
+        msg.textContent = t('gsc.backfill_running') + ' — ' + t('gsc.backfill_progress', {
+          done: s.backfill_done, total: s.backfill_total, pct: s.backfill_pct
+        });
+      }
       if (s.status === 'backfilling' || s.status === 'connecting') { reload(); setTimeout(pollStatus, 15000); }
     }).catch(noop);
   }
