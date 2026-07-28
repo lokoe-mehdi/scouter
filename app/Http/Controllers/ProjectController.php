@@ -209,8 +209,26 @@ class ProjectController extends Controller
             }
         }
 
-        // Créer ou récupérer le projet pour ce domaine
-        $projectId = $this->projects->getOrCreate($this->userId, $domain);
+        // Projet cible du crawl.
+        //
+        // Quand la requête vient de la page d'un projet ("nouveau crawl" dans un
+        // projet existant), elle envoie project_id : on rattache le crawl À CE
+        // projet. Sans ça on retombait sur getOrCreate(userId, domaine du start
+        // URL), qui re-déduit le projet du domaine — et se trompe dès que :
+        //   - l'URL de départ ne matche pas EXACTEMENT le nom du projet
+        //     (www.exemple.fr vs exemple.fr, un sous-domaine, une autre section),
+        //   - ou que le projet est partagé et n'appartient pas à l'utilisateur
+        //     (getOrCreate ne regarde que les projets dont il est propriétaire).
+        // Dans les deux cas un projet vide était créé à la volée : plus d'historique
+        // à hériter, donc la catégorisation retombait sur le template cat.yml
+        // générique et l'utilisateur perdait sa config à chaque nouveau crawl.
+        $requestedProjectId = (int) $request->get('project_id', 0);
+        if ($requestedProjectId > 0) {
+            $this->auth->requireProjectManagement($requestedProjectId);
+            $projectId = $requestedProjectId;
+        } else {
+            $projectId = $this->projects->getOrCreate($this->userId, $domain);
+        }
 
         // Générer le path unique pour ce crawl
         $projectDir = $domain . '-' . date('Ymd') . '-' . date('His');
@@ -271,59 +289,12 @@ class ProjectController extends Controller
             'project_id' => $projectId
         ]);
         
-        // Catégorisation du nouveau crawl : si le projet a déjà un historique, on
-        // HÉRITE de la config du dernier crawl (categorization_config est stockée
-        // par crawl, et l'édition la met à jour là) — sinon fallback sur la config
-        // par défaut du projet, puis sur le template cat.yml (tout premier crawl).
-        $db = \App\Database\PostgresDatabase::getInstance()->getConnection();
-        $catYaml = null;
+        // Catégorisation du nouveau crawl : héritée du dernier crawl du projet,
+        // sinon de la config projet, sinon du template cat.yml (premier crawl).
+        // Logique partagée avec l'API v1 / MCP (cf. CategorizationRepository).
+        (new \App\Database\CategorizationRepository())->seedNewCrawl($crawlId, $projectId, $domain);
 
-        // 1) Dernier crawl du même projet qui possède une catégorisation.
-        $prev = $db->prepare("
-            SELECT cc.config
-            FROM categorization_config cc
-            JOIN crawls c ON c.id = cc.crawl_id
-            WHERE c.project_id = :pid AND cc.crawl_id <> :cid
-              AND cc.config IS NOT NULL AND cc.config <> ''
-            ORDER BY c.id DESC
-            LIMIT 1
-        ");
-        $prev->execute([':pid' => $projectId, ':cid' => $crawlId]);
-        $prevRow = $prev->fetch(\PDO::FETCH_OBJ);
-        if ($prevRow && !empty($prevRow->config)) {
-            $catYaml = $prevRow->config;
-        }
 
-        // 2) Fallback : config de catégorisation par défaut du projet.
-        if ($catYaml === null) {
-            $pstmt = $db->prepare("SELECT categorization_config FROM projects WHERE id = :pid");
-            $pstmt->execute([':pid' => $projectId]);
-            $prow = $pstmt->fetch(\PDO::FETCH_OBJ);
-            if ($prow && !empty($prow->categorization_config)) {
-                $catYaml = $prow->categorization_config;
-            }
-        }
-
-        // 3) Fallback : template cat.yml (tout premier crawl d'un nouveau projet).
-        if ($catYaml === null) {
-            $catYmlPath = dirname(__DIR__, 3) . '/cat.yml';
-            if (file_exists($catYmlPath)) {
-                $tpl = file_get_contents($catYmlPath);
-                if ($tpl) {
-                    $catYaml = str_replace('{dom}', $domain, $tpl);
-                }
-            }
-        }
-
-        if ($catYaml !== null && $catYaml !== '') {
-            $stmt = $db->prepare("
-                INSERT INTO categorization_config (crawl_id, config)
-                VALUES (:crawl_id, :config)
-                ON CONFLICT (crawl_id) DO UPDATE SET config = :config2
-            ");
-            $stmt->execute([':crawl_id' => $crawlId, ':config' => $catYaml, ':config2' => $catYaml]);
-        }
-        
         $this->success([
             'project_id' => $projectId,
             'crawl_id' => $crawlId,

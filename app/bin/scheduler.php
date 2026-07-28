@@ -9,8 +9,13 @@
  * If cron is late, the schedule is caught up on the next pass.
  */
 
+// Composer autoloader (like worker.php / the other bin scripts): this file used
+// to hand-require the single class it needed, which silently breaks the moment
+// it touches any other App\ class.
+require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/../Database/PostgresDatabase.php';
 
+use App\Database\CategorizationRepository;
 use App\Database\PostgresDatabase;
 
 echo "[Scheduler] " . date('Y-m-d H:i:s') . " — checking schedules\n";
@@ -97,7 +102,9 @@ foreach ($dueSchedules as $schedule) {
     // Create partitions for the new crawl
     $db->exec("SELECT create_crawl_partitions({$crawlId})");
 
-    // Copy categorization config if present
+    // Copy the schedule's categorization snapshot when it has one; otherwise fall
+    // back to the project's current segmentation (same inheritance the UI and the
+    // API use) rather than leaving the crawl with no categorization at all.
     if (!empty($schedule->categorization_config)) {
         $stmt = $db->prepare("
             INSERT INTO categorization_config (crawl_id, config)
@@ -105,6 +112,8 @@ foreach ($dueSchedules as $schedule) {
             ON CONFLICT (crawl_id) DO UPDATE SET config = EXCLUDED.config
         ");
         $stmt->execute([':crawl_id' => $crawlId, ':config' => $schedule->categorization_config]);
+    } else {
+        (new CategorizationRepository($db))->seedNewCrawl($crawlId, (int) $pid, $domain);
     }
 
     // Create job for worker to pick up

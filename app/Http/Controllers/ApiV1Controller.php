@@ -931,7 +931,7 @@ class ApiV1Controller extends Controller
             'project_id'  => $projectId,
         ]);
 
-        $this->applyDefaultCategorization($crawlId, $domain);
+        $this->applyDefaultCategorization($crawlId, $projectId, $domain);
 
         // Queue the job (same path as the UI's /crawls/start).
         $jobManager = new JobManager();
@@ -1287,20 +1287,17 @@ class ApiV1Controller extends Controller
         return ['general' => $generalOut, 'advanced' => $advancedOut];
     }
 
-    /** Apply the default categorization template (cat.yml) to a new crawl, same as the UI. */
-    private function applyDefaultCategorization(int $crawlId, string $domain): void
+    /**
+     * Seed a new crawl's categorization, same as the UI.
+     *
+     * This used to apply the blank cat.yml template unconditionally, so creating
+     * a crawl through the API (or the MCP `create_crawl` tool) in a project that
+     * already had a segmentation silently threw it away. It now goes through the
+     * same inheritance chain as ProjectController::create.
+     */
+    private function applyDefaultCategorization(int $crawlId, int $projectId, string $domain): void
     {
-        $catYmlPath = dirname(__DIR__, 3) . '/cat.yml';
-        if (!file_exists($catYmlPath)) return;
-        $catYaml = file_get_contents($catYmlPath);
-        if (!$catYaml) return;
-        $catYaml = str_replace('{dom}', $domain, $catYaml);
-        $stmt = $this->db->prepare("
-            INSERT INTO categorization_config (crawl_id, config)
-            VALUES (:crawl_id, :config)
-            ON CONFLICT (crawl_id) DO UPDATE SET config = :config2
-        ");
-        $stmt->execute([':crawl_id' => $crawlId, ':config' => $catYaml, ':config2' => $catYaml]);
+        (new \App\Database\CategorizationRepository($this->db))->seedNewCrawl($crawlId, $projectId, $domain);
     }
 
     /** Resolve {id} → an accessible crawl object, or send 404/403 and return null. */

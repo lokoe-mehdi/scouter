@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/bits"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -30,6 +31,13 @@ type CHRunner struct {
 	// sitemapTable is the Memory table of in_sitemap page ids built by loadSitemap;
 	// buildMetrics joins it to flag page_metrics.in_sitemap. Empty = no sitemap.
 	sitemapTable string
+
+	// SitemapFetch, if set, crawls the in-scope URLs that only the sitemap knows
+	// about (skip-link-extraction pass) so they land as real pages with a status
+	// code instead of empty placeholders. The PG post-processor has always done
+	// this; in full-ClickHouse mode (CLICKHOUSE_DROP_PG=1) it is skipped, so
+	// without this hook those URLs were never fetched at all.
+	SitemapFetch func(ctx context.Context, urls, domains []string) error
 }
 
 // RespectNofollowFromConfig reads advanced.respect_nofollow (default true, like
@@ -161,8 +169,10 @@ func (r *CHRunner) buildMetrics(ctx context.Context) error {
 // sitemap(s) itself, then:
 //
 //  1. loads every sitemap page id into a Memory table that buildMetrics joins to
-//     flag page_metrics.in_sitemap (crawled pages that appear in the sitemap), and
-//  2. inserts the sitemap-only URLs (in the sitemap but not reached by the crawl)
+//     flag page_metrics.in_sitemap (crawled pages that appear in the sitemap),
+//  2. FETCHES the in-scope URLs the crawl never reached (SitemapFetch), so a URL
+//     declared only in the sitemap still gets a real status code / title, and
+//  3. inserts what remains — URLs out of scope, or that could not be fetched —
 //     into CH `pages` as depth = -1 placeholders, so the read shim classifies them
 //     in_crawl = FALSE and the "sitemap only" / "total sitemap" counts are complete.
 //
@@ -232,26 +242,50 @@ func (r *CHRunner) loadSitemap(ctx context.Context) error {
 	}
 	r.sitemapTable = tbl
 
-	// 2) which sitemap ids already exist as CH pages (crawled)? the rest become
-	//    depth -1 placeholders. Skipping the existing ones means we never write a
-	//    second row per id (which would corrupt duplicate detection / in_crawl).
-	existing := map[string]bool{}
-	for _, c := range chunk(allIDs, 5000) {
-		tsv, err := r.ch.QueryTSV(ctx, "SELECT id FROM "+r.t("pages")+" WHERE crawl_id="+r.cid()+" AND id IN ("+quoteList(c)+")")
-		if err != nil {
-			return err
-		}
-		for _, row := range tsv {
-			if len(row) > 0 {
-				existing[strings.TrimSpace(row[0])] = true
-			}
-		}
+	// 2) which sitemap ids already exist as CH pages (reached by the crawl)?
+	//    Skipping those means we never write a second row per id (which would
+	//    corrupt duplicate detection / in_crawl).
+	existing, err := r.existingPageIDs(ctx, allIDs)
+	if err != nil {
+		return err
 	}
 
 	allowed := generalStrings(raw, "domains")
 	if len(allowed) == 0 {
 		allowed = []string{domain}
 	}
+
+	// 3) fetch the in-scope URLs only the sitemap knows about, BEFORE writing any
+	//    placeholder — so a URL that answers gets a real row (code, title, depth
+	//    -1) instead of an empty shell, and we never write two rows for one id.
+	//    The PG path inserts first and lets the fetch UPDATE the row; ClickHouse
+	//    is append-only, so here the order has to be the other way round.
+	//    FetchURLs flushes the CH store before returning, so re-reading the page
+	//    ids below sees everything the pass just wrote.
+	if r.SitemapFetch != nil {
+		var toFetch []string
+		for id, u := range idToURL {
+			if !existing[id] && urlInScope(u, allowed) {
+				toFetch = append(toFetch, u)
+			}
+		}
+		if len(toFetch) > 0 {
+			sort.Strings(toFetch) // deterministic order → reproducible logs/runs
+			r.logf("ch-sitemap: fetching %d in-scope sitemap-only URL(s)", len(toFetch))
+			if err := r.SitemapFetch(ctx, toFetch, allowed); err != nil {
+				// Non-fatal: whatever could not be fetched simply stays a
+				// placeholder, which is still better than losing the step.
+				r.logf("ch-sitemap: fetch error: %v", err)
+			}
+			if existing, err = r.existingPageIDs(ctx, allIDs); err != nil {
+				return err
+			}
+		}
+	}
+
+	// 4) whatever is still missing stays a sitemap-only placeholder: out-of-scope
+	//    URLs (never fetched by design) and in-scope ones the fetch could not
+	//    bring in. They keep the "declared but absent" signal intact.
 	batch := make([]any, 0, 2000)
 	flush := func() error {
 		if len(batch) == 0 {
@@ -290,6 +324,25 @@ func (r *CHRunner) loadSitemap(ctx context.Context) error {
 	}
 	r.logf("ch-sitemap: %d in crawl, %d sitemap-only placeholder(s)", len(existing), placeholders)
 	return nil
+}
+
+// existingPageIDs returns which of the given page ids already have a row in CH
+// `pages` for this crawl. Called twice by loadSitemap: once to decide what to
+// fetch, once after the fetch to see what it brought in.
+func (r *CHRunner) existingPageIDs(ctx context.Context, ids []string) (map[string]bool, error) {
+	existing := make(map[string]bool, len(ids))
+	for _, c := range chunk(ids, 5000) {
+		tsv, err := r.ch.QueryTSV(ctx, "SELECT id FROM "+r.t("pages")+" WHERE crawl_id="+r.cid()+" AND id IN ("+quoteList(c)+")")
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range tsv {
+			if len(row) > 0 {
+				existing[strings.TrimSpace(row[0])] = true
+			}
+		}
+	}
+	return existing, nil
 }
 
 // optimizeFinal merges this crawl's partitions so subsequent report reads work

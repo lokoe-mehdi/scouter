@@ -434,6 +434,12 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 	// → derived tables. Runs in addition to PG during the dual-write transition.
 	if ch != nil {
 		chpp := postprocess.NewCHRunner(ch, pool, rec.ID, postprocess.RespectNofollowFromConfig(rec.Config), logf)
+		// Same skip-link-extraction pass the PG post-processor uses for URLs only
+		// the sitemap knows about. It has to be handed to the CH runner too: in
+		// full-CH mode pp.Run() never executes, so without this the in-scope
+		// sitemap-only URLs were recorded as placeholders and never fetched —
+		// countable, but with no status code, no title, nothing actionable.
+		chpp.SitemapFetch = pp.SitemapFetch
 		ppFailures = append(ppFailures, chpp.Run(ctx)...)
 		// In full-CH mode the PG post-processor is skipped, so write the
 		// duplicate/redirect scorecard stats back to crawls.* from ClickHouse.
