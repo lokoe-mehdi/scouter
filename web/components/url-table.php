@@ -585,6 +585,13 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
          the export matches the table, not the whole crawl. Server-validated in
          ExportController (SELECT-safe boolean conditions only). -->
     <input type="hidden" name="report_where" value="<?= htmlspecialchars($urlTableConfig['whereClause'] ?? '', ENT_QUOTES) ?>">
+    <!-- …and the values its placeholders bind to. The clause is built with PDO
+         params (`c.url LIKE :url_0`), so shipping it without them left the worker
+         with unbound placeholders → SQL error → "Échec" in the download center. -->
+    <input type="hidden" name="report_params" value="<?= htmlspecialchars(json_encode($urlTableConfig['sqlParams'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES) ?>">
+    <!-- Signature of the clause above: the worker only replays a WHERE this
+         server rendered, so a hand-crafted one can't reach the database. -->
+    <input type="hidden" name="report_sig" value="<?= htmlspecialchars(\App\Export\ExportScope::sign($urlTableConfig['whereClause'] ?? ''), ENT_QUOTES) ?>">
 </form>
 
 <!-- Résultats -->
@@ -1606,7 +1613,7 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
 
         const params = new URLSearchParams(window.location.search);
         const form = document.getElementById('exportForm_' + componentId);
-        const reportWhere = form ? ((form.querySelector('[name="report_where"]') || {}).value || '') : '';
+        const field = (n) => (form ? ((form.querySelector('[name="' + n + '"]') || {}).value || '') : '');
 
         if (typeof window.queueExport !== 'function') return;
         window.queueExport({
@@ -1615,7 +1622,11 @@ $urls = $sql->fetchAll(PDO::FETCH_OBJ);
             filters: params.get('filters') || '',
             search: params.get('search') || '',
             columns: JSON.stringify(selectedCols),
-            report_where: reportWhere
+            // report_where already contains this table's filters AND its search
+            // (it IS the WHERE the table ran), so the export matches the screen.
+            report_where: field('report_where'),
+            report_params: field('report_params'),
+            report_sig: field('report_sig')
         });
     };
 

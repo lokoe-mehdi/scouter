@@ -157,6 +157,11 @@ switch($module){
             $jobManager->addLog($jobId, "Export failed: " . $e->getMessage(), 'error');
         }
         echo "\n\nERROR: " . $e->getMessage() . "\n";
+        // Exit non-zero so the worker's own log doesn't report a failed export as
+        // "exit code: 0" (which reads like a success and sends you hunting in the
+        // wrong place). The job/export rows are already terminal, so the worker's
+        // reconciliation leaves them untouched.
+        exit(1);
     }
   break;
 

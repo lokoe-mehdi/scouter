@@ -87,14 +87,25 @@ class ExportController extends Controller
         switch ($type) {
             case 'urls':
                 $params = [
-                    'filters'      => $request->get('filters', ''),
-                    'search'       => $request->get('search', ''),
-                    'columns'      => $request->get('columns', ''),
-                    'report_where' => $request->get('report_where', ''),
+                    'filters'       => $request->get('filters', ''),
+                    'search'        => $request->get('search', ''),
+                    'columns'       => $request->get('columns', ''),
+                    // The table's WHERE + the values its placeholders bind to. Both
+                    // are needed: posting the clause alone left `:url_0` & co unbound
+                    // in the worker's query, which the database rejects — that is what
+                    // made filtered exports fail.
+                    'report_where'  => $request->get('report_where', ''),
+                    'report_params' => $request->get('report_params', ''),
+                    'report_sig'    => $request->get('report_sig', ''),
                 ];
                 break;
             case 'links':
-                $params = ['columns' => $request->get('columns', '')];
+                $params = [
+                    'columns'       => $request->get('columns', ''),
+                    'report_where'  => $request->get('report_where', ''),
+                    'report_params' => $request->get('report_params', ''),
+                    'report_sig'    => $request->get('report_sig', ''),
+                ];
                 break;
             case 'redirects':
                 $params = [];
