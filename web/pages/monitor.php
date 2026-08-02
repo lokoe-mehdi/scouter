@@ -199,7 +199,7 @@ $migPct = $migTotal > 0 ? round(100 * $migCh / $migTotal) : 100;
     <link rel="stylesheet" href="../assets/style.css">
     <link rel="stylesheet" href="../assets/responsive.css">
     <link rel="icon" type="image/png" href="/logo.png">
-    <link rel="stylesheet" href="../assets/vendor/material-symbols/material-symbols.css" />
+    <?php $assetBase = '../'; include __DIR__ . '/../partials/icon-font.php'; ?>
     <!-- customConfirm() : même modal de confirmation que search analytics / project -->
     <script src="../assets/i18n.js"></script>
     <script>ScouterI18n.init(<?= I18n::getInstance()->getJsTranslations() ?>, <?= json_encode(I18n::getInstance()->getLang()) ?>);</script>

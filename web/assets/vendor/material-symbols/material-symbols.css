@@ -3,6 +3,9 @@
   font-family: 'Material Symbols Outlined';
   font-style: normal;
   font-weight: 100 700;
+  /* block: an icon must never be painted with a fallback font — that renders the
+     ligature name as plain text ("rocket_launch") and blows up the layout. */
+  font-display: block;
   src: url(material-symbols-outlined.woff2) format('woff2');
 }
 
@@ -20,4 +23,13 @@
   direction: ltr;
   -webkit-font-feature-settings: 'liga';
   -webkit-font-smoothing: antialiased;
+}
+
+/* `font-display: block` only covers the browser's block period (~3s): past it,
+   the fallback font paints the ligature name until the font finally lands. Keep
+   the glyphs invisible — but laid out (`visibility`, not `display`) — until it is
+   really ready. The class is set by partials/icon-font.php, which always ends up
+   setting it (timeout included), so icons can never stay hidden. */
+html:not(.icon-font-ready) .material-symbols-outlined {
+  visibility: hidden;
 }

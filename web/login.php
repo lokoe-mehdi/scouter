@@ -93,7 +93,7 @@ $needsSetup = !$auth->hasUsers();
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="assets/style.css">
     <link rel="stylesheet" href="assets/responsive.css">
-    <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
+    <?php include __DIR__ . '/partials/icon-font.php'; ?>
     <style>
         .login-container {
             min-height: 100vh;

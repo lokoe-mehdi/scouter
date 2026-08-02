@@ -49,7 +49,7 @@ $barColor = $pct >= 100 ? '#dc2626' : ($pct >= 80 ? '#f59e0b' : 'var(--primary-c
     <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="assets/style.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/responsive.css?v=<?= time() ?>">
-    <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
+    <?php include __DIR__ . '/partials/icon-font.php'; ?>
     <script src="assets/i18n.js"></script>
     <script>ScouterI18n.init(<?= I18n::getInstance()->getJsTranslations() ?>, <?= json_encode(I18n::getInstance()->getLang()) ?>);</script>
     <style>

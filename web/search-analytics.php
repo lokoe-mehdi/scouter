@@ -79,7 +79,7 @@ $flashMsg = $_GET['gsc_msg'] ?? '';
     <link rel="stylesheet" href="assets/data-table.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/filter-bar.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/gsc.css?v=<?= time() ?>">
-    <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
+    <?php include __DIR__ . '/partials/icon-font.php'; ?>
     <script src="assets/i18n.js"></script>
     <script>ScouterI18n.init(<?= I18n::getInstance()->getJsTranslations() ?>, <?= json_encode(I18n::getInstance()->getLang()) ?>);</script>
     <script src="assets/highcharts.js"></script>

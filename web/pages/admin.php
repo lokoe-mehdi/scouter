@@ -29,7 +29,7 @@ $users = $userRepo->getAll();
     <link rel="stylesheet" href="../assets/responsive.css">
     <link rel="stylesheet" href="../assets/crawl-panel.css">
     <link rel="icon" type="image/png" href="/logo.png">
-    <link rel="stylesheet" href="../assets/vendor/material-symbols/material-symbols.css" />
+    <?php $assetBase = '../'; include __DIR__ . '/../partials/icon-font.php'; ?>
     <style>
         .admin-header {
             display: flex;
