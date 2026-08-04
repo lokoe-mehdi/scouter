@@ -6,6 +6,7 @@ use App\Database\PostgresDatabase;
 use App\Database\CrawlDatabase;
 use App\Database\CrawlStore;
 use App\Database\ChPdo;
+use App\Database\PgReportPdo;
 use App\Database\ClickHouseDatabase;
 use App\Job\JobManager;
 use App\AI\SqlExecutor;
@@ -155,7 +156,11 @@ class ExportService
         $type = $export['type'];
         $params = json_decode($export['params'] ?? '{}', true) ?: [];
         $useCh = CrawlStore::usesClickHouse($crawlId);
-        $dataDb = $useCh ? new ChPdo($crawlId) : $this->db;
+        // PgReportPdo (not the bare connection): legacy PG crawls have no stored
+        // category either — the shim injects the same live `category` column the
+        // explorers read, so `category` exports a real name instead of blowing up
+        // on an unknown column.
+        $dataDb = $useCh ? new ChPdo($crawlId) : new PgReportPdo($crawlId);
 
         // ClickHouse crawls can hold tens of millions of rows: EVERY type STREAMS
         // ClickHouse's own CSV output straight to disk instead of buffering rows
@@ -186,7 +191,7 @@ class ExportService
                 }
             } else {
                 $rowCount = match ($type) {
-                    'urls'      => $this->writeUrls($fh, $crawlId, (int)$export['project_id'], $params, $useCh, $dataDb),
+                    'urls'      => $this->writeUrls($fh, $crawlId, $params, $dataDb),
                     'links'     => $this->writeLinks($fh, $crawlId, $params, $dataDb),
                     'redirects' => $this->writeRedirects($fh, $crawlId, $dataDb),
                     'sql'       => $this->writeSql($fh, $crawlId, (string)($params['sql'] ?? ''), $useCh),
@@ -330,64 +335,24 @@ class ExportService
     // -------------------------------------------------------------------------
 
     /** @param array<string,mixed> $params */
-    private function writeUrls($fh, int $crawlId, int $projectId, array $params, bool $useCh, $dataDb): int
+    private function writeUrls($fh, int $crawlId, array $params, $dataDb): int
     {
-        $search = (string)($params['search'] ?? '');
-        $filters = $params['filters'] ?? [];
-        if (is_string($filters)) {
-            $filters = json_decode($filters, true) ?: [];
-        }
-        $columns = $params['columns'] ?? ['url'];
-        if (is_string($columns)) {
-            $columns = json_decode($columns, true) ?: ['url'];
-        }
+        $columns = $this->decodeColumns($params['columns'] ?? '', ['url']);
+        [$sql, $sqlParams] = $this->buildUrlsSelect($crawlId, $params);
 
-        // Project categories (id → name) for the legacy PG path.
-        $categoriesMap = [];
-        $catStmt = $this->db->prepare("SELECT id, cat FROM crawl_categories WHERE project_id = :pid");
-        $catStmt->execute([':pid' => $projectId]);
-        while ($c = $catStmt->fetch(PDO::FETCH_ASSOC)) {
-            $categoriesMap[$c['id']] = $c['cat'];
-        }
+        $stmt = $dataDb->prepare($sql);
+        $stmt->execute($this->usedParams($sql, $sqlParams));
 
-        $where = ["c.crawl_id = " . (int)$crawlId, "c.crawled = true", "c.in_crawl = TRUE"];
-        $sqlParams = [];
-        if ($search !== '') {
-            $where[] = "c.url LIKE :search";
-            $sqlParams[':search'] = '%' . $search . '%';
-        }
-        if (!empty($filters) && isset($filters['items'])) {
-            $conds = $this->buildFilterConditions($filters['items'], $sqlParams);
-            if (!empty($conds)) {
-                $logic = strtoupper($filters['logic'] ?? 'AND');
-                if (!in_array($logic, ['AND', 'OR'], true)) $logic = 'AND';
-                $where[] = '(' . implode(' ' . $logic . ' ', $conds) . ')';
-            }
-        }
-        // Report scope — SELECT-safe boolean conditions only (same guard as before).
-        $reportWhere = preg_replace('/^\s*WHERE\s+/i', '', trim((string)($params['report_where'] ?? '')));
-        if ($reportWhere !== ''
-            && !preg_match('/[;]|--|\/\*|\*\/|\b(union|select|insert|update|delete|drop|alter|create|grant|truncate|into|information_schema|pg_catalog|system)\b/i', $reportWhere)) {
-            $where[] = '(' . $reportWhere . ')';
-        }
-
-        $catSelect = $useCh ? ", c.category AS _category" : "";
-        $query = "SELECT c.*{$catSelect} FROM pages c WHERE " . implode(' AND ', $where) . " ORDER BY c.pri DESC";
-        $stmt = $dataDb->prepare($query);
-        $stmt->execute($sqlParams);
-
-        fputcsv($fh, $columns, ';');
+        // The SELECT is built from the same column list, so the CSV header and the
+        // row keys line up 1:1 (unknown/unavailable keys are dropped from both).
+        $emitted = $this->urlExportColumns($columns);
+        fputcsv($fh, $emitted, ';');
         $n = 0;
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $line = [];
-            foreach ($columns as $col) {
-                if ($col === 'category') {
-                    $line[] = $useCh
-                        ? ((($row['_category'] ?? '') !== '') ? $row['_category'] : 'Non catégorisé')
-                        : ($categoriesMap[$row['cat_id']] ?? 'Non catégorisé');
-                } else {
-                    $line[] = $row[$col] ?? '';
-                }
+            foreach ($emitted as $col) {
+                $v = $row[$col] ?? '';
+                $line[] = ($col === 'category' && ($v === '' || $v === null)) ? 'Non catégorisé' : $v;
             }
             fputcsv($fh, $line, ';');
             $n++;
@@ -398,27 +363,33 @@ class ExportService
     /** @param array<string,mixed> $params */
     private function writeLinks($fh, int $crawlId, array $params, $dataDb): int
     {
-        $columns = $params['columns'] ?? ['source_url', 'target_url'];
-        if (is_string($columns)) {
-            $columns = json_decode($columns, true) ?: ['source_url', 'target_url'];
-        }
+        $columns = $this->decodeColumns($params['columns'] ?? '', ['source_url', 'target_url']);
+        $select = $this->buildLinkSelectList($columns);
+        $headers = $this->linkExportColumns($columns);
+
+        $sqlParams = [];
+        $scope = $this->reportScope($params, $sqlParams);
+        // Crawl scoping last: it must never be shadowed by a posted param name.
+        $sqlParams = array_merge($sqlParams, [
+            ':crawl_id' => $crawlId, ':crawl_id2' => $crawlId, ':crawl_id3' => $crawlId,
+        ]);
 
         $query = "
-            SELECT cs.url as source_url, ct.url as target_url, l.anchor, l.type, l.nofollow
+            SELECT {$select}
             FROM links l
             JOIN pages cs ON l.src = cs.id AND cs.crawl_id = :crawl_id AND cs.in_crawl = TRUE
             JOIN pages ct ON l.target = ct.id AND ct.crawl_id = :crawl_id2 AND ct.in_crawl = TRUE
-            WHERE l.crawl_id = :crawl_id3
+            WHERE l.crawl_id = :crawl_id3" . ($scope !== '' ? " AND ({$scope})" : '') . "
             ORDER BY cs.url
         ";
         $stmt = $dataDb->prepare($query);
-        $stmt->execute([':crawl_id' => $crawlId, ':crawl_id2' => $crawlId, ':crawl_id3' => $crawlId]);
+        $stmt->execute($this->usedParams($query, $sqlParams));
 
-        fputcsv($fh, $columns, ';');
+        fputcsv($fh, $headers, ';');
         $n = 0;
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $line = [];
-            foreach ($columns as $col) {
+            foreach ($headers as $col) {
                 $line[] = $row[$col] ?? '';
             }
             fputcsv($fh, $line, ';');
@@ -546,6 +517,11 @@ class ExportService
         $columns = $this->decodeColumns($params['columns'] ?? '', ['source_url', 'target_url']);
         $select = $this->buildLinkSelectList($columns);
         $cid = (int)$crawlId;
+        // The link explorer's own WHERE (its filter chips, on cs./ct./l. aliases),
+        // replayed with its params bound — without it the CSV was the whole crawl's
+        // links whatever the on-screen filters said.
+        $sqlParams = [];
+        $scope = $this->reportScope($params, $sqlParams);
         // crawl_id MUST be on the joined pages too. ChPdo::translate scopes each
         // `pages` reference to a per-crawl virtual subquery ONLY when it can read a
         // crawl_id predicate for that alias; without `cs.crawl_id`/`ct.crawl_id`
@@ -557,8 +533,9 @@ class ExportService
         $sql = "SELECT {$select} FROM links l "
             . "JOIN pages cs ON l.src = cs.id AND cs.crawl_id = {$cid} "
             . "JOIN pages ct ON l.target = ct.id AND ct.crawl_id = {$cid} "
-            . "WHERE l.crawl_id = {$cid}";
-        $this->streamPgSqlToFile($fh, $chPdo, $sql, []);
+            . "WHERE l.crawl_id = {$cid}"
+            . ($scope !== '' ? " AND ({$scope})" : '');
+        $this->streamPgSqlToFile($fh, $chPdo, $sql, $sqlParams);
     }
 
     /**
@@ -603,46 +580,209 @@ class ExportService
     private function buildUrlsSelect(int $crawlId, array $params): array
     {
         $columns = $this->decodeColumns($params['columns'] ?? '', ['url']);
-        $search = (string)($params['search'] ?? '');
-        $filters = $params['filters'] ?? [];
-        if (is_string($filters)) {
-            $filters = json_decode($filters, true) ?: [];
-        }
 
-        $where = ["c.crawl_id = " . (int)$crawlId, "c.crawled = true", "c.in_crawl = TRUE"];
+        $where = ["c.crawl_id = " . (int)$crawlId];
         $sqlParams = [];
-        if ($search !== '') {
-            $where[] = "c.url LIKE :search";
-            $sqlParams[':search'] = '%' . $search . '%';
-        }
-        if (!empty($filters) && isset($filters['items'])) {
-            $conds = $this->buildFilterConditions($filters['items'], $sqlParams);
-            if (!empty($conds)) {
-                $logic = strtoupper($filters['logic'] ?? 'AND');
-                if (!in_array($logic, ['AND', 'OR'], true)) $logic = 'AND';
-                $where[] = '(' . implode(' ' . $logic . ' ', $conds) . ')';
+
+        // The table's own WHERE (filters + search, already turned into SQL by the
+        // page that rendered the table) — the export then matches the screen by
+        // construction. Its values travel as BOUND params, never inlined.
+        $scope = $this->reportScope($params, $sqlParams);
+        if ($scope !== '') {
+            // The scope IS the table's row set: adding anything on top (the old
+            // hardcoded `crawled = true AND in_crawl = TRUE`) silently dropped rows
+            // the user could see on screen — uncrawled and sitemap-only URLs.
+            $where[] = '(' . $scope . ')';
+        } else {
+            // No table scope (API caller / legacy payload): keep the historical
+            // default row set and rebuild the WHERE from the raw search + filters.
+            $where[] = 'c.crawled = true';
+            $where[] = 'c.in_crawl = TRUE';
+            $search = (string)($params['search'] ?? '');
+            if ($search !== '') {
+                $where[] = "c.url LIKE :search";
+                $sqlParams[':search'] = '%' . $search . '%';
+            }
+            $conds = $this->buildFilterGroups($params['filters'] ?? [], $sqlParams);
+            if ($conds !== '') {
+                $where[] = $conds;
             }
         }
-        $reportWhere = preg_replace('/^\s*WHERE\s+/i', '', trim((string)($params['report_where'] ?? '')));
-        if ($reportWhere !== ''
-            && !preg_match('/[;]|--|\/\*|\*\/|\b(union|select|insert|update|delete|drop|alter|create|grant|truncate|into|information_schema|pg_catalog|system)\b/i', $reportWhere)) {
-            $where[] = '(' . $reportWhere . ')';
-        }
 
-        // Whitelisted column list → "c.<col> AS <col>". `category` resolves to the
-        // live category once ChPdo.translate runs.
-        $select = [];
-        foreach ($columns as $col) {
-            if (preg_match('/^[a-z_][a-z0-9_]*$/i', $col)) {
-                $select[] = "c.{$col} AS {$col}";
-            }
-        }
-        if (empty($select)) {
-            $select[] = "c.url AS url";
-        }
-
-        $sql = "SELECT " . implode(', ', $select) . " FROM pages c WHERE " . implode(' AND ', $where) . " ORDER BY c.pri DESC";
+        $select = $this->buildUrlSelectList($columns);
+        $sql = "SELECT " . $select . " FROM pages c WHERE " . implode(' AND ', $where) . " ORDER BY c.pri DESC";
         return [$sql, $sqlParams];
+    }
+
+    /**
+     * The page columns an urls export can actually produce, mapped to their SQL
+     * expression (`%s` = the `pages` alias). Mirrors the SELECT built by
+     * web/components/url-table.php so the CSV matches the on-screen table.
+     *
+     * Anything NOT listed here is dropped instead of being emitted blindly as
+     * `c.<key>`: keys like `out_of_scope` (a computed expression), `gsc_*` /
+     * `cmp_*` (join-only columns the export has no join for) are not columns of
+     * `pages`, and shipping them to the database killed the whole export with an
+     * "Unknown identifier" error.
+     */
+    private const URL_COLS = [
+        'url' => 'url', 'domain' => 'domain', 'depth' => 'depth', 'code' => 'code',
+        'category' => 'category', 'inlinks' => 'inlinks', 'outlinks' => 'outlinks',
+        'response_time' => 'response_time', 'schemas' => 'schemas',
+        'compliant' => 'compliant', 'canonical' => 'canonical', 'canonical_value' => 'canonical_value',
+        'noindex' => 'noindex', 'nofollow' => 'nofollow', 'blocked' => 'blocked',
+        'external' => 'external', 'crawled' => 'crawled',
+        'out_of_scope' => '(%s.external = false AND %s.blocked = false AND %s.crawled = false)',
+        'in_sitemap' => 'in_sitemap', 'is_html' => 'is_html', 'redirect_to' => 'redirect_to',
+        'content_type' => 'content_type', 'pri' => 'pri',
+        'title_status' => 'title_status', 'title' => 'title',
+        'h1_status' => 'h1_status', 'h1' => 'h1',
+        'metadesc_status' => 'metadesc_status', 'metadesc' => 'metadesc',
+        'h1_multiple' => 'h1_multiple', 'headings_missing' => 'headings_missing',
+        'word_count' => 'word_count',
+    ];
+
+    /**
+     * SQL expression for one urls-export column key, or null when the key isn't
+     * exportable. `extract_<k>` / `generation_<k>` read the JSONB maps the same
+     * way url-table.php does (ChPdo rewrites `->>` to CH map access).
+     */
+    private function urlColumnExpr(string $alias, string $col): ?string
+    {
+        foreach (['extract_' => 'extracts', 'generation_' => 'generation'] as $prefix => $jsonCol) {
+            if (str_starts_with($col, $prefix)) {
+                $key = substr($col, strlen($prefix));
+                if (!preg_match('/^[a-z0-9_]+$/i', $key)) {
+                    return null;
+                }
+                return "{$alias}.{$jsonCol}->>'{$key}'";
+            }
+        }
+        $tpl = self::URL_COLS[$col] ?? null;
+        if ($tpl === null) {
+            return null;
+        }
+        if (str_contains($tpl, '%s')) {
+            return vsprintf($tpl, array_fill(0, substr_count($tpl, '%s'), $alias));
+        }
+        return "{$alias}.{$tpl}";
+    }
+
+    /**
+     * The requested columns an urls export can actually emit, in order. Both the
+     * CSV header and the SELECT are built from this list, so they can't drift.
+     *
+     * @param string[] $columns
+     * @return string[]
+     */
+    private function urlExportColumns(array $columns): array
+    {
+        $kept = [];
+        foreach ($columns as $col) {
+            if ($this->urlColumnExpr('c', (string)$col) !== null) {
+                $kept[] = (string)$col;
+            }
+        }
+        return $kept ?: ['url'];
+    }
+
+    /** @param string[] $columns */
+    private function buildUrlSelectList(array $columns): string
+    {
+        $select = [];
+        foreach ($this->urlExportColumns($columns) as $col) {
+            $select[] = $this->urlColumnExpr('c', $col) . " AS {$col}";
+        }
+        return implode(', ', $select);
+    }
+
+    /**
+     * The table's own WHERE clause, replayed verbatim with its params BOUND.
+     *
+     * The explorers build their WHERE with PDO placeholders (`c.url LIKE :url_0`)
+     * and keep the values in a separate array. Before this, only the clause was
+     * posted: the placeholders reached the database unbound, which is a syntax
+     * error — every export filtered on anything other than a boolean died there
+     * ("Échec" in the download center, worker exit code 0). Now the values ride
+     * along in `report_params` and are bound like everywhere else.
+     *
+     * The clause is trusted only when it carries this install's signature
+     * ({@see ExportScope}); an unsigned one is still limited to plain boolean
+     * conditions. User-supplied values live in the params, so they never reach
+     * that check — and never reach the SQL text either.
+     *
+     * @param array<string,mixed> $params  the stored export params
+     * @param array<string,mixed> $sqlParams (by ref) receives the bound values
+     */
+    private function reportScope(array $params, array &$sqlParams): string
+    {
+        $raw = trim((string)($params['report_where'] ?? ''));
+        $where = preg_replace('/^\s*WHERE\s+/i', '', $raw);
+        if ($where === '' || $where === '1=1') {
+            return '';
+        }
+        // A signed clause is one this install rendered → replay it as-is, including
+        // the sub-SELECT the lost-urls / new-urls reports need (their scope compares
+        // against another crawl's partition; the old keyword filter silently dropped
+        // it, so those exports quietly returned the WHOLE crawl).
+        if (!ExportScope::verify($raw, (string)($params['report_sig'] ?? ''))) {
+            // Unsigned (API caller, or a tampered payload): only plain boolean
+            // conditions are allowed through.
+            if (preg_match('/[;]|--|\/\*|\*\/|\b(union|select|insert|update|delete|drop|alter|create|grant|truncate|into|information_schema|pg_catalog|system)\b/i', $where)) {
+                throw new \RuntimeException('Export scope rejected: unsigned report_where contains unsafe SQL');
+            }
+        }
+        foreach ($this->decodeReportParams($params['report_params'] ?? []) as $name => $value) {
+            $sqlParams[$name] = $value;
+        }
+        return $where;
+    }
+
+    /**
+     * Normalize the posted report params to `:name => scalar`. Anything that
+     * isn't a plain placeholder/scalar pair is dropped (it could not have come
+     * from a table's PDO param array).
+     *
+     * @param mixed $raw
+     * @return array<string,mixed>
+     */
+    private function decodeReportParams($raw): array
+    {
+        if (is_string($raw)) {
+            $raw = json_decode($raw, true);
+        }
+        if (!is_array($raw)) {
+            return [];
+        }
+        $out = [];
+        foreach ($raw as $name => $value) {
+            if (!is_string($name) || !preg_match('/^:?[a-z_][a-z0-9_]*$/i', $name)) {
+                continue;
+            }
+            if ($value !== null && !is_scalar($value)) {
+                continue;
+            }
+            $out[':' . ltrim($name, ':')] = $value;
+        }
+        return $out;
+    }
+
+    /**
+     * Keep only the params the query actually references — PDO rejects an execute()
+     * carrying a placeholder that isn't in the statement ("Invalid parameter number").
+     *
+     * @param array<string,mixed> $params
+     * @return array<string,mixed>
+     */
+    private function usedParams(string $sql, array $params): array
+    {
+        $used = [];
+        foreach ($params as $name => $value) {
+            if (preg_match('/' . preg_quote($name, '/') . '\b/', $sql)) {
+                $used[$name] = $value;
+            }
+        }
+        return $used;
     }
 
     /**
@@ -653,6 +793,34 @@ class ExportService
      * @param string[] $base
      */
     private function buildLinkSelectList(array $base): string
+    {
+        $map = $this->linkSelectMap($base);
+        $select = [];
+        foreach ($map as $alias => $expr) {
+            $select[] = "{$expr} AS {$alias}";
+        }
+        return implode(', ', $select);
+    }
+
+    /**
+     * The CSV header of a links export — the aliases {@see linkSelectMap} emits,
+     * in the same order, so header and rows can't drift.
+     *
+     * @param string[] $base
+     * @return string[]
+     */
+    private function linkExportColumns(array $base): array
+    {
+        return array_keys($this->linkSelectMap($base));
+    }
+
+    /**
+     * alias => SQL expression for a links export, in output order.
+     *
+     * @param string[] $base
+     * @return array<string,string>
+     */
+    private function linkSelectMap(array $base): array
     {
         // Page-level columns → cs.<expr> / ct.<expr>.
         $page = [
@@ -686,7 +854,10 @@ class ExportService
             if (str_starts_with($col, 'extract_')) {
                 $name = substr($col, strlen('extract_'));
                 if (!preg_match('/^[a-z0-9_]+$/i', $name)) return null;
-                return "{$alias}.extracts['{$name}']";
+                // PG-style JSONB access: ChPdo rewrites `->>` to CH map access, so
+                // the one expression is valid on both stores (the buffered PG path
+                // reuses this very list).
+                return "{$alias}.extracts->>'{$name}'";
             }
             $tpl = $page[$col] ?? null;
             if ($tpl === null) return null;
@@ -699,18 +870,18 @@ class ExportService
 
         $select = [];
         foreach ($urlCols as $col) {
-            if ($e = $exprFor('cs', $col)) $select[] = "{$e} AS source_{$col}";
+            if ($e = $exprFor('cs', $col)) $select["source_{$col}"] = $e;
         }
         foreach ($linkCols as $col) {
-            $select[] = "{$link[$col]} AS {$col}";
+            $select[$col] = $link[$col];
         }
         foreach ($urlCols as $col) {
-            if ($e = $exprFor('ct', $col)) $select[] = "{$e} AS target_{$col}";
+            if ($e = $exprFor('ct', $col)) $select["target_{$col}"] = $e;
         }
         if (empty($select)) {
-            $select = ['cs.url AS source_url', 'ct.url AS target_url'];
+            $select = ['source_url' => 'cs.url', 'target_url' => 'ct.url'];
         }
-        return implode(', ', $select);
+        return $select;
     }
 
     /**
@@ -741,10 +912,78 @@ class ExportService
         return trim((string)$s, '-') ?: 'export';
     }
 
+    /** Page columns the explorers expose as true/false chips (never as a value). */
+    private const BOOL_FILTER_FIELDS = [
+        'compliant', 'canonical', 'noindex', 'nofollow', 'blocked', 'h1_multiple',
+        'headings_missing', 'external', 'in_sitemap', 'is_html', 'crawled',
+    ];
+
+    /** Page columns the explorers filter numerically. */
+    private const NUM_FILTER_FIELDS = [
+        'depth', 'code', 'inlinks', 'outlinks', 'response_time', 'word_count', 'pri',
+    ];
+
     /**
-     * Build parameterized WHERE conditions from the explorer's filter tree.
-     * Column names are whitelisted; values are bound. (Ported from the former
-     * synchronous ExportController.)
+     * Fallback WHERE builder for callers that post a raw filter tree instead of a
+     * table scope (`report_where`) — i.e. the API, not the explorers, which now
+     * replay their own already-built clause.
+     *
+     * Accepts the three shapes seen in the wild: a list of groups
+     * (`[{type:'group',logic,items:[…]}]` — what filter-bar.js puts in the URL),
+     * a single group (`{logic,items:[…]}`), or a bare list of chips. Before this,
+     * only the middle one was understood, so the URL's own filters were silently
+     * ignored and the CSV came back unfiltered.
+     *
+     * @param mixed $filters
+     * @param array<string,mixed> $params (by ref) bound values
+     */
+    private function buildFilterGroups($filters, array &$params): string
+    {
+        if (is_string($filters)) {
+            $filters = json_decode($filters, true);
+        }
+        if (!is_array($filters) || empty($filters)) {
+            return '';
+        }
+        // Single group → wrap it so the list handling below covers both shapes.
+        $groups = isset($filters['items']) ? [$filters] : $filters;
+        if (!array_is_list($groups)) {
+            return '';
+        }
+
+        $out = [];
+        foreach ($groups as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+            $items = $group['items'] ?? (isset($group['field']) ? [$group] : null);
+            if (!is_array($items)) {
+                continue;
+            }
+            $conds = $this->buildFilterConditions($items, $params);
+            if (empty($conds)) {
+                continue;
+            }
+            $logic = strtoupper((string)($group['logic'] ?? 'AND'));
+            if (!in_array($logic, ['AND', 'OR'], true)) {
+                $logic = 'AND';
+            }
+            $inter = strtoupper((string)($group['interGroupLogic'] ?? 'AND'));
+            if (!in_array($inter, ['AND', 'OR'], true)) {
+                $inter = 'AND';
+            }
+            $clause = '(' . implode(' ' . $logic . ' ', $conds) . ')';
+            $out[] = empty($out) ? $clause : $inter . ' ' . $clause;
+        }
+        return empty($out) ? '' : '(' . implode(' ', $out) . ')';
+    }
+
+    /**
+     * Build parameterized WHERE conditions from a filter tree. Column names are
+     * whitelisted, values are bound, and a chip this builder can't express
+     * EXACTLY like the explorer does is skipped rather than turned into
+     * approximate SQL (a boolean chip used to become `c.external = 'false'`,
+     * which ClickHouse rejects outright since the column is a UInt8).
      *
      * @param array<int,array> $items
      * @param array            $params (by ref)
@@ -755,6 +994,7 @@ class ExportService
         static $counter = 0;
         $conditions = [];
         foreach ($items as $item) {
+            if (!is_array($item)) continue;
             if (isset($item['type']) && $item['type'] === 'group') {
                 $sub = $this->buildFilterConditions($item['items'] ?? [], $params);
                 if (!empty($sub)) {
@@ -764,22 +1004,58 @@ class ExportService
                 }
                 continue;
             }
-            $field = $item['field'] ?? '';
-            $operator = $item['operator'] ?? '=';
+            $field = (string)($item['field'] ?? '');
+            $operator = (string)($item['operator'] ?? '=');
             $value = $item['value'] ?? '';
-            if (empty($field) || !preg_match('/^[a-z_][a-z0-9_]*$/i', $field)) continue;
+            if ($field === '' || !preg_match('/^[a-z_][a-z0-9_]*$/i', $field)) continue;
 
-            $counter++;
-            $p = ':p' . $counter;
+            // Boolean chips carry no operator — `true`/`false` are SQL literals,
+            // not bindable values (the column is a UInt8 on ClickHouse).
+            if (in_array($field, self::BOOL_FILTER_FIELDS, true)) {
+                $conditions[] = "c.{$field} = " . ($value === 'true' || $value === true ? 'true' : 'false');
+                continue;
+            }
+            if ($field === 'out_of_scope') {
+                $expr = '(c.external = false AND c.blocked = false AND c.crawled = false)';
+                $conditions[] = ($value === 'true' || $value === true) ? $expr : "NOT {$expr}";
+                continue;
+            }
+            // category: the chips carry names here (ids are a UI-only concern).
+            if ($field === 'category' && in_array($operator, ['in', 'not_in'], true)) {
+                $names = is_array($value) ? $value : [$value];
+                $ph = [];
+                foreach ($names as $name) {
+                    if (!is_scalar($name)) continue;
+                    $p = ':p' . (++$counter);
+                    $ph[] = $p;
+                    $params[$p] = (string)$name;
+                }
+                if (empty($ph)) continue;
+                $conditions[] = $operator === 'not_in'
+                    ? "(c.category NOT IN (" . implode(',', $ph) . ") OR c.category = '')"
+                    : "c.category IN (" . implode(',', $ph) . ")";
+                continue;
+            }
+            // Everything else is scalar-only: an array value (http-code groups, SEO
+            // status sets, schema types…) has no faithful generic translation.
+            if (!is_scalar($value)) continue;
+
+            $isNum = in_array($field, self::NUM_FILTER_FIELDS, true);
+            $p = ':p' . (++$counter);
             switch ($operator) {
-                case 'contains':      $conditions[] = "c.$field LIKE $p";     $params[$p] = '%' . $value . '%'; break;
-                case 'not_contains':  $conditions[] = "c.$field NOT LIKE $p"; $params[$p] = '%' . $value . '%'; break;
-                case 'starts_with':   $conditions[] = "c.$field LIKE $p";     $params[$p] = $value . '%'; break;
-                case 'ends_with':     $conditions[] = "c.$field LIKE $p";     $params[$p] = '%' . $value; break;
-                case 'is_empty':      $conditions[] = "(c.$field IS NULL OR c.$field = '')"; break;
-                case 'is_not_empty':  $conditions[] = "(c.$field IS NOT NULL AND c.$field != '')"; break;
+                case 'contains':      $conditions[] = "c.{$field} ILIKE {$p}";  $params[$p] = '%' . $value . '%'; break;
+                case 'not_contains':  $conditions[] = "(c.{$field} NOT ILIKE {$p} OR c.{$field} IS NULL)"; $params[$p] = '%' . $value . '%'; break;
+                case 'starts_with':   $conditions[] = "c.{$field} ILIKE {$p}";  $params[$p] = $value . '%'; break;
+                case 'ends_with':     $conditions[] = "c.{$field} ILIKE {$p}";  $params[$p] = '%' . $value; break;
+                case 'regex':         $conditions[] = "c.{$field} ~* {$p}";     $params[$p] = (string)$value; break;
+                case 'not_regex':     $conditions[] = "(c.{$field} !~* {$p} OR c.{$field} IS NULL)"; $params[$p] = (string)$value; break;
+                case 'is_empty':      $conditions[] = "(c.{$field} IS NULL OR c.{$field} = '')"; break;
+                case 'is_not_empty':  $conditions[] = "(c.{$field} IS NOT NULL AND c.{$field} != '')"; break;
                 case '>': case '<': case '>=': case '<=': case '=': case '!=':
-                    $conditions[] = "c.$field $operator $p"; $params[$p] = $value; break;
+                    if (!$isNum) { $conditions[] = "c.{$field} {$operator} {$p}"; $params[$p] = (string)$value; break; }
+                    $conditions[] = "c.{$field} {$operator} {$p}";
+                    $params[$p] = ($field === 'pri' || $field === 'response_time') ? (float)$value : (int)$value;
+                    break;
             }
         }
         return $conditions;

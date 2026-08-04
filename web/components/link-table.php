@@ -1646,7 +1646,12 @@ function getColumnLabel($col, $availableColumns, $linkSpecificColumns) {
         window.queueExport({
             type: 'links',
             project: <?= json_encode((string)($crawlId ?? $projectDir)) ?>,
-            columns: JSON.stringify(selectedCols)
+            columns: JSON.stringify(selectedCols),
+            // The table's own WHERE (+ the values its placeholders bind to): without
+            // it the CSV was every link of the crawl, ignoring the filter chips.
+            report_where: <?= json_encode((string)($linkTableConfig['whereClause'] ?? '')) ?>,
+            report_params: <?= json_encode(json_encode($sqlParams ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) ?>,
+            report_sig: <?= json_encode(\App\Export\ExportScope::sign((string)($linkTableConfig['whereClause'] ?? ''))) ?>
         });
     };
 

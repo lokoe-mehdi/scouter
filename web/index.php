@@ -358,7 +358,7 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
     <link rel="stylesheet" href="assets/responsive.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/crawl-panel.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/home-redesign.css?v=<?= time() ?>">
-    <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
+    <?php include __DIR__ . '/partials/icon-font.php'; ?>
     <style>
         .config-icon {
             font-size: 20px;

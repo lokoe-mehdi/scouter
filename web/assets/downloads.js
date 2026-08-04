@@ -159,6 +159,18 @@
             body.appendChild(title);
             body.appendChild(meta);
 
+            // A failed export used to show nothing but "Échec" — the reason was
+            // stored (and already returned by /api/exports) but never displayed, so
+            // the only way to know why was to dig through the worker logs.
+            if (x.status === 'failed' && x.error) {
+                const err = document.createElement('div');
+                err.className = 'notif-item-meta dl-item-error';
+                err.style.cssText = 'color:#e57373;white-space:normal;word-break:break-word;margin-top:2px;';
+                err.textContent = x.error;
+                err.title = x.error;
+                body.appendChild(err);
+            }
+
             item.appendChild(icon);
             item.appendChild(body);
 

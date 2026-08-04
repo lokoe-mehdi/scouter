@@ -380,7 +380,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
     <link rel="stylesheet" href="assets/responsive.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/crawl-panel.css?v=<?= time() ?>">
     <link rel="stylesheet" href="assets/project-redesign.css?v=<?= time() ?>">
-    <link rel="stylesheet" href="assets/vendor/material-symbols/material-symbols.css" />
+    <?php include __DIR__ . '/partials/icon-font.php'; ?>
     <script src="assets/i18n.js"></script>
     <script>ScouterI18n.init(<?= I18n::getInstance()->getJsTranslations() ?>, <?= json_encode(I18n::getInstance()->getLang()) ?>);</script>
     <script src="assets/tooltip.js?v=<?= time() ?>"></script>

@@ -81,7 +81,7 @@ try {
     <link rel="stylesheet" href="../assets/responsive.css">
     <link rel="stylesheet" href="../assets/crawl-panel.css">
     <link rel="icon" type="image/png" href="/logo.png">
-    <link rel="stylesheet" href="../assets/vendor/material-symbols/material-symbols.css" />
+    <?php $assetBase = '../'; include __DIR__ . '/../partials/icon-font.php'; ?>
     <!-- CodeMirror 5 (bundled locally, no CDN at runtime) — powers the API explorer
          body editor, the syntax-highlighted response, and the multi-language code
          snippets. Modes are loaded dependency-first (php needs clike + htmlmixed). -->
