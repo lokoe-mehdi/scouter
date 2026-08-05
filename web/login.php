@@ -190,6 +190,43 @@ $needsSetup = !$auth->hasUsers();
             border-color: #4ECDC4;
             box-shadow: 0 0 0 3px rgba(78, 205, 196, 0.1);
         }
+
+        .password-field {
+            position: relative;
+        }
+
+        .password-field .form-input {
+            padding-right: 3rem;
+        }
+
+        .password-toggle {
+            position: absolute;
+            top: 50%;
+            right: 0.625rem;
+            width: 2rem;
+            height: 2rem;
+            transform: translateY(-50%);
+            border: 0;
+            border-radius: 6px;
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s ease, color 0.2s ease;
+        }
+
+        .password-toggle:hover,
+        .password-toggle:focus {
+            background: rgba(78, 205, 196, 0.1);
+            color: #2C3E50;
+            outline: none;
+        }
+
+        .password-toggle .material-symbols-outlined {
+            font-size: 1.25rem;
+        }
         
         .error-message {
             background: #F8D7DA;
@@ -285,27 +322,55 @@ $needsSetup = !$auth->hasUsers();
 
                     <div class="form-group">
                         <label for="password" class="form-label"><?= __('login.label_password_required') ?></label>
-                        <input
-                            type="password"
-                            id="password"
-                            name="password"
-                            class="form-input"
-                            placeholder="••••••••"
-                            required
-                        >
+                        <div class="password-field">
+                            <input
+                                type="password"
+                                id="password"
+                                name="password"
+                                class="form-input"
+                                placeholder="••••••••"
+                                required
+                            >
+                            <button
+                                type="button"
+                                class="password-toggle"
+                                data-password-toggle="password"
+                                data-show-label="<?= htmlspecialchars(__('login.show_password')) ?>"
+                                data-hide-label="<?= htmlspecialchars(__('login.hide_password')) ?>"
+                                aria-label="<?= htmlspecialchars(__('login.show_password')) ?>"
+                                aria-pressed="false"
+                                title="<?= htmlspecialchars(__('login.show_password')) ?>"
+                            >
+                                <span class="material-symbols-outlined" aria-hidden="true">visibility</span>
+                            </button>
+                        </div>
                         <div class="form-helper"><?= __('login.helper_min_chars') ?></div>
                     </div>
 
                     <div class="form-group">
                         <label for="confirm_password" class="form-label"><?= __('login.label_confirm_password') ?></label>
-                        <input 
-                            type="password" 
-                            id="confirm_password" 
-                            name="confirm_password" 
-                            class="form-input" 
-                            placeholder="••••••••"
-                            required
-                        >
+                        <div class="password-field">
+                            <input
+                                type="password"
+                                id="confirm_password"
+                                name="confirm_password"
+                                class="form-input"
+                                placeholder="••••••••"
+                                required
+                            >
+                            <button
+                                type="button"
+                                class="password-toggle"
+                                data-password-toggle="confirm_password"
+                                data-show-label="<?= htmlspecialchars(__('login.show_password')) ?>"
+                                data-hide-label="<?= htmlspecialchars(__('login.hide_password')) ?>"
+                                aria-label="<?= htmlspecialchars(__('login.show_password')) ?>"
+                                aria-pressed="false"
+                                title="<?= htmlspecialchars(__('login.show_password')) ?>"
+                            >
+                                <span class="material-symbols-outlined" aria-hidden="true">visibility</span>
+                            </button>
+                        </div>
                     </div>
 
                     <button type="submit" name="setup" class="btn-login">
@@ -360,5 +425,27 @@ $needsSetup = !$auth->hasUsers();
         </a>
     <?php endforeach; ?>
 </div>
+<script>
+    document.querySelectorAll('[data-password-toggle]').forEach((button) => {
+        const input = document.getElementById(button.dataset.passwordToggle);
+        const icon = button.querySelector('.material-symbols-outlined');
+
+        if (!input || !icon) {
+            return;
+        }
+
+        button.addEventListener('click', () => {
+            const isVisible = input.type === 'text';
+            input.type = isVisible ? 'password' : 'text';
+            icon.textContent = isVisible ? 'visibility' : 'visibility_off';
+
+            const label = isVisible ? button.dataset.showLabel : button.dataset.hideLabel;
+            button.setAttribute('aria-label', label);
+            button.setAttribute('title', label);
+            button.setAttribute('aria-pressed', String(!isVisible));
+            input.focus();
+        });
+    });
+</script>
 </body>
 </html>
