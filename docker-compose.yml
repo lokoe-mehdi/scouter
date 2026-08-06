@@ -304,6 +304,21 @@ services:
       # aux rapports interactifs (PHP) et au reste de l'hôte sous contention.
       # Pas de cap de cœurs (max_threads reste adaptatif). 0 = désactive le hint.
       - CH_OS_THREAD_PRIORITY=${CH_OS_THREAD_PRIORITY:-5}
+      # --- Débordement disque des requêtes de post-processing --------------------
+      # buildCHSettings() (crawler-go/internal/db/clickhouse.go) lit ces variables,
+      # mais elles n'étaient pas transmises au conteneur : Compose ne propage PAS
+      # l'environnement de l'hôte, seules les clés listées ici arrivent au process.
+      # Les régler dans le .env n'avait donc AUCUN effet — seuls les défauts en dur
+      # du code s'appliquaient, impossibles à ajuster sur une petite instance.
+      # Sur un gros graphe de liens, le GROUP BY du PageRank peut dépasser la limite
+      # mémoire GLOBALE de ClickHouse avant d'atteindre son seuil de spill : baisser
+      # ces seuils (ex. 500000000) fait déborder sur disque plus tôt. "" ou "0"
+      # désactive le réglage et laisse le défaut ClickHouse.
+      - CH_MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY=${CH_MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY:-2000000000}
+      - CH_MAX_BYTES_BEFORE_EXTERNAL_SORT=${CH_MAX_BYTES_BEFORE_EXTERNAL_SORT:-2000000000}
+      # grace_hash : la table de hachage des JOIN spille par buckets au lieu de
+      # tenir entièrement en RAM. 0/"" pour revenir à l'algo par défaut de CH.
+      - CH_JOIN_ALGORITHM=${CH_JOIN_ALGORITHM:-grace_hash}
       - LOG_DIR=/app/logs
       # --- Page-HTML blob storage (see the scouter service for the full note) ---
       # MUST match the scouter service: same S3 bucket, or the same STORAGE_PATH

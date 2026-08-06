@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"scouter-crawler/internal/analysis"
 	"scouter-crawler/internal/db"
@@ -117,16 +118,29 @@ func (r *CHRunner) Run(ctx context.Context) []string {
 // buildMetrics computes PageRank into a Memory table, then assembles page_metrics
 // (inlinks + pri + title/h1/metadesc status) via one INSERT … SELECT.
 func (r *CHRunner) buildMetrics(ctx context.Context) error {
+	// Le defer est posé AVANT computePageRank : ces tables sont des ENGINE = Memory,
+	// donc elles occupent la RAM du SERVEUR ClickHouse jusqu'au DROP. Enregistrer le
+	// nettoyage après un `return err` (ce qui était le cas) le rendait inatteignable
+	// sur le chemin d'échec — un PageRank qui tombe (OOM sur un gros graphe) laissait
+	// pr_cur_<id>/pr_next_<id>/sitemap_ids_<id> en mémoire jusqu'au redémarrage de CH,
+	// donc chaque crawl raté rognait le budget mémoire du suivant. computePageRank
+	// crée les tables lui-même en tête, et DROP IF EXISTS est sans effet si elles
+	// n'existent pas : poser le defer ici est sûr quel que soit l'endroit de l'échec.
+	defer func() {
+		// Contexte détaché : sur une annulation (arrêt du worker, redéploiement),
+		// ctx est déjà mort et le nettoyage serait sauté — or c'est précisément le
+		// cas où les tables resteraient orphelines.
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		_ = r.ch.Exec(cleanupCtx, "DROP TABLE IF EXISTS "+r.t("pr_cur_"+r.cid()))
+		_ = r.ch.Exec(cleanupCtx, "DROP TABLE IF EXISTS "+r.t("pr_next_"+r.cid()))
+		if r.sitemapTable != "" {
+			_ = r.ch.Exec(cleanupCtx, "DROP TABLE IF EXISTS "+r.sitemapTable)
+		}
+	}()
 	if err := r.computePageRank(ctx); err != nil {
 		return err
 	}
-	defer func() {
-		_ = r.ch.Exec(ctx, "DROP TABLE IF EXISTS "+r.t("pr_cur_"+r.cid()))
-		_ = r.ch.Exec(ctx, "DROP TABLE IF EXISTS "+r.t("pr_next_"+r.cid()))
-		if r.sitemapTable != "" {
-			_ = r.ch.Exec(ctx, "DROP TABLE IF EXISTS "+r.sitemapTable)
-		}
-	}()
 
 	cid := r.cid()
 	if err := r.ch.DropPartition(ctx, r.t("page_metrics"), r.crawlID); err != nil {
@@ -652,9 +666,15 @@ func (r *CHRunner) redirectChainAnalysis(ctx context.Context) error {
 		compliant bool
 	}
 	pages := map[string]pinfo{}
-	if len(allIDs) > 0 {
+	// Par PAQUETS : ClickHouse refuse toute requête dépassant max_query_size
+	// (262 144 octets par défaut). Un id rendu vaut 11 octets ('xxxxxxxx',), donc
+	// une IN-list d'un seul tenant explosait la limite au-delà de ~24 000 ids —
+	// erreur SYNTAX_ERROR "Max query size exceeded", et l'étape entière perdue sur
+	// tout site un peu redirigé. Même découpage que existingPageIDs (5 000 ids
+	// ≈ 55 Ko/requête, large sous la limite).
+	for _, c := range chunk(allIDs, 5000) {
 		pr, perr := r.ch.QueryTSV(ctx, "SELECT toString(id), url, toString(code), toString(compliant) FROM "+
-			r.t("pages")+" WHERE crawl_id="+cid+" AND id IN ("+quoteList(allIDs)+")")
+			r.t("pages")+" WHERE crawl_id="+cid+" AND id IN ("+quoteList(c)+")")
 		if perr != nil {
 			return perr
 		}

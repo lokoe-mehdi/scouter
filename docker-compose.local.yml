@@ -219,6 +219,12 @@ services:
       - MAX_CONCURRENT_CRAWLS=${MAX_CONCURRENT_CRAWLS:-4}
       - MAX_CONCURRENT_CURL=${MAX_CONCURRENT_CURL:-12}
       - POOL_CONNS_PER_CRAWL=${POOL_CONNS_PER_CRAWL:-8}
+      # Réglages ClickHouse du post-processing (cf. docker-compose.yml pour le
+      # détail) : lus par buildCHSettings(), donc à transmettre explicitement.
+      - CH_OS_THREAD_PRIORITY=${CH_OS_THREAD_PRIORITY:-5}
+      - CH_MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY=${CH_MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY:-2000000000}
+      - CH_MAX_BYTES_BEFORE_EXTERNAL_SORT=${CH_MAX_BYTES_BEFORE_EXTERNAL_SORT:-2000000000}
+      - CH_JOIN_ALGORITHM=${CH_JOIN_ALGORITHM:-grace_hash}
       - LOG_DIR=/app/logs
       # Page-HTML blob storage — local dir by default; set S3_* to use a bucket.
       - STORAGE_PATH=/app/storage
