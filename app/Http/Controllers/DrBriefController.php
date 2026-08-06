@@ -308,6 +308,13 @@ class DrBriefController extends Controller
         while (ob_get_level() > 0) {
             ob_end_clean();
         }
+        // A streamed answer legitimately outlives the web SAPI's default
+        // max_execution_time (120s, set on the FPM pool so one runaway report page
+        // cannot pin a worker forever). It is declared `php_value` precisely so
+        // this endpoint — the only one that streams for minutes — can lift it,
+        // rather than leaving every request unbounded. FPM's
+        // request_terminate_timeout still caps the connection.
+        @set_time_limit(0);
         header('Content-Type: text/event-stream; charset=utf-8');
         header('Cache-Control: no-cache, no-store, must-revalidate');
         header('X-Accel-Buffering: no');      // disable nginx proxy buffering

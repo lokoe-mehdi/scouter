@@ -62,7 +62,7 @@ services:
   # Application PHP principale
   scouter:
     build: .
-    mem_limit: ${SCOUTER_MEM_LIMIT:-1g}
+    mem_limit: ${SCOUTER_MEM_LIMIT:-4g}
     cpu_shares: 2048 # interactif (UI + API)
     ports:
       - "8080:8080"

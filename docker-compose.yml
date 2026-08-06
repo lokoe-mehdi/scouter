@@ -88,7 +88,14 @@ services:
   # Application PHP principale (Le cerveau)
   scouter:
     build: .
-    mem_limit: ${SCOUTER_MEM_LIMIT:-1g}
+    # DOIT rester cohérent avec pm.max_children du pool PHP-FPM (Dockerfile) : 40
+    # workers à ~150 Mo de pointe, c'est ~6 Go si le pool se remplit. L'ancien
+    # défaut de 1 Go était incompatible avec son propre pool — la charge normale
+    # suffisait à faire intervenir l'OOM-killer, qui tue nginx ou le master FPM
+    # plutôt que la requête coûteuse. 4 Go couvre un pool bien rempli avec les
+    # requêtes désormais plafonnées à 512 Mo chacune (php_admin_value).
+    # Baisser pm.max_children en même temps si l'on descend cette valeur.
+    mem_limit: ${SCOUTER_MEM_LIMIT:-4g}
     cpu_shares: 2048 # interactif (UI + API) — priorité face aux crawls sous charge
     expose:
       - 8080
