@@ -137,6 +137,19 @@ $displayedClusters = array_merge($top20Clusters, $pageClusters);
 // 6a. page_ids des SEULS clusters affichés (≤ 20 + cluster_per_page lignes), au lieu
 //     de la totalité chargée en §2. Les objets étant partagés entre $allClustersRaw,
 //     $allClusters et les tranches ci-dessus, l'affectation profite à toutes les vues.
+//
+//     arraySlice borne le tableau CÔTÉ SERVEUR : restreindre le nombre de clusters ne
+//     suffit pas, car $top20Clusters est trié par page_count DESC — ce sont donc les
+//     PLUS GROS clusters, et un seul d'entre eux peut contenir des centaines de
+//     milliers d'ids sur un site très templatisé. Sans cette borne, la ligne unique
+//     de ce cluster ramenait à elle seule le volume qu'on cherche à éviter, puis §6
+//     chargeait autant de lignes `pages`.
+//
+//     Conséquence : au-delà de la borne, un cluster n'est plus qu'ÉCHANTILLONNÉ. Le
+//     compte réel reste affiché ($cluster->page_count, issu de §2), et les clusters
+//     sous la borne — l'immense majorité — gardent exactement le comportement
+//     d'avant, tri par inlinks compris.
+$dupPagesPerCluster = 100;
 $clustersById = [];
 foreach ($displayedClusters as $cluster) {
     $cluster->page_ids = '';
@@ -145,7 +158,7 @@ foreach ($displayedClusters as $cluster) {
 if (!empty($clustersById)) {
     $idList = implode(',', array_map('intval', array_keys($clustersById)));
     $stmt = $pdo->query("
-        SELECT id, page_ids
+        SELECT id, arraySlice(page_ids, 1, " . (int) $dupPagesPerCluster . ") AS page_ids
         FROM duplicate_clusters
         WHERE crawl_id = " . (int) $crawlId . " AND id IN ($idList)
     ");
