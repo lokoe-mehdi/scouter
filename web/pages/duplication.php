@@ -22,15 +22,24 @@ $totalDuplicatedPages = (int)($globalStats->compliant_duplicate ?? 0);
 $totalClusters = (int)($globalStats->clusters_duplicate ?? 0);
 $dupRate = $indexablePages > 0 ? round(($totalDuplicatedPages / $indexablePages) * 100, 1) : 0;
 
-// 2. Récupérer les clusters depuis duplicate_clusters (SANS jointure - rapide)
+// 2. Récupérer les clusters depuis duplicate_clusters (SANS jointure - rapide).
+//    page_ids est VOLONTAIREMENT exclu : ce fragment couvre TOUS les clusters, et la
+//    somme de leurs ids approche le nombre de pages dupliquées du crawl (des centaines
+//    de milliers sur un site très templatisé). Les charger ici faisait tenir toute la
+//    liste en RAM PHP, puis ReportPrecompute la json_encodait pour l'écrire dans
+//    crawl_report_cache — soit un pic mémoire doublé et un payload géant en base, pour
+//    une donnée dont §3/§4/§5 n'utilisent que similarity et page_count.
+//    Seuls les clusters AFFICHÉS ont besoin du détail : il est chargé en §6, borné.
+//    (Clé de cache renommée : les anciens fragments 'dup_clusters_raw' contiennent les
+//    page_ids et sont énormes — les relire suffirait à reproduire le problème.)
 $sqlClustersRaw = "
-    SELECT id, similarity, page_count, page_ids
+    SELECT id, similarity, page_count
     FROM duplicate_clusters
     WHERE crawl_id = :crawl_id AND similarity >= :min_similarity
     ORDER BY page_count DESC
 ";
 $allClustersRaw = \App\Analysis\ReportPrecompute::cached(
-    (int) $crawlId, 'dup_clusters_raw', $pdo, $sqlClustersRaw,
+    (int) $crawlId, 'dup_clusters_meta', $pdo, $sqlClustersRaw,
     [':crawl_id' => $crawlId, ':min_similarity' => $minSimilarityPercent], false
 );
 
@@ -123,8 +132,33 @@ $top20Clusters = array_slice($allClustersRaw, 0, 20);
 
 // 6. Détails de page UNIQUEMENT pour les clusters affichés (page courante + top 20)
 //    → IN-list bornée (plus de "Max query size"). Chunké par sécurité.
+$displayedClusters = array_merge($top20Clusters, $pageClusters);
+
+// 6a. page_ids des SEULS clusters affichés (≤ 20 + cluster_per_page lignes), au lieu
+//     de la totalité chargée en §2. Les objets étant partagés entre $allClustersRaw,
+//     $allClusters et les tranches ci-dessus, l'affectation profite à toutes les vues.
+$clustersById = [];
+foreach ($displayedClusters as $cluster) {
+    $cluster->page_ids = '';
+    $clustersById[(string) $cluster->id] = $cluster;
+}
+if (!empty($clustersById)) {
+    $idList = implode(',', array_map('intval', array_keys($clustersById)));
+    $stmt = $pdo->query("
+        SELECT id, page_ids
+        FROM duplicate_clusters
+        WHERE crawl_id = " . (int) $crawlId . " AND id IN ($idList)
+    ");
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $key = (string) $row['id'];
+        if (isset($clustersById[$key])) {
+            $clustersById[$key]->page_ids = $row['page_ids'];
+        }
+    }
+}
+
 $neededIds = [];
-foreach (array_merge($top20Clusters, $pageClusters) as $cluster) {
+foreach ($displayedClusters as $cluster) {
     foreach ($dupParseIds($cluster->page_ids) as $pid) {
         if ($pid !== '') {
             $neededIds[$pid] = true;
