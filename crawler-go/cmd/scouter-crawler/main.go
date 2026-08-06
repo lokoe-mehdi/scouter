@@ -476,22 +476,20 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 		_ = cdb.UpdateCrawlStats(ctx)
 		_ = cdb.SetStopped(ctx)
 		_ = mgr.UpdateStatus(ctx, j.ID, "stopped", j.ProjectDir)
+		// Un crawl arrêté à la main exécute quand même TOUT son post-processing : ses
+		// tables dérivées (page_metrics, PageRank…) sont donc aussi fraîches que
+		// celles d'un crawl terminé normalement. Sans ce recompute, le cache de
+		// rapports (crawl_report_cache) n'était jamais rafraîchi sur ce chemin — or
+		// il n'a NI TTL NI contrôle de fraîcheur : un fragment mémorisé pendant que
+		// le post-processing était cassé (inlinks/pri à 0, faute de page_metrics)
+		// restait servi indéfiniment, avec un rapport à zéro sur des données pourtant
+		// correctes en base.
+		enqueueReportPrecompute(ctx, pool, j, rec.ID, ppFailures, milestone)
 		milestone("Crawl stopped by user — " + totalLine)
 	default:
 		_ = cdb.FinishCrawl(ctx)
 		_ = mgr.UpdateStatus(ctx, j.ID, "completed", j.ProjectDir)
-		// Enqueue the PHP report-precompute job so the heavy report fragments
-		// (PageRank category flux/position…) are warm on the first view. Best-effort:
-		// the PHP report layer also lazy-warms them on first view if this is missed.
-		pname := j.ProjectName
-		if pname == "" {
-			pname = j.ProjectDir
-		}
-		if _, err := pool.Exec(ctx,
-			"INSERT INTO jobs (project_dir, project_name, command, status) VALUES ($1,$2,$3,'queued')",
-			j.ProjectDir, pname, fmt.Sprintf("precompute-reports:%d", rec.ID)); err != nil {
-			milestone("Report precompute enqueue skipped: " + err.Error())
-		}
+		enqueueReportPrecompute(ctx, pool, j, rec.ID, ppFailures, milestone)
 		// Full cutover: drop the heavy PG crawl-data partitions to free disk —
 		// only for a finished crawl (stopped crawls keep PG for resume), seulement
 		// après avoir confirmé que ClickHouse détient les données, ET seulement si
@@ -510,6 +508,34 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 		} else {
 			milestone("Crawl completed with INCOMPLETE analytics (failed: " + strings.Join(ppFailures, ", ") + ") — report may be degraded, PostgreSQL kept — " + totalLine)
 		}
+	}
+}
+
+// enqueueReportPrecompute queues the PHP `precompute-reports:<id>` job, which
+// re-runs every memorized report fragment of the crawl and overwrites it in
+// crawl_report_cache. Called on BOTH terminal paths that produce fresh derived
+// tables (completed and user-stopped) — only 'failed' is left out, its analytics
+// being unreliable by definition.
+//
+// Gated on a clean post-processing: the job is the only writer that refreshes the
+// cache wholesale, so running it after a failed step would overwrite good
+// fragments with the degraded values that step just produced (an empty
+// page_metrics reads as inlinks/pri = 0 through the LEFT JOIN, not as an error).
+// Skipping it leaves whatever was there and keeps the recovery a manual, informed
+// choice, which the milestone below makes visible.
+func enqueueReportPrecompute(ctx context.Context, pool *db.Pool, j jobs.Job, crawlID int, ppFailures []string, milestone func(string)) {
+	if len(ppFailures) > 0 {
+		milestone("Report precompute SKIPPED — post-processing incomplete (" + strings.Join(ppFailures, ", ") + "); report cache left untouched")
+		return
+	}
+	pname := j.ProjectName
+	if pname == "" {
+		pname = j.ProjectDir
+	}
+	if _, err := pool.Exec(ctx,
+		"INSERT INTO jobs (project_dir, project_name, command, status) VALUES ($1,$2,$3,'queued')",
+		j.ProjectDir, pname, fmt.Sprintf("precompute-reports:%d", crawlID)); err != nil {
+		milestone("Report precompute enqueue skipped: " + err.Error())
 	}
 }
 
