@@ -1535,7 +1535,8 @@ if (isset($_GET['partial']) && $_GET['partial'] === 'projects') {
                 retry_failed_urls: document.getElementById('retry_failed_urls').checked,
                 store_html: document.getElementById('store_html').checked,
                 crawl_speed: document.getElementById('crawl_speed').value,
-                crawl_mode: document.getElementById('crawl_mode').value
+                crawl_mode: document.getElementById('crawl_mode').value,
+                max_pages: document.getElementById('max_pages').value
             };
 
             if (crawlType === 'list') {

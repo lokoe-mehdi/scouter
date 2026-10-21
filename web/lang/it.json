@@ -879,6 +879,8 @@
   "index.modal_http_auth_enable": "Abilita autenticazione HTTP Basic",
   "index.modal_http_auth_hint": "Per siti protetti da password",
   "index.modal_max_depth": "Profondità massima",
+  "index.modal_max_pages": "Pagine max",
+  "index.modal_max_pages_unit": "pagine (0 = illimitato)",
   "index.modal_mode_classic": "Classica",
   "index.modal_mode_javascript": "JavaScript",
   "index.modal_new_crawl": "Nuova scansione",

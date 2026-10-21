@@ -35,11 +35,17 @@ clamp() {
 
 # --- Detect the host (override with AUTOSIZE_CORES / AUTOSIZE_TOTAL_MB to
 # simulate another machine, e.g. AUTOSIZE_CORES=4 AUTOSIZE_TOTAL_MB=16384) ----
-CORES="${AUTOSIZE_CORES:-$(nproc 2>/dev/null || echo 2)}"
+# macOS/Windows: containers run in Docker's VM, so size to the VM (docker info),
+# not the host; Linux has no VM and keeps nproc + /proc/meminfo.
+DOCKER_CPUS=$(docker info --format '{{.NCPU}}' 2>/dev/null || true)
+DOCKER_MEM=$(docker info --format '{{.MemTotal}}' 2>/dev/null || true)
+CORES="${AUTOSIZE_CORES:-$(nproc 2>/dev/null || echo "${DOCKER_CPUS:-2}")}"
 if [ -n "${AUTOSIZE_TOTAL_MB:-}" ]; then
   TOTAL_MB="$AUTOSIZE_TOTAL_MB"
 elif [ -r /proc/meminfo ]; then
   TOTAL_MB=$(($(awk '/^MemTotal:/{print $2; exit}' /proc/meminfo) / 1024))
+elif [ -n "$DOCKER_MEM" ]; then
+  TOTAL_MB=$((DOCKER_MEM / 1024 / 1024))
 else
   TOTAL_MB=4096 # assume 4 GB if unknown
 fi

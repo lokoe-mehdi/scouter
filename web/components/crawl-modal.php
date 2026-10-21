@@ -96,6 +96,13 @@
                             </div>
                         </div>
                         <div class="setting-row">
+                            <div class="setting-row-label"><span class="material-symbols-outlined">filter_list</span><h4><?= __('index.modal_max_pages') ?></h4></div>
+                            <div class="setting-row-control">
+                                <input type="number" id="max_pages" name="max_pages" value="0" min="0" class="setting-input-number">
+                                <span class="setting-unit"><?= __('index.modal_max_pages_unit') ?></span>
+                            </div>
+                        </div>
+                        <div class="setting-row">
                             <div class="setting-row-label"><span class="material-symbols-outlined">speed</span><h4><?= __('index.modal_crawl_speed') ?></h4></div>
                             <div class="setting-row-control">
                                 <input type="hidden" id="crawl_speed" name="crawl_speed" value="fast">

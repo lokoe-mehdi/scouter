@@ -880,6 +880,8 @@
   "index.modal_http_auth_enable": "Activer l'authentification HTTP Basic",
   "index.modal_http_auth_hint": "Pour les sites protégés par mot de passe",
   "index.modal_max_depth": "Profondeur maximale",
+  "index.modal_max_pages": "Pages max",
+  "index.modal_max_pages_unit": "pages (0 = illimité)",
   "index.modal_mode_classic": "Classique",
   "index.modal_mode_javascript": "JavaScript",
   "index.modal_new_crawl": "Nouveau Crawl",

@@ -184,7 +184,7 @@ export const TOOLS = [
       'crawl_type = WHICH urls: "spider" (follow links, discover the whole site) | "list" (crawl only url_list, no link-following) · ' +
       'crawl_mode = HOW pages load: "classic" (HTTP, fast) | "javascript" (headless render, sees JS content, slower) · ' +
       'crawl_speed = throughput/politeness: "very_slow" (~1 URL/s) | "slow" (~5 URL/s) | "fast" (~20 URL/s) | "unlimited" (no limit) · ' +
-      'depthMax (1–100, spider) · domains (allowed domains; defaults to the start URL domain) · url_list (list mode only) · "user-agent".\n' +
+      'depthMax (1–100, spider) · maxPages (0 = unlimited; caps fetched pages, shallowest + most-linked first) · domains (allowed domains; defaults to the start URL domain) · url_list (list mode only) · "user-agent".\n' +
       'advanced: respect_robots, respect_nofollow, respect_canonical, follow_redirects, retry_failed_urls, store_html (bool) · sitemap_urls (array) · custom_headers (array) · http_auth (null or {username,password}) · xPathExtractors {name:xpath} · regexExtractors {name:regex}.\n' +
       'EXAMPLE spider: {"general":{"start":"https://www.website.tld/","crawl_type":"spider","crawl_mode":"classic","crawl_speed":"fast","depthMax":30},"advanced":{"store_html":true,"xPathExtractors":{"count_h2":"count(//h2)"}}}. ' +
       'EXAMPLE list: {"general":{"crawl_type":"list","url_list":["https://www.website.tld/page-1","https://www.website.tld/page-2"]}}.',

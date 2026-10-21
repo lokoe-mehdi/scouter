@@ -95,6 +95,13 @@ func TestLoadPrecedenceAndDefaults(t *testing.T) {
 	if !c.RespectRobots || !c.RespectCanonical {
 		t.Error("robots/canonical should default true")
 	}
+	if c.MaxPages != 0 {
+		t.Errorf("maxPages=%d, want 0 (unlimited)", c.MaxPages)
+	}
+	c, _ = Load([]byte(`{"general":{"start":"https://x.fr/","maxPages":250}}`), 0, "")
+	if c.MaxPages != 250 {
+		t.Errorf("maxPages=%d, want 250", c.MaxPages)
+	}
 }
 
 func TestEnvOverride(t *testing.T) {

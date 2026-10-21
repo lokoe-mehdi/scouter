@@ -1265,7 +1265,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'history') {
             retry_failed_urls: document.getElementById('retry_failed_urls').checked,
             store_html: document.getElementById('store_html').checked,
             crawl_speed: document.getElementById('crawl_speed').value,
-            crawl_mode: document.getElementById('crawl_mode').value
+            crawl_mode: document.getElementById('crawl_mode').value,
+            max_pages: document.getElementById('max_pages').value
         };
         if (crawlType === 'list') {
             formData.url_list = document.getElementById('url_list').value;

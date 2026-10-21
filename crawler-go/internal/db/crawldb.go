@@ -20,6 +20,11 @@ const (
 type CrawlDB struct {
 	pool    *Pool
 	CrawlID int
+	// Capped (crawl has maxPages): count inlinks while discovering URLs and claim
+	// the most-linked ones first, so the cap keeps the most prominent pages of the
+	// last depth instead of an arbitrary hash-ordered slice. Off by default: the
+	// extra upsert on every rediscovered link is pure write churn on uncapped crawls.
+	Capped bool
 }
 
 func NewCrawlDB(pool *Pool, crawlID int) *CrawlDB {
@@ -134,8 +139,16 @@ func (c *CrawlDB) InsertPages(ctx context.Context, pages []PageRow) error {
 			args = append(args, c.CrawlID, p.ID, p.Domain, truncate(p.URL, maxURLLength),
 				p.Depth, p.Code, p.Crawled, p.External, p.Blocked, now, p.InCrawl)
 		}
-		sb.WriteString(` ON CONFLICT (crawl_id, id) DO UPDATE SET in_crawl = true
+		if c.Capped {
+			// Same in_crawl promotion as below, plus one inlink per rediscovery (the
+			// batch is deduped per source page). Counts start at 0 for every row, so
+			// the relative order is exact; post-processing recomputes the real value.
+			sb.WriteString(` ON CONFLICT (crawl_id, id) DO UPDATE SET inlinks = pages.inlinks + 1,
+			in_crawl = pages.in_crawl OR (pages.in_sitemap = false AND EXCLUDED.in_crawl = true)`)
+		} else {
+			sb.WriteString(` ON CONFLICT (crawl_id, id) DO UPDATE SET in_crawl = true
 			WHERE pages.in_crawl = false AND pages.in_sitemap = false AND EXCLUDED.in_crawl = true`)
+		}
 		sql := sb.String()
 		if err := withRetry(ctx, func() error {
 			_, err := c.pool.Exec(ctx, sql, args...)
@@ -277,7 +290,13 @@ func (c *CrawlDB) ClaimUrlsToCrawl(ctx context.Context, respectRobots bool, limi
 		sb.WriteString(" AND depth = " + strconv.Itoa(maxDepth))
 	}
 	sb.WriteString(" AND (claimed_at IS NULL OR claimed_at < now() - interval '10 minutes')")
-	sb.WriteString(" ORDER BY id")
+	if c.Capped {
+		// Ties are the norm at depth 1 (only the home links there): prefer the
+		// shallowest paths (/features before /fr/industries/finance).
+		sb.WriteString(" ORDER BY inlinks DESC, length(url) - length(replace(url, '/', '')), length(url), id")
+	} else {
+		sb.WriteString(" ORDER BY id")
+	}
 	if limit > 0 {
 		sb.WriteString(" LIMIT " + strconv.Itoa(limit))
 	}

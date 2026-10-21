@@ -1192,6 +1192,8 @@ class ApiV1Controller extends Controller
         $generalOut['domains']    = $domains;
         $generalOut['crawl_type'] = $crawlType;
         $generalOut['depthMax']   = $depthMax;
+        // 0 = unlimited. Cast: a string here would be silently ignored by the crawler.
+        $generalOut['maxPages']   = max(0, (int)($general['maxPages'] ?? 0));
         if ($crawlType === 'list') {
             $generalOut['url_list'] = $urlList;
         } else {

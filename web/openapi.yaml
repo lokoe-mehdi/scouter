@@ -270,7 +270,9 @@ paths:
         discover the site / "list" = crawl only `url_list`), `crawl_mode`
         ("classic" = HTTP, fast / "javascript" = headless render), `crawl_speed`
         ("very_slow" ~1 URL/s, "slow" ~5, "fast" ~20, "unlimited" = no limit),
-        `depthMax` (1–100, spider), `domains`, `url_list` (list mode),
+        `depthMax` (1–100, spider), `maxPages` (0 = unlimited; caps fetched
+        pages, shallowest and most-linked first, no sitemap-only fetch),
+        `domains`, `url_list` (list mode),
         `user-agent`. advanced: respect_robots / respect_nofollow /
         respect_canonical / follow_redirects / retry_failed_urls / store_html
         (booleans), `sitemap_urls`, `custom_headers`, `http_auth`

@@ -321,6 +321,7 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 	}
 
 	cdb := db.NewCrawlDB(pool, rec.ID)
+	cdb.Capped = cfg.MaxPages > 0
 	if err := cdb.CreatePartitions(ctx); err != nil {
 		mgr.SetError(ctx, j.ID, "partitions: "+err.Error())
 		_ = mgr.UpdateStatus(ctx, j.ID, "failed", j.ProjectDir)
@@ -392,21 +393,25 @@ func runJob(ctx context.Context, pool *db.Pool, ch *db.CH, mgr *jobs.Manager, j 
 	// Post-processing (status changes on the crawls row must NOT abort it, only a
 	// 'failed' watchdog status does — handled inside postprocess.interrupted).
 	pp := postprocess.New(pool, rec.ID, logf)
-	pp.SitemapFetch = func(c context.Context, urls, domains []string) error {
-		smCfg := *cfg
-		smCfg.Domains = domains
-		smCfg.CrawlMode = "classic"
-		smEngine := crawl.NewEngine(cdb, &smCfg, crawl.Options{
-			RendererURLs:       rendererURLs,
-			SkipLinkExtraction: true,
-			Governor:           gov,
-			CHStore:            chStore,
-			HTMLStore:          htmlStore,
-			SlimPG:             dropPG,
-			Logf:               logf,
-			StopCheck:          func(context.Context) bool { return false }, // ignore stop during PP
-		})
-		return smEngine.FetchURLs(c, urls)
+	// A capped crawl must not fetch sitemap-only URLs past its budget: they are
+	// still recorded (orphan analysis), just not crawled.
+	if cfg.MaxPages == 0 {
+		pp.SitemapFetch = func(c context.Context, urls, domains []string) error {
+			smCfg := *cfg
+			smCfg.Domains = domains
+			smCfg.CrawlMode = "classic"
+			smEngine := crawl.NewEngine(cdb, &smCfg, crawl.Options{
+				RendererURLs:       rendererURLs,
+				SkipLinkExtraction: true,
+				Governor:           gov,
+				CHStore:            chStore,
+				HTMLStore:          htmlStore,
+				SlimPG:             dropPG,
+				Logf:               logf,
+				StopCheck:          func(context.Context) bool { return false }, // ignore stop during PP
+			})
+			return smEngine.FetchURLs(c, urls)
+		}
 	}
 	// dropPG (computed above) gates the PG post-processing: when ClickHouse is the
 	// sole store we skip it entirely (the PageRank perf win) and drop the PG

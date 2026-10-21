@@ -22,6 +22,7 @@ type HTTPAuth struct {
 type Config struct {
 	Start    string
 	DepthMax int
+	MaxPages int // 0 = unlimited; caps fetched pages (BFS, most-linked first)
 	Domains  []string
 	URLList  []string
 
@@ -67,6 +68,7 @@ func Load(raw []byte, depthMaxCol int, crawlTypeCol string) (*Config, error) {
 
 	c := &Config{
 		Start:      g.str("start", ""),
+		MaxPages:   g.intDef("maxPages", 0),
 		Domains:    g.strSlice("domains"),
 		URLList:    g.strSlice("url_list"),
 		CrawlSpeed: g.str("crawl_speed", "fast"),

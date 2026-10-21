@@ -143,7 +143,12 @@ func (e *Engine) depthStarter(ctx context.Context, newCrawl bool) error {
 			if e.stopped(ctx) {
 				return errStopped
 			}
-			urls, err := e.claimToCrawl(ctx, respectRobots, frontierBatch, i)
+			limit, ok := claimLimit(e.cfg.MaxPages, e.liveCrawled.Load(), frontierBatch)
+			if !ok {
+				e.logf("maxPages %d reached at depth %d, ending crawl", e.cfg.MaxPages, i)
+				return nil // normal finish: post-processing still runs
+			}
+			urls, err := e.claimToCrawl(ctx, respectRobots, limit, i)
 			if err != nil {
 				return err
 			}
@@ -161,6 +166,20 @@ func (e *Engine) depthStarter(ctx context.Context, newCrawl bool) error {
 		e.seedLiveStats(ctx)
 	}
 	return nil
+}
+
+// claimLimit sizes the next frontier claim so a capped crawl never fetches more
+// than maxPages: every claimed URL ends up stored (retries included), so claiming
+// exactly the remaining budget is the cap. ok=false once the budget is spent.
+func claimLimit(maxPages int, crawled int64, batch int) (limit int, ok bool) {
+	if maxPages <= 0 {
+		return batch, true
+	}
+	left := int64(maxPages) - crawled
+	if left <= 0 {
+		return 0, false
+	}
+	return int(min(left, int64(batch))), true
 }
 
 // claimToCrawl leases one frontier batch under a timeout (see frontierOpTimeout).

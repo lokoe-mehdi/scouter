@@ -232,6 +232,7 @@ class ProjectController extends Controller
             'general' => [
                 'start' => $startUrl,
                 'depthMax' => $depthMax,
+                'maxPages' => max(0, (int)$request->get('max_pages', 0)), // 0 = unlimited
                 'domains' => $allowedDomains,
                 'crawl_speed' => $request->get('crawl_speed', 'fast'),
                 'crawl_mode' => $request->get('crawl_mode', 'classic'),
