@@ -454,8 +454,9 @@ func (b *Backfiller) migrate(ctx context.Context, crawlID int, withHTML bool) er
 
 	// Post-processing in ClickHouse (page_metrics, duplicate, redirect).
 	var cfg []byte
-	_ = b.pool.QueryRow(ctx, "SELECT config FROM crawls WHERE id=$1", crawlID).Scan(&cfg)
-	postprocess.NewCHRunner(b.ch, crawlID, postprocess.RespectNofollowFromConfig(cfg), b.logf).Run(ctx)
+	var domain string
+	_ = b.pool.QueryRow(ctx, "SELECT config, domain FROM crawls WHERE id=$1", crawlID).Scan(&cfg, &domain)
+	postprocess.NewCHRunner(b.ch, crawlID, postprocess.RespectNofollowFromConfig(cfg), cfg, domain, b.logf).Run(ctx)
 	b.SyncStats(ctx, crawlID) // write back duplicate/redirect scorecard stats
 
 	// Completeness check before flipping the read store.
@@ -488,8 +489,8 @@ func (b *Backfiller) pages(ctx context.Context, crawlID int) error {
 	rows, err := b.pool.Query(ctx, `
 		SELECT id, domain, url, depth, code, response_time, outlinks, content_type, redirect_to,
 		       crawled, compliant, noindex, nofollow, canonical, canonical_value, external, blocked,
-		       title, h1, metadesc, extracts, simhash, is_html, h1_multiple, headings_missing, schemas, word_count
-		FROM pages WHERE crawl_id=$1 AND in_crawl=true AND (crawled=true OR external=true)`, crawlID)
+		       in_crawl, title, h1, metadesc, extracts, simhash, is_html, h1_multiple, headings_missing, schemas, word_count
+		FROM pages WHERE crawl_id=$1 AND ((in_crawl=true AND (crawled=true OR external=true)) OR in_sitemap=true)`, crawlID)
 	if err != nil {
 		return err
 	}
@@ -500,20 +501,20 @@ func (b *Backfiller) pages(ctx context.Context, crawlID int) error {
 		// non-HTML pages, code on uncrawled redirect targets) are scanned into
 		// pointers and coalesced to ''/0 for ClickHouse (no NULLs in those CH cols).
 		var (
-			id                                                                  string
-			domain, url, contentType, redirectTo, canonicalValue, title, h1, metadesc *string
-			depth, outlinks, wordCount                                          int
-			code                                                                *int
-			responseTime                                                        *float64
-			crawled, compliant, noindex, nofollow, canonical, external, blocked bool
-			isHTML, h1Multiple, headingsMissing                                 *bool
-			extracts                                                            []byte
-			simhash                                                             *int64
-			schemas                                                             []string
+			id                                                                           string
+			domain, url, contentType, redirectTo, canonicalValue, title, h1, metadesc    *string
+			depth, outlinks, wordCount                                                   int
+			code                                                                         *int
+			responseTime                                                                 *float64
+			crawled, compliant, noindex, nofollow, canonical, external, blocked, inCrawl bool
+			isHTML, h1Multiple, headingsMissing                                          *bool
+			extracts                                                                     []byte
+			simhash                                                                      *int64
+			schemas                                                                      []string
 		)
 		if err := rows.Scan(&id, &domain, &url, &depth, &code, &responseTime, &outlinks, &contentType, &redirectTo,
 			&crawled, &compliant, &noindex, &nofollow, &canonical, &canonicalValue, &external, &blocked,
-			&title, &h1, &metadesc, &extracts, &simhash, &isHTML, &h1Multiple, &headingsMissing, &schemas, &wordCount); err != nil {
+			&inCrawl, &title, &h1, &metadesc, &extracts, &simhash, &isHTML, &h1Multiple, &headingsMissing, &schemas, &wordCount); err != nil {
 			return err
 		}
 		extractsMap := map[string]string{}
@@ -536,7 +537,7 @@ func (b *Backfiller) pages(ctx context.Context, crawlID int) error {
 			"code": codeV, "response_time": rtV, "outlinks": outlinks, "content_type": ps(contentType),
 			"redirect_to": ps(redirectTo), "crawled": b2i(crawled), "compliant": b2i(compliant), "noindex": b2i(noindex),
 			"nofollow": b2i(nofollow), "canonical": b2i(canonical), "canonical_value": ps(canonicalValue),
-			"external": b2i(external), "blocked": b2i(blocked), "title": ps(title), "h1": ps(h1), "metadesc": ps(metadesc),
+			"external": b2i(external), "blocked": b2i(blocked), "in_crawl": b2i(inCrawl), "title": ps(title), "h1": ps(h1), "metadesc": ps(metadesc),
 			"extracts": extractsMap, "simhash": simhash, "is_html": pb2i(isHTML), "h1_multiple": pb2i(h1Multiple),
 			"headings_missing": pb2i(headingsMissing), "schemas": schemas, "word_count": wordCount,
 		})

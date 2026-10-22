@@ -93,7 +93,8 @@ func (e *Engine) storePage(ctx context.Context, p model.Page, depth int) error {
 		ContentType: truncateStr(p.ContentType, 100), RedirectTo: p.RedirectTo,
 		Crawled: 1, Compliant: b2i(compliant), Noindex: b2i(p.Noindex), Nofollow: b2i(p.Nofollow),
 		Canonical: b2i(isCanonical), CanonicalValue: p.CanonicalURL, External: 0, Blocked: b2i(blocked),
-		Title: p.Title, H1: p.H1, MetaDesc: p.MetaDesc, Extracts: p.CustomExtract, Simhash: p.Simhash,
+		InCrawl: 1,
+		Title:   p.Title, H1: p.H1, MetaDesc: p.MetaDesc, Extracts: p.CustomExtract, Simhash: p.Simhash,
 		IsHTML: b2i(p.IsHTML), H1Multiple: b2i(p.H1Multiple), HeadingsMissing: b2i(p.HeadingsMissing),
 		Schemas: p.Schemas, WordCount: p.WordCount,
 	})
