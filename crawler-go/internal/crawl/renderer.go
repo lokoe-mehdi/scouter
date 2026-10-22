@@ -3,6 +3,7 @@ package crawl
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -52,10 +53,7 @@ type renderBatchResponse struct {
 }
 
 func (e *Engine) processJavascript(ctx context.Context, urls []string, depth int) []string {
-	headers := map[string]string{"User-Agent": e.cfg.UserAgent}
-	for k, v := range e.cfg.CustomHeaders {
-		headers[k] = v
-	}
+	headers := e.renderHeaders()
 
 	rc := len(e.rendererURLs)
 	client := &http.Client{Timeout: 90 * time.Second}
@@ -131,6 +129,18 @@ func (e *Engine) processJavascript(ctx context.Context, urls []string, depth int
 	wg.Wait()
 	e.emitProgress(depth, true)
 	return failed
+}
+
+func (e *Engine) renderHeaders() map[string]string {
+	headers := map[string]string{"User-Agent": e.cfg.UserAgent}
+	for k, v := range e.cfg.CustomHeaders {
+		headers[k] = v
+	}
+	if e.cfg.HTTPAuth.Enabled {
+		token := base64.StdEncoding.EncodeToString([]byte(e.cfg.HTTPAuth.Username + ":" + e.cfg.HTTPAuth.Password))
+		headers["Authorization"] = "Basic " + token
+	}
+	return headers
 }
 
 func postRenderBatch(ctx context.Context, client *http.Client, rendererURL string, urls []string, headers map[string]string) []renderResult {
