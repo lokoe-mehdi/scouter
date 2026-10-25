@@ -237,24 +237,41 @@
         DownloadCenter.init();
     }
 
-    // Helper partagé par les explorers : POST /api/exports puis toast + refresh.
-    // payload = { type, project, ...params }. Affiche une erreur si l'appel échoue.
-    window.queueExport = function (payload) {
+    function postExport(payload) {
         const exBase = window.location.pathname.includes('/pages/') ? '../' : '';
         return fetch(`${exBase}api/exports`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify(payload),
         })
-            .then((r) => r.json())
+            .then((r) => r.json());
+    }
+
+    // Helper partagé par les explorers : POST /api/exports puis toast + refresh.
+    // payload = { type, project, ...params }. Affiche une erreur si l'appel échoue.
+    window.queueExport = function (payload) {
+        return postExport(payload)
             .then((d) => {
-                if (d && d.success) {
-                    DownloadCenter.flash();
-                } else {
-                    alert((d && d.message) || t('downloads.error'));
-                }
+                if (d && d.success) DownloadCenter.flash();
+                else alert((d && d.message) || t('downloads.error'));
                 return d;
             })
             .catch(() => alert(t('downloads.error')));
+    };
+
+    // Helper pour les exports groupés : lance plusieurs CSV et ne montre qu'un
+    // seul toast. Retourne le détail pour permettre à l'appelant de gérer l'UI.
+    window.queueExports = function (payloads) {
+        return Promise.all(payloads.map((payload) => postExport(payload).catch((error) => ({ success: false, error }))))
+            .then((results) => {
+                const failed = results.filter((d) => !d || !d.success);
+                if (failed.length > 0) {
+                    alert(t('downloads.error'));
+                } else {
+                    DownloadCenter.flash();
+                }
+                DownloadCenter.refresh();
+                return results;
+            });
     };
 })();

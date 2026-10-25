@@ -136,6 +136,14 @@ $userInitials = getUserInitials($currentUserEmail);
             <?= __('header.project') ?>
         </a>
         <?php endif; ?>
+
+        <?php if ($headerContext === 'dashboard' && !empty($crawlId)): ?>
+        <button class="header-export-all-btn" type="button" onclick="queueDashboardCsvExports()"
+                title="<?= htmlspecialchars(__('project.export_data')) ?>">
+            <span class="material-symbols-outlined">download_for_offline</span>
+            <span><?= __('project.export_data') ?></span>
+        </button>
+        <?php endif; ?>
         
         <?php if ($headerContext === 'admin'): ?>
         <!-- Ghost link : Retour à l'accueil -->
@@ -278,6 +286,48 @@ $userInitials = getUserInitials($currentUserEmail);
 
 .header-back-link .material-symbols-outlined {
     font-size: 18px;
+}
+
+.header-export-all-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(78, 205, 196, 0.16);
+    border: 1px solid rgba(78, 205, 196, 0.35);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    height: 38px;
+    padding: 0 0.8rem;
+    transition: all 0.2s ease;
+}
+
+.header-export-all-btn:hover {
+    background: rgba(78, 205, 196, 0.26);
+    border-color: rgba(78, 205, 196, 0.58);
+    color: #fff;
+}
+
+.header-export-all-btn:disabled {
+    cursor: wait;
+    opacity: 0.65;
+}
+
+.header-export-all-btn .material-symbols-outlined {
+    font-size: 18px;
+}
+
+@media (max-width: 900px) {
+    .header-export-all-btn span:last-child {
+        display: none;
+    }
+    .header-export-all-btn {
+        width: 38px;
+        padding: 0;
+        justify-content: center;
+    }
 }
 
 /* ===== Cloche de notifications ===== */
@@ -676,3 +726,44 @@ document.addEventListener('click', function(e) {
 </script>
 <script src="<?= $basePath ?>assets/notifications.js?v=<?= filemtime(__DIR__ . '/../assets/notifications.js') ?>"></script>
 <script src="<?= $basePath ?>assets/downloads.js?v=<?= filemtime(__DIR__ . '/../assets/downloads.js') ?>"></script>
+<?php if ($headerContext === 'dashboard' && !empty($crawlId)): ?>
+<script>
+function queueDashboardCsvExports() {
+    if (typeof window.queueExports !== 'function') return;
+
+    const btn = document.querySelector('.header-export-all-btn');
+    if (btn) btn.disabled = true;
+
+    const project = <?= json_encode((int)$crawlId) ?>;
+    const exports = [
+        {
+            type: 'urls',
+            project,
+            columns: [
+                'url', 'depth', 'code', 'compliant', 'noindex', 'nofollow',
+                'canonical', 'canonical_value', 'external', 'blocked',
+                'redirect_to', 'response_time', 'content_type', 'is_html',
+                'outlinks', 'title', 'h1', 'metadesc', 'h1_multiple',
+                'headings_missing', 'word_count', 'category'
+            ]
+        },
+        {
+            type: 'links',
+            project,
+            columns: [
+                'url', 'depth', 'code', 'title',
+                'anchor', 'external', 'nofollow', 'type', 'position', 'xpath'
+            ]
+        },
+        {
+            type: 'redirects',
+            project
+        }
+    ];
+
+    window.queueExports(exports).finally(() => {
+        if (btn) btn.disabled = false;
+    });
+}
+</script>
+<?php endif; ?>
