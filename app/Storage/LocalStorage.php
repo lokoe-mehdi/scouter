@@ -54,7 +54,11 @@ class LocalStorage implements StorageInterface
         if (@file_put_contents($tmp, $data) === false) {
             return false;
         }
-        return @rename($tmp, $path);
+        if (!@rename($tmp, $path)) {
+            return false;
+        }
+        @chmod($path, 0644);
+        return true;
     }
 
     public function putFile(string $key, string $path, string $contentType = ''): bool
@@ -69,9 +73,14 @@ class LocalStorage implements StorageInterface
         }
         // Same filesystem → atomic rename if we own the temp; otherwise copy.
         if (@rename($path, $dest)) {
+            @chmod($dest, 0644);
             return true;
         }
-        return @copy($path, $dest);
+        if (!@copy($path, $dest)) {
+            return false;
+        }
+        @chmod($dest, 0644);
+        return true;
     }
 
     public function presignedGetUrl(string $key, int $expirySeconds, array $responseHeaders = []): ?string
