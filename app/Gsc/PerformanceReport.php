@@ -13,8 +13,8 @@ use App\Database\PostgresDatabase;
  * The crux: crawl reports are crawl-scoped and read through {@see \App\Database\ChPdo},
  * which ALSO exposes the project's `gsc_*` tables as project-scoped virtual
  * sources (see ChPdo::rewriteTables). So a Performance report can simply
- * `JOIN gsc_page_daily g ON g.page = p.url` inside a normal `$pdo` query — the
- * per-URL GSC totals live in `gsc_page_daily` (the cross-analysis rollup the GSC
+ * `JOIN gsc_page_totals_daily g ON g.page = p.url` inside a normal `$pdo` query — the
+ * per-URL GSC totals live in `gsc_page_totals_daily` (the cross-analysis rollup the GSC
  * plan reserved for exactly this, §11).
  *
  * Availability requires (1) a ClickHouse-backed crawl (GSC data lives only in
@@ -238,7 +238,7 @@ class PerformanceReport
      * impression-weighted position numerator (position isn't additive).
      *
      * Uses the `:from`/`:to` bound params — every Performance query passes them.
-     * `gsc_page_daily` is rewritten by ChPdo into the project-scoped source.
+     * `gsc_page_totals_daily` is rewritten by ChPdo into the project-scoped source.
      */
     public static function gscPageAgg(string $from, string $to): string
     {
@@ -251,7 +251,7 @@ class PerformanceReport
         return "SELECT page, "
              . "sum(clicks) AS clicks, sum(impressions) AS impressions, "
              . "sum(position * impressions) AS pos_num "
-             . "FROM gsc_page_daily "
+             . "FROM gsc_page_totals_daily "
              . "WHERE date >= toDate('{$f}') AND date <= toDate('{$t}') "
              . "GROUP BY page";
     }

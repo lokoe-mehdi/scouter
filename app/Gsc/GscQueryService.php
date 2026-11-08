@@ -19,7 +19,8 @@ use App\Database\ClickHouseDatabase;
  *
  *   keywords, no url filter        → gsc_query_daily        GROUP BY query
  *   keywords, url filter present   → gsc_page_query_daily   GROUP BY query   (keywords OF that URL)
- *   urls, no query filter          → gsc_page_daily         GROUP BY page
+ *   urls, no query/country/device  → gsc_page_totals_daily  GROUP BY page
+ *   urls, country/device filter   → gsc_page_daily         GROUP BY page
  *   urls, query filter present     → gsc_page_query_daily   GROUP BY page    (URLs FOR that keyword)
  *   both                           → gsc_page_query_daily   GROUP BY page,query
  *
@@ -82,6 +83,7 @@ class GscQueryService
             $table = 'gsc_page_query_daily'; $dims = ['page', 'query']; $cols = ['page', 'query'];
         } elseif ($mode === 'urls') {
             if ($qFilter && !$cdNeeded) { $table = 'gsc_page_query_daily'; $dims = ['page']; $cols = ['page', 'query']; }
+            elseif (!$cdNeeded)        { $table = 'gsc_page_totals_daily'; $dims = ['page']; $cols = ['page']; }
             else                        { $table = 'gsc_page_daily';       $dims = ['page']; $cols = ['page', 'country', 'device']; }
         } elseif ($mode === 'keywords') {
             if ($uFilter && !$cdNeeded) { $table = 'gsc_page_query_daily'; $dims = ['query']; $cols = ['page', 'query']; }
@@ -96,6 +98,15 @@ class GscQueryService
         }
 
         return ['table' => $table, 'dims' => $dims, 'cols' => $cols, 'hasAnon' => in_array($table, self::ANON_TABLES, true)];
+    }
+
+    private function source(string $table): string
+    {
+        return match ($table) {
+            'gsc_page_totals_daily' => GscSchema::pageTotalsSource($this->projectId),
+            'gsc_page_query_daily' => GscSchema::pageQuerySource($this->projectId),
+            default => "scouter.{$table} FINAL",
+        };
     }
 
     /**
@@ -131,6 +142,7 @@ class GscQueryService
         string $sort = 'clicks', string $dir = 'desc', int $page = 1, int $perPage = 50, bool $includeAnon = true
     ): array {
         $r = $this->resolve($mode, $filters);
+        $source = $this->source($r['table']);
         $params = [];
         $where = $this->baseWhere($from, $to, $params)
                . self::buildFilterSql($filters, $r['cols'], $params, $this->catConds($filters))
@@ -151,11 +163,11 @@ class GscQueryService
                 'if(sum(impressions)=0, 0, sum(clicks)/sum(impressions)) AS ctr',
                 $this->positionExpr($r['hasAnon']) . ' AS position',
             ], $catCol ? [$catCol] : []);
-        $inner = "SELECT " . implode(', ', $innerCols) . " FROM scouter.{$r['table']} FINAL WHERE {$where} GROUP BY {$groupBy}";
+        $inner = "SELECT " . implode(', ', $innerCols) . " FROM {$source} WHERE {$where} GROUP BY {$groupBy}";
 
         $outerCols = implode(', ', array_merge($r['dims'], ['clicks', 'impressions', 'ctr', 'position'], $catCol ? ['category'] : []));
         $sql = "SELECT {$outerCols} FROM ({$inner}) ORDER BY {$sort} {$dir} LIMIT {$perPage} OFFSET {$offset}";
-        $countSql = "SELECT count() FROM (SELECT 1 FROM scouter.{$r['table']} FINAL WHERE {$where} GROUP BY {$groupBy})";
+        $countSql = "SELECT count() FROM (SELECT 1 FROM {$source} WHERE {$where} GROUP BY {$groupBy})";
 
         $ch = ClickHouseDatabase::getInstance();
         return ['rows' => $ch->select($sql, $params), 'total' => (int) $ch->selectValue($countSql, $params)];
@@ -177,6 +189,7 @@ class GscQueryService
         string $sort = 'clicks', string $dir = 'desc', int $page = 1, int $perPage = 50, bool $includeAnon = true
     ): array {
         $r = $this->resolve($mode, $filters);
+        $source = $this->source($r['table']);
         $params = ['pid' => $this->projectId, 'from' => $this->safeDate($from), 'to' => $this->safeDate($to),
                    'cfrom' => $this->safeDate($cfrom), 'cto' => $this->safeDate($cto)];
 
@@ -201,14 +214,14 @@ class GscQueryService
                 $this->weightedPos($r['hasAnon'], $cur) . " AS position",
                 $this->weightedPos($r['hasAnon'], $prev) . " AS position_p",
             ], $catCol ? [$catCol] : []);
-        $inner = "SELECT " . implode(', ', $innerCols) . " FROM scouter.{$r['table']} FINAL WHERE {$where} GROUP BY {$groupBy}";
+        $inner = "SELECT " . implode(', ', $innerCols) . " FROM {$source} WHERE {$where} GROUP BY {$groupBy}";
 
         $outerCols = implode(', ', array_merge($r['dims'], [
             'clicks', 'impressions', 'if(impressions=0,0,clicks/impressions) AS ctr', 'position',
             'clicks_p', 'impressions_p', 'if(impressions_p=0,0,clicks_p/impressions_p) AS ctr_p', 'position_p',
         ], $catCol ? ['category'] : []));
         $sql = "SELECT {$outerCols} FROM ({$inner}) ORDER BY {$sort} {$dir} LIMIT {$perPage} OFFSET {$offset}";
-        $countSql = "SELECT count() FROM (SELECT 1 FROM scouter.{$r['table']} FINAL WHERE {$where} GROUP BY {$groupBy})";
+        $countSql = "SELECT count() FROM (SELECT 1 FROM {$source} WHERE {$where} GROUP BY {$groupBy})";
 
         $ch = ClickHouseDatabase::getInstance();
         return ['rows' => $ch->select($sql, $params), 'total' => (int) $ch->selectValue($countSql, $params)];
@@ -223,6 +236,7 @@ class GscQueryService
     {
         $r = $this->resolve($mode, $filters);
         $agg = $this->aggSource($r, $filters, $includeAnon);
+        $source = $this->source($agg['table']);
         $params = [];
         $where = $this->baseWhere($from, $to, $params)
                . self::buildFilterSql($filters, $r['cols'], $params, $this->catConds($filters))
@@ -231,7 +245,7 @@ class GscQueryService
         $sql = "SELECT sum(clicks) AS clicks, sum(impressions) AS impressions,\n"
              . "       if(sum(impressions)=0,0,sum(clicks)/sum(impressions)) AS ctr,\n"
              . "       " . $this->positionExpr($agg['hasAnon']) . " AS position\n"
-             . "FROM scouter.{$agg['table']} FINAL WHERE {$where}";
+             . "FROM {$source} WHERE {$where}";
 
         $row = ClickHouseDatabase::getInstance()->select($sql, $params);
         $x = $row[0] ?? [];
@@ -252,6 +266,7 @@ class GscQueryService
     {
         $r = $this->resolve($mode, $filters);
         $agg = $this->aggSource($r, $filters, $includeAnon);
+        $source = $this->source($agg['table']);
         $params = [];
         $where = $this->baseWhere($from, $to, $params)
                . self::buildFilterSql($filters, $r['cols'], $params, $this->catConds($filters))
@@ -260,7 +275,7 @@ class GscQueryService
         $sql = "SELECT toString(date) AS date, sum(clicks) AS clicks, sum(impressions) AS impressions,\n"
              . "       if(sum(impressions)=0,0,sum(clicks)/sum(impressions)) AS ctr,\n"
              . "       " . $this->positionExpr($agg['hasAnon']) . " AS position\n"
-             . "FROM scouter.{$agg['table']} FINAL WHERE {$where}\n"
+             . "FROM {$source} WHERE {$where}\n"
              . "GROUP BY date ORDER BY date ASC";
 
         return ClickHouseDatabase::getInstance()->select($sql, $params);
@@ -283,6 +298,7 @@ class GscQueryService
         array $metrics = ['clicks', 'impressions', 'ctr', 'position'], ?string $cfrom = null, ?string $cto = null
     ): array {
         $r = $this->resolve($mode, $filters);
+        $source = $this->source($r['table']);
         $comparing = $cfrom !== null && $cto !== null && $cfrom !== '' && $cto !== '';
 
         // Sanitize the metric list (canonical order, known keys only).
@@ -301,7 +317,7 @@ class GscQueryService
             $inner = "SELECT " . implode(', ', array_merge($r['dims'], [
                     'sum(clicks) AS clicks', 'sum(impressions) AS impressions',
                     $this->positionExpr($r['hasAnon']) . ' AS position',
-                ])) . " FROM scouter.{$r['table']} FINAL WHERE {$where} GROUP BY " . implode(', ', $r['dims']);
+                ])) . " FROM {$source} WHERE {$where} GROUP BY " . implode(', ', $r['dims']);
 
             $out = array_map(fn($d) => "{$d} AS {$dimHead[$d]}", $r['dims']);
             foreach ($metrics as $m) {
@@ -323,7 +339,7 @@ class GscQueryService
                 "sumIf(clicks, {$prev}) AS clicks_p", "sumIf(impressions, {$prev}) AS impressions_p",
                 $this->weightedPos($r['hasAnon'], $cur) . " AS position",
                 $this->weightedPos($r['hasAnon'], $prev) . " AS position_p",
-            ])) . " FROM scouter.{$r['table']} FINAL WHERE {$where} GROUP BY " . implode(', ', $r['dims']);
+            ])) . " FROM {$source} WHERE {$where} GROUP BY " . implode(', ', $r['dims']);
 
         $out = array_map(fn($d) => "{$d} AS {$dimHead[$d]}", $r['dims']);
         foreach ($metrics as $m) {

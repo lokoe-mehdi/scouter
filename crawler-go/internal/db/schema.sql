@@ -207,7 +207,8 @@ ORDER BY (crawl_id, id);
 -- est scopée par PROJET et par DATE. On stocke 4 niveaux d'agrégat car
 -- l'anonymisation des requêtes GSC fait que Somme(mots-cles) < total reel :
 --   - gsc_site_daily        [date]              -> vrais totaux (anonyme inclus)
---   - gsc_page_daily        [date,page]         -> total par URL (source cross-analyse)
+--   - gsc_page_totals_daily [date,page]         -> total par URL (source cross-analyse)
+--   - gsc_page_daily        [date,page,country,device] -> detail potentiellement incomplet
 --   - gsc_query_daily       [date,query]        -> total par mot-cle + lignes '(anonyme)'
 --   - gsc_page_query_daily  [date,query,page]   -> joint + lignes '(anonyme)' par URL
 --
@@ -219,6 +220,34 @@ ORDER BY (crawl_id, id);
 -- country + device: LowCardinality dims on the site / page / query marginals
 -- (full geo/device segmentation). NOT on the joint page×query table (volume).
 -- page URLs are fragment-stripped at ingestion (url and url#x collapse to url).
+-- Page-only totals and fully ingested day markers (kept in sync with GscSchema).
+CREATE TABLE IF NOT EXISTS scouter.gsc_page_totals_daily
+(
+    project_id Int32,
+    site String,
+    search_type LowCardinality(String) DEFAULT 'web',
+    date Date,
+    page String,
+    clicks Int64 DEFAULT 0,
+    impressions Int64 DEFAULT 0,
+    position Float32 DEFAULT 0,
+    version UInt64 DEFAULT toUnixTimestamp(now())
+)
+ENGINE = ReplacingMergeTree(version)
+PARTITION BY project_id
+ORDER BY (project_id, search_type, date, page);
+
+CREATE TABLE IF NOT EXISTS scouter.gsc_ingestion_days
+(
+    project_id Int32,
+    search_type LowCardinality(String) DEFAULT 'web',
+    date Date,
+    version UInt64 DEFAULT toUnixTimestamp(now())
+)
+ENGINE = ReplacingMergeTree(version)
+PARTITION BY project_id
+ORDER BY (project_id, search_type, date);
+
 CREATE TABLE IF NOT EXISTS scouter.gsc_site_daily
 (
     project_id  Int32,

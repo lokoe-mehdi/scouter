@@ -21,8 +21,9 @@ use App\Database\ClickHouseDatabase;
  *   - never       : days older than the oldest day we hold — that's the initial
  *                   backfill's job, not the sync's, and we must not fight it.
  *
- * Days for which Google genuinely has nothing are materialised as a zero row by
- * GscIngestor (see markEmptyDay), so they count as covered and don't get
+ * Every fully ingested day has a gsc_ingestion_days marker, including days
+ * with no traffic. Older imports without that marker are repaired automatically
+ * by the normal sync planner. Empty days count as covered and don't get
  * re-fetched forever.
  *
  * @package    Scouter
@@ -60,8 +61,9 @@ class GscCoverage
             return [];
         }
         $rows = ClickHouseDatabase::getInstance()->select(
-            "SELECT DISTINCT toString(date) AS d FROM scouter.gsc_site_daily
-             WHERE project_id = {pid:Int32} AND date >= {from:Date} AND date <= {to:Date}",
+            "SELECT DISTINCT toString(date) AS d FROM scouter.gsc_ingestion_days FINAL
+             WHERE project_id = {pid:Int32} AND search_type = 'web'
+               AND date >= {from:Date} AND date <= {to:Date}",
             ['pid' => [$this->projectId, 'Int32'], 'from' => $from, 'to' => $to]
         );
         $out = [];
@@ -87,7 +89,7 @@ class GscCoverage
      */
     public function daysToSync(string $end, int $refreshWindow, int $maxDays): array
     {
-        $min = $this->minDate();
+        $min = $this->syncStart($end);
         $present = $min !== null ? $this->daysPresent($min, $end) : [];
 
         return self::planDays($min, $end, $present, $refreshWindow, $maxDays);
@@ -159,7 +161,7 @@ class GscCoverage
     /** True when the project is missing at least one day it should hold. */
     public function hasGap(string $end, int $refreshWindow): bool
     {
-        $min = $this->minDate();
+        $min = $this->syncStart($end);
         if ($min === null) {
             return true;
         }
@@ -170,6 +172,16 @@ class GscCoverage
         $present = $this->daysPresent($min, $end);
         $expected = (int) ((strtotime($end) - strtotime($min)) / 86400) + 1;
         return count($present) < $expected;
+    }
+
+    /** Never replace archived data that is no longer recoverable from Google. */
+    private function syncStart(string $end): ?string
+    {
+        $min = $this->minDate();
+        // The sync horizon is today minus the two-day freshness lag, whereas
+        // Google's retention window starts sixteen months before today.
+        $retentionStart = (new \DateTimeImmutable($end))->modify('+2 days')->modify('-16 months')->format('Y-m-d');
+        return $min === null ? null : max($min, $retentionStart);
     }
 
     private function edge(string $fn): ?string

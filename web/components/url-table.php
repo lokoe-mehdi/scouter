@@ -164,7 +164,7 @@ if ($compareCrawlId && !empty($compareColumns)) {
     $tableSqlQuery = "SELECT " . $refColsStr . $cmpColsStr . "\nFROM pages a\nLEFT JOIN pages@{$safeCompareIdForSql} b ON b.url = a.url\n" . $cleanedWhere . "\n" . $cleanedOrderBy;
 } else {
     // GSC deeplink: join the (project-scoped) per-URL aggregate so the copied SQL
-    // runs as-is in the SQL Explorer (gsc_page_daily is whitelisted there).
+    // runs as-is in the SQL Explorer (gsc_page_totals_daily is whitelisted there).
     $gscDisplayJoin = $gscAggSql ? ("\nLEFT JOIN ( " . $gscAggSql . " ) g ON g.page = url") : '';
     $tableSqlQuery = "SELECT " . $sqlColumnsStr . "\nFROM pages" . $gscDisplayJoin . "\n" . $cleanedWhere . "\n" . $cleanedOrderBy;
 }

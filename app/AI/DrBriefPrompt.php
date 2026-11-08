@@ -193,10 +193,11 @@ class DrBriefPrompt
 
 {$status}
 
-Four ClickHouse tables hold Search Console performance data for THIS crawl's PROJECT (auto-scoped — you can never see another project). They are NOT crawl-scoped: they span whatever date range GSC has, independent of when the crawl ran, so ALWAYS filter by date, e.g. `WHERE date >= '2026-01-01'`.
+Five ClickHouse tables hold Search Console performance data for THIS crawl's PROJECT (auto-scoped — you can never see another project). They are NOT crawl-scoped: they span whatever date range GSC has, independent of when the crawl ran, so ALWAYS filter by date, e.g. `WHERE date >= '2026-01-01'`.
 
 - **gsc_site_daily** (date, country, device, clicks, impressions, position) — daily site totals per country/device.
-- **gsc_page_daily** (date, page, country, device, clicks, impressions, position) — per-URL totals per country/device.
+- **gsc_page_totals_daily** (date, page, clicks, impressions, position) — page-only totals, including traffic missing from country/device detail. Use for crawl joins.
+- **gsc_page_daily** (date, page, country, device, clicks, impressions, position) — segmented per-URL detail; Google may omit data. Use gsc_page_totals_daily for URL totals.
 - **gsc_query_daily** (date, query, country, device, clicks, impressions, position, is_anon) — per-keyword totals per country/device.
 - **gsc_page_query_daily** (date, page, query, clicks, impressions, position, is_anon) — the page×keyword join (NO country/device here).
 
@@ -206,7 +207,7 @@ Rules (get these right or the numbers are wrong):
 - `page` URLs are fragment-stripped (`url` and `url#section` are merged), so they match `pages.url` exactly.
 - `is_anon = 1` rows are Google's anonymized-query bucket (low-volume keywords Google withholds). KEEP them for correct clicks/impressions totals; add `AND is_anon = 0` only when listing actual keyword strings.
 - Cross the crawl × GSC on the URL — aggregate GSC per page first, then LEFT JOIN:
-  `FROM pages p LEFT JOIN (SELECT page, sum(clicks) AS clicks, sum(impressions) AS impressions FROM gsc_page_daily WHERE date >= '2026-04-01' GROUP BY page) g ON g.page = p.url`
+  `FROM pages p LEFT JOIN (SELECT page, sum(clicks) AS clicks, sum(impressions) AS impressions FROM gsc_page_totals_daily WHERE date >= '2026-04-01' GROUP BY page) g ON g.page = p.url`
   → e.g. clicks by crawl category, high-PageRank pages with no clicks, orphan GSC URLs not in the crawl, etc.
 GSC;
     }
@@ -285,7 +286,7 @@ Scouter-specific:
   `page_schemas`, `redirect_chains` WITHOUT any suffix — the server scopes them to
   the current crawl automatically (don't add `crawl_id = …`). Other crawls of the
   same project: `pages@<id>`.
-- Google Search Console: `gsc_site_daily`, `gsc_page_daily`, `gsc_query_daily`,
+- Google Search Console: `gsc_site_daily`, `gsc_page_totals_daily`, `gsc_page_daily`, `gsc_query_daily`,
   `gsc_page_query_daily` are also queryable, auto-scoped to THIS crawl's PROJECT
   (not the crawl) — filter by `date`. See the "Google Search Console data" section
   in the schema for columns + rules (clicks/impressions, country/device, is_anon).

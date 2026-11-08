@@ -6,21 +6,21 @@ use App\Database\ClickHouseDatabase;
 use App\Google\SearchConsoleClient;
 
 /**
- * Fetches one day of Search Console performance data (4 dimension sets) and
+ * Fetches one day of Search Console performance data (5 dimension sets) and
  * writes it to ClickHouse, materialising the anonymized "(anonyme)" buckets.
  *
- * Why 4 datasets? GSC drops low-volume rows when the `query` dimension is
- * requested, so Σ(query rows) < the true total. We fetch the marginals
- * (site total, per-URL total) that DON'T carry that loss, then materialise the
- * gap as explicit `is_anon=1` rows so every level reconciles:
+ * Why separate datasets? GSC drops low-volume rows when the `query` dimension is
+ * requested, so Σ(query rows) < the true total. We fetch the site marginal and
+ * page-only totals separately, then materialise the gap as `is_anon=1` rows:
  *   - gsc_site_daily        dims [country,device]        → true daily total per geo/device
- *   - gsc_page_daily        dims [page,country,device]   → true per-URL total per geo/device
+ *   - gsc_page_totals_daily dims [page]                 → per-URL totals
+ *   - gsc_page_daily        dims [page,country,device]   → segmented detail (may be incomplete)
  *   - gsc_query_daily       dims [query,country,device]  + one (anonyme) row per geo/device
  *   - gsc_page_query_daily  dims [query,page]            + one (anonyme) row/page
  *
  * Two design points added in this revision:
  *   1. country + device are requested and stored on the site / page / query
- *      marginals. The anonymized bucket is therefore reconciled PER (country,
+ *      marginals. The query anonymized bucket is therefore reconciled PER (country,
  *      device) for queries — GSC drops low-volume rows within each slice. The
  *      joint page×query table stays geo/device-agnostic to cap its size.
  *   2. URL fragments are stripped at ingestion: `url` and `url#section` collapse
@@ -61,13 +61,12 @@ class GscIngestor
      */
     public function ingestDay(string $date, string $dataState = 'final'): array
     {
-        $version = time();
+        // A completion marker identifies one whole page-total snapshot. Use
+        // microseconds so rapid retries don't retain URLs from the prior run.
+        $version = (int) (microtime(true) * 1000000);
 
         // Marginals now carry country + device.
-        $siteRes = SearchConsoleClient::queryAll($this->accessToken, $this->site, $date, ['country', 'device'], $this->searchType, $dataState);
-        $this->assertOk($siteRes, $date, 'site');
-        $siteRows = $siteRes['rows'];
-        unset($siteRes);
+        $siteRows = $this->queryRows($date, ['country', 'device'], $dataState);
 
         if (empty($siteRows)) {
             // Materialise "we asked, Google has nothing" so the gap detector
@@ -75,27 +74,35 @@ class GscIngestor
             // that legitimately has no data reads as a hole forever and every
             // sync re-fetches it until the end of time.
             $this->markEmptyDay($date, $version);
+            $this->markComplete($date, $version);
             return ['hadData' => false, 'site' => 0, 'page' => 0, 'query' => 0, 'pageQuery' => 0];
         }
 
         // Each dataset is fetched, written and released before the next one is
-        // pulled. Holding all four (plus their merged copies) at once peaked at
+        // pulled. Holding every detailed dataset (plus merged copies) peaked at
         // several hundred MB on a large property — against a 384 MB worker
         // cgroup, that is an OOM kill, i.e. a job that dies with no diagnostic.
         //
-        // The site marginal is the exception: it is by far the smallest (one row
-        // per country×device) and it is written LAST, on purpose. GscCoverage
-        // reads gsc_site_daily to decide which days are missing, so writing it
-        // only once the other three datasets landed makes the day's presence mean
-        // "fully ingested". A run that dies between two datasets therefore leaves
-        // the day flagged as a gap and the next sync comes back for it, instead
-        // of silently leaving a half-imported day behind.
+        // Site data and the compact page-only totals stay in memory: one row
+        // per country×device and URL respectively. A separate completion marker
+        // is written only after all five datasets land, so interrupted days
+        // remain eligible for repair (including days imported by older builds).
 
-        // (1) page per (page, country, device) — fragment-merged
-        $pageRes = SearchConsoleClient::queryAll($this->accessToken, $this->site, $date, ['page', 'country', 'device'], $this->searchType, $dataState);
-        $this->assertOk($pageRes, $date, 'page');
-        $pageRows = self::mergeFragments($pageRes['rows'], 0);   // keys=[page,country,device]
-        unset($pageRes);
+        // A page-only request is essential: adding country OR device can make
+        // Google omit whole URLs/days. Use these totals for reports and anon.
+        $totalRows = self::mergeFragments($this->queryRows($date, ['page'], $dataState), 0);
+        $pageTotals = self::pageTotals($totalRows);
+        $totalInsert = [];
+        foreach ($totalRows as $r) {
+            $totalInsert[] = $this->baseRow($date, $version) + [
+                'page' => (string) $r['keys'][0], 'clicks' => $r['clicks'],
+                'impressions' => $r['impressions'], 'position' => self::pos($r['position']),
+            ];
+        }
+        unset($totalRows);
+
+        // Segmented detail stays separate; it is not a source for page totals.
+        $pageRows = self::mergeFragments($this->queryRows($date, ['page', 'country', 'device'], $dataState), 0);
 
         $pageInsert = [];
         foreach ($pageRows as $r) {
@@ -112,16 +119,13 @@ class GscIngestor
         $this->insert('gsc_page_daily', $pageInsert);
         unset($pageInsert);
 
-        // Keep only the compact per-URL totals needed for the (anonyme) split.
-        $pageTotals = self::pageTotals($pageRows);
         unset($pageRows);
 
         // (2) query per (query, country, device) + one (anonyme) row PER (country, device)
-        $queryRes = SearchConsoleClient::queryAll($this->accessToken, $this->site, $date, ['query', 'country', 'device'], $this->searchType, $dataState);
-        $this->assertOk($queryRes, $date, 'query');
+        $queryRows = $this->queryRows($date, ['query', 'country', 'device'], $dataState);
 
         $queryInsert = [];
-        foreach ($queryRes['rows'] as $r) {
+        foreach ($queryRows as $r) {
             $queryInsert[] = $this->baseRow($date, $version) + [
                 'query'       => (string) ($r['keys'][0] ?? ''),
                 'country'     => (string) ($r['keys'][1] ?? ''),
@@ -132,7 +136,7 @@ class GscIngestor
                 'is_anon'     => 0,
             ];
         }
-        foreach (self::computeQueryAnonByCd($siteRows, $queryRes['rows']) as $a) {
+        foreach (self::computeQueryAnonByCd($siteRows, $queryRows) as $a) {
             $queryInsert[] = $this->baseRow($date, $version) + [
                 'query'       => self::ANON_LABEL,
                 'country'     => $a['country'],
@@ -143,16 +147,13 @@ class GscIngestor
                 'is_anon'     => 1,
             ];
         }
-        unset($queryRes);
+        unset($queryRows);
         $queryCount = count($queryInsert);
         $this->insert('gsc_query_daily', $queryInsert);
         unset($queryInsert);
 
         // (3) query×page joint (no country/device) + one (anonyme) row per URL
-        $pqRes = SearchConsoleClient::queryAll($this->accessToken, $this->site, $date, ['query', 'page'], $this->searchType, $dataState);
-        $this->assertOk($pqRes, $date, 'query+page');
-        $pqRows = self::mergeFragments($pqRes['rows'], 1);       // keys=[query,page]
-        unset($pqRes);
+        $pqRows = self::mergeFragments($this->queryRows($date, ['query', 'page'], $dataState), 1);
 
         $pqInsert = [];
         foreach ($pqRows as $r) {
@@ -180,8 +181,7 @@ class GscIngestor
         $this->insert('gsc_page_query_daily', $pqInsert);
         unset($pqInsert);
 
-        // (4) site per (country, device) — written last: this is the day's
-        // "fully ingested" marker read by GscCoverage (see above).
+        // Site totals remain independent of the page breakdown.
         $siteInsert = [];
         foreach ($siteRows as $r) {
             $siteInsert[] = $this->baseRow($date, $version) + [
@@ -196,6 +196,9 @@ class GscIngestor
         $siteCount = count($siteInsert);
         $this->insert('gsc_site_daily', $siteInsert);
         unset($siteInsert);
+
+        $this->insert('gsc_page_totals_daily', $totalInsert);
+        $this->markComplete($date, $version);
 
         return [
             'hadData'   => true,
@@ -224,6 +227,22 @@ class GscIngestor
                 'clicks' => 0, 'impressions' => 0, 'position' => 0,
             ],
         ]);
+    }
+
+    private function markComplete(string $date, int $version): void
+    {
+        $this->insert('gsc_ingestion_days', [[
+            'project_id' => $this->projectId, 'search_type' => $this->searchType,
+            'date' => $date, 'version' => $version,
+        ]]);
+    }
+
+    /** Fetch boundary kept overridable for ingestion regression tests. */
+    protected function queryRows(string $date, array $dimensions, string $dataState): array
+    {
+        $res = SearchConsoleClient::queryAll($this->accessToken, $this->site, $date, $dimensions, $this->searchType, $dataState);
+        $this->assertOk($res, $date, implode('+', $dimensions));
+        return $res['rows'];
     }
 
     // -------------------------------------------------------------------------
@@ -406,7 +425,7 @@ class GscIngestor
      *
      * @param array<int,array<string,mixed>> $rows
      */
-    private function insert(string $table, array $rows): void
+    protected function insert(string $table, array $rows): void
     {
         if (empty($rows)) {
             return;
