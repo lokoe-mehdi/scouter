@@ -59,7 +59,7 @@ $stmt = $pdo->prepare($sqlCoverage); $stmt->execute($pAll); $cov = $stmt->fetch(
 // GSC URLs receiving impressions that the crawl never reached (not crawled).
 $sqlOrphans = "
     SELECT count() AS n FROM (
-        SELECT page FROM gsc_page_daily
+        SELECT page FROM gsc_page_totals_daily
         WHERE date >= toDate('{$from}') AND date <= toDate('{$to}')
         GROUP BY page HAVING sum(impressions) > 0
     ) g

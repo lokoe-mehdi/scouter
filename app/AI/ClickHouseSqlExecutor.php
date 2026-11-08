@@ -54,7 +54,7 @@ class ClickHouseSqlExecutor
         // Google Search Console tables. Project-scoped (not crawl-scoped): ChPdo
         // rewrites them to a subquery filtered by the current crawl's project_id.
         // Query a date range with `WHERE date BETWEEN …`.
-        'gsc_site_daily', 'gsc_page_daily', 'gsc_query_daily', 'gsc_page_query_daily',
+        'gsc_site_daily', 'gsc_page_totals_daily', 'gsc_page_daily', 'gsc_query_daily', 'gsc_page_query_daily',
     ];
 
     private const HARD_ROW_CAP    = 10000;

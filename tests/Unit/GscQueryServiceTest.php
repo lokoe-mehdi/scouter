@@ -183,7 +183,9 @@ it('resolves the source table + grouping dims from mode and filters', function (
     expect($kc['cols'])->toContain('country');
 
     // urls: page marginal, or the joint when a query filter is added.
-    expect($svc->resolve('urls', [])['table'])->toBe('gsc_page_daily');
+    expect($svc->resolve('urls', [])['table'])->toBe('gsc_page_totals_daily');
+    expect($svc->resolve('urls', $u('x'))['table'])->toBe('gsc_page_totals_daily');
+    expect($svc->resolve('urls', $c('fra'))['table'])->toBe('gsc_page_daily');
     expect($svc->resolve('urls', $q('x'))['table'])->toBe('gsc_page_query_daily');
 
     // both is intrinsically the joint (no country/device).

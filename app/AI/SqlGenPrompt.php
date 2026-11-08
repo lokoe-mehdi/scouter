@@ -347,7 +347,7 @@ CREATE TABLE redirect_chains (...);
 -- Four granularities (query rows are anonymized by Google, so a synthetic
 -- '(anonyme)' row / is_anon=1 carries the missing clicks so totals reconcile):
 --   gsc_site_daily (date, clicks, impressions, position)          -- true daily totals
---   gsc_page_daily (date, page, clicks, impressions, position)    -- per-URL totals
+--   gsc_page_totals_daily (date, page, clicks, impressions, position)    -- per-URL totals
 --   gsc_query_daily (date, query, is_anon, clicks, impressions, position)      -- per-keyword
 --   gsc_page_query_daily (date, page, query, is_anon, clicks, impressions, position) -- joint
 -- Exclude the anonymized bucket with `WHERE is_anon = 0` when you only want named rows.

@@ -142,6 +142,11 @@ jobs:
         working-directory: crawler-go
         run: go vet ./...
 
+      - name: Search Console ingestion regression tests
+        run: vendor/bin/pest tests/Feature/GscPageTotalsTest.php
+        env:
+          GSC_TEST_CLICKHOUSE_URL: http://localhost:8123
+
       - name: go test
         working-directory: crawler-go
         run: go test ./... -count=1

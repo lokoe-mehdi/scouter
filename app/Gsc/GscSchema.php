@@ -26,6 +26,24 @@ class GscSchema
 {
     /** @var array<string,string> table name => CREATE statement */
     private const TABLES = [
+        // Page-only requests retain data that Google omits when country/device
+        // are added. Keep these totals separate from the segmented page table.
+        'gsc_page_totals_daily' => "CREATE TABLE IF NOT EXISTS scouter.gsc_page_totals_daily (
+            project_id Int32, site String, search_type LowCardinality(String) DEFAULT 'web',
+            date Date, page String,
+            clicks Int64 DEFAULT 0, impressions Int64 DEFAULT 0, position Float32 DEFAULT 0,
+            version UInt64 DEFAULT toUnixTimestamp(now())
+        ) ENGINE = ReplacingMergeTree(version) PARTITION BY project_id
+          ORDER BY (project_id, search_type, date, page)",
+
+        // Written last, including for empty days. Old days without this marker
+        // are automatically re-imported by the normal coverage reconciler.
+        'gsc_ingestion_days' => "CREATE TABLE IF NOT EXISTS scouter.gsc_ingestion_days (
+            project_id Int32, search_type LowCardinality(String) DEFAULT 'web', date Date,
+            version UInt64 DEFAULT toUnixTimestamp(now())
+        ) ENGINE = ReplacingMergeTree(version) PARTITION BY project_id
+          ORDER BY (project_id, search_type, date)",
+
         'gsc_site_daily' => "CREATE TABLE IF NOT EXISTS scouter.gsc_site_daily (
             project_id Int32, site String, search_type LowCardinality(String) DEFAULT 'web',
             date Date, country LowCardinality(String) DEFAULT '', device LowCardinality(String) DEFAULT '',
@@ -59,13 +77,38 @@ class GscSchema
           ORDER BY (project_id, search_type, date, page, query)",
     ];
 
-    /** The 4 GSC tables (used by the SQL explorer whitelist + delete job). */
+    /** Analytics and completion tables, all purged when disconnecting. */
     public static function tableNames(): array
     {
         return array_keys(self::TABLES);
     }
 
-    /** Create the 4 tables if missing. Idempotent. */
+    /**
+     * Read complete page-only days; retain the old segmented data until each
+     * historical day has been repaired. Never sum both datasets for one day,
+     * or expose partially written totals before ingestion finishes.
+     */
+    public static function pageTotalsSource(int $projectId): string
+    {
+        $done = "SELECT search_type, date FROM scouter.gsc_ingestion_days FINAL WHERE project_id = {$projectId}";
+        $snapshot = "SELECT search_type, date, version FROM scouter.gsc_ingestion_days FINAL WHERE project_id = {$projectId}";
+        $cols = 'project_id, site, search_type, date, page, clicks, impressions, position, version';
+        return "(SELECT {$cols} FROM scouter.gsc_page_totals_daily FINAL "
+            . "WHERE project_id = {$projectId} AND (search_type, date, version) IN ({$snapshot}) "
+            . "UNION ALL SELECT {$cols} FROM scouter.gsc_page_daily FINAL "
+            . "WHERE project_id = {$projectId} AND (search_type, date) NOT IN ({$done}))";
+    }
+
+    /** Discard obsolete named/anonymous URL rows after a repaired day refresh. */
+    public static function pageQuerySource(int $projectId): string
+    {
+        $done = "SELECT search_type, date FROM scouter.gsc_ingestion_days FINAL WHERE project_id = {$projectId}";
+        $snapshot = "SELECT search_type, date, version FROM scouter.gsc_ingestion_days FINAL WHERE project_id = {$projectId}";
+        return "(SELECT * FROM scouter.gsc_page_query_daily FINAL WHERE project_id = {$projectId} "
+            . "AND ((search_type, date) NOT IN ({$done}) OR (search_type, date, version) IN ({$snapshot})))";
+    }
+
+    /** Create all tables if missing. Idempotent. */
     public static function ensure(): void
     {
         $ch = ClickHouseDatabase::getInstance();
@@ -75,7 +118,7 @@ class GscSchema
     }
 
     /**
-     * DROP + recreate the 4 tables. DESTRUCTIVE — used when the schema (columns /
+     * DROP + recreate all GSC tables. DESTRUCTIVE — used when the schema (columns /
      * ORDER BY) changes, e.g. adding country/device. Every connector must then be
      * re-backfilled. Only run this when explicitly requested.
      */

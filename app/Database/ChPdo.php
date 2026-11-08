@@ -360,8 +360,9 @@ class ChPdo
             // (internal plumbing — like crawl_id is hidden on `pages`), so the
             // virtual table shows only meaningful columns. FINAL still dedups via
             // `version` internally regardless of the SELECT list.
-            'gsc_page_query_daily' => "(SELECT * EXCEPT (project_id, version) FROM {$this->db}.gsc_page_query_daily FINAL WHERE project_id = {$this->projectId})",
+            'gsc_page_query_daily' => "(SELECT * EXCEPT (project_id, version) FROM " . \App\Gsc\GscSchema::pageQuerySource($this->projectId) . ")",
             'gsc_site_daily'       => "(SELECT * EXCEPT (project_id, version) FROM {$this->db}.gsc_site_daily FINAL WHERE project_id = {$this->projectId})",
+            'gsc_page_totals_daily' => "(SELECT * EXCEPT (project_id, version) FROM " . \App\Gsc\GscSchema::pageTotalsSource($this->projectId) . ")",
             'gsc_page_daily'       => "(SELECT * EXCEPT (project_id, version) FROM {$this->db}.gsc_page_daily FINAL WHERE project_id = {$this->projectId})",
             'gsc_query_daily'      => "(SELECT * EXCEPT (project_id, version) FROM {$this->db}.gsc_query_daily FINAL WHERE project_id = {$this->projectId})",
         ];
